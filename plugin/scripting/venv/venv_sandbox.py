@@ -57,11 +57,20 @@ _SESSION_LOCK = threading.Lock()
 _CURRENT_SANDBOX_SESSION: ContextVar[str | None] = ContextVar(
     "sandbox_session_id", default=None
 )
+# Distinct from the session id: isolated executes set the id to None, and host
+# callers never enter run_sandboxed_code. DuckDB uses this to refuse a cell
+# that names another workbook's catalog.
+_SANDBOX_EXECUTE: ContextVar[bool] = ContextVar("sandbox_execute", default=False)
 
 
 def current_sandbox_session_id() -> str | None:
     """Workbook session id for this sandboxed execute, or ``None`` (isolated)."""
     return _CURRENT_SANDBOX_SESSION.get()
+
+
+def sandbox_execute_active() -> bool:
+    """True while ``run_sandboxed_code`` is on this thread (including isolated)."""
+    return _SANDBOX_EXECUTE.get()
 
 
 def _reset_session_duckdb(session_id: str | None) -> None:
@@ -84,6 +93,16 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     except ImportError:
         return
 
+    # Bugfix: run_sql used to ignore its scoped_dir argument and then read
+    # executor.state["scoped_dir"]. Bindings inject the host folder, but the
+    # cell can assign scoped_dir (set_value writes that state) before calling
+    # run_sql, and resolve_flat_file_path then accepted files under the
+    # rewritten folder. Capture the host path at inject time — after bindings,
+    # before user code — and do not consult state again.
+    host_scoped_dir = executor.state.get("scoped_dir")
+    if not isinstance(host_scoped_dir, str) or not host_scoped_dir.strip():
+        host_scoped_dir = None
+
     def run_sql_bound(
         sql: str,
         con: Any | None = None,
@@ -91,14 +110,8 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
         scoped_dir: str | None = None,
         **kwargs: Any,
     ) -> Any:
-        # Bugfix: the cell passed scoped_dir="/any/dir" and the basename check
-        # then read that directory. The host rebinds scoped_dir on each execute;
-        # the argument is ignored.
         del scoped_dir
-        folder = executor.state.get("scoped_dir")
-        if not isinstance(folder, str) or not folder.strip():
-            folder = None
-        return run_sql(sql, con, files, scoped_dir=folder, **kwargs)
+        return run_sql(sql, con, files, scoped_dir=host_scoped_dir, **kwargs)
 
     helpers = {
         "session_duckdb": session_duckdb,
@@ -356,30 +369,43 @@ def _pil_image_to_payload(img: Any) -> dict[str, Any]:
     return {"__wa_payload__": "image", "format": "png", "data": buf.getvalue()}
 
 
-def _has_custom_serialize_objects(obj: Any) -> bool:
+# One container level missed {"sheets": [df, df]} and [{"stats": df}]. Those
+# took child_pack_result, which raises ValueError and drops a successful cell.
+# Deeper than this is treated as a plain container (child_pack / pickle reject).
+_CUSTOM_SERIALIZE_MAX_DEPTH = 8
+
+
+def _custom_serialize_types() -> tuple[type, ...]:
     mpl_fig = optional_module("matplotlib.figure")
     pd_mod = optional_module("pandas")
     pil_mod = optional_module("PIL.Image")
-
-    custom_types = []
+    custom_types: list[type] = []
     if mpl_fig is not None:
         custom_types.append(mpl_fig.Figure)
     if pd_mod is not None:
         custom_types.extend([pd_mod.DataFrame, pd_mod.Series])
     if pil_mod is not None:
         custom_types.append(pil_mod.Image)
+    return tuple(custom_types)
 
-    if not custom_types:
-        return False
 
-    custom_tuple = tuple(custom_types)
+def _contains_custom_serialize(obj: Any, custom_tuple: tuple[type, ...], depth: int) -> bool:
     if isinstance(obj, custom_tuple):
         return True
+    if depth >= _CUSTOM_SERIALIZE_MAX_DEPTH:
+        return False
     if isinstance(obj, (list, tuple)):
-        return any(isinstance(x, custom_tuple) for x in obj)
+        return any(_contains_custom_serialize(item, custom_tuple, depth + 1) for item in obj)
     if isinstance(obj, dict):
-        return any(isinstance(v, custom_tuple) for v in obj.values())
+        return any(_contains_custom_serialize(value, custom_tuple, depth + 1) for value in obj.values())
     return False
+
+
+def _has_custom_serialize_objects(obj: Any) -> bool:
+    custom_tuple = _custom_serialize_types()
+    if not custom_tuple:
+        return False
+    return _contains_custom_serialize(obj, custom_tuple, 0)
 
 
 def _column_label(c: Any) -> str:
@@ -1039,6 +1065,7 @@ def run_sandboxed_code(
 
     # Only the cell / RPS session_id is persistable. Isolated cells still have
     # init_session_id (calc:…:init); binding that would share DuckDB across cells.
+    active_token = _SANDBOX_EXECUTE.set(True)
     token = _CURRENT_SANDBOX_SESSION.set(session_id)
     try:
         init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
@@ -1075,3 +1102,4 @@ def run_sandboxed_code(
         return _run_on_executor(executor, code)
     finally:
         _CURRENT_SANDBOX_SESSION.reset(token)
+        _SANDBOX_EXECUTE.reset(active_token)

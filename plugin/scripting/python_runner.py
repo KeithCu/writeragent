@@ -285,9 +285,15 @@ def execute_and_insert_result(
         call_spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
         helper = str(call_spec.get("helper") or "full")
         text, document_context = resolve_text_analytics_document_inputs(doc, helper)
+        # Bugfix: topics/sentiment return list[str] (one string per section).
+        # str(text) made that the list repr, and json.dumps then bound one
+        # document whose body was "['sec', ...]". Lists already dump as JSON
+        # arrays, which the template analyzes per section.
+        if not isinstance(text, (str, list)):
+            text = str(text)
         exec_code = prepend_run_import_document_bindings(
             code,
-            bindings={"text": str(text), "document_context": document_context if isinstance(document_context, dict) else {}},
+            bindings={"text": text, "document_context": document_context if isinstance(document_context, dict) else {}},
         )
 
     if "run_vision" in code and script_uses_run_import(code, run_name="run_vision"):
