@@ -212,7 +212,7 @@ flowchart LR
 
 **No chat LLM in retrieval.** The sidebar model only sees the final hit list after search completes.
 
-Implementation: [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), host RPC [`embeddings_service.hybrid_search`](../plugin/framework/client/embeddings_service.py), tool [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py).
+Implementation: [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), host RPC [`embeddings_service.hybrid_search`](../plugin/embeddings/embeddings_service.py), tool [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py).
 
 ---
 
@@ -316,8 +316,9 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert |
 | [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: vec0 retrieve → MMR (vec-only) |
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Venv RPC facades |
-| [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) | Host index/search/stats RPC |
-| [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | Host `embed_texts()` RPC |
+| [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py) | Host index/search/stats RPC |
+| [`embedding_client.py`](../plugin/embeddings/embedding_client.py) | Host `embed_texts()` RPC (provider call used by the index service) |
+| [`folder_fts_service.py`](../plugin/embeddings/folder_fts_service.py) | Host folder FTS maintain/search RPC |
 
 ---
 
@@ -736,7 +737,7 @@ This option subclasses LlamaIndex core interfaces to map them directly to the ex
 | `WriterAgentFTSRetriever` | FTS5 over `passages` |
 | `build_writer_agent_hybrid_retriever` / `run_hybrid_retrieval_pipeline` | RRF fusion → optional cross-encoder rerank → tool hits |
 
-Background indexing and search both honor Settings `embeddings.folder_search_mode` (including `llama_index`) via [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) and [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py).
+Background indexing and search both honor Settings `embeddings.folder_search_mode` (including `llama_index`) via [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) and [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py).
 
 ### Comparison to default `hybrid` backend
 

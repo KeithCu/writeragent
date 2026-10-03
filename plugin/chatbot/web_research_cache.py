@@ -467,7 +467,7 @@ def _research_cache_missing_embedding_rows(
 
 def _get_embedding_model_or_none() -> str | None:
     try:
-        from plugin.framework.client.embedding_client import get_embedding_model
+        from plugin.embeddings.embedding_client import get_embedding_model
 
         model = get_embedding_model().strip()
         return model or None
@@ -498,7 +498,7 @@ def find_embedding_research_match(
     if not stored:
         return None
 
-    from plugin.framework.client.embedding_client import embed_texts
+    from plugin.embeddings.embedding_client import embed_texts
 
     query_text = str(embedding_text or "").strip() or word_key
     # Omit timeout_sec so embed_texts uses embeddings_worker_timeout_sec (long trusted budget).
@@ -526,7 +526,7 @@ def find_embedding_research_match(
 
 def _research_cache_embedding_backfill_worker(ctx: Any, cache_path: str, max_age_days: int, embedding_model: str) -> None:
     try:
-        from plugin.framework.client.embedding_client import embed_texts
+        from plugin.embeddings.embedding_client import embed_texts
 
         while True:
             missing = _research_cache_missing_embedding_rows(cache_path, embedding_model=embedding_model, max_age_days=max_age_days, limit=_EMBEDDING_BACKFILL_BATCH_SIZE)
@@ -582,7 +582,7 @@ def enqueue_research_cache_embedding_backfill(ctx: Any, cache_path: str, max_age
 
 def _research_cache_embedding_row_worker(ctx: Any, cache_path: str, raw_key: str, embedding_text: str, embedding_model: str) -> None:
     try:
-        from plugin.framework.client.embedding_client import embed_texts
+        from plugin.embeddings.embedding_client import embed_texts
 
         text = str(embedding_text or "").strip()
         if not text:

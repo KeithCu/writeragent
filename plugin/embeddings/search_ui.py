@@ -19,7 +19,7 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import BaseKeyListener
 from plugin.framework.worker_pool import run_in_background
-import plugin.framework.client.embeddings_service as embeddings_service
+import plugin.embeddings.embeddings_service as embeddings_service
 
 from plugin.scripting.venv_worker import warm_venv_worker
 
@@ -245,7 +245,7 @@ class SearchDialog:
                         lancedb_collection_looks_populated,
                         lancedb_collection_path,
                     )
-                    from plugin.framework.client.embeddings_service import _folder_search_mode
+                    from plugin.embeddings.embeddings_service import _folder_search_mode
 
                     doc = get_active_document(ctx)
                     if not doc:
@@ -321,8 +321,8 @@ class SearchDialog:
             try:
                 from plugin.framework.constants import folder_search_enabled
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
-                from plugin.framework.client.embedding_client import get_embedding_model
-                from plugin.framework.client.embeddings_service import hybrid_search, _folder_search_mode
+                from plugin.embeddings.embedding_client import get_embedding_model
+                from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
 
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:
@@ -401,8 +401,8 @@ class SearchDialog:
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache
                 from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
-                from plugin.framework.client.embedding_client import get_embedding_model
-                from plugin.framework.client.embeddings_service import _folder_search_mode
+                from plugin.embeddings.embedding_client import get_embedding_model
+                from plugin.embeddings.embeddings_service import _folder_search_mode
 
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:

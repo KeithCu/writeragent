@@ -20,7 +20,7 @@ from plugin.chatbot.web_research_cache import (
     stem_word,
     store_research_cache_embeddings,
 )
-from plugin.framework.client.embedding_client import EmbeddingBatch
+from plugin.embeddings.embedding_client import EmbeddingBatch
 
 SPACE_ELEVATOR_KEY_1 = (
     "challenges concept conclusion dynamics elevator energy engineering focusing including "
@@ -232,7 +232,7 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
          patch(
-             "plugin.framework.client.embedding_client.embed_texts",
+             "plugin.embeddings.embedding_client.embed_texts",
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
          ):
         shallow_embed = lookup_research_cache(
@@ -438,7 +438,7 @@ def test_lookup_research_cache_embedding_hit(tmp_path):
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
          patch(
-             "plugin.framework.client.embedding_client.embed_texts",
+             "plugin.embeddings.embedding_client.embed_texts",
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
          ) as embed_texts:
         hit = lookup_research_cache(
@@ -478,7 +478,7 @@ def test_lookup_research_cache_embedding_model_mismatch_falls_back_to_jaccard(tm
 
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="new-model"), \
-         patch("plugin.framework.client.embedding_client.embed_texts") as embed_texts:
+         patch("plugin.embeddings.embedding_client.embed_texts") as embed_texts:
         hit = lookup_research_cache(
             db_file,
             SPACE_ELEVATOR_KEY_2,
@@ -508,13 +508,13 @@ def test_research_cache_embedding_backfill_worker_stores_missing_vectors(tmp_pat
         vectors = [[1.0, 0.0] if "pizza" in text else [0.0, 1.0] for text in texts]
         return EmbeddingBatch(model="test-model", dim=2, vectors=vectors, indices=list(range(len(texts))))
 
-    with patch("plugin.framework.client.embedding_client.embed_texts", side_effect=fake_embed_texts):
+    with patch("plugin.embeddings.embedding_client.embed_texts", side_effect=fake_embed_texts):
         _research_cache_embedding_backfill_worker(object(), db_file, 30, "test-model")
 
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
          patch(
-             "plugin.framework.client.embedding_client.embed_texts",
+             "plugin.embeddings.embedding_client.embed_texts",
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[0.0, 1.0]], indices=[0]),
          ):
         hit = lookup_research_cache(

@@ -15,8 +15,8 @@ from typing import Any
 from plugin.embeddings.embeddings_cache import (
     resolve_index_context,
 )
-from plugin.framework.client.embedding_client import get_embedding_model
-from plugin.framework.client.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
+from plugin.embeddings.embedding_client import get_embedding_model
+from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
 from plugin.framework.config import get_config
 from plugin.framework.constants import folder_search_enabled
 from plugin.framework.worker_pool import run_in_background

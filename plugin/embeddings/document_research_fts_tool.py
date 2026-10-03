@@ -94,8 +94,8 @@ class SearchNearbyFiles(ToolBase):
                 lancedb_collection_path,
             )
             from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
-            from plugin.framework.client.embedding_client import get_embedding_model
-            from plugin.framework.client.embeddings_service import hybrid_search
+            from plugin.embeddings.embedding_client import get_embedding_model
+            from plugin.embeddings.embeddings_service import hybrid_search
             from plugin.framework.config import get_config
 
             folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
