@@ -29,6 +29,8 @@ from plugin.chatbot.rich_text_paste import (
     append_rich_messages_via_clipboard,
     append_rich_text_via_clipboard,
     build_message_html,
+    fold_transcript_chunk,
+    paint_message_items,
     iter_history_message_batches,
     session_history_items,
 )
@@ -528,6 +530,74 @@ class TestRichInsertFallbackLogging:
         mock_plain.assert_called_once()
         assert mock_plain.call_args.args[1] == "Assistant: Hi & you"
         model.createTextCursor.return_value.setString.assert_called_with("")
+
+
+class TestPaintMessageItems:
+    def test_failed_copy_does_not_keep_text_outside_the_list(self):
+        """A copy that fails halfway must not leave that partial in the control."""
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = "OLD_SPLICE"
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "You: keep me\n\nAssistant: second"
+        written: list[str] = []
+
+        def _copy(*_args, **_kwargs):
+            model.Text = "PARTIAL_NOT_IN_MESSAGES"
+            return False
+
+        def _plain(_control, text, **_kwargs):
+            written.append(text)
+            model.Text = (model.Text or "") + text
+
+        items = [("user", "keep me"), ("assistant", "second")]
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", side_effect=_copy), \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk", side_effect=_plain), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
+            paint_message_items(ctx, control, items)
+
+        assert "PARTIAL_NOT_IN_MESSAGES" not in (model.Text or "")
+        assert "OLD_SPLICE" not in (model.Text or "")
+        assert any("keep me" in row for row in written)
+        assert any("second" in row for row in written)
+        doc.close.assert_called_once_with(True)
+
+    def test_tags_left_in_the_hidden_doc_are_not_copied(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "Assistant: <script>alert(1)</script>"
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control") as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain:
+            paint_message_items(ctx, control, [("assistant", "<p>Hi</p><script>alert(1)</script>")])
+
+        mock_copy.assert_not_called()
+        mock_plain.assert_called_once()
+        assert "<script>" not in mock_plain.call_args.args[1]
+        doc.close.assert_called_once_with(True)
+
+    def test_stop_line_is_its_own_row(self):
+        session = MagicMock()
+        session.messages = [{"role": "assistant", "content": "partial answer"}]
+        assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is True
+        assert session.messages[0]["content"] == "partial answer"
+        assert "[Stopped by user]" in session.messages[1]["content"]
+        assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is False
+        assert len(session.messages) == 2
 
     def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()
