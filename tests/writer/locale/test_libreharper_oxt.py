@@ -211,6 +211,8 @@ def test_collect_libreharper_plugin_paths() -> None:
     assert "plugin/chatbot/extension_update_check.py" in paths
     assert "plugin/chatbot/dialogs.py" in paths
     assert "plugin/framework/client/requests.py" in paths
+    # requests.py imports the shared transport at load time.
+    assert "plugin/framework/client/http_transport.py" in paths
     # Dual-install: WriterAgent's chatbot package init imports ModuleBase.
     assert "plugin/framework/module_base.py" in paths
     assert "plugin/chatbot/__init__.py" not in paths

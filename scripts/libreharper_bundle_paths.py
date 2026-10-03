@@ -69,6 +69,10 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/queue_executor.py",
     "plugin/framework/uno_listeners.py",
     "plugin/framework/client/requests.py",
+    # requests.py does ``from .http_transport import ...`` at import time.
+    # unopkg add executes that module; omitting the shared transport fails
+    # install the same way a missing client/errors.py did.
+    "plugin/framework/client/http_transport.py",
     # requests.py calls LocalHttpsCertificateFallback for local HTTPS retries.
     "plugin/framework/client/request_controls.py",
     # requests.py does ``from .errors import _format_http_error_response``.
