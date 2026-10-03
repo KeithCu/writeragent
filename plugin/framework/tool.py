@@ -749,9 +749,9 @@ class ToolRegistry:
 
         Timeout **abandons** the worker; it does not kill the dedicated thread.
         The thread may run to completion with its result dropped when nothing
-        was queued yet. A result already queued is kept. If *kwargs* include
-        a ``ToolContext`` with ``send_cancellation``, that flag is set so
-        cooperative tools can stop at the next ``stop_checker`` poll.
+        was queued yet. A result already queued is kept. This method does not
+        cancel the send: the caller still has to deliver the ``TOOL_TIMEOUT``
+        dict (the drain turns that into ``TOOL_DONE``).
         """
         # crosshair: off
         if timeout <= 0:
@@ -805,13 +805,13 @@ class ToolRegistry:
         if worker_thread.is_alive():
             queued = _queued()
             if queued is None:
-                ctx = kwargs.get("ctx")
-                cancel = getattr(ctx, "send_cancellation", None) if ctx is not None else None
-                if cancel is not None and hasattr(cancel, "cancel"):
-                    try:
-                        cancel.cancel()
-                    except Exception:
-                        log.debug("tool timeout: send_cancellation.cancel failed", exc_info=True)
+                # What was wrong: this called ``send_cancellation.cancel()``
+                # and also returned ``TOOL_TIMEOUT``. How: the drain stop
+                # checker is that same flag, so it treated the send as Stop
+                # and discarded the error dict before ``TOOL_DONE`` was
+                # applied. The tool loop then waited forever for that event.
+                # Why: the worker is already abandoned. Return the timeout
+                # dict and let the caller decide whether the send should stop.
                 return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
         else:
             queued = _queued()

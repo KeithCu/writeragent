@@ -268,6 +268,129 @@ def test_stale_panel_dispose_does_not_release_the_bound_panels_listeners():
     leave_new.removeFocusListener.assert_not_called()
 
 
+class _HoldingControl:
+    """Keeps listeners until remove* drops them. A dead control raises instead."""
+
+    def __init__(self, *, dead: bool = False) -> None:
+        self.dead = dead
+        self.listeners: list[object] = []
+        self.removed: list[object] = []
+
+    def addFocusListener(self, listener: object) -> None:
+        self.listeners.append(listener)
+
+    def removeFocusListener(self, listener: object) -> None:
+        self._drop(listener)
+
+    def addMouseListener(self, listener: object) -> None:
+        self.listeners.append(listener)
+
+    def removeMouseListener(self, listener: object) -> None:
+        self._drop(listener)
+
+    def _drop(self, listener: object) -> None:
+        if self.dead:
+            raise RuntimeError("disposed")
+        self.removed.append(listener)
+        self.listeners = [item for item in self.listeners if item is not listener]
+
+
+class _HoldingController:
+    def __init__(self, *, dead: bool = False) -> None:
+        self.dead = dead
+        self.handlers: list[object] = []
+        self.removed: list[object] = []
+
+    def addMouseClickHandler(self, handler: object) -> None:
+        self.handlers.append(handler)
+
+    def removeMouseClickHandler(self, handler: object) -> None:
+        if self.dead:
+            raise RuntimeError("disposed")
+        self.removed.append(handler)
+        self.handlers = [item for item in self.handlers if item is not handler]
+
+
+def test_frame_disposing_releases_listeners_before_sidebar_teardown():
+    """Frame disposing before sidebar teardown must detach listeners.
+
+    What was wrong: dispose set _closed and cleared the Python lists without
+    remove*. release_panel then returned immediately, and the listeners still
+    closed over the session. Why: dispose releases them, and a later
+    release_panel does not remove them a second time.
+    """
+    controller = _HoldingController()
+    frame = _frame(controller)
+    session = open_frame_session(frame, "doc-a")
+    query = _HoldingControl()
+    leave = _HoldingControl()
+    panel = object()
+    session.bind_panel(panel)
+    session.set_focus_pin(query)
+    _install(session, query, leave)
+    assert query.listeners
+    assert leave.listeners
+    assert controller.handlers
+
+    frame.addEventListener.call_args[0][0].disposing(None)
+
+    assert session_for_frame(frame) is None
+    assert query.listeners == []
+    assert leave.listeners == []
+    assert controller.handlers == []
+    assert session._query_listener is None
+    assert session._leave == []
+    assert session._click_handler is None
+    assert session._trackers == []
+    assert session._closed is True
+    frame.removeEventListener.assert_not_called()
+
+    query_removed = list(query.removed)
+    leave_removed = list(leave.removed)
+    click_removed = list(controller.removed)
+    session.release_panel(panel, query)
+    assert query.removed == query_removed
+    assert leave.removed == leave_removed
+    assert controller.removed == click_removed
+
+
+def test_frame_disposing_clears_listeners_when_controls_are_already_dead():
+    """A control that is already disposed must not crash frame close.
+
+    remove* raises. The session still drops its lists so a later
+    release_panel does not call remove* again.
+    """
+    controller = _HoldingController(dead=True)
+    frame = _frame(controller)
+    session = open_frame_session(frame, "doc-a")
+    query = _HoldingControl(dead=True)
+    leave = _HoldingControl(dead=True)
+    panel = object()
+    session.bind_panel(panel)
+    _install(session, query, leave)
+    assert query.listeners
+    assert leave.listeners
+    assert controller.handlers
+
+    frame.addEventListener.call_args[0][0].disposing(None)
+
+    assert session_for_frame(frame) is None
+    assert session._query_listener is None
+    assert session._query_control is None
+    assert session._leave == []
+    assert session._click_handler is None
+    assert session._click_controller is None
+    assert session._trackers == []
+    assert session.panel is None
+    assert session.focus_pin is None
+    # The dead controls still hold the listeners; we must not try again.
+    session.release_panel(panel, query)
+    frame.addEventListener.call_args[0][0].disposing(None)
+    assert query.removed == []
+    assert leave.removed == []
+    assert controller.removed == []
+
+
 def test_explicit_release_removes_only_that_sessions_listeners():
     controller = _Controller()
     session = open_frame_session(_frame(controller), "doc-a")
@@ -316,8 +439,12 @@ def test_frame_disposing_drops_only_that_session():
     listener_a.disposing(None)
     assert session_for_frame(frame_a) is None
     assert session_for_frame(frame_b) is session_b
-    assert controller_a.removed == []
+    # Frame close releases this session's listeners. The other frame stays.
+    assert controller_a.removed == [controller_a.added[0]]
     assert controller_b.removed == []
+    query_a.removeFocusListener.assert_called_once()
+    query_b.removeFocusListener.assert_not_called()
+    frame_a.removeEventListener.assert_not_called()
     assert session_b.focus_pin is query_b
     session_b.restore_focus()
     query_b.setFocus.assert_called_once()
