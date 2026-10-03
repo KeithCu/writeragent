@@ -256,7 +256,7 @@ def test_set_does_not_emit_when_replace_fails(config_svc, manifest) -> None:
     config_svc.set_events(bus)
     events = []
     bus.subscribe("config:changed", lambda **kw: events.append(kw))
-    with patch("plugin.framework.config_service._write_config_file", side_effect=OSError("disk full")):
+    with patch("plugin.framework.config._write_config_file", side_effect=OSError("disk full")):
         with pytest.raises(ConfigError) as err:
             config_svc.set("mcp.mcp_port", 9000)
     assert err.value.code == "CONFIG_SAVE_ERROR"
