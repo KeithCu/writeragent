@@ -6,7 +6,7 @@ Use the helpers in `plugin/framework/errors.py`: `is_disposed_exception`, `suppr
 
 | Layer | On disposal / bridge teardown | On expected UNO/Python errors | Silent `except Exception: pass` |
 |--------|-------------------------------|-------------------------------|----------------------------------|
-| UI lifecycle (sidebar, rich text, panel) | `with suppress_disposed(...)` | Keep fallbacks; unexpected errors are logged (`suppress_all=True`) | Replace with `suppress_disposed` |
+| UI lifecycle (sidebar, rich text, panel) | `with suppress_disposed(...)` | Keep fallbacks; unexpected `Exception`s are logged (`suppress_all=True`). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate | Replace with `suppress_disposed` |
 | Document tools (`visual_helpers`, edit review, charts, shapes, notebook) | Re-raise or wrap `DocumentDisposedError` | Leaf types only: `UnknownPropertyException`, `NoSuchElementException`, `IndexOutOfBoundsException`, `IllegalArgumentException`, `AttributeError`, `ValueError` | `log.exception` / `log.debug(..., exc_info=True)` or drop the catch |
 | Draw/Impress slide tools (`notes`, `transitions`, `placeholders`, `masters`) | Re-raise via `DrawBridge.get_slide_for_tool` (`is_disposed_exception`) | `IndexError` → `ToolExecutionError` (page out of range); other errors wrapped | n/a |
 
@@ -14,7 +14,7 @@ Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose
 
 `is_document_disposed` probes `getImplementationName()` and returns true only for `DisposedException` / `DocumentDisposedError`. Any other exception from that probe means the document is still live.
 
-`format_error_message` treats `ConnectionError` and `URLError` as network failures. `FileNotFoundError` and `PermissionError` stay filesystem errors. A message that merely contains "timed out" is a request-timeout hint only when it is not a Python execution timeout or a formula timeout. `socket.timeout` / `VenvTimeoutError` keep their own branches.
+`format_error_message` treats `ConnectionError` and `URLError` as network failures. `FileNotFoundError` and `PermissionError` stay filesystem errors. A message that merely contains "timed out" is a request-timeout hint only when it is not a Python execution timeout or a formula timeout. `socket.timeout` / `VenvTimeoutError` keep their own branches. Only `urllib.error.HTTPError` is formatted from an HTTP status. Other `http.client.HTTPException` values (for example `RemoteDisconnected`) keep their text on the connection path or via `str(e)`.
 
 `safe_call` and `handle_errors` re-raise `DocumentDisposedError` only for `DisposedException` (and an already-wrapped `DocumentDisposedError`). A bare `RuntimeException` becomes `UnoObjectError` or `ToolExecutionError`, so it does not short-circuit `is_tool_document_disposed`. `safe_uno_call` still returns its default for that name and re-raises only real disposal.
 

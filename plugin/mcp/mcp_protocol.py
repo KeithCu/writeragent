@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
-from plugin.framework.errors import WriterAgentException, _resolve_exception_message, format_error_payload, make_tool_error, safe_json_loads
+from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import write_http_empty, write_http_json
@@ -768,7 +768,7 @@ class MCPProtocolHandler:
                         code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
                         if code == "INTERNAL_ERROR":
                             code = "TOOL_EXECUTION_ERROR"
-                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(_resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
+                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
 
                 elif isinstance(effect, StreamResponseEffect):
                     event_bus = getattr(self, "event_bus", None)

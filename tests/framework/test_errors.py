@@ -151,8 +151,9 @@ class TestErrorHandling:
 
         err = http.client.RemoteDisconnected("Remote end closed connection")
         msg = format_error_message(err)
-        assert ("HTTP Error" in msg or "Remote" in msg)
-        assert ("Connection Error") not in (msg)
+        # No HTTP status. "HTTP Error" alone used to pass for "HTTP Error 0: ".
+        assert "Remote end closed connection" in msg
+        assert "HTTP Error 0" not in msg
 
     def test_format_error_message_111_substring_is_not_connection_refused(self):
         import errno

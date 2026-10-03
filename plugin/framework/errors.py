@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any, TypedDict
+from typing import Any
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
@@ -77,6 +77,7 @@ class suppress_disposed(contextlib.ContextDecorator):
 
     Unexpected non-disposal exceptions are logged (via logger.exception) and,
     if suppress_all is True (default for UI lifecycle blocks), suppressed so they do not crash host UI event loops.
+    KeyboardInterrupt, SystemExit, and GeneratorExit always propagate.
     """
 
     action: str
@@ -99,6 +100,13 @@ class suppress_disposed(contextlib.ContextDecorator):
         if exc_val is None:
             return False
 
+        # What was wrong: suppress_all (default True) also swallowed
+        # KeyboardInterrupt, SystemExit, and GeneratorExit. How: the
+        # non-disposal path returned suppress_all for every exc_type.
+        # Why: a UI context manager must let those BaseExceptions propagate.
+        if exc_type is not None and not issubclass(exc_type, Exception):
+            return False
+
         log_obj = self.logger or logging.getLogger("writeragent.errors")
 
         if is_disposed_exception(exc_val):
@@ -114,32 +122,7 @@ class suppress_disposed(contextlib.ContextDecorator):
 ignore_disposed = suppress_disposed
 
 
-# TypedDict status fields use str, not Literal: CrossHair calls get_type_hints on
-# TypedDicts when realizing Any-heap objects; Literal there TypeErrors and flakes check-all on
-# importers (e.g. stream_normalizer via plugin.framework.client). Same rule as payload_codec ColumnKind.
-class ToolResult(TypedDict, total=False):
-    status: str
-    code: str
-    message: str
-    details: dict[str, Any]
-
-
-# Type for successful tool execution results. Kept as a TypedDict so
-# CrossHair get_type_hints on importers does not see a Literal status field.
-class ToolSuccess(TypedDict):
-    status: str  # "ok"
-    # Other fields are optional in success case
-
-
-# Type for failed tool execution results
-class ToolError(TypedDict):
-    status: str  # "error"
-    code: str
-    message: str
-    details: dict[str, Any]
-
-
-def _resolve_exception_message(e: Any) -> str:
+def resolve_exception_message(e: Any) -> str:
     """Extract non-empty message string from an exception, resolving UNO Exception Message attributes and causes."""
     msg = getattr(e, "Message", None) or str(e)
     if isinstance(msg, str):
@@ -182,7 +165,7 @@ class WriterAgentException(Exception):
         else:
             # Runtime / interpolated strings are not in the gettext catalog;
             # _() is a no-op unless the exact source string was extracted.
-            self.message = _(_resolve_exception_message(message))
+            self.message = _(resolve_exception_message(message))
         if code is not None:
             self.code = code
         self.details = details or {}
@@ -309,7 +292,7 @@ def format_error_payload(e: BaseException) -> dict[str, Any]:
         err_msg = "mock"
     else:
         err_type = type(e).__name__
-        err_msg = _resolve_exception_message(e)
+        err_msg = resolve_exception_message(e)
     return {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
 
 
@@ -355,13 +338,18 @@ def format_error_message(e: Exception) -> str:
     """
     import ssl
     import socket
-    import http.client
     import urllib.error
 
     msg = "mock" if UNDER_CROSSHAIR else str(e)
     if isinstance(e, ssl.SSLError):
         return _("TLS/SSL Error: {0}").format(msg)
-    if isinstance(e, (urllib.error.HTTPError, http.client.HTTPException)):
+    # What was wrong: every http.client.HTTPException became "HTTP Error 0: "
+    # when it had no status. RemoteDisconnected, BadStatusLine, and
+    # IncompleteRead have no .code/.status/.reason, so str(e) was discarded.
+    # How: the branch treated HTTPException like urllib.error.HTTPError.
+    # Why: only HTTPError carries a status. Other HTTPExceptions fall
+    # through to the connection/OSError path or the final str(e) fallback.
+    if isinstance(e, urllib.error.HTTPError):
         code_candidate = getattr(e, "code", None)
         if code_candidate is None:
             code_candidate = getattr(e, "status", None)
@@ -571,11 +559,12 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
     Writer body — not a closed document. Do not map that to the lying
     "Document was closed or disposed by LibreOffice" chat string.
     """
-    if isinstance(exc, DocumentDisposedError):
-        return True
     if not is_disposed_exception(exc):
         return False
-    if "DisposedException" in type(exc).__name__:
+    # "DocumentDisposedError" does not contain "DisposedException", so the
+    # name test alone would let a live-doc probe hide this type. The
+    # exception already says the object was disposed.
+    if isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__:
         return True
     if doc is not None and not is_document_disposed(doc):
         return False
@@ -712,6 +701,7 @@ __all__ = [
     "is_document_disposed",
     "is_tool_document_disposed",
     "make_tool_error",  # Central factory for all tool error dicts
+    "resolve_exception_message",
     "safe_call",
     "safe_json_loads",
     "safe_python_literal_eval",
