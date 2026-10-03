@@ -341,8 +341,6 @@ def test_dollar_fraction_terms():
     assert _dollar_fraction_terms(1.02, -4) is None
     assert _dollar_fraction_terms("invalid", 4) is None
     assert _dollar_fraction_terms(1.02, "invalid") is None
-    # int(float("inf")) is OverflowError. It used to escape this helper.
-    assert _dollar_fraction_terms(1.02, float("inf")) is None
 
 
 

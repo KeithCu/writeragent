@@ -365,9 +365,19 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
         return float("nan")
 
 
+def _fraction_terms(amount: Any, fraction: Any) -> tuple[float, float, float, int, int] | None:
+    # The shared parser catches ValueError from a bad fraction, but
+    # int(float("inf")) raises OverflowError. DOLLARDE and DOLLARFR then
+    # traceback'd instead of the #NUM! nan a zero fraction already returns.
+    try:
+        return _dollar_fraction_terms(amount, fraction)
+    except OverflowError:
+        return None
+
+
 # Group B - Financial 2
 def dollarde(fractional_dollar: Any, fraction: Any) -> float:
-    terms = _dollar_fraction_terms(fractional_dollar, fraction)
+    terms = _fraction_terms(fractional_dollar, fraction)
     if terms is None:
         return float("nan")
     sign, i_part, f_part, f, scale = terms
@@ -375,7 +385,7 @@ def dollarde(fractional_dollar: Any, fraction: Any) -> float:
 
 
 def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
-    terms = _dollar_fraction_terms(decimal_dollar, fraction)
+    terms = _fraction_terms(decimal_dollar, fraction)
     if terms is None:
         return float("nan")
     sign, i_part, f_part, f, scale = terms

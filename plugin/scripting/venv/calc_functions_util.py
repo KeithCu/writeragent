@@ -424,10 +424,7 @@ def _dollar_fraction_terms(
     try:
         amt = float(amount)
         f = int(float(fraction))
-    except (ValueError, TypeError, OverflowError):
-        # int(float("inf")) is OverflowError, not ValueError. DOLLARDE and
-        # DOLLARFR used to traceback on an infinite fraction instead of the
-        # #NUM! None that a zero or text fraction already returns.
+    except (ValueError, TypeError):
         return None
     if f <= 0:
         return None
