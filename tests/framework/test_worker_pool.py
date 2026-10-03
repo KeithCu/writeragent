@@ -608,6 +608,31 @@ def test_stderr_drain_joins_split_utf8():
     assert received == ["é"]
 
 
+def test_shutdown_joins_worker_past_one_slice(monkeypatch: pytest.MonkeyPatch):
+    """One 5s join used to return while the in-flight job was still running."""
+    monkeypatch.setattr("plugin.framework.worker_pool._POOL_SHUTDOWN_JOIN_SLICE_SEC", 0.05)
+    pool = _DaemonWorkPool(1)
+    started = threading.Event()
+    release = threading.Event()
+
+    def job() -> None:
+        started.set()
+        release.wait(2.0)
+
+    pool.submit(job)
+    assert started.wait(1.0)
+    releaser = threading.Thread(target=lambda: (time.sleep(0.2), release.set()), daemon=True)
+    releaser.start()
+    try:
+        pool.shutdown(wait=True, cancel_futures=True)
+        # Before release.set() in finally: a single short join would still
+        # see the worker blocked in release.wait.
+        assert all(not thread.is_alive() for thread in pool._threads)
+    finally:
+        release.set()
+        releaser.join(timeout=1.0)
+
+
 def test_concurrent_submit_during_shutdown_does_not_hang():
     pool = _DaemonWorkPool(1)
     errors: list[str] = []

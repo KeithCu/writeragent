@@ -542,7 +542,14 @@ class PersistentEditor:
                 )
 
             try:
-                self.executor.execute(_handle_picker)
+                # What was wrong: save and close pass timeout=_marshal_timeout(),
+                # but the script picker called execute() with no timeout. The
+                # pipe reader blocks inside that call, so a picker the UI thread
+                # never starts held Monaco's reader for QueueExecutor's 30s
+                # default. The TimeoutError branch below never saw the same
+                # budget as save/close. Why this works: the reader gives up on
+                # that shared deadline and reports the timeout.
+                self.executor.execute(_handle_picker, timeout=self._marshal_timeout())
             except TimeoutError:
                 log.exception("Editor script picker timed out")
                 self.send({"type": "error", "message": _("The script list update timed out.")})

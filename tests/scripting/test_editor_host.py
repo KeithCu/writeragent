@@ -35,6 +35,24 @@ def test_editor_save_timeout_clears_the_token_and_reports():
     assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
 
 
+def test_editor_script_picker_uses_marshal_timeout():
+    """A hung script picker must use the same UI deadline as save and close."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = TimeoutError()
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(message)
+
+    pe.send = _send  # type: ignore[method-assign]
+    with patch("plugin.scripting.config_limits.configured_python_exec_timeout", return_value=30):
+        pe._dispatch_incoming({"type": "request_scripts"})
+    assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
+    assert sent and "timed out" in sent[0]["message"]
+
+
 def test_launch_monaco_editor_reuses_running_process():
     ctx = MagicMock()
     sent_messages: list[dict] = []

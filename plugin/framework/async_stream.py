@@ -411,6 +411,9 @@ class _DrainState:
     current_content: list[Any] = field(default_factory=list)
     current_thinking: list[Any] = field(default_factory=list)
     thinking_open: list[bool] = field(default_factory=lambda: [False])
+    # NEXT_TOOL is not terminal. A true on_stream_done return is applied
+    # only after the rest of this already-pulled batch (see _process_batch).
+    defer_next_tool_exit: bool = False
 
     def close_thinking(self) -> None:
         # crosshair: off
@@ -474,6 +477,26 @@ def _handle_stream_done_like(state: _DrainState, _data: Any, item: Any) -> None:
     state.close_thinking()
     if state.on_stream_done(item):
         state.job_done[0] = True
+
+
+def _handle_next_tool(state: _DrainState, _data: Any, item: Any) -> None:
+    """Advance a tool round. Do not end the drain in the middle of this batch.
+
+    What was wrong: NEXT_TOOL used ``_handle_stream_done_like``. A true
+    ``on_stream_done`` return set ``job_done`` and ``_process_batch`` broke,
+    so items already pulled (the next chunk, ``STREAM_DONE``) were discarded
+    and the pump stopped. The generic worker wrapper always returned true,
+    so any ``NEXT_TOOL`` looked like a finished stream.
+    How: the dispatch table mapped ``NEXT_TOOL`` to the terminal handler.
+    Why: notify once and keep this batch going. A true return is applied
+    only after that batch, so the tail runs in this drain instead of being
+    dropped for a later one. A false return leaves ``job_done`` clear and
+    the loop keeps pumping.
+    """
+    # crosshair: off
+    state.flush_buffers()
+    state.close_thinking()
+    state.defer_next_tool_exit = bool(state.on_stream_done(item))
 
 
 def _handle_tool_thinking(state: _DrainState, data: Any, _item: Any) -> None:
@@ -550,7 +573,7 @@ _DISPATCH: dict[StreamQueueKind, Callable[[_DrainState, Any, Any], None]] = {
     StreamQueueKind.STREAM_DONE: _handle_stream_done_like,
     StreamQueueKind.TOOL_DONE: _handle_stream_done_like,
     StreamQueueKind.FINAL_DONE: _handle_stream_done_like,
-    StreamQueueKind.NEXT_TOOL: _handle_stream_done_like,
+    StreamQueueKind.NEXT_TOOL: _handle_next_tool,
     StreamQueueKind.TOOL_THINKING: _handle_tool_thinking,
     StreamQueueKind.TOOL_CALL: _handle_tool_call_line,
     StreamQueueKind.TOOL_RESULT: _handle_tool_result_line,
@@ -680,10 +703,17 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
         if state.job_done[0] or raw_kind == StreamQueueKind.ERROR:
             # A recovered ERROR keeps the drain alive but must not apply the
             # rest of this batch (same reason as the handler-raise path).
+            # NEXT_TOOL does not set job_done here, so a tail already pulled
+            # (chunk, STREAM_DONE) still runs in this pass.
             break
 
     if not skip_trailing_flush:
         state.flush_buffers()
+    # What was wrong: a true NEXT_TOOL return used to break above and drop
+    # the tail. Why: honor that return only after the pulled batch is done,
+    # and not after stop or a recovered error (those already decided).
+    if state.defer_next_tool_exit and not state.job_done[0] and not skip_trailing_flush:
+        state.job_done[0] = True
 
 
 def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None, flush_pending: Any = None) -> None:
@@ -697,7 +727,10 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     - (THINKING, text): Applied via apply_chunk_fn(text, is_thinking=True).
     - (STATUS, text): Passed to on_status_fn(text).
     - (STREAM_DONE, response): Calls on_stream_done(item). Returns True if job finished.
-    - (NEXT_TOOL,): Internal trigger for multi-round loops.
+    - (NEXT_TOOL,): Internal trigger for multi-round loops. Calls
+      on_stream_done(item) but does not stop the drain mid-batch. A true
+      return is applied only after items already pulled are handled. A false
+      return keeps the drain pumping for the next round.
     - (TOOL_DONE, call_id, func_name, args_str, res): Handled by orchestration (if used).
     - (TOOL_THINKING, text): Thinking tokens from a tool (e.g. web search).
     - (FINAL_DONE, text): Final non-tool response.
@@ -994,6 +1027,12 @@ def run_async_worker_with_drain(
         # Return True so _handle_stream_done_like sets job_done[0] and the
         # drain loop exits. This is the sole exit path now that the worker
         # thread no longer sets job_done directly (see worker_wrapper comment).
+        # NEXT_TOOL is not that exit. Returning true here used to stop the
+        # pump before the next tool round. STREAM_DONE / FINAL_DONE /
+        # TOOL_DONE still end the drain.
+        kind, _payload = _stream_item_kind_data(item)
+        if kind == StreamQueueKind.NEXT_TOOL:
+            return False
         return True
 
     def _noop_error(_payload: Any) -> None:

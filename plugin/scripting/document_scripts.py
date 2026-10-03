@@ -204,9 +204,20 @@ def set_calc_init_script(doc: Any, code: str) -> str | None:
 
         record_active_calc_session(None, build_python_eval_init_kwargs(doc))
     except Exception:
-        # The document property is already updated. Swallowing this left the
-        # next off-main =PY() on the previous init script.
+        # What was wrong: this returned None after the cache refresh raised, so
+        # the editor treated the save as success while off-main =PY() kept the
+        # previous init script.
+        # How: set_document_scripts had already written the property; the
+        # shared-kernel cache is a second call and was only logged.
+        # Why this works: a failed refresh returns an error string (unless the
+        # property write already failed) so the caller does not assume =PY()
+        # sees the new script.
         log.exception("document_scripts: failed to refresh the shared-kernel init cache")
+        if res is not None:
+            return res
+        return _(
+            "Initialization script was saved on the document, but the shared-kernel cache did not update. =PY() may still run the previous script."
+        )
     return res
 
 
@@ -631,9 +642,15 @@ def handle_editor_script_message(
             if err:
                 save_user_script(storage_name, script_code)
                 set_config(name_config_key, storage_name)
+                # What was wrong: the fallback sent status_ok_text and
+                # status_error_text together. The script manager paints ok,
+                # then error, so a successful My Scripts write looked failed.
+                # How: a document save error still stored the script under
+                # My Scripts and attached both strings to one scripts_list.
+                # Why this works: one success string includes the migration
+                # note, and the error field is left unset.
                 _send_list(
-                    status_ok_text=_("Saved script '{0}' to My Scripts.").format(storage_name),
-                    status_error_text=err,
+                    status_ok_text=_("Saved script '{0}' to My Scripts. {1}").format(storage_name, err),
                 )
                 return True
             display_name = document_script_display_name(storage_name)

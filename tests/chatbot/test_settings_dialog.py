@@ -107,11 +107,11 @@ def test_core_field_specs_omit_stt_model():
 
 
 def test_update_lru_for_audio_stt_model():
-    from plugin.chatbot.settings_dialog import _update_lru_for_key
+    from plugin.chatbot.settings_dialog import _lru_rows_for_key
 
-    with patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
-        _update_lru_for_key(MagicMock(), "audio__stt_model", "whisper-1", "https://openrouter.ai/api")
-        mock_lru.assert_called_once_with("whisper-1", "audio_model_lru", "https://openrouter.ai/api")
+    assert _lru_rows_for_key("audio__stt_model", "whisper-1", "https://openrouter.ai/api") == [
+        ("whisper-1", "audio_model_lru", "https://openrouter.ai/api"),
+    ]
 
 
 def test_apply_settings_skips_model_combobox_placeholders():
@@ -164,12 +164,15 @@ def test_apply_settings_skips_model_combobox_placeholders():
             "audio__tts_model": "hexgrad/Kokoro-82M",
         })
 
+    ep = "https://example.test/v1"
     assert stored.get("image_model") == "flux-dev"
     assert stored.get("audio.stt_model") == "whisper-1"
     assert stored.get("audio.tts_model") == "hexgrad/Kokoro-82M"
-    mock_lru.assert_any_call("flux-dev", "image_model_lru", "https://example.test/v1")
-    mock_lru.assert_any_call("whisper-1", "audio_model_lru", "https://example.test/v1")
-    mock_lru.assert_any_call("hexgrad/Kokoro-82M", "tts_model_lru", "https://example.test/v1")
+    # The three lists ride in the same set_configs dict. No per-key LRU write.
+    assert stored.get(f"image_model_lru@{ep}") == ["flux-dev"]
+    assert stored.get(f"audio_model_lru@{ep}") == ["whisper-1"]
+    assert stored.get(f"tts_model_lru@{ep}") == ["hexgrad/Kokoro-82M"]
+    mock_lru.assert_not_called()
 
 
 def test_apply_settings_writes_audio_stt_model():
@@ -180,22 +183,25 @@ def test_apply_settings_writes_audio_stt_model():
     specs = [{"name": "audio__stt_model", "value": ""}]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)) as batch, \
+         patch("plugin.chatbot.settings_dialog.get_config", return_value=""), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
          patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
         apply_settings_result(MagicMock(), {"audio__stt_model": "whisper-1"})
 
     assert stored.get("audio.stt_model") == "whisper-1"
     assert "stt_model" not in stored
-    mock_lru.assert_called_once_with("whisper-1", "audio_model_lru", "https://openrouter.ai/api")
+    assert stored.get("audio_model_lru@https://openrouter.ai/api") == ["whisper-1"]
+    batch.assert_called_once()
+    mock_lru.assert_not_called()
 
 
 def test_update_lru_for_tts_model():
-    from plugin.chatbot.settings_dialog import _update_lru_for_key
+    from plugin.chatbot.settings_dialog import _lru_rows_for_key
 
-    with patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
-        _update_lru_for_key(MagicMock(), "audio__tts_model", "hexgrad/Kokoro-82M", "https://openrouter.ai/api")
-        mock_lru.assert_called_once_with("hexgrad/Kokoro-82M", "tts_model_lru", "https://openrouter.ai/api")
+    assert _lru_rows_for_key("audio__tts_model", "hexgrad/Kokoro-82M", "https://openrouter.ai/api") == [
+        ("hexgrad/Kokoro-82M", "tts_model_lru", "https://openrouter.ai/api"),
+    ]
 
 
 def test_apply_settings_result_tts_provider_and_voice():
@@ -381,9 +387,9 @@ def test_apply_settings_translated_select_stores_value():
 def test_apply_settings_result_one_batch_no_extra_emit():
     """Endpoint, model, API key, and voice are one set_configs call.
 
-    LRU runs after the batch. This function must not emit config:changed
-    itself — that unconditional emit refreshed the sidebar mode combo even
-    when the batch wrote nothing.
+    LRU lists for the keys that changed are in that same dict. This function
+    must not emit config:changed itself — that unconditional emit refreshed
+    the sidebar mode combo even when the batch wrote nothing.
     """
     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
     from plugin.chatbot.settings_dialog import apply_settings_result
@@ -437,9 +443,10 @@ def test_apply_settings_result_one_batch_no_extra_emit():
     assert pending["audio.tts_voice"] == "af_bella"
     assert pending["audio.tts_voice_kokoro"] == "af_bella"
     assert pending["api_keys_by_endpoint"][key_slot] == "sk-test"
-    assert order[0] == "batch"
-    assert "lru" in order
-    lru.assert_any_call("new-model", "model_lru", current)
+    assert pending["endpoint_lru"] == [current]
+    assert pending[f"model_lru@{current}"] == ["new-model"]
+    assert order == ["batch"]
+    lru.assert_not_called()
     emit.assert_not_called()
     single.assert_not_called()
     tts_set.assert_not_called()
@@ -538,3 +545,118 @@ def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
     data = json.loads(body[body.index("{"):])
     assert data["doc.grammar_proofreader_enabled"] == "harper"
     assert data["temperature"] == 0.2
+
+
+def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
+    """Several real edits, including their LRU lists, are one file write and one event.
+
+    An LRU list that already starts with the new value is not a second write.
+    """
+    import json
+
+    from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+    from plugin.chatbot.settings_dialog import apply_settings_result
+    from plugin.framework.config import _write_config_file, reset_config_for_tests
+
+    path = tmp_path / "writeragent.json"
+    old_endpoint = "http://127.0.0.1:11434"
+    new_endpoint = "http://127.0.0.1:9/v1"
+    normalized = endpoint_from_selector_text(new_endpoint)
+    path.write_text(
+        json.dumps({
+            "endpoint": old_endpoint,
+            "text_model": "old-model",
+            "image_model": "old-image",
+            "additional_instructions": "be brief",
+            "temperature": 0.7,
+            "python_venv_path": "/old",
+            f"model_lru@{normalized}": ["kept-model"],
+        }),
+        encoding="utf-8",
+    )
+    specs = [
+        {"name": "endpoint"},
+        {"name": "text_model"},
+        {"name": "image_model"},
+        {"name": "additional_instructions"},
+        {"name": "temperature", "type": "float"},
+    ]
+    reset_config_for_tests()
+    real_write = _write_config_file
+    try:
+        with (
+            patch("plugin.framework.config._config_path", return_value=str(path)),
+            patch("plugin.framework.event_bus.global_event_bus.emit") as emit,
+            patch("plugin.framework.config._write_config_file", wraps=real_write) as write,
+            patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
+            patch("plugin.chatbot.config_ui_helpers.update_lru_history") as lru,
+        ):
+            apply_settings_result(MagicMock(), {
+                "endpoint": new_endpoint,
+                "text_model": "new-model",
+                "image_model": "flux-dev",
+                "additional_instructions": "be formal",
+                "temperature": "0.2",
+            })
+            assert write.call_count == 1
+            assert emit.call_count == 1
+            assert emit.call_args.args[0] == "config:changed"
+            assert emit.call_args.kwargs["key"] == ""
+            assert set(emit.call_args.kwargs["keys"]) == {
+                "endpoint",
+                "text_model",
+                "image_model",
+                "additional_instructions",
+                "temperature",
+                "endpoint_lru",
+                f"model_lru@{normalized}",
+                f"image_model_lru@{normalized}",
+                "prompt_lru",
+            }
+            lru.assert_not_called()
+            body = path.read_text(encoding="utf-8")
+            data = json.loads(body[body.index("{"):])
+            assert data["endpoint"] == normalized
+            assert data["text_model"] == "new-model"
+            assert data["image_model"] == "flux-dev"
+            assert data["additional_instructions"] == "be formal"
+            assert data["temperature"] == 0.2
+            assert data["endpoint_lru"] == [normalized]
+            assert data[f"model_lru@{normalized}"] == ["new-model", "kept-model"]
+            assert data[f"image_model_lru@{normalized}"] == ["flux-dev"]
+            assert data["prompt_lru"] == ["be formal"]
+            assert data["python_venv_path"] == "/old"
+
+            # Model id changes, but that id is already the LRU head: still one write, list untouched.
+            path.write_text(
+                json.dumps({
+                    "endpoint": normalized,
+                    "text_model": "old-model",
+                    "image_model": "flux-dev",
+                    "additional_instructions": "be formal",
+                    "temperature": 0.2,
+                    "python_venv_path": "/old",
+                    f"model_lru@{normalized}": ["target-model", "old-model"],
+                }),
+                encoding="utf-8",
+            )
+            reset_config_for_tests()
+            write.reset_mock()
+            emit.reset_mock()
+            apply_settings_result(MagicMock(), {
+                "endpoint": new_endpoint,
+                "text_model": "target-model",
+                "image_model": "flux-dev",
+                "additional_instructions": "be formal",
+                "temperature": 0.2,
+            })
+            assert write.call_count == 1
+            assert emit.call_count == 1
+            assert emit.call_args.kwargs["key"] == "text_model"
+            assert emit.call_args.kwargs["keys"] == ("text_model",)
+            body = path.read_text(encoding="utf-8")
+            data = json.loads(body[body.index("{"):])
+            assert data["text_model"] == "target-model"
+            assert data[f"model_lru@{normalized}"] == ["target-model", "old-model"]
+    finally:
+        reset_config_for_tests()

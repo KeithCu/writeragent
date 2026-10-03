@@ -251,6 +251,11 @@ class QueryTextListener(BaseTextListener):
         self.send_listener = send_listener
 
     def on_text_changed(self, rEvent: Any) -> None:
+        # What was wrong: disposing left this listener on the Ask control, so a
+        # late text event dispatched TEXT_UPDATED into a dead panel.
+        # Why: ``is True`` so a MagicMock host (tests) is not treated as dead.
+        if getattr(self.send_listener, "_panel_teardown", False) is True:
+            return
         model = getattr(rEvent.Source, "Model", None)
         if not model:
             model = rEvent.Source.getModel()
@@ -423,6 +428,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _sticky_restart_gen: int
     _sticky_restart_pending: bool
     _panel_teardown: bool
+    _mcp_event_bus: Any
     _turn: Any
 
     def __init__(
@@ -530,6 +536,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Set at the start of disposing so a drain still on the stack skips
         # status, TTS, and a sticky re-record after ctx is cleared.
         self._panel_teardown = False
+        # services.events is not always global_event_bus (a second import can
+        # hold another bus). disposing must unsubscribe the bus we joined.
+        self._mcp_event_bus = None
 
         # Subscribe to MCP/tool bus events
         try:
@@ -538,6 +547,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             event_bus = getattr(get_tools()._services, "events", None)
             if event_bus:
+                # What was wrong: disposing unsubscribed global_event_bus, so
+                # this subscription stayed and kept calling a closed panel.
+                # Why: remember this object and unsubscribe it in disposing.
+                self._mcp_event_bus = event_bus
                 event_bus.subscribe("mcp:request", self._on_mcp_request, weak=True)
                 event_bus.subscribe("mcp:result", self._on_mcp_result, weak=True)
                 log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
@@ -1028,8 +1041,16 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _on_mcp_result(self, tool: str = "", result_snippet: str = "", **kwargs: Any) -> None:
         """Handle MCP result events from the bus (background thread)."""
+        # What was wrong: a result posted before disposing still ran
+        # _append_response after the panel was gone.
+        # How: the bus callback and the queued UI hop are different turns.
+        # Why: drop both once teardown has started or ctx is cleared.
+        if self._panel_teardown or self.ctx is None:
+            return
 
         def _update_ui() -> None:
+            if self._panel_teardown or self.ctx is None:
+                return
             try:
                 from plugin.framework.logging import format_tool_result_for_display
 
@@ -1256,6 +1277,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         Hands-free does not replace this. The sticky flag stays set so the
         reply's ``SEND_COMPLETED`` can arm Record again.
         """
+        # A post can already be queued when disposing clears the recorder hooks.
+        if self._panel_teardown or self.ctx is None:
+            return
         if not self.sidebar_state.send.is_recording:
             log.info("audio auto-stop ignored (not recording)")
             return
@@ -1269,6 +1293,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         that thread raised out of ReportErrorEffect and left the button on
         Stop Rec. ERROR_OCCURRED drops the recording label.
         """
+        if self._panel_teardown or self.ctx is None:
+            return
         recorder = self.audio_recorder
         if recorder is not None:
             recorder.apply_stdout_error(msg)
@@ -1279,6 +1305,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_audio_silence_progress(self, silence_ms: int) -> None:
         from plugin.framework.i18n import _
 
+        if self._panel_teardown or self.ctx is None:
+            return
         if self.sidebar_state.send.is_recording:
             self._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
 
@@ -1453,13 +1481,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # Safe now: this callback is already running, not a pending post.
                 cancel_scope.bind_executor(self.queue_executor)
                 self._send_cancellation = cancel_scope
-                try:
-                    if cancel_scope.is_cancelled() or self._stop_requested_fallback:
-                        log.info("Send drain skipped (Stop before drain started)")
-                        return
-                    self._do_send()
-                finally:
-                    self._send_cancellation = None
+                if cancel_scope.is_cancelled() or self._stop_requested_fallback:
+                    log.info("Send drain skipped (Stop before drain started)")
+                    return
+                self._do_send()
         except Exception as e:
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
@@ -1472,7 +1497,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # Dispose runs inside this drain, then sets ctx to None. The
             # completion dispatch writes the status line, and the rest starts
             # TTS or arms the mic on a dead panel.
+            # What was wrong: an inner finally cleared _send_cancellation even
+            # when disposing had just cancelled that scope, so a late reader
+            # saw None on a dead panel.
+            # Why: drop the field only while the panel is still alive.
             if not self._panel_teardown:
+                self._send_cancellation = None
                 if self._terminal_status == "Error":
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
@@ -1883,6 +1913,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # streaming into a dead panel. Match StopSendEffect: cancel the scope
         # and latch the fallback.
         self._panel_teardown = True
+        # What was wrong: silence auto-stop lambdas stayed on the recorder and
+        # posted UI work after this listener was gone.
+        # Why: drop them before cleanup so stop does not re-enter the panel.
+        recorder = getattr(self, "audio_recorder", None)
+        if recorder is not None:
+            try:
+                recorder.set_auto_stop_callbacks(
+                    on_auto_stop=None,
+                    on_silence_progress=None,
+                    on_error=None,
+                )
+            except Exception:
+                log.debug("SendButtonListener.disposing: clear audio callbacks failed", exc_info=True)
         from plugin.chatbot.tool_loop_actions import abort_turn
 
         abort_turn(self)
@@ -1901,12 +1944,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             from plugin.framework.event_bus import global_event_bus
 
-            global_event_bus.unsubscribe("mcp:request", self._on_mcp_request)
-            global_event_bus.unsubscribe("mcp:result", self._on_mcp_result)
+            # What was wrong: mcp:request / mcp:result were subscribed on
+            # services.events and unsubscribed on global_event_bus. Those are
+            # not always the same object, so the panel stayed subscribed.
+            # Why: unsubscribe the bus saved at subscribe time. grammar:status
+            # was subscribed on global_event_bus and stays on that bus.
+            mcp_bus = getattr(self, "_mcp_event_bus", None)
+            if mcp_bus is not None:
+                mcp_bus.unsubscribe("mcp:request", self._on_mcp_request)
+                mcp_bus.unsubscribe("mcp:result", self._on_mcp_result)
             global_event_bus.unsubscribe("grammar:status", self._on_grammar_status)
         except Exception as e:
             log.debug("SendButtonListener.disposing: error unsubscribing from event bus: %s", e)
         finally:
+            self._mcp_event_bus = None
             self.panel = None
             self.ctx = None
 

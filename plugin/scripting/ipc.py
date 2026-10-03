@@ -277,6 +277,113 @@ def _pause_script_alarm() -> tuple[int, float] | None:
     return int(remaining), time.monotonic()
 
 
+# Upper bound for discarding a desynced tool_call tail. Queued bytes return
+# immediately; the deadline only stops a peer that keeps the pipe full.
+_TOOL_CALL_MISMATCH_DRAIN_SEC = 0.05
+
+
+def _stream_fileno(stream: IO[bytes]) -> int | None:
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+        return None
+    if isinstance(fd, int):
+        return fd
+    return None
+
+
+def _drain_queued_pipe_bytes(
+    stream: IO[bytes], *, timeout_sec: float = _TOOL_CALL_MISMATCH_DRAIN_SEC
+) -> None:
+    """Drop bytes already queued on *stream* after a tool_call id mismatch.
+
+    What was wrong: ``exchange_tool_call`` consumed one pickle frame, then
+    raised ``RuntimeError`` when ``id`` did not match. ``sys.stdin.buffer``
+    is a BufferedReader, so ``read(n)`` often pulls the next frame into that
+    wrapper (the kernel pipe can look empty). The raise discarded the foreign
+    frame and left the tail in place. Every later call under
+    ``_tool_call_lock`` read that tail as its reply, so the worker stayed
+    one frame behind for the rest of the process.
+    Why this works: the caller still holds the lock. This reads through the
+    same stream, with the fd non-blocking and a deadline, so both the
+    wrapper cache and the kernel queue are dropped. ``os.read`` is not used:
+    it skips the cache and the next ``stream.read`` would still return the
+    tail. Blocking mode is restored so the next call waits for a new frame.
+    Windows pipes that reject non-blocking mode fall back to PeekNamedPipe,
+    same as ``_unread_pipe_bytes`` (kernel bytes only).
+    """
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    fd = _stream_fileno(stream)
+    if fd is None:
+        try:
+            stream.read()
+        except Exception:
+            log.exception("tool_call id-mismatch drain failed")
+        return
+    if hasattr(os, "set_blocking") and _drain_nonblocking_stream(stream, fd, deadline):
+        return
+    _drain_peek_available(stream, fd, deadline)
+
+
+def _drain_nonblocking_stream(stream: IO[bytes], fd: int, deadline: float) -> bool:
+    """Drain *stream* without blocking. Return False if the fd cannot be set."""
+    # Win32 anonymous pipes: set_blocking is not the peek path. A failed
+    # set_blocking must not fall through to a blocking stream.read.
+    if sys.platform == "win32":
+        return False
+    was_blocking = True
+    try:
+        was_blocking = os.get_blocking(fd)
+    except OSError:
+        was_blocking = True
+    try:
+        os.set_blocking(fd, False)
+    except (OSError, AttributeError):
+        return False
+    try:
+        while time.monotonic() < deadline:
+            try:
+                chunk = stream.read(65536)
+            except (BlockingIOError, InterruptedError):
+                return True
+            except OSError:
+                log.exception("tool_call id-mismatch drain failed")
+                return True
+            # Non-blocking FileIO/BufferedReader returns None when the queue
+            # is empty (not only b""). Stop; do not spin until the deadline.
+            if not chunk:
+                return True
+        return True
+    finally:
+        # What was wrong on the length-prefix peek: set_blocking(False) was
+        # left in place, and the next frame read treated EAGAIN as EOF.
+        try:
+            os.set_blocking(fd, was_blocking)
+        except OSError:
+            pass
+
+
+def _drain_peek_available(stream: IO[bytes], fd: int, deadline: float) -> None:
+    """Windows: drop only bytes PeekNamedPipe already reports."""
+    if sys.platform != "win32":
+        return
+    while time.monotonic() < deadline:
+        try:
+            avail = _peek_pipe_bytes_available(fd)
+        except OSError:
+            log.exception("tool_call id-mismatch drain failed")
+            return
+        if not avail:
+            return
+        try:
+            chunk = stream.read(min(int(avail), 65536))
+        except OSError:
+            log.exception("tool_call id-mismatch drain failed")
+            return
+        if not chunk:
+            return
+
+
 def _resume_script_alarm(paused: tuple[int, float] | None) -> bool:
     """Restore the script alarm. Return True when the budget was already spent.
 
@@ -302,8 +409,9 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Write one tool_call frame and read its response. Check the echoed id.
 
     The host echoes ``id`` on both success and error. A mismatch means this
-    response belongs to another call; reading further frames would pair it
-    with a later request, so stop here.
+    response belongs to another call. Bytes already queued behind it are
+    discarded before the error is raised so the next call is not paired
+    with that tail.
     """
     call_id = str(uuid.uuid4())
     request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": args}
@@ -322,6 +430,14 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
                 max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
                 frame_label="tool_call response",
             )
+            # Drain while _tool_call_lock is still held. Releasing it first
+            # lets the next exchange read the tail this call already pulled.
+            # A drain failure must not replace the id mismatch error.
+            if isinstance(response, dict) and response.get("id") != call_id:
+                try:
+                    _drain_queued_pipe_bytes(sys.stdin.buffer)
+                except Exception:
+                    log.exception("tool_call id-mismatch drain failed")
     finally:
         overdue = _resume_script_alarm(paused)
     if overdue:

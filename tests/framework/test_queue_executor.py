@@ -79,6 +79,49 @@ def test_grammar_llm_request_gate_limit_1_uses_global_lane() -> None:
         lane.assert_called_once()
 
 
+def test_grammar_llm_request_gate_release_admits_one_waiter() -> None:
+    """One release opens one slot. The other waiter stays blocked until that holder leaves."""
+    first_in = threading.Event()
+    release_first = threading.Event()
+    second_in = threading.Event()
+    third_in = threading.Event()
+    release_rest = threading.Event()
+
+    def holder() -> None:
+        with lc.grammar_llm_request_gate(1):
+            first_in.set()
+            release_first.wait(timeout=2.0)
+
+    def waiter(flag: threading.Event) -> None:
+        with lc.grammar_llm_request_gate(1):
+            flag.set()
+            release_rest.wait(timeout=2.0)
+
+    threads = (
+        threading.Thread(target=holder),
+        threading.Thread(target=lambda: waiter(second_in)),
+        threading.Thread(target=lambda: waiter(third_in)),
+    )
+    threads[0].start()
+    assert first_in.wait(timeout=2.0)
+    threads[1].start()
+    threads[2].start()
+    time.sleep(0.05)
+    assert second_in.is_set() is False
+    assert third_in.is_set() is False
+    release_first.set()
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not (second_in.is_set() or third_in.is_set()):
+        time.sleep(0.01)
+    assert second_in.is_set() != third_in.is_set()
+    time.sleep(0.05)
+    assert second_in.is_set() != third_in.is_set()
+    release_rest.set()
+    for thread in threads:
+        thread.join(timeout=2.0)
+        assert thread.is_alive() is False
+
+
 def test_grammar_llm_request_gate_limit_2_allows_parallel() -> None:
     entered = threading.Barrier(2)
     inside: list[int] = []
@@ -562,6 +605,65 @@ def test_post_tagged_worker_under_testing_enqueues_not_inline(monkeypatch):
     assert ran_on == []
     executor.process_queue()
     assert ran_on == ["MainThread"]
+
+
+def test_post_pending_full_waits_until_a_slot_opens(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(mt, "_PENDING_POST_WAIT_SEC", 2.0)
+    executor = mt.QueueExecutor()
+    for _index in range(mt._PENDING_POST_CAP):
+        executor._pending_posts.append((lambda: None, (), {}, None))
+    errors: list[BaseException] = []
+    done = threading.Event()
+
+    def run_on_worker() -> None:
+        try:
+            with (
+                patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+                patch.object(executor, "_get_async_callback", return_value=None),
+                patch.object(executor, "_may_run_marshal_inline", return_value=False),
+            ):
+                executor.post(lambda: None)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=run_on_worker, name="bg-worker")
+    worker.start()
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and not done.is_set():
+        with executor._pending_lock:
+            if len(executor._pending_posts) >= mt._PENDING_POST_CAP:
+                # Still full and the poster has not returned: it is waiting.
+                break
+        time.sleep(0.01)
+    assert not done.is_set()
+    with executor._pending_lock:
+        executor._pending_posts.pop()
+        executor._pending_lock.notify()
+    assert done.wait(2.0)
+    worker.join(timeout=1.0)
+    assert errors == []
+    assert len(executor._pending_posts) == mt._PENDING_POST_CAP
+
+
+def test_post_pending_full_raises_when_callback_never_arrives(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(mt, "_PENDING_POST_WAIT_SEC", 5.0)
+    executor = mt.QueueExecutor()
+    executor._initialized = True
+    executor._async_callback_service = None
+    for _index in range(mt._PENDING_POST_CAP):
+        executor._pending_posts.append((lambda: None, (), {}, None))
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="pending list is full"):
+        with (
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+            patch.object(executor, "_get_async_callback", return_value=None),
+            patch.object(executor, "_may_run_marshal_inline", return_value=False),
+        ):
+            executor.post(lambda: None)
+    assert time.monotonic() - started < 1.0
+    assert len(executor._pending_posts) == mt._PENDING_POST_CAP
 
 
 def test_post_tagged_worker_under_testing_drops_without_async(monkeypatch):

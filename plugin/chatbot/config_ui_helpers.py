@@ -3,8 +3,10 @@ UI population helpers for LibreOffice dialogs and Settings.
 """
 from typing import Any
 from plugin.framework.config import (
+    LRU_MAX_ITEMS,
     get_config,
     set_config,
+    set_configs,
     get_current_endpoint,
     get_api_key_for_endpoint,
 )
@@ -418,29 +420,49 @@ def populate_combobox_with_lru(
         ctrl.setText("")
     return display_val if display_val else ""
 
-def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int | None = None) -> None:
-    """Helper to update an LRU list in config. Scoped to endpoint."""
-    if max_items is None:
-        from plugin.framework.config import LRU_MAX_ITEMS
-        max_items = LRU_MAX_ITEMS
+def lru_config_key(lru_key: str, endpoint: str) -> str:
+    """Config key for an LRU list. Endpoint-scoped lists are ``name@url``."""
+    return f"{lru_key}@{endpoint}" if endpoint else lru_key
+
+
+def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
+    """LRU list after prepending *val*, or None when that would not be a write.
+
+    Blank values are not entries. A value that is already the first item is
+    not a write. *current* may be a non-list (a missing key read as something
+    else); that still becomes a one-item list, matching the old
+    ``update_lru_history`` compare.
+    """
     val_str = str(val).strip()
     if not val_str:
-        return
-
-    scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
-    lru_raw = get_config(scoped_key)
+        return None
     # LRU entries are model id strings; get_config is JSON-shaped so normalize explicitly.
-    lru: list[str] = [str(m) for m in lru_raw] if isinstance(lru_raw, list) else []
-    # Short-circuit if value is already at top of LRU: avoids redundant set_config
-    # and unnecessary config_changed event_bus emissions.
+    lru: list[str] = [str(item) for item in current] if isinstance(current, list) else []
+    # Already at the head: a set_config here would rewrite the file and emit
+    # config:changed for a list the UI already shows first.
     if lru and lru[0] == val_str:
-        return
+        return None
     if val_str in lru:
         lru.remove(val_str)
     lru.insert(0, val_str)
     new_lru = lru[:max_items]
-    old = get_config(scoped_key)
-    if isinstance(old, list) and old == new_lru:
+    if isinstance(current, list) and current == new_lru:
+        return None
+    return new_lru
+
+
+def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int | None = None) -> None:
+    """Prepend *val* to an endpoint-scoped LRU list in writeragent.json.
+
+    No write when the value is blank or already the first item. Settings OK
+    and the sidebar model sync do not call this once per key: they merge
+    ``next_lru_list`` into the same ``set_configs`` as the field change.
+    """
+    if max_items is None:
+        max_items = LRU_MAX_ITEMS
+    scoped_key = lru_config_key(lru_key, endpoint)
+    new_lru = next_lru_list(get_config(scoped_key), val, max_items)
+    if new_lru is None:
         return
     set_config(scoped_key, new_lru)
 
@@ -450,17 +472,33 @@ def sync_sidebar_text_model(ctx: Any, ctrl: Any) -> str | None:
 
     Dropdown picks fire ItemListener; paste/typing only change ComboBox text.
     Send and TextListener call this so get_text_model/get_api_config match the UI.
+
+    What was wrong: a sidebar model change wrote ``text_model`` through
+    ``set_text_model`` and then wrote ``model_lru@endpoint`` through
+    ``update_lru_history``. Each call rewrote ``writeragent.json`` and
+    emitted ``config:changed``.
+    How: the LRU update ran after the model write, as its own ``set_config``.
+    Why: both keys go in one ``set_configs`` when they differ from disk. A
+    model that already matches, or an LRU head that already matches, is left
+    out of that dict, so one real change is still one write and one event.
     """
+    del ctx  # Listeners pass the panel context; the write uses the config store.
     if not ctrl or not hasattr(ctrl, "getText"):
         return None
     txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
     if not txt:
         return None
-    from plugin.framework.client.model_fetcher import get_text_model, set_text_model
+    from plugin.framework.client.model_fetcher import get_text_model
 
+    patch: dict[str, Any] = {}
     if txt != get_text_model():
-        set_text_model(txt, update_lru=False)
-    update_lru_history(txt, "model_lru", get_current_endpoint())
+        patch["text_model"] = txt
+    lru_key = lru_config_key("model_lru", get_current_endpoint())
+    updated = next_lru_list(get_config(lru_key), txt, LRU_MAX_ITEMS)
+    if updated is not None:
+        patch[lru_key] = updated
+    if patch:
+        set_configs(patch)
     return txt
 
 
