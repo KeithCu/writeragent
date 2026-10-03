@@ -204,6 +204,20 @@ def _deal_exc_ok_crosshair(exc: object) -> bool:
 _deal_exc_ok = _deal_exc_ok_crosshair if UNDER_CROSSHAIR else _deal_exc_ok_pytest
 
 
+def _deal_optional_exc_ok_pytest(exc: object) -> bool:
+    # The body formats a real exception and also accepts None.
+    return exc is None or isinstance(exc, BaseException)
+
+
+def _deal_optional_exc_ok_crosshair(exc: object) -> bool:
+    # Symbolic format_exception is not a CrossHair domain.
+    return exc is None
+
+
+# Import-time only. Do not branch inside @deal.pre (CrossHair explores both arms).
+_deal_optional_exc_ok = _deal_optional_exc_ok_crosshair if UNDER_CROSSHAIR else _deal_optional_exc_ok_pytest
+
+
 @deal.pre(lambda exc: _deal_exc_ok(exc))
 def exception_traceback(exc: BaseException) -> str:
     """Full traceback string for *exc*."""
@@ -211,9 +225,17 @@ def exception_traceback(exc: BaseException) -> str:
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
+# What was wrong: the precondition required ``exc is None`` under deal, while
+# the body appends ``exception_traceback(exc)`` whenever ``exc`` is set.
+# How it happened: that domain is the CrossHair profile (no symbolic
+# ``format_exception``) and was left on the pytest profile too.
+# Why this change: ``probe_webview_import`` calls ``failure_detail(exc=e)`` on
+# timeout or ``OSError``. Under deal that raised ``PreContractError`` instead
+# of returning the diagnostic. CrossHair still sees only ``exc is None``.
+# The no-deal runtime is the same body.
 @deal.pre(
     lambda detail=None, exc=None: (detail is None or str_bounded(detail, DEAL_MAX_SOURCE))
-    and exc is None
+    and _deal_optional_exc_ok(exc)
 )
 @deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
@@ -231,7 +253,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
 @deal.pre(
     lambda summary, detail=None, exc=None: str_bounded(summary, DEAL_MAX_SOURCE)
     and (detail is None or str_bounded(detail, DEAL_MAX_SOURCE))
-    and exc is None
+    and _deal_optional_exc_ok(exc)
 )
 @deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
