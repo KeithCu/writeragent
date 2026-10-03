@@ -123,6 +123,36 @@ class TestPanelHTMLStripper:
         send.rerender_rich_text_session.assert_not_called()
         assert send._plain_text_stripper is None
 
+    def test_finalize_appends_leftover_when_rerender_does_not_replace(self):
+        send = _make_plain_send_listener()
+        send.rich_text_widget = MagicMock()
+        send.rerender_rich_text_session = MagicMock(return_value=False)
+        send._append_response = MagicMock()
+        send._plain_text_stripper.feed("a <b")
+        finalize_sidebar_assistant_response(send)
+        send._append_response.assert_called_once_with("<b", role="assistant")
+
+    def test_finalize_skips_leftover_when_rerender_replaces_tail(self):
+        send = _make_plain_send_listener()
+        send.rich_text_widget = MagicMock()
+        send.rerender_rich_text_session = MagicMock(return_value=True)
+        send._append_response = MagicMock()
+        send._plain_text_stripper.feed("a <b")
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_called_once()
+        send._append_response.assert_not_called()
+
+    def test_finalize_on_error_flushes_leftover_without_rerender(self):
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock(return_value=True)
+        send._terminal_status = "Error"
+        send._append_response = MagicMock()
+        send._plain_text_stripper.feed("tail <i")
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_not_called()
+        send._append_response.assert_called_once_with("<i", role="assistant")
+        assert send._plain_text_stripper is None
+
     def test_finalize_rerenders_when_stopped_status(self):
         send = _make_plain_send_listener()
         send.rerender_rich_text_session = MagicMock()

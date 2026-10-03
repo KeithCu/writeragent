@@ -262,6 +262,40 @@ class TestAppendRichText:
         assert (len(body_cursors)) >= (2)
         assert (body_cursors[-1].CharColor) == (ASSISTANT_COLOR)
 
+    def test_html_import_failure_does_not_insert_raw_tags(self):
+        """A filter exception must not leave the tags in the hidden doc."""
+        from plugin.chatbot.rich_text import append_rich_text
+
+        doc = MockDoc()
+        with patch(
+            "plugin.chatbot.rich_text._insert_html_at_cursor",
+            side_effect=RuntimeError("filter"),
+        ):
+            ok = append_rich_text(doc, "<p>Hi</p>", role="assistant")
+
+        assert ok is False
+        content = doc.getText().getString()
+        assert "Assistant:" in content
+        assert "<p>" not in content
+        assert "Hi" not in content
+
+    def test_full_document_imports_body_only(self):
+        """A full HTML document is reduced to its body before the filter."""
+        from plugin.chatbot.rich_text import append_rich_text
+
+        doc = MockDoc()
+        seen: list[str] = []
+
+        def _capture(_doc, _cursor, fragment):
+            seen.append(fragment)
+
+        full = "<html><head><script>alert(1)</script></head><body><p>Hi</p></body></html>"
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_capture):
+            ok = append_rich_text(doc, full, role="assistant")
+
+        assert ok is True
+        assert seen == ["<p>Hi</p>"]
+
 
 class TestTightenListIndent:
     """Tests for _tighten_list_indent post-processing helper."""

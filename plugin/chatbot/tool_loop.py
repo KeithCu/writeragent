@@ -145,7 +145,7 @@ class ToolLoopHost(Protocol):
     def _execute_effect(self, effect: Any) -> bool: ...
     def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def _refresh_active_tools_for_session(self) -> None: ...
-    def rerender_rich_text_session(self) -> None: ...
+    def rerender_rich_text_session(self) -> bool: ...
 
     # Producer batcher for the current send (set in _start_tool_calling_async when batching is active)
     _active_batched_q: "BatchingStreamQueue | None"
@@ -228,8 +228,9 @@ class ToolCallingMixin:
     def _sm_state(self: ToolLoopHost, value: ToolLoopState | None) -> None:  # pyright: ignore[reportPropertyTypeMismatch]  # clear session with None
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
-    def rerender_rich_text_session(self: ToolLoopHost) -> None:
+    def rerender_rich_text_session(self: ToolLoopHost) -> bool:
         """Re-render session with HTML formatting. Overridden in SendButtonListener."""
+        return False
 
     def _do_send_chat_with_tools(self: ToolLoopHost, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
         # Pin before pump_ui_idle. A mode click inside that pump used to swap

@@ -13,10 +13,11 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Hidden Writer HTML import and formatted insert/paste into the sidebar RichTextControl.
+"""Hidden Writer HTML import and direct copy into the sidebar RichTextControl.
 
-Pipeline: create_hidden_html_writer → append_rich_text (HTML filter) → direct portion copy
-into the control (preferred), then transferable / SystemClipboard / Ctrl+V fallbacks.
+Pipeline: create_hidden_html_writer → append_rich_text (HTML filter) → direct portion
+copy into the control. A failed copy rolls the control back and writes the same
+batch as plain text. There is no transferable, SystemClipboard, or Ctrl+V step.
 
 The direct-copy path walks Writer body enumeration (paragraphs and TextTables) and inserts
 via insertString on the form TextField model. RichTextControl is EditEngine — no table grid —
@@ -546,7 +547,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             addr = pending_links.pop(0)[1]
                         elif not addr and portion_looks_like_cell_link(portion, txt):
                             addr = normalize_cell_address(txt.strip())
-                        if addr:
+                        if addr and isinstance(before_len, int) and isinstance(after_len, int):
                             register_cell_link_span(control, before_len, after_len, addr)
                         dest_cursor.gotoEnd(False)
                         inserted = True
@@ -569,7 +570,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                     _scroll_rich_to_tail(control, ctx)
                 log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
                 log.info(
-                    "_copy_formatted_from_hidden_doc_to_control: ok control_len=%d role=%s",
+                    "_copy_formatted_from_hidden_doc_to_control: ok control_len=%s role=%s",
                     get_control_text_length(control),
                     role,
                 )
@@ -604,24 +605,51 @@ def _plain_fallback_text(text: str) -> str:
     return strip_html_tags(text or "")
 
 
-def _rollback_rich_insert(control: Any, before: int) -> None:
+def _rollback_rich_insert(control: Any, before: int | None) -> None:
     """Undo a separator or partial copy that did not finish as a full insert.
 
     What was wrong: the separator (and any partial copy) stayed in the
     control when the formatted insert returned false, and cell-link spans
     recorded for that tail still resolved clicks into deleted text.
+    A length of None means the control length could not be read. Truncate
+    treats 0 as "delete from the start", so an unknown length must not roll
+    back.
     """
+    if before is None:
+        return
     truncate_control_from(control, before)
     drop_cell_link_spans_from(control, before)
 
 
+def _plain_role_prefix(role: str) -> str:
+    """Same ``You:`` / ``Assistant:`` label ``append_rich_text`` writes on the formatted path."""
+    if role == "user":
+        return "You: "
+    return _("Assistant:") + " "
+
+
 def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False) -> bool:
+    """Plain transcript rows with the formatted path's role label, color, and gap.
+
+    What was wrong: every row used the assistant color and had no prefix or
+    blank line, so a user turn and the next assistant turn ran together.
+    """
     wrote = False
-    for _role, content in batch:
+    theme = ChatTheme.resolve(style_window=style_window)
+    for role, content in batch:
         plain = _plain_fallback_text(content or "")
         if not plain.strip():
             continue
-        append_text_chunk(control, plain, auto_scroll=auto_scroll, style_window=style_window, ctx=ctx)
+        _ensure_message_separator(control)
+        color = theme.user_color if role == "user" else theme.assistant_color
+        append_text_chunk(
+            control,
+            _plain_role_prefix(role) + plain,
+            auto_scroll=auto_scroll,
+            style_window=style_window,
+            ctx=ctx,
+            char_color=color,
+        )
         wrote = True
     return wrote
 
@@ -673,33 +701,45 @@ def append_rich_messages_via_clipboard(
                 continue
             configure_hidden_writer_for_chat(doc)
             batch_links: list[tuple[str, str]] = []
+            html_ok = True
             for role, content in batch:
                 from plugin.calc.navigation import extract_cell_links_from_html, render_calc_cell_refs
 
                 rendered = render_calc_cell_refs(content) if content else content
                 batch_links.extend(extract_cell_links_from_html(rendered or ""))
-                append_rich_text(doc, content, role=role, style_window=style_window)
+                # False means the filter failed and the raw tags were not written.
+                # Copying the hidden doc would report success with only the prefix.
+                if append_rich_text(doc, content, role=role, style_window=style_window) is False:
+                    html_ok = False
+                    break
             log.debug(
                 "append_rich_messages_via_clipboard: hidden doc ready messages=%d total_chars=%d",
                 len(batch),
                 sum(len(c or "") for _unused, c in batch),
             )
-            if _append_hidden_doc_to_control(
+            if html_ok and _append_hidden_doc_to_control(
                 doc, control, ctx, style_window=style_window, auto_scroll=False, cell_link_targets=batch_links,
             ):
                 inserted = True
                 any_inserted = True
                 _scroll_rich_to_tail(control, ctx)
             else:
+                # What was wrong: one bad element failed the batch, the rollback
+                # removed it, and history has no second copy, so up to
+                # HISTORY_RENDER_BATCH_CHARS of messages disappeared.
                 log.warning(
                     "append_rich_messages_via_clipboard: batch insert into control failed messages=%d",
                     len(batch),
                 )
                 _rollback_rich_insert(control, before)
+                if _plain_append_messages(control, batch, ctx, style_window):
+                    any_inserted = True
         except Exception:
             log.exception("append_rich_messages_via_clipboard batch failed")
             if not inserted:
                 _rollback_rich_insert(control, before)
+                if _plain_append_messages(control, batch, ctx, style_window):
+                    any_inserted = True
         finally:
             if doc is not None:
                 try:
@@ -792,16 +832,21 @@ def append_rich_text_via_clipboard(
         if doc is None:
             log.warning("append_rich_text_via_clipboard: hidden Writer unavailable")
             _rollback_rich_insert(control, before)
-            append_text_chunk(
-                control,
-                _plain_fallback_text(text),
-                auto_scroll=auto_scroll,
-                style_window=style_window,
-                ctx=ctx,
+            _plain_append_messages(
+                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll,
             )
             return True
         configure_hidden_writer_for_chat(doc)
-        append_rich_text(doc, text, role=role, style_window=style_window)
+        if append_rich_text(doc, text, role=role, style_window=style_window) is False:
+            # Filter failed. The hidden doc has the role prefix and not the body.
+            # Copying it would show the prefix alone, or the raw tags if they
+            # had been inserted. Roll back and write the stripped message.
+            log.warning("append_rich_text_via_clipboard: HTML import failed role=%s", role)
+            _rollback_rich_insert(control, before)
+            _plain_append_messages(
+                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll,
+            )
+            return True
         log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
         ok, direct_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
@@ -815,7 +860,7 @@ def append_rich_text_via_clipboard(
         if ok:
             inserted = True
             log.info(
-                "append_rich_text_via_clipboard: insert ok via=direct_copy control_len=%d role=%s",
+                "append_rich_text_via_clipboard: insert ok via=direct_copy control_len=%s role=%s",
                 get_control_text_length(control),
                 role,
             )

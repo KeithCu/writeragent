@@ -723,3 +723,17 @@ class TestRichControlListenerInit:
         with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
             second._begin_deferred_init()
         mock_post.assert_called_once()
+
+
+class TestControlTextLength:
+    def test_exception_returns_none(self):
+        from plugin.chatbot.rich_text_control import get_control_text_length, truncate_control_from
+
+        control = MagicMock()
+        control.getModel.side_effect = RuntimeError("disposed")
+        assert get_control_text_length(control) is None
+
+        truncate_control_from(control, None)
+        control.getModel.assert_called()
+        # Unknown length must not ask the model for a cursor (that is "delete from the start").
+        assert control.getModel.call_count == 1

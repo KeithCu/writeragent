@@ -541,22 +541,26 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.rich_text_widget = widget
         log.info("[RICH-CONTROL] SendButtonListener.set_rich_text_widget called")
 
-    def rerender_rich_text_session(self) -> None:
+    def rerender_rich_text_session(self) -> bool:
         """Re-render the final streamed assistant response with HTML formatting, leaving previous text untouched.
 
         Called after streaming completes to replace the last plain-text assistant response
         with full HTML rendering instead of raw chunks.
+
+        True only when that replacement landed. False leaves the streamed tail
+        in place so a held stripper leftover can still be appended.
         """
         widget = getattr(self, "rich_text_widget", None)
         if widget is None:
-            return
+            return False
         try:
-            widget.rerender_last_assistant_if_html(
+            return bool(widget.rerender_last_assistant_if_html(
                 self.session,
                 getattr(self, "_assistant_stream_start_len", None),
-            )
+            ))
         except Exception:
             log.exception("rerender_rich_text_session (rich control) failed")
+            return False
 
     @property
     def stop_requested(self) -> bool:
@@ -871,9 +875,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
                 if role == "user":
 
-                    def _on_user_inserted(control_len: int) -> None:
+                    def _on_user_inserted(control_len: int | None) -> None:
                         self._assistant_stream_start_len = control_len
-                        log.debug("_append_response: rich-control stream start len=%d", control_len)
+                        log.debug("_append_response: rich-control stream start len=%s", control_len)
 
                     self._run_rich_ui(
                         widget.append_user_message,
@@ -885,7 +889,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._record_assistant_start = False
                         self._assistant_stream_start_len = widget.get_text_length()
                         log.debug(
-                            "_append_response: rich-control stream start len=%d (final answer)",
+                            "_append_response: rich-control stream start len=%s (final answer)",
                             self._assistant_stream_start_len,
                         )
                     

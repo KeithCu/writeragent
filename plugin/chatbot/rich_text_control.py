@@ -119,8 +119,11 @@ class RichTextChatWidget:
         self.query = query
         self.model = control.getModel() if control else None
 
-    def get_text_length(self) -> int:
-        """Get the length of the text currently in the control."""
+    def get_text_length(self) -> int | None:
+        """Get the length of the text currently in the control.
+
+        None when the length cannot be read. Callers must not treat that as 0.
+        """
         return get_control_text_length(self.control)
 
     def clear(self) -> None:
@@ -183,8 +186,12 @@ class RichTextChatWidget:
         """Apply the standard chat sidebar margins, fonts, and colors to the control."""
         _apply_rich_control_style_defaults(self.control, style_window=self.style_window)
 
-    def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> None:
-        """Replace the streamed assistant tail with formatted text (HTML or plain)."""
+    def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> bool:
+        """Replace the streamed assistant tail with formatted text (HTML or plain).
+
+        True only when the session row replaced the tail. Callers that still
+        hold a stripper leftover append it when this returns False.
+        """
         final_msg = None
         for msg in reversed(session.messages):
             if msg.get("role") == "assistant" and msg.get("content"):
@@ -193,10 +200,10 @@ class RichTextChatWidget:
         log.debug("rerender_last_assistant_if_html: final_msg=%s stream_start_len=%s", bool(final_msg), stream_start_len)
         if not final_msg:
             log.debug("rerender_last_assistant_if_html: no final assistant message — skip")
-            return
+            return False
         content = final_msg.get("content", "")
         if not content or not content.strip():
-            return
+            return False
         # The streamed tail is already in the control. Truncating and then
         # appending without a result check dropped it: a failed HTML copy, or
         # a per-element exception reported as not a full insert, left the cut
@@ -208,14 +215,14 @@ class RichTextChatWidget:
         # restore had an empty tail, so the streamed answer disappeared.
         # Skip the cut when the offset is missing or the tail cannot be read.
         if stream_start_len is None:
-            return
+            return False
         try:
             model = self.control.getModel() if self.control is not None else None
             text = (model.Text or "") if model is not None else ""
             plain_tail = text[stream_start_len:] if isinstance(text, str) else ""
         except Exception:
             log.exception("rerender_last_assistant_if_html: could not read plain tail")
-            return
+            return False
         self.truncate(stream_start_len)
         # Insert at the cut. Scroll is SelectAll in Hidden mode, not reveal_caret.
         full_insert = False
@@ -225,12 +232,13 @@ class RichTextChatWidget:
             log.exception("rerender_last_assistant_if_html: formatted insert failed")
             full_insert = False
         if full_insert:
-            return
+            return True
         # Partial formatted text sits at the same cut. Drop it, then put the
         # streamed tail back — the copy did not replace it cleanly.
         self.truncate(stream_start_len)
         if plain_tail:
             self.append_chunk(plain_tail)
+        return False
 
     def append_user_message(self, text: str, on_after_insert: Any = None) -> None:
         """Append a formatted user message and optionally record control length after insert."""
@@ -1199,8 +1207,12 @@ def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None) -> No
         _IN_SCROLL_TO_TAIL = False
 
 
-def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None) -> None:
-    """Append plain text during assistant streaming with theme assistant color."""
+def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None, char_color: int | None = None) -> None:
+    """Append plain text during assistant streaming with theme assistant color.
+
+    *char_color* overrides the assistant tint for the plain history fallback,
+    which paints user and assistant rows in their own theme colors.
+    """
     if not control or not text:
         return
     log_rich_scroll("append_chunk", control=control, chunk_len=len(text), auto_scroll=int(auto_scroll))
@@ -1217,7 +1229,8 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         cursor.gotoEnd(False)
         _apply_sidebar_para_margins(cursor)
         cursor.CharBackColor = theme.bg_color
-        _insert_string_at_rich_cursor(model, cursor, text, theme.assistant_color)
+        color = theme.assistant_color if char_color is None else char_color
+        _insert_string_at_rich_cursor(model, cursor, text, color)
         if auto_scroll:
             _scroll_rich_to_tail(control, ctx, query)
             from plugin.framework.uno_context import restore_query_if_user_still_there
@@ -1245,14 +1258,18 @@ def clear_control(control: Any) -> None:
         log.exception("clear_control failed")
 
 
-def get_control_text_length(control: Any) -> int:
+def get_control_text_length(control: Any) -> int | None:
     try:
         model = control.getModel()
         if model is None:
             return 0
         return len(model.Text or "")
     except Exception:
-        return 0
+        # What was wrong: any exception returned 0. Rollback and cell-link
+        # spans treat 0 as the start of the control, so a failed length read
+        # deleted the transcript. None means the length is unknown.
+        log.exception("get_control_text_length failed")
+        return None
 
 
 def truncate_control_from(control: Any, start_len: int | None) -> None:

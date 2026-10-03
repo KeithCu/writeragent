@@ -50,7 +50,7 @@ An earlier approach hosted a **visible** embedded Writer document (`private:fact
 | Exit-time VCL parent/child teardown crashes (Signal 11) accepted as trade-off | No nested Writer frame in the panel; hidden docs are short-lived |
 | Large implementation surface (lazy peer, lifecycle hooks, theme on virtual page) | Smaller footprint; HTML via off-screen Writer + paste |
 
-Writer is still used **off-screen**: a **hidden** document imports HTML, then a transferable / system clipboard paste copies formatting into the RichTextControl. Users never see a Writer frame in the sidebar.
+Writer is still used **off-screen**: a **hidden** document imports HTML, then a direct portion copy writes formatting into the RichTextControl. Users never see a Writer frame in the sidebar, and the copy does not use the system clipboard.
 
 ---
 
@@ -125,7 +125,6 @@ flowchart LR
     subgraph paste [rich_text_paste per formatted insert]
         HW[Hidden Writer Hidden=true]
         HTML[append_rich_text]
-        CB[Transferable / SystemClipboard]
     end
     LLM[LLM response] --> stream[append_text_chunk]
     stream --> RTC
@@ -133,14 +132,14 @@ flowchart LR
     done --> rerender[RichTextChatWidget.rerender_last_assistant_if_html]
     rerender --> HW
     HTML --> HW
-    HW --> CB --> RTC
+    HW --> RTC
 ```
 
 **Streaming path:** `append_text_chunk` → `TextRange` insert at end with assistant color and optional `reveal_rich_control_caret`.
 
-**Formatted path:** `create_hidden_html_writer` → `append_rich_text` (HTML filter + list tightening) → transferable or clipboard → `insertTransferable` / paste into control → close hidden doc. User and history batches use `append_rich_messages_via_clipboard` with batching for large sessions.
+**Formatted path:** `create_hidden_html_writer` → `append_rich_text` (HTML filter + list tightening) → direct portion copy into the control → close hidden doc. A failed copy, or an HTML filter error, rolls the control back and writes the same text as plain rows (`You:` / `Assistant:`, role color, blank line). User and history batches use `append_rich_messages_via_clipboard` with batching for large sessions.
 
-**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` only if HTML tags are present; otherwise the plain stream text remains.
+**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. If that call does not replace the tail, an unclosed tag still held by the stream stripper is appended. A successful rerender replaces the tail from the session row.
 
 ### RichTextControl vs HTML
 
@@ -224,10 +223,9 @@ flowchart LR
 
 | Function | Role |
 |----------|------|
-| `append_rich_text_via_clipboard` | Single message formatted paste |
+| `append_rich_text_via_clipboard` | Single message formatted copy |
 | `append_rich_messages_via_clipboard` | Batched history restore |
 | `create_hidden_html_writer` | Short-lived hidden Writer for HTML import |
-| `insert_transferable_into_rich_control` | Transferable / clipboard fallback paste |
 | `session_history_items` | Build `(role, content)` pairs for history reload |
 
 Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `_HTML_TAG_RE`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
@@ -301,28 +299,26 @@ DEBUG-level `[RICH-SCROLL]` lines record caret reveal, formatted inserts, layout
 
 **If scroll jumps after open/resize:** look for `phase=sync_bounds` then Hidden SelectAll (not `reason=resize` / `phase=reveal_caret`). Stock `layoutWindow()` resets VisArea to the origin; we restick to the tail. Mid-transcript scroll cannot be restored on stock.
 
-### Formatted insert used a fallback path (diagnostics)
+### Formatted insert failed (diagnostics)
 
-When HTML is pasted into the RichTextControl, the preferred path is **direct copy** from a hidden Writer doc (`_copy_formatted_from_hidden_doc_to_control`). If that fails, the code falls back to **transferable insert** and then **SystemClipboard + synthetic Ctrl+V**.
+The sidebar copies portions from the hidden Writer into the RichTextControl (`_copy_formatted_from_hidden_doc_to_control`). It does not paste the system clipboard into the open document. When the copy fails, or the HTML filter throws, the control is rolled back to the length taken before the batch and the same messages are written as plain text.
 
 Search `writeragent_debug.log` for **WARNING** lines (release default `log_level` is **WARN**):
 
 | Log pattern | Meaning |
 |-------------|---------|
-| `_copy_formatted_from_hidden_doc_to_control: ok` | Direct copy succeeded (no fallback). |
-| `failed reason=model_no_createTextCursor` | Sidebar control model cannot create a text cursor. |
-| `failed reason=no_content_inserted` | Hidden doc had no insertable portions (empty import or enumeration produced nothing). |
-| `failed reason=exception` | Direct copy raised (stack trace in same window). |
-| `append_rich_text_via_clipboard: falling back to transferable insert direct_copy_reason=…` | Per-message formatted insert is using transferable/clipboard fallback. |
-| `insert_transferable_into_rich_control: insertTransferable paths exhausted (…)` | Lists which `insertTransferable` attempts failed before trying clipboard. |
-| `ok via SystemClipboard+Ctrl+V source=…` | Clipboard + Ctrl+V fallback succeeded (`source` is e.g. `append_rich_text:assistant` or `history_batch`). |
-| `all rich insert paths failed … attempts=…` | Every sidebar insert path failed (includes `direct_copy_reason` upstream). |
+| `_copy_formatted_from_hidden_doc_to_control: ok` | Direct copy succeeded. |
+| `failed reason=element_skipped` | A body element threw; the batch is plain-appended. |
+| `failed reason=no_content_inserted` | Hidden doc had no insertable portions. |
+| `failed reason=exception` | Direct copy raised (stack trace in the same window). |
+| `batch insert into control failed` | History batch rolled back and plain-appended. |
+| `HTML import failed` | Filter threw; raw tags were not inserted. |
 
 **Reporter workflow:** reproduce the issue, then grep:
 
-`grep -E 'direct_copy_reason|falling back to transferable|insertTransferable paths exhausted|SystemClipboard|_copy_formatted' writeragent_debug.log`
+`grep -E 'direct_copy_reason|element_skipped|HTML import failed|batch insert into control failed|_copy_formatted' writeragent_debug.log`
 
-If logs show only `via=direct_copy` / `_copy_formatted… ok` during the leak, the sidebar paste pipeline is unlikely to be the cause — check `enable_agent_log` for `apply_document_content` tool calls.
+If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document leak, the sidebar copy is unlikely to be the cause — check `enable_agent_log` for `apply_document_content` tool calls.
 
 ---
 
@@ -332,7 +328,7 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during the leak, t
 
 - **`rich_text.py`** — theme, typography, HTML import wrapper, list tightening, `finalize_sidebar_assistant_response`.
 - **`rich_text_control.py`** — `RichTextChatWidget`, lifecycle/layout, streaming, scroll.
-- **`rich_text_paste.py`** — hidden Writer import, direct copy, clipboard fallbacks, batched history.
+- **`rich_text_paste.py`** — hidden Writer import, direct copy, plain fallback, batched history.
 
 ### Shared hidden Writer factory
 

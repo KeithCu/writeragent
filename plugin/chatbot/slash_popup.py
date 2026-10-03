@@ -1145,49 +1145,6 @@ class SlashPopupController:
             _ovlog("mouse listener attach failed", exc_info=True)
         # skip item/action: addItemListener deadlocks idle addItems/show
 
-    def _attach_item_listener(self) -> None:
-        ctrl = self.control
-        if ctrl is None:
-            return
-        try:
-            import unohelper
-            from com.sun.star.awt import XItemListener, XActionListener
-        except ImportError:
-            return
-        host = self
-
-        class _Item(unohelper.Base, XItemListener):  # type: ignore[misc]
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-                return
-
-            def itemStateChanged(self, rEvent: Any) -> None:  # noqa: N802 -- UNO XItemListener
-                _ovlog("itemStateChanged ignore=%s open=%s", host._ignore_item, host._open)
-                if host._ignore_item or not host._open:
-                    return
-                host.accept_selected()
-
-        class _Act(unohelper.Base, XActionListener):  # type: ignore[misc]
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-                return
-
-            def actionPerformed(self, rEvent: Any) -> None:  # noqa: N802 -- UNO XActionListener
-                _ovlog("actionPerformed open=%s", host._open)
-                if host._open:
-                    host.accept_selected()
-
-        if hasattr(ctrl, "addItemListener"):
-            try:
-                ctrl.addItemListener(_Item())
-                _ovlog("item listener attached")
-            except Exception:
-                _ovlog("item listener attach failed", exc_info=True)
-        if hasattr(ctrl, "addActionListener"):
-            try:
-                ctrl.addActionListener(_Act())
-                _ovlog("action listener attached")
-            except Exception:
-                _ovlog("action listener attach failed", exc_info=True)
-
     def _attach_keys(self) -> None:
         """Forward Esc/Enter/arrows when the list stole focus from Ask."""
         try:

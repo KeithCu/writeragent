@@ -240,12 +240,37 @@ def _insert_html_at_cursor(doc: Any, cursor: Any, html_fragment: str) -> None:
     insert_html_fragment_at_cursor(cursor, html_fragment, extra_css=_SIDEBAR_LIST_CSS)
 
 
-def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> None:
+def _sidebar_import_html(text: str) -> str:
+    """Body fragment for the sidebar HTML filter.
+
+    What was wrong: a reply that already contained ``<html>`` and ``<body>``
+    went to ``insert_html_at_cursor``. ``_wrap_html_fragment`` returns that
+    document unchanged, so head and script stayed in the import.
+    Why this change: extract the body here. The Writer import wrapper stays
+    as it is.
+    """
+    lowered = text.lower()
+    if (
+        "<html" in lowered
+        and "</html>" in lowered
+        and "<body" in lowered
+        and "</body>" in lowered
+    ):
+        from plugin.writer.format import _strip_html_boilerplate
+
+        return _strip_html_boilerplate(text)
+    return text
+
+
+def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> bool:
     """Append a complete message to a Writer document (hidden doc for RichTextControl copy).
 
     Inserts a bold, colored role prefix (``You:`` / ``Assistant:``) then
     imports *text* as HTML via Writer's StarWriter HTML filter so that
     ``<strong>``, ``<em>``, ``<code>``, ``<ul>`` etc. render natively.
+
+    Returns False when the HTML filter fails. The raw tags are not inserted;
+    the caller plain-appends the stripped text.
     """
     try:
         text_obj = doc.getText()
@@ -289,12 +314,16 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             used_html_import = False
             if looks_html:
                 try:
-                    importer.insert_html_at_cursor(cursor, text)
+                    importer.insert_html_at_cursor(cursor, _sidebar_import_html(text))
                     used_html_import = True
                 except Exception:
-                    log.debug("HTML import failed, falling back to plain text insert")
-                    cursor.gotoEnd(False)
-                    text_obj.insertString(cursor, text, False)
+                    # What was wrong: the raw tags were insertString'd, used_html_import
+                    # stayed false, and the copy reported success, so the sidebar showed
+                    # the tags. The log was debug, which release builds (WARN) never print.
+                    # Why this change: leave the body out and return False so the caller
+                    # plain-appends the stripped text.
+                    log.warning("HTML import failed; caller will plain-append stripped text role=%s", role)
+                    return False
             else:
                 text_obj.insertString(cursor, text, False)
 
@@ -308,9 +337,11 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             if not used_html_import:
                 body_range.CharColor = theme.user_color if role == "user" else theme.assistant_color
             importer.tighten_list_indent(body_range)
+        return True
 
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
+        return False
 
 
 def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool = True) -> None:
@@ -331,14 +362,18 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     ``tool_loop_state``) so this path does not paste the previous HTML assistant
     over ``[Response truncated]`` / ``[No text from model]`` (Packet C).
     """
-    if getattr(listener, "_terminal_status", None) == "Error":
-        listener._plain_text_stripper = None
-        return
-    if allow_rerender:
-        listener.rerender_rich_text_session()
+    # What was wrong: the Error path cleared the stripper without finalize(),
+    # and a leftover unclosed tag was appended only when there was no rich
+    # widget. The default sidebar has the widget, so Stop and error dropped
+    # that tail. A successful rerender already replaced it from the session.
+    replaced = False
+    if getattr(listener, "_terminal_status", None) != "Error" and allow_rerender:
+        rerender = getattr(listener, "rerender_rich_text_session", None)
+        if callable(rerender):
+            replaced = rerender() is True
     stripper = getattr(listener, "_plain_text_stripper", None)
     if stripper is not None:
         leftover = stripper.finalize()
         listener._plain_text_stripper = None
-        if leftover and getattr(listener, "rich_text_widget", None) is None:
+        if leftover and not replaced:
             listener._append_response(leftover, role="assistant")
