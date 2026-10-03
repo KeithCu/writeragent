@@ -35,8 +35,6 @@ from plugin.framework.worker_pool import BackgroundHandle, StderrTail, get_subpr
 
 log = logging.getLogger(__name__)
 
-_LOG = "ABP"
-
 _JSONRPC_VERSION = "2.0"
 _ACP_PROTOCOL_VERSION = 1
 
@@ -249,11 +247,20 @@ class ACPConnection:
             # Why: readline() returns b"" at EOF, so the poll() check only
             # dropped buffered bytes. Waiters that still have no response
             # are failed by the sweep below.
-            while self._running and self._proc:
+            while self._running:
+                # What was wrong: the while test read self._proc, then the
+                # body read self._proc.stdout. stop() sets self._proc to None
+                # between those two reads, so readline raised AttributeError
+                # and the except logged "Reader error". Why: copy the process
+                # once per iteration. None means stop() already claimed it;
+                # leave without touching stdout.
+                proc = self._proc
+                if proc is None:
+                    break
                 try:
-                    if self._proc.stdout is None:
+                    if proc.stdout is None:
                         break
-                    raw = self._proc.stdout.readline()
+                    raw = proc.stdout.readline()
                     if not raw:
                         break
                     # Popen is binary. Reusing `line` for the decoded str leaves

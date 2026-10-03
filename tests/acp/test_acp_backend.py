@@ -624,4 +624,48 @@ class TestStopAndShutdown:
         backend._ensure_session.assert_not_called()
         assert (backend._stop_requested) is True
 
+    def test_notification_callback_is_registered_before_session_new(self):
+        """A session/update emitted during session/new must reach the queue.
+
+        What was wrong: send() installed the callback after session/new.
+        Notifications during that request saw no callback and were dropped.
+        """
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+        order: list[str] = []
+        installed = []
+
+        def set_notification_callback(callback):
+            if callback is not None:
+                order.append("callback")
+                installed.append(callback)
+
+        def send_request(method, params=None, timeout=120):
+            order.append(method)
+            if method == "session/new":
+                assert installed
+                callback = installed[0]
+                callback(
+                    "session/update",
+                    {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "during-new"}}},
+                    None,
+                )
+                return {"sessionId": "sess-early"}
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(method)
+
+        conn.set_notification_callback.side_effect = set_notification_callback
+        conn.send_request.side_effect = send_request
+
+        def ensure_connection():
+            backend._conn = conn
+
+        backend._ensure_connection = ensure_connection
+        q = queue.Queue()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        assert (order.index("callback")) < (order.index("session/new"))
+        assert ((StreamQueueKind.CHUNK, "during-new")) in (_drain(q))
+
 

@@ -421,3 +421,41 @@ sys.stdout.buffer.flush()
             if worker.ident is not None:
                 worker.join(timeout=2)
             reader.join(timeout=2)
+
+    def test_proc_cleared_between_check_and_readline_is_not_a_reader_error(self, caplog):
+        """stop() may null _proc after the loop sees it and before stdout.
+
+        What was wrong: the body read self._proc.stdout. That second lookup
+        was None, so AttributeError was logged as Reader error. The second
+        _proc read here is None, the same window stop() opens.
+        """
+        caplog.set_level("ERROR", logger="plugin.acp.acp_connection")
+        proc = _live_proc()
+        reads = {"n": 0}
+
+        def readline() -> bytes:
+            reads["n"] += 1
+            return b""
+
+        proc.stdout.readline.side_effect = readline
+
+        class _SecondProcReadIsNone(ACPConnection):
+            def __getattribute__(self, name: str):
+                if name == "_proc":
+                    count = object.__getattribute__(self, "_proc_reads")
+                    object.__setattr__(self, "_proc_reads", count + 1)
+                    if count == 0:
+                        return object.__getattribute__(self, "_live_proc")
+                    return None
+                return object.__getattribute__(self, name)
+
+        conn = _SecondProcReadIsNone(cmd_line=["agent"])
+        conn._live_proc = proc
+        conn._proc_reads = 0
+        conn._running = True
+        reader = threading.Thread(target=conn._reader_loop, daemon=True)
+        reader.start()
+        reader.join(timeout=2)
+        assert reader.is_alive() is False
+        assert reads["n"] == 1
+        assert "Reader error" not in caplog.text
