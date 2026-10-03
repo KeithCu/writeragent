@@ -289,7 +289,7 @@ png_bytes = base64.b64decode(b64)
 
 - **Lazy-init** one `PaddleOCR` instance per warm worker process (module-level singleton; reset on worker respawn).
 - Phase 1 **`params`:** optional `lang` (string, default `"en"`).
-- Use current PaddleOCR 3.x Python API (`PaddleOCR(...)` + `ocr` / `predict` per installed version — implementer reads installed package docs).
+- Use current PaddleOCR 3.x Python API. Construct `PaddleOCR(use_angle_cls=True, lang=...)` and `PPStructureV3(...)` without `show_log` (3.x / PaddleX rejects it; 2.x defaults it off). Call 3.x `predict(image)` — `ocr(image, cls=True)` forwards `cls` into keyword-only `predict` and raises `TypeError`. 2.x still uses `ocr(image, cls=True)`.
 - **3.x Result parsing** ([`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py)): `ocr` / `predict` returns a Result whose `.json` is `{"res": {rec_texts, rec_scores, rec_polys}}`, not the 2.x `[[box, (text, score)], ...]` line list. PPStructureV3 pages are the same wrapper with `parsing_res_list` (`block_label`, `block_content`, `block_bbox`) and `table_res_list[].pred_html`. Both 3.x and 2.x shapes parse. Missing `PPStructureV3` is `PADDLEOCR_UNAVAILABLE`.
 - Map engine output → [§10](#10-extract_text-result-json-normative) (`html`, `full_text`, `regions`, `metrics`).
 - **`ImportError` / missing paddle:** return `{"status": "error", "code": "PADDLEOCR_UNAVAILABLE", ...}` — do not raise uncaught from venv for missing pip packages.
