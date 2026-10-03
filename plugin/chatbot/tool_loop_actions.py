@@ -204,6 +204,28 @@ def _may_store_closed_turn(host: Any, turn: SendTurn) -> bool:
     return getattr(host, "_active_turn", None) is turn
 
 
+_STOP_BANNER = "[Stopped by user]"
+
+
+def _stop_banner_applies(host: Any, turn: SendTurn, text: str) -> bool:
+    """The stop line still belongs on this turn after the generation bump.
+
+    What was wrong: Stop bumps the generation, then the drain appends
+    ``[Stopped by user]``. ``chunk_applies`` treated that line like a late
+    stream chunk and dropped it, so the sidebar never showed the marker
+    the stop tests require. Why: the banner is the close of the turn that
+    is still active, same rule as storing the partial. A newer send, Clear,
+    or a mode change fails the check and the line stays off.
+    """
+    if text.strip() != _STOP_BANNER:
+        return False
+    if not _may_store_closed_turn(host, turn):
+        return False
+    # A mode change swapped the session on screen. Do not paint this
+    # turn's banner over that transcript.
+    return getattr(host, "session", None) is turn.session
+
+
 def chunk_applies(host: Any, turn: SendTurn | None, text: str, *, record: bool) -> bool:
     """UI applies a chunk only when the generation still matches."""
     if not isinstance(turn, SendTurn):
@@ -212,6 +234,9 @@ def chunk_applies(host: Any, turn: SendTurn | None, text: str, *, record: bool) 
             return True
         return _turn_accepts_write(host, session)
     if turn.generation != send_generation(host):
+        if _stop_banner_applies(host, turn, text):
+            # Leave turn.emitted as the answer bytes. The banner is its own row.
+            return True
         return False
     if turn.messages is not None and getattr(turn.session, "messages", None) is not turn.messages:
         return False
@@ -377,6 +402,10 @@ def build_tool_execute_fn(
         status_callback: Callable[[str], None] | None = None,
         append_thinking_callback: Callable[[str], None] | None = None,
         stop_checker: Callable[[], bool] | None = None,
+        *,
+        captured_turn: Any = None,
+        captured_q: Any = None,
+        captured_call_id: str | None = None,
     ) -> str:
         from plugin.main import get_tools as _get_tools
 
@@ -404,12 +433,29 @@ def build_tool_execute_fn(
         needs_document_research_ui = delegate_domain == "document_research"
         if needs_web_research_ui or needs_document_research_ui:
 
+            def _subagent_target() -> tuple[Any, Any]:
+                # What was wrong: chat lines and the approval dialog were put
+                # on host._active_q when the callback ran. Stop or a new send
+                # had replaced that queue, so the text or the dialog landed
+                # on the next turn. Why: the tool worker already captured
+                # this turn's queue at spawn and passes it in. Same put path
+                # as TOOL_DONE.
+                if captured_turn is not None or captured_q is not None:
+                    return captured_turn, captured_q
+                live = getattr(host, "_active_turn", None)
+                live_q = getattr(live, "queue", None) if isinstance(live, SendTurn) else None
+                if live_q is None:
+                    live_q = getattr(host, "_active_q", None)
+                return live, live_q
+
             def _sub_agent_chat_append(text: str) -> None:
-                aq = getattr(host, "_active_q", None)
-                if aq is not None:
-                    aq.put((StreamQueueKind.CHUNK, text))
-                cid = getattr(host, "_current_tool_call_id", None)
-                streamed_session = session_for_turn(host)
+                emit_turn, emit_q = _subagent_target()
+                put_for_turn(host, emit_turn, emit_q, (StreamQueueKind.CHUNK, text))
+                cid = captured_call_id if captured_call_id is not None else getattr(host, "_current_tool_call_id", None)
+                if isinstance(emit_turn, SendTurn) and emit_turn.session is not None:
+                    streamed_session = emit_turn.session
+                else:
+                    streamed_session = session_for_turn(host)
                 if cid and streamed_session is not None:
                     if not hasattr(streamed_session, "tool_streamed_texts"):
                         streamed_session.tool_streamed_texts = {}
@@ -423,9 +469,9 @@ def build_tool_execute_fn(
                 if needs_web_research_ui and get_config_bool("chatbot.prompt_for_web_research"):
 
                     def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
-                        q = getattr(host, "_active_q", None)
+                        emit_turn, q = _subagent_target()
                         if q is None:
-                            log.warning("tool_loop: web_research approval skipped (_active_q missing)")
+                            log.warning("tool_loop: web_research approval skipped (queue missing)")
                             return True
                         event = threading.Event()
                         # Use setattr/getattr to avoid static attribute errors on Event.
@@ -433,15 +479,15 @@ def build_tool_execute_fn(
                         setattr(event, "query_override", None)
                         from plugin.framework.queue_executor import wait_for_approval
 
-                        q.put((StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
+                        put_for_turn(host, emit_turn, q, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
                         checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
                         # event.wait() ignored Stop. Sidebar close latches the
                         # checker and never sets the event, so this worker parked.
                         if not wait_for_approval(event, checker):
-                            q.put((StreamQueueKind.STOPPED,))
+                            put_for_turn(host, emit_turn, q, (StreamQueueKind.STOPPED,))
                             return (False, None)
                         if not getattr(event, "approved", False):
-                            q.put((StreamQueueKind.STOPPED,))
+                            put_for_turn(host, emit_turn, q, (StreamQueueKind.STOPPED,))
                         return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
                     approval_cb = _web_approval
@@ -644,6 +690,16 @@ class ToolLoopEffectInterpreter:
         def emit(item: Any) -> None:
             put_for_turn(host, turn, worker_q, item)
 
+        # What was wrong: the async body read host._active_execute_tool_fn
+        # and host._active_model when the thread ran. A new send replaced
+        # both while this tool was still in flight, so the old call ran
+        # against the new send. Why: close over the values this spawn
+        # already had, the same way worker_q is captured above.
+        execute_tool_fn = host._active_execute_tool_fn
+        model = host._active_model
+        supports_status = host._active_supports_status
+        bound_stop = host.resolve_stop_checker()
+
         image_model_override = host.image_model_selector.getText() if host.image_model_selector else None
         if image_model_override and func_name == "image_generate":
             func_args["image_model"] = image_model_override
@@ -659,10 +715,10 @@ class ToolLoopEffectInterpreter:
                     def tool_thinking_callback(msg: str) -> None:
                         emit((StreamQueueKind.TOOL_THINKING, msg))
 
-                    if host._active_supports_status:
-                        res = host._active_execute_tool_fn(func_name, func_args, host._active_model, host.ctx, status_callback=tool_status_callback, append_thinking_callback=tool_thinking_callback, stop_checker=host.resolve_stop_checker())
+                    if supports_status:
+                        res = execute_tool_fn(func_name, func_args, model, host.ctx, status_callback=tool_status_callback, append_thinking_callback=tool_thinking_callback, stop_checker=bound_stop, captured_turn=turn, captured_q=worker_q, captured_call_id=call_id)
                     else:
-                        res = host._active_execute_tool_fn(func_name, func_args, host._active_model, host.ctx, stop_checker=host.resolve_stop_checker())
+                        res = execute_tool_fn(func_name, func_args, model, host.ctx, stop_checker=bound_stop, captured_turn=turn, captured_q=worker_q, captured_call_id=call_id)
                     emit((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                 except Exception as e:
                     _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q)
@@ -674,10 +730,10 @@ class ToolLoopEffectInterpreter:
             t0 = time.perf_counter()
             log.debug("sync tool start name=%s", func_name)
             try:
-                if host._active_supports_status:
-                    res = host._active_execute_tool_fn(func_name, func_args, host._active_model, host.ctx, status_callback=tool_status_callback)
+                if supports_status:
+                    res = execute_tool_fn(func_name, func_args, model, host.ctx, status_callback=tool_status_callback)
                 else:
-                    res = host._active_execute_tool_fn(func_name, func_args, host._active_model, host.ctx)
+                    res = execute_tool_fn(func_name, func_args, model, host.ctx)
                 log.debug("sync tool done name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
                 emit((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
             except Exception as e:
