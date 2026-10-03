@@ -12,11 +12,12 @@ from __future__ import annotations
 import datetime as dt
 import math
 import re
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, cast
 
 import numpy as np
 
-from .coerce import is_missing_value
+from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
 
 __all__ = [
@@ -79,12 +80,37 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
         return float("nan")
 
 
+# Excel/Calc numeric formats, not Python format specs. "0.00" in the format
+# mini-language is zero-padding with precision 0, so text(1234.5, "0.00") was
+# "1e+03". Stripping "#" and "," from "#,##0" also dropped the thousands separator.
+_TEXT_NUMBER_FORMATS: dict[str, tuple[int, bool]] = {"0": (0, False), "0.00": (2, False), "#,##0": (0, True)}
+
+
+def _format_number_pattern(value: float, places: int, grouped: bool) -> str:
+    """Round half away from zero and apply one of the three numeric TEXT specs."""
+    if not math.isfinite(value):
+        return str(value)
+    quant = Decimal(1).scaleb(-places)
+    rounded = Decimal(str(value)).quantize(quant, rounding=ROUND_HALF_UP)
+    if places == 0:
+        whole = int(rounded)
+        # int(Decimal("-0")) is 0; Calc shows 0, not "-0".
+        if whole == 0:
+            return "0"
+        return f"{whole:,}" if grouped else str(whole)
+    negative = rounded < 0
+    body = f"{abs(rounded):.{places}f}"
+    return f"-{body}" if negative else body
+
+
 def text(val: Any, fmt: Any) -> str:
     fmt_str = str(fmt).strip('"').strip("'")
-    if fmt_str in ("0", "0.00", "#,##0"):
+    spec = _TEXT_NUMBER_FORMATS.get(fmt_str)
+    if spec is not None:
+        places, grouped = spec
         try:
-            return format(float(val), fmt_str.replace("#", "").replace(",", "") or ".0f")
-        except (ValueError, TypeError):
+            return _format_number_pattern(float(val), places, grouped)
+        except (ValueError, TypeError, OverflowError, InvalidOperation):
             return str(val)
     if fmt_str == "MMMM":
         try:
@@ -194,11 +220,24 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
 
 
 def time(hour: Any, minute: Any, second: Any) -> float:
-    h = int(float(hour))
-    m = int(float(minute))
-    s = int(float(second))
-    total_seconds = h * 3600 + m * 60 + s
-    return float(total_seconds / 86400.0)
+    # ScInterpreter::ScGetTime (sc/source/core/tool/interpr2.cxx) does
+    # fmod(hour*3600 + minute*60 + second, 86400) / 86400. Truncating each
+    # component and dividing by 86400 made time(24,0,0) return 1 and let a
+    # negative total stay negative. A negative remainder is Calc Err:502;
+    # this helper returns NaN for that, same as its other numeric failures.
+    # math.fmod keeps the dividend's sign, matching C fmod.
+    try:
+        total = float(hour) * 3600.0 + float(minute) * 60.0 + float(second)
+    except (TypeError, ValueError, OverflowError):
+        return float("nan")
+    if not math.isfinite(total):
+        return float("nan")
+    wrapped = math.fmod(total, 86400.0)
+    if wrapped < 0.0 or not math.isfinite(wrapped):
+        return float("nan")
+    if wrapped == 0.0:
+        return 0.0
+    return float(wrapped / 86400.0)
 
 
 def timevalue(text: Any) -> float:
@@ -252,18 +291,23 @@ def trend(*args: Any) -> Any:
 
 
 def trimmean(r: Any, percent: Any) -> float:
-    arr = np.asarray(r, dtype=float).ravel()
-    arr = arr[~np.isnan(arr)]
-    if not arr.size:
+    # dtype=float on the whole array raises ValueError for text or an error
+    # token and used to escape the helper. Sibling stats return NaN instead.
+    try:
+        arr = np.asarray(r, dtype=float).ravel()
+        arr = arr[~np.isnan(arr)]
+        if not arr.size:
+            return float("nan")
+        p = float(percent)
+        if p < 0 or p >= 1:
+            return float("nan")
+        k = int(len(arr) * p / 2)
+        if k == 0:
+            return float(np.mean(arr))
+        arr.sort()
+        return float(np.mean(arr[k:-k]))
+    except (ValueError, TypeError):
         return float("nan")
-    p = float(percent)
-    if p < 0 or p >= 1:
-        return float("nan")
-    k = int(len(arr) * p / 2)
-    if k == 0:
-        return float(np.mean(arr))
-    arr.sort()
-    return float(np.mean(arr[k:-k]))
 
 
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
@@ -308,19 +352,34 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
         return float("nan")
 
 
-def type(val: Any) -> float:
-    if is_missing_value(val):
-        return 1.0
-    if isinstance(val, (int, float)) and not isinstance(val, bool):
-        return 1.0
+def _is_calc_error(val: Any) -> bool:
+    """NaN (NA()) or a real Calc error token. "#hashtag" is text, not an error."""
     if isinstance(val, str):
-        if val.startswith("#"):
-            return 16.0
-        return 2.0
+        return val.strip() in _LO_ERROR_TOKENS
+    if isinstance(val, bool):
+        return False
+    if isinstance(val, (float, np.floating)):
+        return math.isnan(float(val))
+    return False
+
+
+def type(val: Any) -> float:
+    # is_missing_value is true for NaN and for #VALUE!/#N/A/..., so those took
+    # the number branch (1). LO/Excel TYPE is 16 for errors. Checking any
+    # string that starts with "#" also classified "#hashtag" as an error.
+    if _is_calc_error(val):
+        return 16.0
     if isinstance(val, bool):
         return 4.0
+    if isinstance(val, (int, float)) or isinstance(val, (np.integer, np.floating)):
+        return 1.0
+    if isinstance(val, str):
+        return 2.0
     if isinstance(val, (list, np.ndarray)):
         return 64.0
+    # Blank cell (None). An empty string is text and already returned 2.
+    if val is None or is_missing_value(val):
+        return 1.0
     return 1.0
 
 
@@ -344,27 +403,37 @@ def unicode(text: Any) -> float:
         return float("nan")
 
 
+def _unique_items(items: list[Any], exactly_once: bool) -> list[Any]:
+    counts: dict[Any, int] = {}
+    seen: list[Any] = []
+    for item in items:
+        counts[item] = counts.get(item, 0) + 1
+        if item not in seen:
+            seen.append(item)
+    if exactly_once:
+        return [item for item in seen if counts[item] == 1]
+    return seen
+
+
 def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[Any]:
+    # `ndim == 1 or not by_col` flattened every cell whenever by_col was falsy,
+    # and the row comparison ran only for a truthy by_col. Calc/Excel by_col
+    # false uniques rows; true uniques columns. exactly_once is unique_only.
     data = np.asarray(arr)
     if data.size == 0:
         return []
-    if data.ndim == 1 or not bool(by_col):
-        flat = data.ravel().tolist()
-        seen = []
-        counts: dict[Any, int] = {}
-        for x in flat:
-            counts[x] = counts.get(x, 0) + 1
-            if x not in seen:
-                seen.append(x)
-        if bool(unique_only):
-            return [x for x in seen if counts[x] == 1]
-        return seen
-    rows = [tuple(r) for r in data]
-    seen_rows = []
-    for row in rows:
-        if row not in seen_rows:
-            seen_rows.append(row)
-    return [list(r) for r in seen_rows]
+    once = bool(unique_only)
+    if data.ndim < 2:
+        return _unique_items(data.reshape(-1).tolist(), once)
+    if not bool(by_col):
+        rows = [tuple(row) for row in data.tolist()]
+        return [list(row) for row in _unique_items(rows, once)]
+    cols = [tuple(data[:, i].tolist()) for i in range(data.shape[1])]
+    kept = _unique_items(cols, once)
+    if not kept:
+        return []
+    height = len(kept[0])
+    return [[col[row] for col in kept] for row in range(height)]
 
 
 def vara(*args: Any) -> float:
@@ -391,29 +460,74 @@ def varpa(*args: Any) -> float:
     return float(np.var(vals, ddof=0))
 
 
+# return_type 11..17: the day that is numbered 1, as date.weekday() (Monday=0).
+_WEEKDAY_ONES: dict[int, int] = {11: 0, 12: 1, 13: 2, 14: 3, 15: 4, 16: 5, 17: 6}
+
+# System-1 WEEKNUM week start, same Monday=0 numbering. 21 and 150 are ISO.
+_WEEKNUM_WEEK_START: dict[int, int] = {1: 6, 2: 0, 11: 0, 12: 1, 13: 2, 14: 3, 15: 4, 16: 5, 17: 6}
+
+
 def weekday(serial: Any, return_type: int | float = 1) -> float:
     try:
         d = dt.date.fromordinal(int(float(serial)) + 693594)
-    except Exception:
+        rt = int(float(return_type))
+    except (TypeError, ValueError, OverflowError, OSError):
         return float("nan")
-    rt = int(float(return_type))
     wd = d.weekday()
-    if rt == 1:
-        return float(wd + 2 if wd < 6 else 1)
-    if rt == 2:
-        return float(wd + 1)
+    # date.weekday() is already Monday=0 .. Sunday=6, which is return_type 3.
+    # (wd+6)%7 numbered Sunday as 0, so a Sunday came back as 5. Types 11-17
+    # were missing and fell through to Monday=1 .. Sunday=7. An unknown type
+    # is Calc Err:502; return NaN rather than that fallthrough.
     if rt == 3:
-        return float((wd + 6) % 7)
-    return float(wd + 1)
+        return float(wd)
+    if rt == 1:
+        rt = 17
+    elif rt == 2:
+        rt = 11
+    start = _WEEKDAY_ONES.get(rt)
+    if start is None:
+        return float("nan")
+    return float((wd - start) % 7 + 1)
+
+
+def _system1_week_number(day: dt.date, week_start: int) -> int:
+    """Week containing January 1 is week 1 (LibreOffice Date::GetWeekOfYear, min days 1).
+
+    tools/source/datetime/tdate.cxx. week_start uses Monday=0, matching
+    DayOfWeek and date.weekday(). A late December date that sits in next
+    year's week 1 is numbered 1, not 53 or 54.
+    """
+    jan1 = dt.date(day.year, 1, 1)
+    first = (jan1.weekday() + (7 - week_start)) % 7
+    day_of_year = day.timetuple().tm_yday - 1
+    week = (first + day_of_year) // 7 + 1
+    if week == 54:
+        return 1
+    if week == 53:
+        leap = day.year % 4 == 0 and (day.year % 100 != 0 or day.year % 400 == 0)
+        days_in_year = 366 if leap else 365
+        next_jan1 = dt.date(day.year + 1, 1, 1)
+        next_first = (next_jan1.weekday() + (7 - week_start)) % 7
+        if day_of_year > (days_in_year - next_first - 1):
+            return 1
+    return week
 
 
 def weeknum(serial: Any, return_type: int | float = 1) -> float:
+    # The body ignored return_type and always returned the ISO week. ISO is
+    # only return_type 21 (and 150, the Gnumeric alias). isoweeknum already
+    # covers that path; system 1 is a different numbering.
     try:
-        d = dt.date.fromordinal(int(float(serial)) + 693594)
-    except Exception:
+        day = dt.date.fromordinal(int(float(serial)) + 693594)
+        rt = int(float(return_type))
+    except (TypeError, ValueError, OverflowError, OSError):
         return float("nan")
-    iso = d.isocalendar()
-    return float(iso[1])
+    if rt in (21, 150):
+        return float(day.isocalendar()[1])
+    start = _WEEKNUM_WEEK_START.get(rt)
+    if start is None:
+        return float("nan")
+    return float(_system1_week_number(day, start))
 
 
 def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
@@ -515,6 +629,18 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
 
 
+def _wildcard_fullmatch(pattern: str, text: str) -> bool:
+    """Excel-style * and ? against the whole text. Same translation xlookup already used."""
+    escaped = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+    return re.fullmatch(escaped, text) is not None
+
+
+def _scalar_if_singleton(values: list[Any]) -> Any:
+    if len(values) == 1:
+        return values[0]
+    return values
+
+
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any | None = None, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     l_flat = np.asarray(lookup_arr).ravel()
     r_flat = np.asarray(return_arr)
@@ -549,10 +675,9 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
                     pass
     elif match_mode == 2:
         if isinstance(lookup_val, str):
-            pattern = re.escape(lookup_val).replace(r"\*", ".*").replace(r"\?", ".")
-            regex = re.compile(f"^{pattern}$")
             for idx in indices:
-                if isinstance(l_flat[idx], str) and regex.match(l_flat[idx]):
+                cell = l_flat[idx]
+                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
                     best_idx = idx
                     break
         else:
@@ -567,19 +692,24 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     if r_flat.ndim == 2:
         l_shape = np.asarray(lookup_arr).shape
         if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
-            return r_flat[best_idx].tolist()
+            return _scalar_if_singleton(r_flat[best_idx].tolist())
         if best_idx < r_flat.shape[1]:
-            return r_flat[:, best_idx].tolist()
+            # A horizontal 1×N lookup into a one-row return sliced out a
+            # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.
+            return _scalar_if_singleton(r_flat[:, best_idx].tolist())
         return r_flat.ravel()[best_idx]
     return r_flat.ravel()[best_idx]
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
-    l_flat = np.asarray(lookup_arr).ravel()
-    indices = list(range(len(l_flat)))
-    if int(float(search_mode)) == -1:
-        indices.reverse()
-    mm = int(float(match_mode))
+    try:
+        l_flat = np.asarray(lookup_arr).ravel()
+        indices = list(range(len(l_flat)))
+        if int(float(search_mode)) == -1:
+            indices.reverse()
+        mm = int(float(match_mode))
+    except (TypeError, ValueError, OverflowError):
+        return float("nan")
     if mm == 0:
         for idx in indices:
             if l_flat[idx] == lookup_val:
@@ -601,6 +731,18 @@ def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search
             except (ValueError, TypeError):
                 pass
         return float(best_idx + 1) if best_idx is not None else float("nan")
+    elif mm == 2:
+        # match_mode 2 used to fall through to NaN. Wildcards match xlookup (* and ?).
+        if isinstance(lookup_val, str):
+            for idx in indices:
+                cell = l_flat[idx]
+                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
+                    return float(idx + 1)
+        else:
+            for idx in indices:
+                if l_flat[idx] == lookup_val:
+                    return float(idx + 1)
+        return float("nan")
     return float("nan")
 
 
@@ -620,12 +762,73 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
         return float("nan")
 
 
-def xor(*args: Any) -> bool:
-    true_count = 0
+def _is_calc_range(arg: Any) -> bool:
+    if isinstance(arg, (str, bytes, bytearray)):
+        return False
+    if isinstance(arg, np.ndarray):
+        return arg.ndim >= 1
+    return isinstance(arg, (list, tuple))
+
+
+def _flatten_range(arg: Any) -> list[Any]:
+    if isinstance(arg, np.ndarray):
+        return [v.item() if isinstance(v, np.generic) else v for v in arg.ravel()]
+    flat: list[Any] = []
+    for val in arg:
+        if _is_calc_range(val):
+            flat.extend(_flatten_range(val))
+        else:
+            flat.append(val)
+    return flat
+
+
+def _xor_logical(val: Any, *, in_range: bool) -> tuple[str, bool | float | str]:
+    if isinstance(val, np.generic):
+        val = val.item()
+    if isinstance(val, (bool, np.bool_)):
+        return ("ok", bool(val))
+    if isinstance(val, (int, np.integer)) and not isinstance(val, bool):
+        return ("ok", int(val) != 0)
+    if isinstance(val, (float, np.floating)):
+        number = float(val)
+        if math.isnan(number):
+            return ("err", float("nan"))
+        return ("ok", number != 0.0)
+    if isinstance(val, str):
+        token = val.strip()
+        if token in _LO_ERROR_TOKENS:
+            return ("err", token)
+        # Text and blanks inside a range do not count. A text argument is #VALUE!.
+        if in_range:
+            return ("skip", False)
+        return ("err", "#VALUE!")
+    if val is None:
+        return ("skip", False) if in_range else ("err", "#VALUE!")
+    return ("err", "#VALUE!")
+
+
+def xor(*args: Any) -> bool | float | str:
+    # bool(list) is True for any non-empty list, so a range of two TRUEs was
+    # True. bool(ndarray) raises ValueError ("ambiguous truth value"). Walk
+    # scalars instead. Calc ignores text in a range, rejects a text argument
+    # with #VALUE!, and propagates an error token from a cell.
+    trues = 0
+    saw = False
     for arg in args:
-        if bool(arg):
-            true_count += 1
-    return true_count % 2 == 1
+        in_range = _is_calc_range(arg)
+        values = _flatten_range(arg) if in_range else (arg,)
+        for val in values:
+            kind, payload = _xor_logical(val, in_range=in_range)
+            if kind == "err":
+                return payload
+            if kind == "skip":
+                continue
+            saw = True
+            if payload is True:
+                trues += 1
+    if not saw:
+        return "#VALUE!"
+    return trues % 2 == 1
 
 
 def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
