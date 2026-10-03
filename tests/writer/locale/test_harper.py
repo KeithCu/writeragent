@@ -1494,3 +1494,171 @@ def test_lint_with_client_silent_when_lint_is_fast(caplog: pytest.LogCaptureFixt
     with patch("plugin.writer.locale.harper.time.monotonic", side_effect=lambda: next(times)):
         harper_module._lint_with_client(mock_client, "Hello world.", "en-US")
     assert not any("slow result" in r.message for r in caplog.records)
+
+
+def test_reader_sentinel_stays_on_captured_queue() -> None:
+    """A superseded stdout reader must not put EOF onto the replacement queue."""
+    client = HarperLSClient.__new__(HarperLSClient)
+    client.proc = MagicMock()
+    client.proc.stdout = BytesIO(b"")
+    captured: queue.Queue[dict | None] = queue.Queue()
+    replacement: queue.Queue[dict | None] = queue.Queue()
+    client.stdout_queue = replacement
+    client._read_loop(captured)
+    assert captured.get_nowait() is None
+    assert replacement.empty()
+
+
+def test_initialize_joins_old_reader_before_new_queue() -> None:
+    """Queue swap happens after the previous reader is fenced."""
+    client = HarperLSClient.__new__(HarperLSClient)
+    client.binary_path = "/bin/harper-ls"
+    client._heartbeat_fn = None
+    client._doc_version = 3
+    client._doc_opened = True
+    client._lint_cancel = None
+    old_queue: queue.Queue[dict | None] = queue.Queue()
+    client.stdout_queue = old_queue
+    released = threading.Event()
+    order: list[str] = []
+
+    def old_reader(out_queue: queue.Queue[dict | None]) -> None:
+        released.wait(2.0)
+        out_queue.put(None)
+
+    old_thread = threading.Thread(target=old_reader, args=(old_queue,), daemon=True)
+    old_thread.start()
+    client.stdout_thread = old_thread
+
+    dead = MagicMock()
+    dead.poll.return_value = 0
+    dead.stdin = None
+    dead.stdout = BytesIO(b"")
+    client.proc = dead
+
+    def wrapped_join(thread: threading.Thread | None) -> None:
+        order.append("join")
+        released.set()
+        HarperLSClient._join_stdout_thread(client, thread)
+
+    def fake_read_loop(out_queue: queue.Queue[dict | None]) -> None:
+        del out_queue
+        order.append("new-reader")
+
+    fake_proc = MagicMock()
+    fake_proc.poll.return_value = None
+    fake_proc.stdout = BytesIO(b"")
+    fake_proc.stdin = BytesIO()
+    try:
+        with (
+            patch.object(client, "_join_stdout_thread", wrapped_join),
+            patch.object(client, "_read_loop", fake_read_loop),
+            patch.object(client, "_send_request", lambda *_a, **_k: {"id": 1, "result": {}}),
+            patch.object(client, "_write", lambda _payload: None),
+            patch("plugin.writer.locale.harper.subprocess.Popen", return_value=fake_proc),
+        ):
+            client._initialize()
+        if client.stdout_thread is not None:
+            client.stdout_thread.join(timeout=1.0)
+        assert order[0] == "join"
+        assert order.index("join") < order.index("new-reader")
+        assert client.stdout_queue is not old_queue
+        assert old_queue.get_nowait() is None
+    finally:
+        old_thread.join(timeout=1.0)
+        if client.stdout_thread is not None and client.stdout_thread.is_alive():
+            client.stdout_thread.join(timeout=1.0)
+
+
+def test_read_cancel_does_not_wait_for_lint_budget() -> None:
+    import time
+
+    client = HarperLSClient.__new__(HarperLSClient)
+    client.proc = MagicMock()
+    client.stdout_queue = queue.Queue()
+    client._lint_cancel = threading.Event()
+
+    def cancel_soon() -> None:
+        time.sleep(0.05)
+        assert client._lint_cancel is not None
+        client._lint_cancel.set()
+
+    threading.Thread(target=cancel_soon, daemon=True).start()
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="cancelled"):
+        client._read(time.monotonic() + 30.0)
+    assert time.monotonic() - started < 2.0
+
+
+def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
+    """After the caller budget, the worker must drop ``_HARPER_LOCK`` promptly."""
+    import time
+
+    started = threading.Event()
+    client = MagicMock()
+
+    def lint(
+        text: str,
+        bcp47: str = "en-US",
+        *,
+        heartbeat_fn: object = None,
+        deadline: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[object]:
+        del text, bcp47, heartbeat_fn, deadline
+        started.set()
+        limit = time.monotonic() + 5.0
+        while cancel_event is None or not cancel_event.is_set():
+            if time.monotonic() > limit:
+                raise AssertionError("worker was not cancelled")
+            time.sleep(0.02)
+        raise TimeoutError("Harper LSP operation cancelled")
+
+    client.lint.side_effect = lint
+
+    def fake_wait(done: threading.Event, ctx: object, *, timeout: float) -> bool:
+        del done, ctx, timeout
+        assert started.wait(2.0)
+        return False
+
+    t0 = time.monotonic()
+    with patch("plugin.framework.uno_context.wait_while_pumping", fake_wait):
+        with pytest.raises(TimeoutError, match="cancelled"):
+            harper_module._run_lint_off_caller_thread(client, "Hi.", "en-US", ctx=object(), restart=False)
+    assert time.monotonic() - t0 < 3.0
+    assert harper_module._HARPER_LOCK.acquire(timeout=0.5)
+    harper_module._HARPER_LOCK.release()
+
+
+def test_lint_restart_drops_lock_during_client_construction() -> None:
+    """Popen + LSP initialize must not run while ``_HARPER_LOCK`` is held."""
+    held_during: list[bool] = []
+
+    class FakeClient:
+        def __init__(
+            self,
+            binary_path: str,
+            user_config_dir: str = "",
+            bcp47: str = "en-US",
+            *,
+            heartbeat_fn: object = None,
+        ) -> None:
+            del bcp47, heartbeat_fn
+            held_during.append(harper_module._HARPER_LOCK.locked())
+            self.binary_path = binary_path
+            self.user_config_dir = user_config_dir
+            self.lint = MagicMock(return_value=[])
+            self.close = MagicMock()
+            self.is_alive = MagicMock(return_value=True)
+
+    dead = MagicMock()
+    dead.binary_path = "/bin/harper-ls"
+    dead.user_config_dir = "/tmp"
+    dead.lint.side_effect = RuntimeError("lsp dead")
+    harper_module._HARPER_CLIENT_CACHE[dead.binary_path] = dead
+    with patch.object(harper_module, "HarperLSClient", FakeClient):
+        with harper_module._HARPER_LOCK:
+            out = harper_module._lint_with_client(dead, "Hi.", "en-US", restart=True)
+    assert out == {"errors": []}
+    assert held_during == [False]
+    assert isinstance(harper_module._HARPER_CLIENT_CACHE[dead.binary_path], FakeClient)

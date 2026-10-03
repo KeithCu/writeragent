@@ -39,6 +39,12 @@ _INIT_PARAMS = {"processId": os.getpid(), "rootUri": "file:///tmp", "capabilitie
 
 _LINT_BUDGET_SEC = 15.0
 _INIT_BUDGET_SEC = 5.0
+# Caller cancel is observed on this cadence. One ``Queue.get(15s)`` used to
+# keep ``_HARPER_LOCK`` after the linguistic wait had already given up.
+_HARPER_CANCEL_POLL_SEC = 0.25
+_HARPER_CANCEL_JOIN_SEC = 1.0
+# close() unblocks read(); the reader should exit well inside this.
+_STDOUT_READER_JOIN_SEC = 0.5
 
 # LibreHarper often logs at WARN only. One line when lint+normalize exceeds
 # this budget so slowness shows up in writeragent_debug.log; faster calls stay quiet.
@@ -115,6 +121,7 @@ class HarperLSClient:
     uri: str
     _doc_version: int
     _doc_opened: bool
+    _lint_cancel: threading.Event | None
 
     def __init__(self, binary_path: str, user_config_dir: str = "", bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
         self.binary_path = binary_path
@@ -129,15 +136,36 @@ class HarperLSClient:
         self._doc_opened = False
         self.stdout_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self.stdout_thread: threading.Thread | None = None
+        self._lint_cancel = None
         self._initialize()
+
+    def _join_stdout_thread(self, thread: threading.Thread | None) -> None:
+        """Wait out the previous reader before publishing a new queue.
+
+        ``_read_loop`` used to ``put(None)`` on ``self.stdout_queue`` in
+        ``finally``. ``_initialize`` replaced that queue first, so the old
+        daemon's sentinel landed on the new queue and the next ``lint``
+        treated EOF as an empty diagnostic list.
+        """
+        if thread is None or not thread.is_alive():
+            return
+        if thread is threading.current_thread():
+            return
+        thread.join(timeout=_STDOUT_READER_JOIN_SEC)
 
     def _initialize(self) -> None:
         try:
+            old_thread = self.stdout_thread
             if self.proc is not None:
                 self.close()
+            # Fence the old reader before the swap. It also writes only to the
+            # queue captured when it started, so a late finally cannot poison
+            # the replacement if this join times out.
+            self._join_stdout_thread(old_thread)
             self._doc_version = 0
             self._doc_opened = False
-            self.stdout_queue = queue.Queue()
+            out_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
+            self.stdout_queue = out_queue
             _emit_progress(self._heartbeat_fn, "Starting harper-ls…")
             self.proc = cast(
                 "subprocess.Popen[bytes]",
@@ -150,7 +178,7 @@ class HarperLSClient:
                     **get_subprocess_creationflags(),
                 ),
             )
-            self.stdout_thread = threading.Thread(target=self._read_loop, daemon=True)  # nosemgrep: raw-uno-thread-ban
+            self.stdout_thread = threading.Thread(target=self._read_loop, args=(out_queue,), daemon=True)  # nosemgrep: raw-uno-thread-ban
             self.stdout_thread.start()
 
             init_params = dict(_INIT_PARAMS)
@@ -164,17 +192,22 @@ class HarperLSClient:
             log.exception("[harper] Failed to start/initialize harper-ls")
             raise RuntimeError(f"Failed to start/initialize harper-ls: {e}") from e
 
-    def _read_loop(self) -> None:
+    def _read_loop(self, out_queue: queue.Queue[dict[str, Any] | None]) -> None:
+        """Read LSP frames into the queue this thread was started with.
+
+        Binding the queue here (instead of ``self.stdout_queue`` at ``put``
+        time) keeps a superseded reader from pushing EOF onto the new client.
+        """
         try:
             while self.proc and self.proc.stdout:
                 msg = json_rpc_framing.read_frame(cast("BinaryIO", self.proc.stdout))
                 if msg is None:
                     break
-                self.stdout_queue.put(msg)
+                out_queue.put(msg)
         except Exception:
             log.exception("[harper] LSP reader failed")
         finally:
-            self.stdout_queue.put(None)
+            out_queue.put(None)
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -187,13 +220,21 @@ class HarperLSClient:
     def _read(self, deadline: float) -> dict[str, Any] | None:
         if not self.proc:
             raise RuntimeError("harper-ls process not running")
-        remaining = _deadline_remaining(deadline)
-        if remaining <= 0:
-            raise TimeoutError("Harper LSP operation timed out")
-        try:
-            return self.stdout_queue.get(timeout=remaining)
-        except queue.Empty:
-            raise TimeoutError("Harper LSP operation timed out")
+        # Snapshot the event for this lint. ``None`` keeps the old one-shot
+        # get so a plain timeout still fails on the first empty read.
+        cancel = self._lint_cancel
+        while True:
+            if cancel is not None and cancel.is_set():
+                raise TimeoutError("Harper LSP operation cancelled")
+            remaining = _deadline_remaining(deadline)
+            if remaining <= 0:
+                raise TimeoutError("Harper LSP operation timed out")
+            timeout = remaining if cancel is None else min(remaining, _HARPER_CANCEL_POLL_SEC)
+            try:
+                return self.stdout_queue.get(timeout=timeout)
+            except queue.Empty:
+                if cancel is None or _deadline_remaining(deadline) <= 0:
+                    raise TimeoutError("Harper LSP operation timed out")
 
     def _reply_workspace_configuration(self, req_id: int) -> None:
         self._write(_lsp_response(req_id, [self._lsp_settings]))
@@ -273,28 +314,44 @@ class HarperLSClient:
             log.exception("[harper] Failed to fetch codeActions")
         return suggestions
 
-    def lint(self, text: str, bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> list[Any]:
+    def lint(
+        self,
+        text: str,
+        bcp47: str = "en-US",
+        *,
+        heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
+        deadline: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[Any]:
         # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
         if heartbeat_fn is not None:
             self._heartbeat_fn = heartbeat_fn
-        if not self.is_alive():
-            self._initialize()
-
-        _emit_progress(self._heartbeat_fn, "Linting…")
-
-        self._apply_bcp47(bcp47)
-        self._doc_version += 1
-        version = self._doc_version
-        deadline = time.monotonic() + _LINT_BUDGET_SEC
-
+        if deadline is None:
+            deadline = time.monotonic() + _LINT_BUDGET_SEC
+        previous_cancel = self._lint_cancel
+        self._lint_cancel = cancel_event
         try:
-            self._sync_document(text, version)
-            diagnostics = self._collect_diagnostics(version, deadline)
-            return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
-        except Exception:
-            log.exception("[harper] Exception during linting, closing client")
-            self.close()
-            raise
+            if cancel_event is not None and cancel_event.is_set():
+                raise TimeoutError("Harper LSP operation cancelled")
+            if not self.is_alive():
+                self._initialize()
+
+            _emit_progress(self._heartbeat_fn, "Linting…")
+
+            self._apply_bcp47(bcp47)
+            self._doc_version += 1
+            version = self._doc_version
+
+            try:
+                self._sync_document(text, version)
+                diagnostics = self._collect_diagnostics(version, deadline)
+                return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
+            except Exception:
+                log.exception("[harper] Exception during linting, closing client")
+                self.close()
+                raise
+        finally:
+            self._lint_cancel = previous_cancel
 
     def close(self) -> None:
         """Tear down harper-ls without blocking on a stuck stdin pipe.
@@ -725,12 +782,22 @@ def _run_lint_off_caller_thread(
     """
     box: dict[str, Any] = {}
     done = threading.Event()
+    cancel_event = threading.Event()
+    # One clock for the waiter and the worker. A late worker must not start
+    # a fresh ``_LINT_BUDGET_SEC`` after the caller has already timed out.
+    deadline = time.monotonic() + _LINT_BUDGET_SEC
 
     def _worker() -> None:
         try:
             with _HARPER_LOCK:
                 box["result"] = _lint_with_client(
-                    client, text, bcp47=bcp47, heartbeat_fn=heartbeat_fn, restart=restart
+                    client,
+                    text,
+                    bcp47=bcp47,
+                    heartbeat_fn=heartbeat_fn,
+                    restart=restart,
+                    deadline=deadline,
+                    cancel_event=cancel_event,
                 )
         except Exception as exc:
             box["exc"] = exc
@@ -740,21 +807,64 @@ def _run_lint_off_caller_thread(
     from plugin.framework.worker_pool import run_in_background
 
     handle = run_in_background(_worker, name="harper-lint-wait", dedicated=True)
-    deadline = time.monotonic() + _LINT_BUDGET_SEC
     from plugin.framework.uno_context import wait_while_pumping
 
     wait_while_pumping(done, ctx, timeout=_deadline_remaining(deadline))
     if not done.is_set():
-        # Budget ended while lint still ran (its own ``_LINT_BUDGET_SEC``).
-        # Join leftover without PE2I so wait-active is not cleared under an
-        # in-flight LSP that still holds ``_HARPER_LOCK``.
-        handle.join(timeout=max(1.0, _LINT_BUDGET_SEC))
+        # The worker's ``Queue.get`` used to run until its own ~15s deadline
+        # and a second join waited that long again, so ``_HARPER_LOCK`` starved
+        # every other Harper caller. Cancel unblocks the poll in ``_read``.
+        cancel_event.set()
+        handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
     if "exc" in box:
         raise box["exc"]
     result = box.get("result")
     if result is None:
         raise TimeoutError("Harper LSP operation timed out")
     return result
+
+
+def _replace_harper_client(
+    dead: HarperLSClient,
+    bcp47: str,
+    heartbeat_fn: Callable[[dict[str, str]], None] | None,
+) -> HarperLSClient:
+    """Build a replacement client without holding ``_HARPER_LOCK``.
+
+    Caller holds the lock. ``HarperLSClient`` does ``Popen`` plus LSP
+    initialize (up to ``_INIT_BUDGET_SEC``). Doing that under the lock blocked
+    linguistic / main-thread callers in ``harper_try_lint``. The lock is
+    dropped only for construction, then reacquired before the cache publish
+    so two restarts cannot both leave a live process installed.
+    """
+    binary_path = dead.binary_path
+    user_config_dir = dead.user_config_dir
+    if _HARPER_CLIENT_CACHE.get(binary_path) is dead:
+        del _HARPER_CLIENT_CACHE[binary_path]
+    _HARPER_LOCK.release()
+    built: HarperLSClient | None = None
+    try:
+        built = HarperLSClient(
+            binary_path,
+            user_config_dir=user_config_dir,
+            bcp47=bcp47,
+            heartbeat_fn=heartbeat_fn,
+        )
+    finally:
+        _HARPER_LOCK.acquire()
+    if built is None:
+        raise RuntimeError("harper-ls restart did not return a client")
+    current = _HARPER_CLIENT_CACHE.get(binary_path)
+    if current is not None and current is not built and current.is_alive():
+        built.close()
+        return current
+    if current is not None and current is not built:
+        try:
+            current.close()
+        except Exception:
+            log.debug("[harper] closing client replaced during restart failed", exc_info=True)
+    _HARPER_CLIENT_CACHE[binary_path] = built
+    return built
 
 
 def _lint_with_client(
@@ -764,22 +874,36 @@ def _lint_with_client(
     *,
     heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
     restart: bool = True,
+    deadline: float | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Caller holds ``_HARPER_LOCK``. ``restart=False`` avoids ``Popen`` on the UNO thread."""
     started = time.monotonic()
     lint_text = normalize_spaces_1to1(text)
     error_count = 0
+
+    def _call_lint(target: HarperLSClient) -> list[Any]:
+        # No deadline/cancel: keep the previous call shape (tests and the grammar queue).
+        if deadline is None and cancel_event is None:
+            return target.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+        return target.lint(
+            lint_text,
+            bcp47=bcp47,
+            heartbeat_fn=heartbeat_fn,
+            deadline=deadline,
+            cancel_event=cancel_event,
+        )
+
     try:
         try:
-            results = client.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+            results = _call_lint(client)
         except Exception:
             log.exception("[harper] Linting error or connection lost, restarting client")
             client.close()
             if not restart:
                 raise
-            restarted = HarperLSClient(client.binary_path, user_config_dir=client.user_config_dir, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
-            _HARPER_CLIENT_CACHE[client.binary_path] = restarted
-            results = restarted.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+            restarted = _replace_harper_client(client, bcp47, heartbeat_fn)
+            results = _call_lint(restarted)
         out = _diagnostics_to_errors(text, results)
         error_count = len(out.get("errors") or [])
         return out
