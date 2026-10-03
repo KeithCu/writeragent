@@ -29,33 +29,37 @@ The plugin runs an embedded HTTP server to provide a local API and support the M
 
 MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), depending on the tool's `long_running` flag:
 
-| Path | Method | Thread | Global limit | Per-document gate |
-|------|--------|--------|--------------|-------------------|
-| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only |
-| Long-running | `_execute_long_running` | HTTP worker | None (by design) | Mutating tools only |
+| Path | Method | Tool body | Global limit | Per-document gate |
+|------|--------|-----------|--------------|-------------------|
+| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; **acquired on the HTTP worker** |
+| Long-running | `_execute_long_running` | HTTP worker (UNO marshalled) | None (by design) | Mutating tools only; acquired on the HTTP worker |
 
 ```mermaid
 flowchart TB
     subgraph backpressure [Backpressure path]
-        Sem["_tool_semaphore acquire"]
-        MainRun["_prepare_mcp_execution + execute on main thread"]
-        Sem --> MainRun
+        Sem["_tool_semaphore on HTTP worker"]
+        PrepBp["prepare on main thread"]
+        GateBp["gate acquire on HTTP worker"]
+        BodyBp["tool body on main thread"]
+        Sem --> PrepBp --> GateBp --> BodyBp
     end
     subgraph longrun [Long-running path]
-        HttpRun["tool body on HTTP thread"]
+        PrepLr["prepare on main thread"]
+        GateLr["gate acquire on HTTP worker"]
+        BodyLr["tool body on HTTP thread"]
+        PrepLr --> GateLr --> BodyLr
     end
-    MainRun --> Gate["_document_mutation_gate when mutating"]
-    HttpRun --> Gate
-    Gate --> Uno["UNO via main-thread dispatch"]
+    BodyBp --> Uno["UNO on the main thread"]
+    BodyLr --> Uno
 ```
 
 **Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Long-running tools (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
 
-**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`).
+**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`). Both paths acquire the gate on the HTTP worker. The backpressure path used to acquire it inside the main-thread dispatch, so a long-running mutator holding the gate froze the UI for up to the 30s timeout and stalled that mutator's own UNO marshal.
 
-**UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls.
+**UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls. A client `tools/call` argument cannot set `bypass_thread_guard`; that flag is an eval-harness switch on `ToolRegistry.execute`, and MCP always passes `False`.
 
-**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), and unknown-tool conservative locking.
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), unknown-tool conservative locking, and backpressure waiting for the gate off the main thread. [`tests/mcp/test_mcp_protocol.py`](../../tests/mcp/test_mcp_protocol.py) covers a client `bypass_thread_guard` argument.
 
 **Not covered by MCP gates (different models):**
 *   **Sidebar chat** ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)) — one tool per LLM round; async tools run on worker threads but the loop waits for `TOOL_RESULT` before spawning the next.

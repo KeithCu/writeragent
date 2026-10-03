@@ -354,7 +354,7 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 
 Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
-**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden).
+**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Both paths wait for that gate on the HTTP worker. A backpressure tool then runs its body on the main thread, so a long-running mutator cannot freeze the LibreOffice UI for the gate timeout. A `tools/call` argument cannot disable the thread guard.
 
 **Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `list_open_documents`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
 
