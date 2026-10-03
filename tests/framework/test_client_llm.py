@@ -2435,6 +2435,104 @@ def test_stream_overloaded_before_tokens_retries(client, _fast_retry_waits):
     assert mock_https.call_count == 2
 
 
+def _pre_emit_snapshot_lines(tail: bytes | None) -> list[bytes]:
+    """Role, a buffered <think prefix, usage, and an encrypted reasoning blob.
+
+    None of these call on_content. ``tail`` is an optional failure line.
+    """
+    usage = {"prompt_tokens": 7, "completion_tokens": 2}
+    lines = [
+        f'data: {json.dumps({"model": "gpt-test", "choices": [{"delta": {"role": "assistant", "content": "<thi"}}]})}'.encode(),
+        f'data: {json.dumps({"choices": [], "usage": usage})}'.encode(),
+        f'data: {json.dumps({"choices": [{"delta": {"reasoning_details": [{"type": "reasoning.encrypted", "data": "blob-a", "index": 0}]}}]})}'.encode(),
+    ]
+    if tail is not None:
+        lines.append(tail)
+    return lines
+
+
+def test_stream_pre_emit_snapshot_not_doubled_on_overload_retry(client, _fast_retry_waits):
+    """Usage, role, and a buffered think prefix are dropped when overload retries before any visible token."""
+    bad = create_mock_http_response(
+        sse_lines=_pre_emit_snapshot_lines(b'data: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}'),
+    )
+    ok = create_mock_http_response(
+        sse_lines=[
+            f'data: {json.dumps({"model": "gpt-test", "choices": [{"delta": {"role": "assistant", "content": "Hello"}}]})}'.encode(),
+            b'data: {"choices": [], "usage": {"prompt_tokens": 7, "completion_tokens": 2}}',
+            b"data: [DONE]",
+        ]
+    )
+    shown: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            append_callback=shown.append,
+        )
+    assert result["content"] == "Hello"
+    assert result["usage"]["prompt_tokens"] == 7
+    assert result["usage"]["completion_tokens"] == 2
+    assert result["model"] == "gpt-test"
+    assert "reasoning_details" not in result
+    assert shown == ["Hello"]
+    assert mock_https.call_count == 2
+
+
+def test_stream_pre_emit_snapshot_not_doubled_on_connection_retry(client, _fast_retry_waits):
+    """A reset before any visible token retries once and does not concatenate the buffered prefix."""
+    reset_resp = create_mock_http_response(
+        sse_lines=_pre_emit_snapshot_lines(None),
+        iter_side_effect=ConnectionResetError("reset before visible text"),
+    )
+    ok = create_mock_http_response(
+        sse_lines=[
+            f'data: {json.dumps({"model": "gpt-test", "choices": [{"delta": {"role": "assistant", "content": "Hello"}}]})}'.encode(),
+            b'data: {"choices": [], "usage": {"prompt_tokens": 7, "completion_tokens": 2}}',
+            b"data: [DONE]",
+        ]
+    )
+    shown: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, reset_resp, ok)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            append_callback=shown.append,
+        )
+    assert result["content"] == "Hello"
+    assert result["usage"]["prompt_tokens"] == 7
+    assert result["usage"]["completion_tokens"] == 2
+    assert result["model"] == "gpt-test"
+    assert "reasoning_details" not in result
+    assert shown == ["Hello"]
+    assert mock_https.call_count == 2
+
+
+def test_stream_overload_after_visible_token_does_not_retry(client, _fast_retry_waits):
+    """Text already shown stays; an overload after that token is not a second attempt."""
+    first = create_mock_http_response(
+        sse_lines=[
+            f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}'.encode(),
+            b'data: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}',
+        ]
+    )
+    second = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    shown: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, first, second)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                append_callback=shown.append,
+            )
+    assert err.value.code == "STREAM_ERROR"
+    assert shown == ["Hello"]
+    assert mock_https.call_count == 1
+
+
 def test_stream_usage_only_chunk_reaches_result(client):
     lines = [
         *_sse_content_lines("Hi")[:-1],

@@ -252,6 +252,8 @@ This avoids adding the heavy `openai` dependency to the LibreOffice extension wh
 
 Non-streaming JSON (images, speech, and the sync half of `request_with_tools`) shares one retry loop, `_exchange_json` in `plugin/framework/client/llm_client.py`. Stop during a 429/503 wait aborts that call. A body that `read()` already returned is not posted again. The stream loop stays separate because it must not retry after tokens have reached the UI.
 
+A retry before any visible token still drops that attempt's snapshot. `on_delta` can record `role`, `usage`, and a buffered `<think` prefix while `emitted_any` is still false (a usage-only chunk and a partial tag never call `on_content`). `accumulate_delta` adds integers and concatenates strings, so the next attempt would double `prompt_tokens` / `completion_tokens` and glue the prefix on twice. `_run_streaming_loop` calls `reset_unemitted_attempt` only in that case. After a token, a thinking delta, or a tool-call byte has been shown, the loop does not retry and does not clear the snapshot.
+
 ---
 
 ## 7. Event Loop and UI Threading

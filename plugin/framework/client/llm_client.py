@@ -793,7 +793,7 @@ class LlmClient:
         method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
         self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
-    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, _retry: bool = True, status_callback: Any = None) -> Any:
+    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, _retry: bool = True, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
         init_logging(self.ctx)
         log.info("=== Starting streaming loop (persistent) ===")
@@ -812,6 +812,18 @@ class LlmClient:
         wait_index = 0
         emitted_any = False
         while True:
+            # What was wrong: on_delta wrote role, usage, and a buffered
+            # "<think" prefix into the caller's snapshot before any callback
+            # ran. emitted_any stayed false, so an overload or connection
+            # retry called accumulate_delta again and added prompt_tokens /
+            # completion_tokens and concatenated that prefix. How: a usage-only
+            # chunk and a partial tag never call on_content. Why: drop only
+            # that attempt, and only while nothing has been shown. Once
+            # emitted_any is set this does not run, so shown text stays.
+            # The first call clears an empty snapshot; a later call drops the
+            # failed attempt before the next send.
+            if not emitted_any and reset_unemitted_attempt is not None:
+                reset_unemitted_attempt()
             last_finish_reason = None
 
             try:
@@ -1137,9 +1149,18 @@ class LlmClient:
                 if "model" in d and "model" not in message_snapshot:
                     message_snapshot["model"] = d["model"]
 
+            def _reset_unemitted_attempt() -> None:
+                # on_delta also fills thinking meta from a reasoning_details
+                # chunk that had no display text. That is the same unsent
+                # attempt. Do not call this after a token was shown.
+                message_snapshot.clear()
+                thinking_parts.clear()
+                thinking_meta.clear()
+                thinking_meta.update(new_streaming_thinking_meta())
+
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback)
+                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback, reset_unemitted_attempt=_reset_unemitted_attempt)
             except NetworkError:
                 raise
             except Exception as e:
