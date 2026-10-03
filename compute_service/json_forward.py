@@ -12,10 +12,10 @@ Forward the raw ``data`` JSON to the formula worker, and forward the worker's
 ``result_json`` bytes back to coolwsd — no host ``json.loads`` of the grid,
 no ``host_pack_data``, no second ``json.dumps`` of the result.
 
-Worker stdio still uses the existing length-prefixed Pickle5 envelope so we do
-not add a second IPC protocol. Large payloads travel as ``bytes`` fields
-(``data_json`` / ``result_json``); pickle copies those buffers, it does not
-re-encode the JSON tree.
+Worker stdio still uses the length-prefixed Pickle5 envelope as framing.
+There is one payload on that envelope: raw ``data_json`` / ``result_json``
+bytes. Pickle copies those buffers; it does not re-encode the JSON tree and
+there is no second ``split_grid`` payload field.
 """
 
 from __future__ import annotations
@@ -39,9 +39,10 @@ _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
 _BOUNDARY_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'()+_,-./:=?")
 
 WIRE_JSON_FORWARD = "json_forward"
-WIRE_PICKLE = "pickle"
 VALID_EXECUTE_MODES = frozenset({"isolated", "shared"})
-VALID_WIRES = frozenset({WIRE_JSON_FORWARD, WIRE_PICKLE})
+# One payload wire. ``pickle`` used to mean host_pack_data / split_grid on
+# the same stdio envelope, and a value the host rejected was rewritten and run.
+VALID_WIRES = frozenset({WIRE_JSON_FORWARD})
 VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 
 # Peel-walker only (single-JSON ingress). Transitional Collabora contract;
@@ -67,11 +68,24 @@ def require_execute_mode(mode: Any) -> str:
     raise ExecuteRequestError("mode must be 'isolated' or 'shared'.")
 
 
+def canonical_execute_mode(mode: Any) -> str:
+    """Missing mode is isolated. Every other value must be a real mode.
+
+    ``mode or "isolated"`` treated ``false`` and ``0`` as missing, so the
+    HTTP handler ran an isolated cell that the worker would have rejected.
+    Only ``None`` and ``""`` are the omitted mode. Peel and multipart both
+    call this; the pool and the worker call it too.
+    """
+    if mode is None or mode == "":
+        return require_execute_mode("isolated")
+    return require_execute_mode(mode)
+
+
 def require_execute_wire(wire: Any) -> str:
-    """Return the one stdio wire name. Unknown values are not rewritten."""
+    """Return the one stdio payload wire. Unknown values are not rewritten."""
     if isinstance(wire, str) and wire in VALID_WIRES:
         return wire
-    raise ExecuteRequestError(f"wire must be {WIRE_JSON_FORWARD!r} or {WIRE_PICKLE!r}.")
+    raise ExecuteRequestError(f"wire must be {WIRE_JSON_FORWARD!r}.")
 
 
 def validate_execute_response(payload: dict[str, Any]) -> dict[str, Any]:

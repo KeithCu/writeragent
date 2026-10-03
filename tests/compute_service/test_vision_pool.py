@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -193,6 +194,35 @@ class TestVisionPoolSupervisor:
             ok = _handle_request({"id": "ok", "helper": "extract_text", "file_path": str(inside), "allow_paths": [str(allowed)]})
         assert ok.get("status") == "ok"
         assert run.call_args.kwargs["image"] == b"png-bytes"
+
+    def test_symlink_swapped_between_check_and_open_is_not_read(self, tmp_path) -> None:
+        """A name that was inside the allowlist can point outside before open.
+
+        The allowlist check returns, then the directory entry is replaced.
+        Opening that path must not return the bytes outside the prefix.
+        """
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(b"secret-bytes")
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        inside = allowed / "img.png"
+        inside.write_bytes(b"ok-bytes")
+        real_open = os.open
+        swapped = {"done": False}
+
+        def open_after_swap(path: str, flags: int, *args, **kwargs):
+            if not swapped["done"] and os.path.basename(str(path)) == "img.png":
+                swapped["done"] = True
+                os.remove(path)
+                os.symlink(outside, path)
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("compute_service.config.os.open", side_effect=open_after_swap):
+            data, err = _read_allowed_image(str(inside), [str(allowed)], "race")
+        assert swapped["done"] is True
+        assert data != b"secret-bytes"
+        assert err is not None
+        assert err.get("code") == "FILE_PATH_DENIED"
 
     def test_worker_crash_recovery(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=10)

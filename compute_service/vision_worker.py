@@ -28,7 +28,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.config import ocr_path_is_allowed
+from compute_service.config import read_allowlisted_file
 from compute_service.worker_base import run_worker_stdio_loop
 
 # Default HTTP body cap. file_path does not pass through that check, and an
@@ -39,28 +39,17 @@ _FILE_READ_MAX_BYTES = 32 * 1024 * 1024
 def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[bytes | None, dict[str, Any] | None]:
     """Return ``(bytes, None)`` or ``(None, error)``.
 
-    The HTTP handler returns 400 before the pool. Re-check here and open the
-    realpath: a symlink inside an allowed directory can point outside between
-    that check and ``open`` of the original string. The pool used to check a
-    third time and, on denial, the handler sent HTTP 200.
+    The HTTP handler returns 400 for a path that is outside the allowlist
+    before the pool is touched. The read itself is ``read_allowlisted_file``:
+    the same prefix rule, applied to the inode that was opened, so a symlink
+    swapped in after the path check cannot be followed out of the prefix.
     """
-    if not isinstance(file_path, str) or not file_path.strip():
-        return None, {"id": req_id, "status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
     prefixes = allow_paths if isinstance(allow_paths, (list, tuple)) else ()
-    if not ocr_path_is_allowed(file_path, prefixes):
-        return None, {"id": req_id, "status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
-    resolved = os.path.realpath(os.path.expanduser(file_path.strip()))
-    if not os.path.exists(resolved):
-        return None, {"id": req_id, "status": "error", "code": "FILE_NOT_FOUND", "error": f"Image file not found: {file_path}"}
-    if not os.path.isfile(resolved):
-        return None, {"id": req_id, "status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
-    try:
-        with open(resolved, "rb") as f:
-            data = f.read(_FILE_READ_MAX_BYTES + 1)
-    except Exception as exc:
-        return None, {"id": req_id, "status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
-    if len(data) > _FILE_READ_MAX_BYTES:
-        return None, {"id": req_id, "status": "error", "code": "FILE_TOO_LARGE", "error": f"Image file exceeds {_FILE_READ_MAX_BYTES} bytes: {file_path}"}
+    data, err = read_allowlisted_file(file_path, prefixes, max_bytes=_FILE_READ_MAX_BYTES)
+    if err is not None:
+        body = dict(err)
+        body["id"] = req_id
+        return None, body
     return data, None
 
 

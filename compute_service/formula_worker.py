@@ -29,18 +29,16 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, dumps_response, require_execute_mode, require_execute_wire, validate_execute_response
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, dumps_response, require_execute_wire, validate_execute_response
 from compute_service.worker_base import run_worker_stdio_loop
 
 # execute_code pulls in the sandbox. Import it on the first real request so
 # run_worker_stdio_loop can write {"status": "ready"} before that graph loads.
 # A cold import used to consume the 15s handshake with an empty stderr.
 
-# Do not load the Cython accelerator here. Default compute wire is JSON-forward
-# (worker json.loads data_json / dumps result_json once). The optional pickle +
-# split_grid fallback still unpacks via NumPy frombuffer. Cython flatten is
-# host-only (LibrePy / wire="pickle"). Importing payload_codec unpack helpers
-# must not load or claim Cython Active.
+# Do not load the Cython accelerator here. The compute payload is JSON-forward
+# (worker json.loads data_json / dumps result_json once). There is no
+# split_grid field on this pipe. Cython flatten stays on the LibrePy host.
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -78,12 +76,11 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter"}
 
     session_id = req.get("session_id")
-    # Missing mode is isolated (the HTTP default). An explicit other value
-    # used to run as isolated and return success, so the worker disagreed
-    # with the host schema.
-    raw_mode = req.get("mode")
+    # Same mode rule as the HTTP handler. Missing is isolated. false / 0 / a
+    # typo used to be rewritten on one path and rejected on the other.
+    raw_mode = req.get("mode", None)
     try:
-        mode = require_execute_mode("isolated" if raw_mode is None or raw_mode == "" else raw_mode)
+        mode = canonical_execute_mode(raw_mode)
         raw_wire = req.get("wire")
         if raw_wire is not None:
             require_execute_wire(raw_wire)
@@ -122,14 +119,21 @@ def _is_json_forward(req: dict[str, Any]) -> bool:
 
 
 def _load_request_data(req: dict[str, Any]) -> Any:
-    """One deserialize of the data blob on the worker (never on the HTTP host)."""
+    """One deserialize of the data blob on the worker (never on the HTTP host).
+
+    The stdio dict used to also carry a ``data`` object for the pickle /
+    split_grid wire. Reading it here ran a payload the JSON path had not
+    accepted. Absent ``data_json`` is no data, not a second wire.
+    """
     raw = req.get("data_json")
+    if raw is None:
+        return None
     if isinstance(raw, (bytes, bytearray)):
         try:
             return json.loads(bytes(raw).decode("utf-8"))
         except Exception as exc:
             raise ValueError(f"Invalid data_json: {exc}") from exc
-    return req.get("data")
+    raise ValueError("data_json must be bytes")
 
 
 def _json_forward_envelope(res: dict[str, Any], *, req_id: Any) -> dict[str, Any]:

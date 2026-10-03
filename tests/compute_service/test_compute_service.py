@@ -252,6 +252,55 @@ class TestComputeHttp:
             assert data["service"] == "python-compute"
             assert data["version"] == EXTENSION_VERSION
 
+    def test_health_answers_while_listener_thread_is_blocked(self) -> None:
+        """A cell holds the only listener thread. /health must still return.
+
+        The old path peeked the socket and, on a miss, queued the probe on
+        the same pool the cell occupies.
+        """
+        from compute_service.server import WSGIDualStackServer
+
+        port = get_free_port()
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs):
+            started.set()
+            assert hold.wait(timeout=10)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
+
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn)
+        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.15)
+        poster: threading.Thread | None = None
+        try:
+            def _post() -> None:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/execute",
+                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    assert resp.status == 200
+
+            poster = threading.Thread(target=_post)
+            poster.start()
+            assert started.wait(timeout=5)
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
+                assert resp.status == 200
+                assert json.loads(resp.read().decode())["status"] == "healthy"
+        finally:
+            hold.set()
+            if poster is not None:
+                poster.join(timeout=5)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_simple_execution(self, compute_url: str) -> None:
         body = _post_execute(compute_url, {"code": "result = 3 ** 4"})
         assert body["status"] == "ok"
