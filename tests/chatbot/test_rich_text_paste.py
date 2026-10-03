@@ -590,6 +590,29 @@ class TestPaintMessageItems:
         assert "<script>" not in mock_plain.call_args.args[1]
         doc.close.assert_called_once_with(True)
 
+    def test_generic_token_in_the_hidden_doc_is_copied(self):
+        """``<String>`` is not leftover HTML, so the paint must not strip it."""
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "Assistant: List<String> <user@example.com>"
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True) as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain, \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
+            paint_message_items(ctx, control, [("assistant", "List<String> <user@example.com>")])
+
+        mock_copy.assert_called_once()
+        mock_plain.assert_not_called()
+        doc.close.assert_called_once_with(True)
+
     def test_stop_line_is_its_own_row(self):
         session = MagicMock()
         session.messages = [{"role": "assistant", "content": "partial answer"}]

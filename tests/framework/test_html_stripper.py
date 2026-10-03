@@ -145,6 +145,41 @@ def test_streaming_html_stripper_feed_over_deal_max_chunk():
     assert out == strip_html_tags(body)
 
 
+def test_generic_and_autolink_tokens_are_not_stripped():
+    """A letter after ``<`` is not enough to delete the token.
+
+    What was wrong: ``<String>``, ``<https://…>``, and ``<user@host>`` matched
+    the same rule as ``<b>``. The live stripper and the committed plain
+    fallback both dropped them. Chunks must agree with the whole string.
+    """
+    samples = (
+        "Use List<String> here",
+        "Write <user@example.com> today",
+        "See <https://example.com/a>",
+        "Map<String, Integer> values",
+        "See <script> List<String>",
+    )
+    expected = {
+        "See <script> List<String>": "See  List<String>",
+    }
+    for sample in samples:
+        want = expected.get(sample, sample)
+        assert strip_html_tags(sample) == want
+        stripper = StreamingHTMLStripper()
+        streamed = "".join(stripper.feed(sample[i : i + 3]) for i in range(0, len(sample), 3))
+        assert streamed + stripper.finalize() == want
+
+
+def test_formatting_and_script_tags_are_still_stripped():
+    assert strip_html_tags("<b>bold</b>") == "bold"
+    assert strip_html_tags("<i>italic</i>") == "italic"
+    assert strip_html_tags("<script>alert(1)</script>ok") == "ok"
+    assert strip_html_tags("<!-- secret -->ok") == "ok"
+    assert strip_html_tags("<br/>next") == "next"
+    assert strip_html_tags("a<widget/>b") == "ab"
+    assert strip_html_tags('<notatag alt="a>b">keep') == '<notatag alt="a>b">keep'
+
+
 def test_streaming_html_stripper_feed_tag_spans_deal_slice():
     """A tag that starts at the last char of one deal slice must still strip."""
     # '<' is the last char of the first _DEAL_MAX_HTML_CHUNK slice.
