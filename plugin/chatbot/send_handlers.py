@@ -29,14 +29,15 @@ from plugin.framework.errors import (
 )
 from plugin.framework.config import get_api_config, get_config, get_config_int_safe
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
+from plugin.framework.client.errors import format_error_for_display
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
-from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
-from plugin.chatbot.tool_loop_actions import SendTurn, _turn_accepts_write, bind_turn_session, persist_assistant_on_turn, session_for_turn, stopped_assistant_text
+from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
+from plugin.chatbot.tool_loop_actions import SendTurn, _turn_accepts_write, bind_turn_session, persist_assistant_on_turn, put_for_turn, session_for_turn, stopped_assistant_text
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -59,6 +60,33 @@ def _direct_image_source_arg(model: Any) -> str | None:
     except Exception:
         log.debug("Direct image: selection probe failed", exc_info=True)
     return None
+
+
+class _SendWorkerQueue:
+    """Worker-facing queue. ``put`` re-reads ``_active_turn`` and calls ``put_for_turn``.
+
+    What was wrong: image, agent, and web workers called ``Queue.put`` on the
+    drain queue. After Stop or a newer send, CHUNK and THINKING still arrived,
+    and so did STATUS and the control items. Display text was dropped only
+    later, in ``chunk_applies``. The tool loop enqueues with ``put_for_turn``.
+
+    The drain reads ``raw``. This object is what the worker and the ACP
+    backend hold, so their puts take the same path. Re-reading ``_active_turn``
+    sees the generation Stop bumped on that object.
+    """
+
+    def __init__(self, host: Any, raw: "queue.Queue[Any]") -> None:
+        self._host = host
+        self.raw = raw
+
+    def put(self, item: Any, *_args: Any, **_kwargs: Any) -> None:
+        put_for_turn(self._host, getattr(self._host, "_active_turn", None), self.raw, item)
+
+
+def _send_worker_queues(host: Any) -> tuple["queue.Queue[Any]", _SendWorkerQueue]:
+    raw: queue.Queue[Any] = queue.Queue()
+    return raw, _SendWorkerQueue(host, raw)
+
 
 if TYPE_CHECKING:
     from plugin.chatbot.panel import ChatSession
@@ -260,16 +288,29 @@ class SendHandlersMixin:
             dispatch_event(StreamDoneEvent(payload))
 
         def on_stopped() -> None:
-            if current_state.handler_type == "agent":
-                partial = "".join(agent_parts).strip()
-                text = stopped_assistant_text(self, partial)
-                persist_assistant_on_turn(self, content=text or "No response.")
-            elif on_stopped_callback:
+            # What was wrong: only agent Stop stored a row. Web and image pass
+            # no on_stopped_callback, and finalize skips rerender after Stop,
+            # so the painted partial never landed in session.messages.
+            # Why: store stopped_assistant_text for every handler. Agent still
+            # prefers the non-thinking chunks it accumulated; web and image
+            # use the bytes this turn already emitted.
+            partial = "".join(agent_parts).strip() if current_state.handler_type == "agent" else None
+            text = stopped_assistant_text(self, partial)
+            persist_assistant_on_turn(self, content=text or "No response.")
+            if on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
 
         def on_error(e: Exception) -> None:
             dispatch_event(ErrorEvent(e))
+            # What was wrong: the banner was painted and the user row was
+            # already stored, so the next send had a hole where the assistant
+            # row should be. The tool loop stores that banner with
+            # persist_assistant_on_turn. Why: same write for web, agent, and
+            # image, using the lines handle_error already shows.
+            err_msg = format_error_for_display(e)
+            append_text = ui_lines_for_handler_error(current_state.handler_type, err_msg)[1]
+            persist_assistant_on_turn(self, content=append_text.strip())
 
         def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
             # The worker_fn in this mixin expects to put things directly into q.
@@ -316,7 +357,7 @@ class SendHandlersMixin:
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
 
 
-        q: queue.Queue[Any] = queue.Queue()
+        drain_q, q = _send_worker_queues(self)
         # Probe on the UI thread. The tool re-reads the selection when it
         # executes; this flag only decides whether to request img2img.
         source_image = _direct_image_source_arg(model)
@@ -377,7 +418,7 @@ class SendHandlersMixin:
 
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
-        self._run_unified_worker_drain_loop(q, run_direct_image, current_state, interpreter)
+        self._run_unified_worker_drain_loop(drain_q, run_direct_image, current_state, interpreter)
         # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
         # here made image Stop look like a normal finish. The agent path
         # below keeps both Error and Stopped.
@@ -449,7 +490,7 @@ class SendHandlersMixin:
         turn_session.add_user_message(query_text)
         self._append_response(query_text, role="user")
 
-        q: queue.Queue[Any] = queue.Queue()
+        drain_q, q = _send_worker_queues(self)
         self._current_agent_backend = adapter
         cancel_scope = getattr(self, "_send_cancellation", None)
         if cancel_scope is not None and hasattr(adapter, "stop"):
@@ -523,7 +564,7 @@ class SendHandlersMixin:
                     else:
                         log.debug("Error submitting agent backend approval: %s", e)
 
-        self._run_unified_worker_drain_loop(q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required)
+        self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required)
         if self._terminal_status not in ("Error", "Stopped"):
             self._terminal_status = "Ready"
         self._current_agent_backend = None
@@ -662,7 +703,7 @@ class SendHandlersMixin:
 
 
 
-        q: queue.Queue[Any] = queue.Queue()
+        drain_q, q = _send_worker_queues(self)
         # Read show_thinking before spawning the thread so apply_chunk can use it
         try:
 
@@ -944,7 +985,7 @@ class SendHandlersMixin:
                 self.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
             log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
-        self._run_unified_worker_drain_loop(q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
+        self._run_unified_worker_drain_loop(drain_q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 
         from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 

@@ -16,6 +16,7 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.stop_requested = False
         self._in_librarian_mode = False
         self.responses = []
+        self.thinking_flags = []
         self.status_history = []
         self._terminal_status = None
         self._record_assistant_start = False
@@ -32,8 +33,9 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.base_size_input = MagicMock()
         self.base_size_input.getText.return_value = "1024"
 
-    def _append_response(self, text, role="assistant"):
+    def _append_response(self, text, is_thinking=False, role="assistant"):
         self.responses.append(text)
+        self.thinking_flags.append(bool(is_thinking))
 
     def _set_status(self, text):
         self.status_history.append(text)
@@ -1260,3 +1262,242 @@ def test_agent_backend_worker_does_not_call_get_document_type():
     mock_gdt.assert_not_called()
     mock_gcd.assert_not_called()
     mock_fmm.assert_not_called()
+
+
+class _RecordingSession:
+    def __init__(self):
+        self.messages = [{"role": "system", "content": "s"}]
+        self.stored = []
+
+    def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
+        self.stored.append(content)
+        self.messages.append({"role": "assistant", "content": content or ""})
+
+    def add_user_message(self, content):
+        self.messages.append({"role": "user", "content": content})
+
+
+def _append_recording_turn(panel):
+    """Record assistant chunks the way the sidebar does, so Stop can read them."""
+    from plugin.chatbot.tool_loop_actions import _turn_for_apply, chunk_applies
+
+    def _append(text, is_thinking=False, role="assistant"):
+        panel.responses.append(text)
+        panel.thinking_flags.append(bool(is_thinking))
+        chunk_applies(panel, _turn_for_apply(panel), text, record=role != "user")
+
+    panel._append_response = _append
+
+
+def test_web_and_image_stop_persist_emitted_text():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    for handler_type in ("web", "image"):
+        panel = DummyChatbotPanel()
+        panel.session = _RecordingSession()
+        begin_send_turn(panel, handler_type)
+        _append_recording_turn(panel)
+
+        def worker(q):
+            q.put((StreamQueueKind.CHUNK, "partial answer"))
+            q.put((StreamQueueKind.STOPPED, None))
+
+        _drive_unified_drain(panel, worker, handler_type)
+        assert panel.session.stored == ["partial answer"]
+
+
+def test_web_stop_without_emitted_text_stores_placeholder():
+    panel = DummyChatbotPanel()
+
+    def worker(q):
+        q.put((StreamQueueKind.STOPPED, None))
+
+    _drive_unified_drain(panel, worker, "web")
+    panel.session.add_assistant_message.assert_called_once_with(content="No response.")
+
+
+def test_handler_errors_persist_assistant_banner():
+    expected = {
+        "web": "Research Chat error",
+        "agent": "Operation failed",
+        "image": "Operation failed",
+    }
+    for handler_type, needle in expected.items():
+        panel = DummyChatbotPanel()
+
+        def worker(q):
+            q.put((StreamQueueKind.ERROR, {"message": "boom"}))
+
+        _drive_unified_drain(panel, worker, handler_type)
+        content = panel.session.add_assistant_message.call_args.kwargs["content"]
+        assert needle in content
+        assert content == content.strip()
+        assert needle in "".join(panel.responses)
+
+
+def test_thinking_chunk_reaches_append_as_thinking():
+    panel = DummyChatbotPanel()
+
+    def worker(q):
+        q.put((StreamQueueKind.THINKING, "search step"))
+        q.put((StreamQueueKind.CHUNK, "answer"))
+        q.put((StreamQueueKind.STREAM_DONE, {}))
+
+    _drive_unified_drain(panel, worker, "web")
+    assert panel.thinking_flags[:2] == [True, False]
+    assert panel.responses[0] == "search step"
+
+
+def _collecting_drain(kinds):
+    def _drain(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+        while not q.empty():
+            item = q.get()
+            kinds.append(item[0])
+            kind = item[0]
+            if kind == StreamQueueKind.CHUNK:
+                apply_chunk(item[1], False)
+            elif kind == StreamQueueKind.THINKING:
+                apply_chunk(item[1], True)
+            elif kind == StreamQueueKind.STREAM_DONE:
+                on_stream_done(item)
+            elif kind == StreamQueueKind.STATUS:
+                on_status_fn(item[1])
+            elif kind == StreamQueueKind.ERROR:
+                on_error(item[1])
+            elif kind == StreamQueueKind.STOPPED:
+                on_stopped()
+        job_done[0] = True
+
+    return _drain
+
+
+def test_image_worker_drops_stale_display_keeps_status():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+
+    panel = DummyChatbotPanel()
+    begin_send_turn(panel, "image")
+    state = SendHandlerState(handler_type="image", status="starting")
+    interpreter = EffectInterpreter(panel)
+
+    def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
+        bump_send_generation(panel)
+        tctx.status_callback("after bump")
+        return {"status": "done", "message": "late"}
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry.execute.side_effect = execute
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+    kinds: list = []
+
+    def fake_run_bg(func, **kwargs):
+        func()
+
+    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+        with patch("plugin.chatbot.send_handlers.update_lru_history"):
+            with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
+                with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)):
+                    panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)
+
+    assert StreamQueueKind.CHUNK not in kinds
+    assert StreamQueueKind.STATUS in kinds
+    assert StreamQueueKind.STREAM_DONE in kinds
+    assert "after bump" in panel.status_history
+    assert not any("late" in text for text in panel.responses)
+
+
+def test_web_worker_drops_stale_thinking_and_chunks():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+
+    panel = DummyChatbotPanel()
+    panel.session.messages = []
+    begin_send_turn(panel, "web")
+    state = SendHandlerState(handler_type="web", status="starting")
+    interpreter = EffectInterpreter(panel)
+
+    def execute(_name, _tctx, bypass_thread_guard=False, **_kwargs):
+        bump_send_generation(panel)
+        _tctx.append_thinking_callback("secret-thought")
+        _tctx.chat_append_callback("secret-chunk")
+        _tctx.status_callback("still-here")
+        raise RuntimeError("nope")
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry.execute.side_effect = execute
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+    kinds: list = []
+
+    def fake_run_bg(func, **kwargs):
+        func()
+
+    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+        with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
+            with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
+                with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)):
+                    panel._execute_web_research_effect("query", MagicMock(), state, interpreter)
+
+    assert StreamQueueKind.CHUNK not in kinds
+    assert StreamQueueKind.THINKING not in kinds
+    assert StreamQueueKind.STATUS in kinds
+    assert StreamQueueKind.ERROR in kinds
+    assert "still-here" in panel.status_history
+    assert not any("secret" in text for text in panel.responses)
+    content = panel.session.add_assistant_message.call_args.kwargs["content"]
+    assert "Research Chat error" in content
+
+
+def test_agent_backend_drops_stale_chunks():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+
+    panel = DummyChatbotPanel()
+    panel.session = _RecordingSession()
+    panel.session.refresh_document_context = MagicMock()
+    panel.session.document_context = "doc"
+    begin_send_turn(panel, "agent")
+    state = SendHandlerState(handler_type="agent", status="starting")
+    interpreter = EffectInterpreter(panel)
+    model = MagicMock()
+    model.getURL.return_value = "file:///tmp/doc.odt"
+
+    adapter = MagicMock()
+    adapter.is_available.return_value = True
+
+    def send(queue, **_kwargs):
+        bump_send_generation(panel)
+        queue.put((StreamQueueKind.CHUNK, "late-agent"))
+        queue.put((StreamQueueKind.STATUS, "agent-status"))
+        queue.put((StreamQueueKind.STOPPED,))
+
+    adapter.send.side_effect = send
+    kinds: list = []
+
+    def cfg(key, *_args, **_kwargs):
+        if key == "agent_backend.backend_id":
+            return "hermes"
+        if key == "additional_instructions":
+            return ""
+        if key == "mcp.mcp_enabled":
+            return False
+        return None
+
+    def fake_run_bg(func, **kwargs):
+        func()
+
+    with (
+        patch("plugin.chatbot.send_handlers.get_config", side_effect=cfg),
+        patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
+        patch("plugin.chatbot.send_handlers.get_core_directives_for_type", return_value=""),
+        patch("plugin.chatbot.send_handlers.full_manual", return_value=""),
+        patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg),
+        patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)),
+    ):
+        panel._execute_agent_backend_effect("hi", model, "writer", state, interpreter)
+
+    assert StreamQueueKind.CHUNK not in kinds
+    assert StreamQueueKind.STATUS in kinds
+    assert StreamQueueKind.STOPPED in kinds
+    assert "agent-status" in panel.status_history
+    assert not any("late-agent" in text for text in panel.responses)

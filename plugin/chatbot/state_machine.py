@@ -118,8 +118,12 @@ class EffectInterpreter:
     def interpret(self, effect: SendHandlerEffect) -> None:
         # crosshair: off
         match effect:
-            case SendHandlerUIEffect("append", text, _, role):
-                self.handler._append_response(text, role=role)
+            case SendHandlerUIEffect("append", text, is_thinking, role):
+                # What was wrong: this match discarded is_thinking, so a
+                # web-research THINKING chunk (show_search_thinking on) was
+                # appended as a normal assistant row. StreamChunkEvent already
+                # carries the flag; pass it through.
+                self.handler._append_response(text, is_thinking=is_thinking, role=role)
             case SendHandlerUIEffect("status", text, _):
                 self.handler._set_status(text)
             case CompleteJobEffect(terminal_status=status):
