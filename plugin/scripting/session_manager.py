@@ -47,6 +47,10 @@ _SESSION_MODE_KEY = "scripting.python_session_mode"
 # Headless soffice opens this probe workbook. Recording it next to leftover
 # factory Calc makes recorded=2 / Isolated (leftover 11:31 ids=).
 _OPENCL_PROBE_MARK = "opencl/cl-test.ods"
+# Desktop component enums. MagicMock.hasMoreElements() never goes false, and a
+# stuck UNO enum must not spin. Same cap as
+# excel_py_convert.auto_open._record_desktop_calc_sessions.
+_ENUM_CAP = 32
 
 
 def is_opencl_probe_session_id(session_id: str | None) -> bool:
@@ -125,7 +129,27 @@ def _restore_remaining_snapshot_locked(remaining: str | None) -> None:
     _LAST_ACTIVE_CALC_INIT_KWARGS = dict(_SESSION_INIT.get(remaining) or {})
     stored = _SESSION_DOCS.get(remaining)
     _LAST_ACTIVE_CALC_DOC = stored
-    _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(remaining)
+    # Folder lookup calls os.path.isdir. clear_active_calc_session fills this
+    # after releasing the lock so a slow stat does not block other recorders.
+    _LAST_ACTIVE_CALC_SCOPED_DIR = None
+
+
+def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:
+    """False when *enum* is exhausted, a MagicMock, or past ``_ENUM_CAP``.
+
+    MagicMock.hasMoreElements() is always truthy, so ``while enum.hasMoreElements()``
+    never returns. The cap is the same stop sibling desktop walks use.
+    """
+    try:
+        has_more = enum.hasMoreElements()
+    except Exception:
+        return False
+    if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
+        return False
+    if seen >= _ENUM_CAP:
+        log.error("%s: desktop enum hit cap=%s; stopping", label, _ENUM_CAP)
+        return False
+    return True
 
 
 def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
@@ -145,7 +169,11 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                 # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
                 check_disposed(_unwrap_uno(doc))
                 ctrl = getattr(doc, "getCurrentController", lambda: None)()
-                if ctrl is not None and getattr(ctrl, "getFrame", lambda: None)() is not None:
+                # Bugfix: headless soffice returns None from getCurrentController().
+                # Requiring a controller skipped the open model, so session reset
+                # and shared-kernel lookup never saw it. A controller with no
+                # frame is an unfocused window — keep searching in that case.
+                if ctrl is None or getattr(ctrl, "getFrame", lambda: None)() is not None:
                     if predicate(doc):
                         cached_sid = get_cached_calc_session_id()
                         if _cached_calc_session_matches(doc, cached_sid):
@@ -157,16 +185,11 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
         if comps is not None and hasattr(comps, "createEnumeration"):
             enum = comps.createEnumeration()
             matches = []
+            seen = 0
             while enum:
-                try:
-                    has_more = enum.hasMoreElements()
-                except Exception:
+                if not _enumeration_should_continue(enum, seen, label="session_manager"):
                     break
-                # MagicMock.hasMoreElements() is always truthy; this is a local
-                # enumeration stop, not a general is_mock helper. Skip extracting
-                # to deal_shim unless more call sites grow the same check.
-                if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
-                    break
+                seen += 1
                 elem = enum.nextElement()
                 model = None
                 if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
@@ -177,8 +200,11 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                 if model is not None:
                     try:
                         check_disposed(_unwrap_uno(model))
-                        ctrl = getattr(model, "getCurrentController", lambda: None)()
-                        if ctrl is not None and predicate(model):
+                        # Bugfix: `ctrl is not None` skipped headless models
+                        # (getCurrentController() is None). Probe so a disposed
+                        # controller still raises into the except; None matches.
+                        getattr(model, "getCurrentController", lambda: None)()
+                        if predicate(model):
                             matches.append(model)
                     except Exception:
                         pass
@@ -307,11 +333,27 @@ def get_cached_calc_document() -> Any | None:
     return ref()
 
 
-def _assign_calc_init_kwargs_locked(session_id: str | None, init_kwargs: dict[str, Any]) -> None:
-    """Store init kwargs and remember which workbook they belong to."""
+def _assign_calc_init_kwargs_locked(owner: str | None, init_kwargs: dict[str, Any]) -> None:
+    """Store init kwargs and the workbook id they belong to.
+
+    *owner* is already resolved. None means no workbook — callers that want
+    the focused id pass ``_LAST_ACTIVE_CALC_SESSION_ID`` themselves.
+    """
     global _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_INIT_OWNER
     _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
-    _LAST_ACTIVE_CALC_INIT_OWNER = session_id if session_id is not None else _LAST_ACTIVE_CALC_SESSION_ID
+    _LAST_ACTIVE_CALC_INIT_OWNER = owner
+
+
+def _existing_calc_session_id(doc: Any) -> str | None:
+    """``calc:`` id from a URL or stored prop. Does not mint a new prop."""
+    try:
+        key = _existing_workbook_session_key(doc)
+    except Exception:
+        log.debug("record_active_calc_session: init owner lookup failed", exc_info=True)
+        return None
+    if not key:
+        return None
+    return f"calc:{key}"
 
 
 def record_active_calc_session(
@@ -321,12 +363,35 @@ def record_active_calc_session(
 ) -> None:
     """Cache the active Calc session id and init kwargs on the main thread for off-main formula lookups."""
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_SCOPED_DIR
-    if doc is not None:
+    probe = is_opencl_probe_session_id(session_id)
+    # Bugfix: record_active_calc_document ran before the OpenCL-probe return.
+    # The probe model became _LAST_ACTIVE_CALC_DOC while its session id was
+    # discarded, so off-main spill wrote into cl-test.ods.
+    if doc is not None and not probe:
         record_active_calc_document(doc)
+    # Bugfix: scoped_dir_from_calc_session_id calls os.path.isdir. Doing that
+    # under _ACTIVE_CALC_SESSION_LOCK blocked UI-thread record/clear on a
+    # slow stat. Resolve the folder first; store the string under the lock.
+    scoped_dir = None
+    if session_id is not None and not probe:
+        scoped_dir = scoped_dir_from_calc_session_id(session_id)
+    # None means "use the focused id once the lock is held". The document key
+    # is resolved here so getURL() does not run under the lock.
+    # Bugfix: session_id=None attributed the snapshot to
+    # _LAST_ACTIVE_CALC_SESSION_ID. set_calc_init_script then cleared whichever
+    # workbook was focused, not the document whose INIT changed. Pass
+    # calc_workbook_base_session_id(doc). A doc argument still names the
+    # snapshot when the caller only has the model.
+    explicit_owner: str | None = None
+    if init_kwargs is not None and not probe:
+        if session_id is not None:
+            explicit_owner = session_id
+        elif doc is not None:
+            explicit_owner = _existing_calc_session_id(doc)
     with _ACTIVE_CALC_SESSION_LOCK:
         previous_sid = _LAST_ACTIVE_CALC_SESSION_ID
         if session_id is not None:
-            if is_opencl_probe_session_id(session_id):
+            if probe:
                 # Same rule as the assignment below: {} clears, None does not.
                 if init_kwargs is not None:
                     _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
@@ -355,22 +420,23 @@ def record_active_calc_session(
                 ]:
                     _RECORDED_CALC_SESSION_IDS.discard(stale)
                     _drop_session_snapshot_locked(stale)
-            # File-URL sessions carry the document folder without getURL().
-            _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(session_id)
+            _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir
         # Bugfix: ``if init_kwargs`` treated {} like "not passed". Clearing the
-        # workbook init calls ``record_active_calc_session(None, {})`` (see
-        # ``set_calc_init_script``), and the previous script stayed in the
-        # off-main cache. None still means the caller did not supply kwargs.
+        # workbook init passes {} (``set_calc_init_script``), and the previous
+        # script stayed in the off-main cache. None still means the caller did
+        # not supply kwargs.
         # Omitting kwargs on the *same* workbook leaves the cache. Switching
         # workbooks (``calc_workbook_base_session_id`` always passes None)
         # must not keep the previous file's init: closing that file then left
         # its script on the survivor's unambiguous off-main ``=PY()``.
         if init_kwargs is not None:
-            _assign_calc_init_kwargs_locked(session_id, init_kwargs)
-            # set_calc_init_script records with session_id=None. The snapshot
-            # must follow the cache, or the next focus switch reloads the
-            # script that was just cleared.
-            owner = session_id if session_id is not None else _LAST_ACTIVE_CALC_SESSION_ID
+            owner = explicit_owner if explicit_owner is not None else _LAST_ACTIVE_CALC_SESSION_ID
+            focused = _LAST_ACTIVE_CALC_SESSION_ID
+            # A different document's INIT updates its snapshot only. Replacing
+            # the focused cache would make that file's next unambiguous =PY()
+            # run the other workbook's script.
+            if session_id is not None or owner == focused or focused is None:
+                _assign_calc_init_kwargs_locked(owner, init_kwargs)
             if owner:
                 if init_kwargs:
                     _SESSION_INIT[owner] = dict(init_kwargs)
@@ -398,6 +464,28 @@ def off_main_calc_session_is_unambiguous() -> bool:
         return len(_RECORDED_CALC_SESSION_IDS) == 1
 
 
+def _single_recorded_calc_session_locked() -> str | None:
+    """Cached session id when exactly one workbook is recorded; else None.
+
+    Caller holds ``_ACTIVE_CALC_SESSION_LOCK``.
+    """
+    if len(_RECORDED_CALC_SESSION_IDS) != 1:
+        return None
+    return _LAST_ACTIVE_CALC_SESSION_ID
+
+
+def unambiguous_cached_calc_session_id() -> str | None:
+    """Off-main Calc session id, or None unless exactly one workbook is recorded.
+
+    Bugfix: ``workbook_session_id`` checked ``off_main_calc_session_is_unambiguous``
+    and then ``get_cached_calc_session_id`` under two lock acquisitions. A
+    UI-thread ``record_active_calc_session`` could add a second workbook in
+    that gap, so off-main ``=PY()`` of workbook A ran in B's kernel. The
+    len==1 test and the id read now share this lock.
+    """
+    with _ACTIVE_CALC_SESSION_LOCK:
+        return _single_recorded_calc_session_locked()
+
 
 def get_cached_calc_session_id() -> str | None:
     """Return the cached active Calc session id without querying the UNO desktop off-main."""
@@ -406,8 +494,16 @@ def get_cached_calc_session_id() -> str | None:
 
 
 def get_cached_calc_init_kwargs() -> dict[str, Any]:
-    """Return the cached active Calc init kwargs without querying the UNO desktop off-main."""
+    """Init kwargs when exactly one workbook is recorded; otherwise {}.
+
+    Bugfix: ``get_python_init_kwargs`` used the same two-lock check as
+    ``workbook_session_id``. A second workbook recorded in the gap left the
+    last-focused file's init on the other file's ``=PY()``. The len==1 test
+    and the kwargs copy share ``_single_recorded_calc_session_locked``.
+    """
     with _ACTIVE_CALC_SESSION_LOCK:
+        if _single_recorded_calc_session_locked() is None:
+            return {}
         return dict(_LAST_ACTIVE_CALC_INIT_KWARGS)
 
 
@@ -415,6 +511,7 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
     """Clear cached Calc session on document unload or reset."""
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_DOC
     global _LAST_ACTIVE_CALC_SCOPED_DIR, _LAST_ACTIVE_CALC_INIT_OWNER
+    restored_sid: str | None = None
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is None:
             _RECORDED_CALC_SESSION_IDS.clear()
@@ -433,7 +530,8 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
                 # file's cached model even though its id stayed recorded.
                 # Restore that snapshot when we have one; otherwise leave the
                 # model unset so off-main spill does not guess.
-                _restore_remaining_snapshot_locked(next(iter(_RECORDED_CALC_SESSION_IDS), None))
+                restored_sid = next(iter(_RECORDED_CALC_SESSION_IDS), None)
+                _restore_remaining_snapshot_locked(restored_sid)
             elif _LAST_ACTIVE_CALC_INIT_OWNER == session_id:
                 # Bugfix: B was last-active, but the cache still held A's init
                 # (focus moved with init_kwargs=None). Closing A left that
@@ -441,6 +539,13 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
                 survivor = _LAST_ACTIVE_CALC_SESSION_ID
                 snapshot = _SESSION_INIT.get(survivor) if survivor else None
                 _assign_calc_init_kwargs_locked(survivor, snapshot or {})
+    if restored_sid:
+        # isdir stays outside the lock. Re-check the id so a record that
+        # landed after we released does not lose its own folder.
+        folder = scoped_dir_from_calc_session_id(restored_sid)
+        with _ACTIVE_CALC_SESSION_LOCK:
+            if _LAST_ACTIVE_CALC_SESSION_ID == restored_sid:
+                _LAST_ACTIVE_CALC_SCOPED_DIR = folder
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 
@@ -500,7 +605,13 @@ def _workbook_session_key(doc: Any) -> str:
     new_id = str(uuid.uuid4())
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)
-        return new_id
+        # Bugfix: set_document_property returns without writing when the
+        # document has no UserDefinedProperties bag, and it does not raise.
+        # Returning the minted id made the next call mint a different key.
+        # Read it back; otherwise use the unsaved:uuid fallback.
+        stored = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
+        if stored is not None and str(stored) == new_id:
+            return new_id
     except Exception:
         pass
     # Do not use id(raw_doc): CPython recycles ids after GC, so two unsaved
@@ -554,9 +665,7 @@ def workbook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     # XAddIn never names the recalculating workbook: reuse the cache only when a
     # single workbook is recorded. Two open files would bleed shared-kernel state.
     if not on_main_thread():
-        if not off_main_calc_session_is_unambiguous():
-            return None
-        return get_cached_calc_session_id()
+        return unambiguous_cached_calc_session_id()
 
     target = _calc_document(ctx)
     if target is None:
@@ -604,7 +713,11 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
         if not comps:
             return None
         enum = comps.createEnumeration()
-        while enum is not None and enum.hasMoreElements():
+        seen = 0
+        while enum is not None:
+            if not _enumeration_should_continue(enum, seen, label="document_for_script_session"):
+                break
+            seen += 1
             elem = enum.nextElement()
             model = None
             if hasattr(elem, "getURL"):

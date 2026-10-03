@@ -493,6 +493,18 @@ def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pyte
     assert kwargs == {}
 
 
+def test_get_python_init_kwargs_off_main_uses_single_recorded_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting import session_manager as sm
+
+    sm.clear_active_calc_session()
+    sm.record_active_calc_session("calc:file:///a.ods", {"init_script": "A = 1"})
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    try:
+        assert python_function.get_python_init_kwargs(MagicMock()).get("init_script") == "A = 1"
+    finally:
+        sm.clear_active_calc_session()
+
+
 def test_get_python_init_kwargs_off_main_empty_when_two_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.scripting import session_manager as sm
 
@@ -517,7 +529,13 @@ def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.Mo
     )
 
     ctx = MagicMock()
-    kwargs = python_function.get_python_init_kwargs(ctx)
+    from plugin.scripting import session_manager as sm
+
+    sm.clear_active_calc_session()
+    try:
+        kwargs = python_function.get_python_init_kwargs(ctx)
+    finally:
+        sm.clear_active_calc_session()
     assert kwargs == {"dummy": True}
     assert calls == [(ctx, doc)]
 
@@ -535,7 +553,13 @@ def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: p
         _boom,
     )
 
-    kwargs = python_function.get_python_init_kwargs(MagicMock())
+    from plugin.scripting import session_manager as sm
+
+    sm.clear_active_calc_session()
+    try:
+        kwargs = python_function.get_python_init_kwargs(MagicMock())
+    finally:
+        sm.clear_active_calc_session()
     assert kwargs == {"dummy": True}
 
 

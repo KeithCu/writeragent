@@ -1160,12 +1160,8 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
             if on_main_thread():
                 target = get_calc_document_from_ctx(ctx)
             else:
-                from plugin.scripting.session_manager import off_main_calc_session_is_unambiguous
-
-                # Two open workbooks: cached init belongs to the last focused file, not
-                # the one Calc is recalculating (add-in has no calling document).
-                if not off_main_calc_session_is_unambiguous():
-                    return {}
+                # One lock: {} unless exactly one workbook is recorded.
+                # A separate unambiguity check raced with record_active_calc_session.
                 return get_cached_calc_init_kwargs()
         if target is not None:
             try:

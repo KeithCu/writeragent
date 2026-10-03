@@ -27,6 +27,33 @@ def _clear_sessions():
     clear_all_sandbox_sessions()
 
 
+def test_clearing_calc_init_script_does_not_wipe_the_other_workbook():
+    """INIT clear follows the edited document, not whichever file was focused."""
+    from plugin.scripting import session_manager
+
+    class _UrlDoc(_DocWithUserDefinedProperties):
+        def __init__(self, props, url: str):
+            super().__init__(props)
+            self._url = url
+
+        def getURL(self):
+            return self._url
+
+    doc_a = _UrlDoc(_UserDefinedProperties(), "file:///a.ods")
+    doc_b = _UrlDoc(_UserDefinedProperties(), "file:///b.ods")
+    session_manager.clear_active_calc_session()
+    try:
+        assert set_calc_init_script(doc_b, "B = 2") is None
+        session_manager.record_active_calc_session("calc:file:///b.ods")
+        assert set_calc_init_script(doc_a, "") is None
+        session_manager.clear_active_calc_session("calc:file:///a.ods")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "B = 2"
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_clearing_calc_init_script_clears_cached_init():
     """Removing the workbook init must drop it from the off-main cache."""
     from plugin.scripting import session_manager
