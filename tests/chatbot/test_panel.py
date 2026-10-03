@@ -50,6 +50,16 @@ class TestQueryEnterSend:
         assert (_get_schema_default("doc.chat_enter_key_sends_message")) is (True)
 
 
+def _live_bus_callbacks(bus: Any, event: str) -> list[Any]:
+    subs = bus._subscribers.get(event) or []
+    live: list[Any] = []
+    for callback, is_weak in subs:
+        resolved = bus._resolve(callback, is_weak)
+        if resolved is not None:
+            live.append(resolved)
+    return live
+
+
 def _make_send_listener() -> SendButtonListener:
     session = MagicMock()
     session.messages = [{"role": "system", "content": "test"}]
@@ -214,6 +224,148 @@ class TestSendDispose:
         listener._run_extracted_peer_drain()
         listener.status_control.setText.assert_not_called()
         listener.audio_recorder.start_recording.assert_not_called()
+
+    def test_disposing_unsubscribes_mcp_on_the_services_bus(self) -> None:
+        from plugin.framework.event_bus import EventBus
+
+        local_bus = EventBus()
+        other_bus = EventBus()
+        services = MagicMock()
+        services.events = local_bus
+        tools = MagicMock()
+        tools._services = services
+        with (
+            patch("plugin.main.get_tools", return_value=tools),
+            patch("plugin.framework.event_bus.global_event_bus", other_bus),
+        ):
+            listener = _make_send_listener()
+            assert _live_bus_callbacks(local_bus, "mcp:request")
+            assert _live_bus_callbacks(local_bus, "mcp:result")
+            assert not _live_bus_callbacks(other_bus, "mcp:result")
+            assert _live_bus_callbacks(other_bus, "grammar:status")
+            listener.disposing(None)
+            assert not _live_bus_callbacks(local_bus, "mcp:request")
+            assert not _live_bus_callbacks(local_bus, "mcp:result")
+            assert not _live_bus_callbacks(other_bus, "grammar:status")
+        assert listener._mcp_event_bus is None
+
+    def test_disposing_unsubscribes_when_mcp_and_grammar_share_a_bus(self) -> None:
+        from plugin.framework.event_bus import EventBus
+
+        shared = EventBus()
+        services = MagicMock()
+        services.events = shared
+        tools = MagicMock()
+        tools._services = services
+        with (
+            patch("plugin.main.get_tools", return_value=tools),
+            patch("plugin.framework.event_bus.global_event_bus", shared),
+        ):
+            listener = _make_send_listener()
+            listener.disposing(None)
+            assert not _live_bus_callbacks(shared, "mcp:request")
+            assert not _live_bus_callbacks(shared, "mcp:result")
+            assert not _live_bus_callbacks(shared, "grammar:status")
+
+    def test_disposing_clears_audio_auto_stop_callbacks(self) -> None:
+        listener = _make_send_listener()
+        listener.audio_recorder = MagicMock()
+        listener.disposing(None)
+        listener.audio_recorder.set_auto_stop_callbacks.assert_called_once_with(
+            on_auto_stop=None,
+            on_silence_progress=None,
+            on_error=None,
+        )
+
+    def test_mcp_result_after_teardown_does_not_append(self) -> None:
+        listener = _make_send_listener()
+        listener._panel_teardown = True
+        listener._append_response = MagicMock()
+        with patch("plugin.framework.queue_executor.post_to_main_thread") as post:
+            listener._on_mcp_result(tool="echo", result_snippet="hi")
+        post.assert_not_called()
+        listener._append_response.assert_not_called()
+
+    def test_mcp_result_when_ctx_cleared_does_not_append(self) -> None:
+        listener = _make_send_listener()
+        listener.ctx = None
+        listener._append_response = MagicMock()
+        listener._on_mcp_result(tool="echo", result_snippet="hi")
+        listener._append_response.assert_not_called()
+
+    def test_mcp_result_queued_before_teardown_skips_ui(self) -> None:
+        listener = _make_send_listener()
+        listener._append_response = MagicMock()
+        posted: list[Any] = []
+
+        def _capture(fn: Any, *args: Any) -> None:
+            posted.append(fn)
+
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
+            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture),
+        ):
+            listener._on_mcp_result(tool="echo", result_snippet="hi")
+        assert len(posted) == 1
+        listener._panel_teardown = True
+        posted[0]()
+        listener._append_response.assert_not_called()
+
+    def test_mcp_result_on_live_panel_appends(self) -> None:
+        listener = _make_send_listener()
+        listener._append_response = MagicMock()
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+        ):
+            listener._on_mcp_result(tool="echo", result_snippet="hi")
+        listener._append_response.assert_called_once()
+        assert str(listener._append_response.call_args[0][0]).startswith("[MCP Result]")
+
+    def test_audio_callbacks_after_teardown_do_not_touch_ui(self) -> None:
+        listener = _make_send_listener()
+        listener._panel_teardown = True
+        listener.dispatch = MagicMock()
+        listener._append_response = MagicMock()
+        listener.status_control.setText.reset_mock()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, True, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="recording"),
+        )
+        listener._on_audio_auto_stop()
+        listener._on_audio_recorder_error("boom")
+        listener._on_audio_silence_progress(100)
+        listener.dispatch.assert_not_called()
+        listener._append_response.assert_not_called()
+        listener.status_control.setText.assert_not_called()
+
+    def test_drain_during_dispose_keeps_cancelled_scope(self) -> None:
+        listener = _make_send_listener()
+
+        def _dispose_mid_send() -> None:
+            listener.disposing(None)
+
+        listener._do_send = _dispose_mid_send
+        listener._run_send_drain()
+        scope = listener._send_cancellation
+        assert scope is not None
+        assert scope.is_cancelled()
+
+    def test_live_drain_clears_send_cancellation(self) -> None:
+        listener = _make_send_listener()
+        listener._do_send = MagicMock()
+        listener._terminal_status = "Ready"
+        listener._panel_teardown = False
+        with (
+            patch("plugin.audio.tts_service.speak_text_async"),
+            patch("plugin.audio.tts_service.is_speaking", return_value=False),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+            patch("plugin.chatbot.dialogs.get_control_text", return_value=""),
+        ):
+            listener._run_send_drain()
+        assert listener._send_cancellation is None
 
     def test_send_completed_rereads_ask_box(self) -> None:
         listener = _make_send_listener()
@@ -511,6 +663,13 @@ class TestSlashOverlayParked:
         event = send_listener.dispatch.call_args[0][0]
         assert event.kind == SendEventKind.TEXT_UPDATED
         assert event.data == {"has_text": True}
+
+    def test_text_change_during_teardown_does_not_dispatch(self) -> None:
+        send_listener = MagicMock()
+        send_listener._panel_teardown = True
+        listener = QueryTextListener(send_listener)
+        listener.on_text_changed(_query_text_event("hello"))
+        send_listener.dispatch.assert_not_called()
 
     def test_disabled_enter_skips_handle_key_and_still_sends(self, caplog) -> None:
         send_listener = MagicMock()
