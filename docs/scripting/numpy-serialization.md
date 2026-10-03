@@ -79,7 +79,7 @@ To guarantee complete frame assembly over asynchronous UNIX pipe crossings, `Pyt
 - **Write frame:** `pickle.dumps(request, protocol=5)` → 4-byte big-endian length (`struct.pack("!I", N)`) → `N` raw bytes on the pipe.
 - **Read frame:** read exactly 4 bytes → `_read_exact(N)` with `select` + blocking read → `pickle.loads(payload)`.
 
-Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`; set `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, `PYTHONDONTWRITEBYTECODE=1`; on timeout/crash, kill the worker **process tree** (POSIX `setsid` + `killpg`; Windows `taskkill /F /T /PID`) so joblib/loky grandchildren do not outlive the worker. Host read timeouts are **not** retried (that would double the wait); a dead worker is recycled once on the next IPC turn.
+Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`; force `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, and `PYTHONDONTWRITEBYTECODE=1` even when the parent environment already set those keys; on timeout/crash, kill the worker **process tree** (POSIX `setsid` + `killpg`; Windows `taskkill /F /T /PID`) so joblib/loky grandchildren do not outlive the worker. Host read timeouts are **not** retried (that would double the wait); a dead worker is recycled once on the next IPC turn.
 
 ### Request / response fields
 
