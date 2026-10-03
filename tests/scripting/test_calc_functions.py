@@ -745,7 +745,7 @@ def test_imlog2_zero_is_value_error():
     assert calc.imlog2("0") == "#VALUE!"
     assert calc.imln("0") == "#VALUE!"
     assert calc.imlog10("0") == "#VALUE!"
-    assert calc.imlog2("8") == "3.0"
+    assert calc.imlog2("8") == "3+0i"
 
 
 def _calc_serial(year: int, month: int, day: int) -> int:

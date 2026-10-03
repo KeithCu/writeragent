@@ -945,7 +945,7 @@ def test_translate_complex_functions():
     # 1. COMPLEX
     res = translate_formula('=COMPLEX(3; 4; "j")')
     assert res.ok
-    assert exec_result(res, []) == "3.0+4.0j"
+    assert exec_result(res, []) == "3+4j"
 
     # 2-3. IMABS / IMAGINARY
     res = translate_formula('=IMABS("3+4i")')
@@ -963,7 +963,7 @@ def test_translate_complex_functions():
 
     res = translate_formula('=IMCONJUGATE("3+4i")')
     assert res.ok
-    assert exec_result(res, []) == "3.0-4.0i"
+    assert exec_result(res, []) == "3-4i"
 
     # 6-7. IMCOS / IMDIV
     res = translate_formula('=IMCOS("1+1i")')
@@ -974,7 +974,7 @@ def test_translate_complex_functions():
 
     res = translate_formula('=IMDIV("10+10i"; "2")')
     assert res.ok
-    assert exec_result(res, []) == "5.0+5.0i"
+    assert exec_result(res, []) == "5+5i"
 
     # 8-10. IMEXP / IMLN / IMLOG10
     res = translate_formula('=IMEXP("1i")')
@@ -986,25 +986,25 @@ def test_translate_complex_functions():
     # Better: IMLN("2.718281828459045")
     res = translate_formula('=IMLN("2.718281828459045")')
     assert res.ok
-    assert abs(float(exec_result(res, [])) - 1.0) < 1e-9
+    assert exec_result(res, []) == "1+0i"
 
     res = translate_formula('=IMLOG10("100")')
     assert res.ok
-    assert exec_result(res, []) == "2.0"
+    assert exec_result(res, []) == "2+0i"
 
     # 11-12. IMLOG2 / IMPOWER
     res = translate_formula('=IMLOG2("8")')
     assert res.ok
-    assert exec_result(res, []) == "3.0"
+    assert exec_result(res, []) == "3+0i"
 
     res = translate_formula('=IMPOWER("2"; 3)')
     assert res.ok
-    assert exec_result(res, []) == "8.0"
+    assert exec_result(res, []) == "8+0i"
 
     # 13-15. IMPRODUCT / IMREAL / IMSIN
     res = translate_formula('=IMPRODUCT("2+2i"; "2-2i")') # (2+2i)(2-2i) = 4 - 4i^2 = 8
     assert res.ok
-    assert exec_result(res, []) == "8.0"
+    assert exec_result(res, []) == "8+0i"
 
     res = translate_formula('=IMREAL("3+4i")')
     assert res.ok
