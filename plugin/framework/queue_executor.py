@@ -767,12 +767,13 @@ class QueueExecutor:
         if svc is None and not _force_marshal_mode:
             # Off the main thread with no AsyncCallback. Running fn here touches
             # UNO on the caller. The logical-main path already returned above.
+            # What was wrong: this raised RuntimeError inside try/except only
+            # to log.exception and re-raise. The log showed a traceback for
+            # an exception this function had just constructed. Why: log the
+            # refusal and raise it directly.
             msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
-            try:
-                raise RuntimeError(msg)
-            except RuntimeError:
-                log.exception("%s %s", msg, tag)
-                raise
+            log.error("%s %s", msg, tag)
+            raise RuntimeError(msg)
 
         self._flush_pending_posts()
         log.debug("marshal route=enqueue fn=%s %s", fn_label, tag)

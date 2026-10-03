@@ -521,6 +521,32 @@ class TestReadStreamStripsNewlines:
         ap._read_stream(stream, received.append)
         assert received == ["hello"]
 
+    def test_non_newline_separators_stay_in_the_line(self):
+        # splitlines() would break on these and leave the separator in the text.
+        ap = AsyncProcess(["dummy"])
+        received = []
+        stream = self._make_stream(["a\vb\fc\u2028d\u2029e\n"])
+        ap._read_stream(stream, received.append)
+        assert received == ["a\vb\fc\u2028d\u2029e"]
+
+    def test_crlf_split_across_chunks(self):
+        class _Parts:
+            def __init__(self) -> None:
+                self._parts = ["hel\r", "\nlo\n"]
+
+            def read(self, _n: int) -> str:
+                if not self._parts:
+                    return ""
+                return self._parts.pop(0)
+
+            def close(self) -> None:
+                return None
+
+        ap = AsyncProcess(["dummy"])
+        received = []
+        ap._read_stream(_Parts(), received.append)
+        assert received == ["hel", "lo"]
+
 
 def test_stderr_drain_short_read_before_eof():
     """A buffered pipe must surface a short burst while the child is still alive.
@@ -627,4 +653,157 @@ def test_async_process_does_not_mutate_caller_kwargs():
     kwargs: dict[str, object] = {"close_fds": True}
     AsyncProcess(["dummy"], **kwargs)
     assert kwargs == {"close_fds": True}
+
+
+def test_async_process_forces_binary_pipes():
+    """text=True used to keep encoding while the reader still decoded UTF-8 bytes."""
+    ap = AsyncProcess(["dummy"], text=True, encoding="latin-1", errors="strict", universal_newlines=True)
+    assert ap._popen_kwargs["text"] is False
+    assert "encoding" not in ap._popen_kwargs
+    assert "errors" not in ap._popen_kwargs
+    assert "universal_newlines" not in ap._popen_kwargs
+
+
+def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The first wait thread must report the child it was started for.
+
+    _wait_for_exit used to read self.process at wait time. A second start()
+    replaced that child, so the first waiter blocked on the new process and
+    delivered its exit.
+    """
+    from collections.abc import Callable
+
+    scheduled: list[tuple[Callable[..., None], tuple[object, ...], str | None]] = []
+
+    def capture(func: Callable[..., None], *args: object, name: str | None = None, **_kwargs: object) -> BackgroundHandle:
+        scheduled.append((func, args, name))
+        return BackgroundHandle()
+
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", capture)
+
+    exits: list[int] = []
+    first = None
+    second = None
+    ap = AsyncProcess(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout_cb=lambda _line: None,
+        on_exit_cb=exits.append,
+    )
+    try:
+        ap.start()
+        first = ap.process
+        assert first is not None
+        first_waits = [row for row in scheduled if row[2] and str(row[2]).startswith("asyncproc-wait")]
+        assert len(first_waits) == 1
+
+        ap.start()
+        second = ap.process
+        assert second is not None and second is not first
+        assert second.poll() is None
+        assert first.returncode is not None
+
+        func, args, _name = first_waits[0]
+        errors: list[BaseException] = []
+
+        def run_wait() -> None:
+            try:
+                func(*args)
+            except BaseException as exc:
+                errors.append(exc)
+
+        waiter = threading.Thread(target=run_wait)
+        waiter.start()
+        waiter.join(1.0)
+        blocked = waiter.is_alive()
+        if blocked and second.poll() is None:
+            second.kill()
+            waiter.join(2.0)
+        assert not blocked, "first wait thread blocked on the replacement child"
+        assert errors == []
+        assert second.poll() is None
+        assert exits == [first.returncode]
+    finally:
+        for proc in (first, second, ap.process):
+            if proc is None or proc.poll() is not None:
+                continue
+            proc.kill()
+            proc.wait(timeout=5)
+
+
+def test_is_current_thread_is_false_for_pooled_handle() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    handle_ready = threading.Event()
+    seen: list[bool] = []
+    box: dict[str, BackgroundHandle] = {}
+
+    def work() -> None:
+        assert handle_ready.wait(2)
+        seen.append(box["handle"].is_current_thread())
+        started.set()
+        release.wait(2)
+
+    handle = run_in_background(work, dedicated=True, name="self-check")
+    box["handle"] = handle
+    handle_ready.set()
+    assert started.wait(2)
+    assert seen == [True]
+    assert handle.is_current_thread() is False
+    release.set()
+    handle.join(timeout=2)
+
+    from concurrent.futures import Future
+
+    fut: Future[None] = Future()
+    assert BackgroundHandle(future=fut).is_current_thread() is False
+    fut.cancel()
+
+
+def test_join_handles_skips_its_own_dedicated_thread() -> None:
+    ap = AsyncProcess(["dummy"])
+    done = threading.Event()
+    ready = threading.Event()
+    errors: list[BaseException] = []
+    box: dict[str, BackgroundHandle] = {}
+
+    def reader() -> None:
+        assert ready.wait(2)
+        try:
+            ap._join_handles((box["handle"],), timeout=0.2)
+        except BaseException as exc:
+            errors.append(exc)
+        done.set()
+
+    handle = run_in_background(reader, dedicated=True, name="reader-self")
+    box["handle"] = handle
+    ready.set()
+    assert done.wait(2)
+    assert errors == []
+    handle.join(timeout=1)
+
+
+def test_join_handles_future_from_pool_thread_still_raises() -> None:
+    from concurrent.futures import Future
+
+    ap = AsyncProcess(["dummy"])
+    fut: Future[None] = Future()
+    handle = BackgroundHandle(future=fut)
+    errors: list[BaseException | None] = []
+
+    def run() -> None:
+        threading.current_thread().name = "wa-bg-9"
+        try:
+            ap._join_handles((handle,), timeout=0.2)
+        except RuntimeError as exc:
+            errors.append(exc)
+        else:
+            errors.append(None)
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(1)
+    fut.cancel()
+    assert not worker.is_alive()
+    assert errors and isinstance(errors[0], RuntimeError)
+    assert "deadlock" in str(errors[0])
 

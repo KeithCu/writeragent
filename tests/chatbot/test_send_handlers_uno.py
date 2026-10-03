@@ -89,7 +89,7 @@ def _drive_direct_image_send(host, doc, execute_return):
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
 
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     while not q.empty():
                         item = q.get()
                         k = item[0]
