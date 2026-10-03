@@ -386,3 +386,89 @@ def test_libreharper_dual_install_can_import_extension_update_check(tmp_path) ->
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_unrecognized_english_locale_is_logged() -> None:
+    from unittest.mock import patch
+
+    from plugin.writer.locale import harper_proofreader as hp
+
+    hp._HARPER_LOCALE_MISS_LOGGED.clear()
+    unrecognized = SimpleNamespace(Language="en-NZ", Country="", Variant="")
+    with patch.object(hp.log, "warning") as mock_warn:
+        assert hp.normalize_harper_locale_to_bcp47(unrecognized) is None
+        assert hp.normalize_harper_locale_to_bcp47(unrecognized) is None
+    assert mock_warn.call_count == 1
+    assert "unrecognized English" in mock_warn.call_args[0][0]
+
+    supported = SimpleNamespace(Language="en", Country="GB", Variant="")
+    with patch.object(hp.log, "warning") as mock_warn_ok:
+        assert hp.normalize_harper_locale_to_bcp47(supported) == "en-GB"
+    mock_warn_ok.assert_not_called()
+
+    german = SimpleNamespace(Language="de", Country="DE", Variant="")
+    with patch.object(hp.log, "warning") as mock_warn_de:
+        assert hp.normalize_harper_locale_to_bcp47(german) is None
+    mock_warn_de.assert_not_called()
+
+
+def test_locale_construction_failure_registers_degraded_and_retries() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from plugin.framework.uno_context import reset_package_extension_id_for_tests
+    from plugin.writer.locale.harper_proofreader import HarperProofreader
+
+    calls = {"n": 0}
+
+    def flaky() -> tuple[object, ...]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("uno struct failed")
+        return ("locale-obj",)
+
+    try:
+        with (
+            patch("plugin.writer.locale.harper_proofreader._harper_locale_tuple", side_effect=flaky),
+            patch("plugin.writer.locale.harper.maybe_start_harper_async"),
+            patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
+        ):
+            proofreader = HarperProofreader(MagicMock())
+            assert proofreader._locales == ()
+            assert proofreader._locales_degraded is True
+            mock_log.error.assert_called()
+            assert "degraded" in mock_log.error.call_args[0][0]
+
+            locale = SimpleNamespace(Language="en", Country="US", Variant="")
+            with patch.object(proofreader, "_normalize_locale", return_value="en-US"):
+                assert proofreader.hasLocale(locale) is True
+            assert proofreader._locales_degraded is False
+            assert proofreader.getLocales() == ("locale-obj",)
+            assert calls["n"] == 2
+    finally:
+        reset_package_extension_id_for_tests()
+
+
+def test_locale_retry_failure_is_logged_once() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from plugin.framework.uno_context import reset_package_extension_id_for_tests
+    from plugin.writer.locale.harper_proofreader import HarperProofreader
+
+    def boom() -> tuple[object, ...]:
+        raise RuntimeError("still broken")
+
+    try:
+        with (
+            patch("plugin.writer.locale.harper_proofreader._harper_locale_tuple", side_effect=boom),
+            patch("plugin.writer.locale.harper.maybe_start_harper_async"),
+            patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
+        ):
+            proofreader = HarperProofreader(MagicMock())
+            locale = SimpleNamespace(Language="en", Country="US", Variant="")
+            assert proofreader.hasLocale(locale) is False
+            assert proofreader.hasLocale(locale) is False
+            assert proofreader.getLocales() == ()
+        assert mock_log.warning.call_count == 1
+        assert "retry failed" in mock_log.warning.call_args[0][0]
+    finally:
+        reset_package_extension_id_for_tests()
+
+
