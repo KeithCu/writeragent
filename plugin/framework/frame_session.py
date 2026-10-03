@@ -99,7 +99,9 @@ def open_frame_session(frame: Any, doc_uid: str = "") -> FrameSession:
     """Return the session for *frame*, creating it the first time the frame is seen.
 
     A missing frame gets a private session that is not stored. Two windows
-    must not share that object.
+    must not share that object. A frame whose close listener did not attach
+    is also not stored: ``dispose`` runs only from that listener, so an
+    unwatched session in ``_OPEN`` would leak until process exit.
     """
     if frame is not None:
         found = session_for_frame(frame)
@@ -109,8 +111,16 @@ def open_frame_session(frame: Any, doc_uid: str = "") -> FrameSession:
             return found
     session = FrameSession(frame, doc_uid)
     if frame is not None:
+        # Append first so a disposing callback inside addEventListener can
+        # forget this session. Drop it again when the listener never stuck.
         _OPEN.append(session)
-        session.watch_frame()
+        try:
+            attached = session.watch_frame()
+        except Exception:
+            _forget(session)
+            raise
+        if not attached:
+            _forget(session)
     return session
 
 
@@ -126,6 +136,22 @@ def _forget(session: FrameSession) -> None:
         _OPEN.remove(session)
     except ValueError:
         pass
+
+
+def _is_attach_thread_violation(exc: BaseException) -> bool:
+    """True when *exc* is the main-thread guard, not a missing UNO method.
+
+    What was wrong: ``getController``, ``addFocusListener``, ``addMouseListener``,
+    and ``addMouseClickHandler`` caught ``Exception`` and logged at debug. How:
+    off the main thread those calls raise ``RuntimeError`` (``UNO thread
+    violation``), so the session kept going with no listener and ``install``
+    looked successful. Why: that is the thread guard. Callers re-raise it. Any
+    other attach error stays a debug log.
+    """
+    from plugin.framework.uno_listeners import listener_boundary
+
+    boundary = listener_boundary(exc)
+    return boundary is not None and boundary.kind == "thread"
 
 
 class FrameSession:
@@ -203,42 +229,55 @@ class FrameSession:
         except Exception as exc:
             log.debug("FrameSession.restore_focus: %s", exc)
 
-    def watch_frame(self) -> None:
+    def watch_frame(self) -> bool:
         """Destroy this session when the frame itself is disposed.
+
+        Returns True only when the close listener is attached. False means
+        the caller must not leave this session in ``_OPEN``.
 
         ``disposing`` runs while the broadcaster drops listeners. Do not
         ``removeListener`` from that callback.
         """
         frame = self.frame
         if frame is None or not hasattr(frame, "addEventListener"):
-            return
+            return False
         try:
             import unohelper
             from com.sun.star.lang import XEventListener
         except ImportError:
-            return
+            return False
         if unohelper is None or XEventListener is None:
-            return
+            return False
 
         session = self
 
         class _FrameClose(unohelper.Base, XEventListener):  # type: ignore[misc]
             def disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
-                session.dispose(from_frame_disposing=True)
+                session.dispose()
 
         try:
             listener = _FrameClose()
             frame.addEventListener(listener)
             self._frame_listener = listener
-        except Exception:
+        except Exception as exc:
+            # Same guard as the focus/click attaches: a thread violation is
+            # not "this frame has no close listener".
+            if _is_attach_thread_violation(exc):
+                raise
             log.debug("frame close listener", exc_info=True)
+            return False
+        return True
 
     def install(self, ctx: Any, query: Any = None, leave_query_controls: Any = None) -> None:
         """Attach this frame's focus and click listeners.
 
         *ctx* is the extension context the panel already holds. The document
         controller comes from ``frame.getController()``, not from *ctx* via
-        ``getCurrentComponent()``.
+        ``getCurrentComponent()``. A ``UNO thread violation`` from
+        ``getController`` / ``addFocusListener`` / ``addMouseListener`` /
+        ``addMouseClickHandler`` propagates; this method does not return as
+        if those listeners were installed. In-tree callers run on the main
+        thread, where that guard does not fire.
         """
         del ctx  # the frame, not Desktop, names the document
         self._attach_query_listener(query)
@@ -299,22 +338,24 @@ class FrameSession:
         self.clear_focus_pin_if(query_control)
         self.release_listeners()
 
-    def dispose(self, *, from_frame_disposing: bool = False) -> None:
-        """Frame closed. Forget this session and no other."""
+    def dispose(self) -> None:
+        """Frame closed. Forget this session and no other.
+
+        The only caller is the frame ``disposing`` callback. That walk is
+        already dropping listeners, so ``remove*`` must not run here. Sidebar
+        teardown uses :meth:`release_panel`, which does call ``remove*``
+        while the controls are still alive.
+        """
         if self._closed:
             return
         self._closed = True
-        if from_frame_disposing:
-            self._query_listener = None
-            self._query_control = None
-            self._leave.clear()
-            self._click_handler = None
-            self._click_controller = None
-            self._trackers.clear()
-            self._frame_listener = None
-        else:
-            self.release_listeners()
-            self._remove_frame_listener()
+        self._query_listener = None
+        self._query_control = None
+        self._leave.clear()
+        self._click_handler = None
+        self._click_controller = None
+        self._trackers.clear()
+        self._frame_listener = None
         self.focus_pin = None
         self.panel = None
         _forget(self)
@@ -333,6 +374,8 @@ class FrameSession:
         try:
             return frame.getController()
         except Exception as exc:
+            if _is_attach_thread_violation(exc):
+                raise
             log.debug("frame controller: %s", exc)
             return None
 
@@ -358,18 +401,6 @@ class FrameSession:
                 remover(listener)
         except Exception:
             log.debug("frame session %s", method, exc_info=True)
-
-    def _remove_frame_listener(self) -> None:
-        listener = self._frame_listener
-        self._frame_listener = None
-        frame = self.frame
-        if listener is None or frame is None:
-            return
-        try:
-            if hasattr(frame, "removeEventListener"):
-                frame.removeEventListener(listener)
-        except Exception:
-            log.debug("remove frame listener", exc_info=True)
 
     def _attach_query_listener(self, query: Any) -> None:
         if query is None or not hasattr(query, "addFocusListener"):
@@ -405,7 +436,9 @@ class FrameSession:
             self._trackers.append(listener)
             self._query_control = query
             self._query_listener = listener
-        except Exception:
+        except Exception as exc:
+            if _is_attach_thread_violation(exc):
+                raise
             log.debug("query focus listener", exc_info=True)
 
     def _attach_leave_query(self, control: Any) -> None:
@@ -463,9 +496,13 @@ class FrameSession:
                 self._trackers.append(focus_track)
             if mouse_track is not None or focus_track is not None:
                 self._leave.append((control, mouse_track, focus_track))
-        except Exception:
-            log.debug("leave-query listeners", exc_info=True)
+        except Exception as exc:
+            # Roll back a half-attached pair first, then surface a thread
+            # violation. A normal failure stays a debug log after the rollback.
             self._rollback_leave(control, mouse_track, focus_track)
+            if _is_attach_thread_violation(exc):
+                raise
+            log.debug("leave-query listeners", exc_info=True)
 
     def _rollback_leave(self, control: Any, mouse_track: Any, focus_track: Any) -> None:
         self._remove(control, "removeFocusListener", focus_track)
@@ -517,7 +554,9 @@ class FrameSession:
             self._click_controller = controller
             self._click_handler = handler
             self._trackers.append(handler)
-        except Exception:
-            log.debug("document click handler", exc_info=True)
+        except Exception as exc:
             self._remove(controller, "removeMouseClickHandler", handler)
             self.forget_listener(handler)
+            if _is_attach_thread_violation(exc):
+                raise
+            log.debug("document click handler", exc_info=True)

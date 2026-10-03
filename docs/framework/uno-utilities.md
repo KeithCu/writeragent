@@ -477,6 +477,8 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown â
 
 Each open frame has one session. Its query `focusGained`, leave-query, and page-click listeners close over that session. `disposing` forgets the Python binding and does not call `remove*`. Explicit panel release removes only that session's listeners. A second frame's dispose or click does not touch the first.
 
+The session stays in the open list only when the frame-close listener attached. If that attach fails, nothing would call `dispose`, so the session is not left tracked. `dispose` itself runs only from that callback. `getController`, `addFocusListener`, `addMouseListener`, and `addMouseClickHandler` re-raise a `UNO thread violation` instead of logging it at debug and returning as if the listener were installed. Other attach failures stay a debug log. `install` runs on the main thread.
+
 ---
 
 ## 4. Ranked future-work recommendations

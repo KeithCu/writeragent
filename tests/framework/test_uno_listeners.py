@@ -402,6 +402,64 @@ def test_empty_document_is_not_disposed():
     assert result is None
 
 
+def test_disposal_typeerror_is_not_a_soft_typeerror():
+    """TypeError used to be handled before listener_boundary.
+
+    A disposal whose type subclasses TypeError must not be logged as an
+    ordinary TypeError and returned as None.
+    """
+
+    class DisposedException(TypeError):
+        pass
+
+    class Boom(BaseActionListener):
+        def on_action_performed(self, ev):
+            raise DisposedException("gone")
+
+    try:
+        try:
+            returned = Boom().actionPerformed(MagicMock())
+        except Exception as exc:
+            raise AssertionError("generic handler swallowed disposal") from exc
+    except ListenerBoundary as boundary:
+        assert boundary.kind == "disposed"
+        return
+    raise AssertionError(f"DisposedException(TypeError) was a soft failure: {returned!r}")
+
+
+def test_disposing_typeerror_disposal_stays_inside_the_callback():
+    """disposing still must not raise on real disposal, even if the type is a TypeError."""
+
+    class DisposedException(TypeError):
+        pass
+
+    class Gone(BaseListener):
+        def on_disposing(self, source):
+            raise DisposedException("gone")
+
+    Gone().disposing(MagicMock())
+
+
+def test_veto_valueerror_is_the_original_type():
+    """A veto that subclasses ValueError is re-raised as that UNO type."""
+
+    class CloseVetoException(ValueError):
+        pass
+
+    class Veto(BaseListener):
+        def on_disposing(self, source):
+            raise CloseVetoException("veto")
+
+    try:
+        Veto().disposing(MagicMock())
+    except CloseVetoException as exc:
+        assert type(exc) is CloseVetoException
+        return
+    except ListenerBoundary as boundary:
+        raise AssertionError(f"veto left as ListenerBoundary {boundary.kind}") from boundary
+    raise AssertionError("CloseVetoException(ValueError) was swallowed")
+
+
 def test_click_thread_violation_is_not_a_rejected_click():
     from plugin.framework.uno_listeners import BaseMouseClickHandler, ListenerBoundary
 
