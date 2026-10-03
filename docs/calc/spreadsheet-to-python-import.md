@@ -602,7 +602,7 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 
 Curated from [LibreOffice Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html), [Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), and [Microsoft–LibreOffice function comparison](https://wiki.documentfoundation.org/Documentation/Calc_Functions) (~508 LO built-ins total). **Status** reflects [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) as of the Tier A/B/C/D port (157 shipped).
 
-**Inventory summary:** **235 / 374** functions in this master list are **Shipped** in [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) (232 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers).
+**Inventory summary:** **220 / 374** functions in this master list are **Shipped** in [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) (217 emitters including `ROW`/`COLUMN`/`IFS`/`SWITCH` handlers). Fifteen financial names (ODDLYIELD through VDB in the financial table) are **Not started**: the translator used to emit `calc.<name>(...)` for helpers that do not exist, so import reported success and recalc raised `AttributeError`.
  LibreOffice Calc exposes **~508** built-ins ([Calc Guide 25.2 Ch.9](https://books.libreoffice.org/en/CG252/CG25209-FormulasAndFunctions.html), [Functions by Category](https://help.libreoffice.org/latest/en-US/text/scalc/01/04060100.html)); this curated list (~374) is the **conversion goal set** for business/statistical workbooks—not every locale alias (`*_ADD`, `*_EXCEL2003`) or extension-only symbol.
 
 | Status | Meaning |
@@ -659,7 +659,7 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `YEAR` | Shipped |
 | `YEARFRAC` | Shipped |
 
-### Financial (55/55 shipped)
+### Financial (40/55 shipped, 15 not started)
 | Function | Status |
 |----------|--------|
 | `ACCRINT` | Shipped |
@@ -695,23 +695,23 @@ Use `list_calc_functions` (chat tool) against a live Calc session for the author
 | `ODDFPRICE` | Shipped |
 | `ODDFYIELD` | Shipped |
 | `ODDLPRICE` | Shipped |
-| `ODDLYIELD` | Shipped |
-| `PDURATION` | Shipped |
+| `ODDLYIELD` | Not started |
+| `PDURATION` | Not started |
 | `PMT` | Shipped |
-| `PPMT` | Shipped |
-| `PRICE` | Shipped |
-| `PRICEDISC` | Shipped |
-| `PRICEMAT` | Shipped |
+| `PPMT` | Not started |
+| `PRICE` | Not started |
+| `PRICEDISC` | Not started |
+| `PRICEMAT` | Not started |
 | `PV` | Shipped |
-| `RATE` | Shipped |
-| `RECEIVED` | Shipped |
-| `RRI` | Shipped |
-| `SLN` | Shipped |
-| `SYD` | Shipped |
-| `TBILLEQ` | Shipped |
-| `TBILLPRICE` | Shipped |
-| `TBILLYIELD` | Shipped |
-| `VDB` | Shipped |
+| `RATE` | Not started |
+| `RECEIVED` | Not started |
+| `RRI` | Not started |
+| `SLN` | Not started |
+| `SYD` | Not started |
+| `TBILLEQ` | Not started |
+| `TBILLPRICE` | Not started |
+| `TBILLYIELD` | Not started |
+| `VDB` | Not started |
 | `XIRR` | Shipped |
 | `XNPV` | Shipped |
 | `YIELD` | Shipped |

@@ -12,6 +12,7 @@ explicit via ``header_row``; string→number/date guessing is opt-in via
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, cast
@@ -133,6 +134,26 @@ def _parse_numeric_string(text: str) -> float | None:
     if num:
         return _signed_magnitude(num.group(1), num.group(2), num.group(3))
     return None
+
+
+def header_label(value: Any) -> str:
+    """Column-name text for a header cell.
+
+    Calc numeric cells arrive as floats. ``str(2024.0)`` is ``\"2024.0\"``, so
+    ``df[\"2024\"]`` and a DSUM field ``\"2024\"`` missed the column. Whole-number
+    floats use the integer spelling. Callers must not run ``parse_strings`` on
+    headers first: ``\"00123\"`` is a label, not the number 123.
+    """
+    if value is None:
+        return ""
+    # bool is an int subclass; ``True`` must stay the label "True", not "1".
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
 
 
 def _coerce_cell_basic(value: Any) -> Any:
@@ -263,12 +284,15 @@ def _coerce_column_types(
                 numeric: Any = pd.to_numeric(coerced, errors="coerce")
                 non_null = coerced.notna().sum()
                 numeric_non_null = numeric.notna().sum()
-                if non_null > 0 and numeric_non_null >= max(1, int(non_null * 0.8)):
+                # Promote only when every non-null cell parsed. An 80% cutoff
+                # replaced the column with to_numeric and turned the remaining
+                # text into NaN (a mixed [10, "x", 30, ...] column became float).
+                if non_null > 0 and numeric_non_null == non_null:
                     out[col] = numeric
                 else:
                     dt: Any = pd.to_datetime(coerced, errors="coerce", utc=False, format="mixed")
                     dt_non_null = dt.notna().sum()
-                    if non_null > 0 and dt_non_null >= max(1, int(non_null * 0.8)):
+                    if non_null > 0 and dt_non_null == non_null:
                         out[col] = dt
                     else:
                         out[col] = coerced
@@ -356,8 +380,10 @@ def grid_to_dataframe(
 
     if header_row is not None:
         header_idx = max(0, min(int(header_row), len(grid) - 1))
-        raw_headers = [cell_fn(cell) for cell in grid[header_idx]]
-        col_names = _dedupe_column_names([str(h) if h is not None else "" for h in raw_headers])
+        # Labels, not values. parse_strings on this row turned "00123" into the
+        # column name "123.0" and str(2024.0) into "2024.0".
+        raw_headers = [_coerce_cell_basic(cell) for cell in grid[header_idx]]
+        col_names = _dedupe_column_names([header_label(h) for h in raw_headers])
         body = grid[header_idx + 1 :]
     else:
         width = max((len(row) for row in grid), default=0)
