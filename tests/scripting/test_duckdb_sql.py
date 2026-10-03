@@ -693,9 +693,43 @@ def test_injected_run_sql_ignores_caller_scoped_dir(tmp_path, monkeypatch):
     bound = executor.custom_tools["run_sql"]
     bound("select 1", scoped_dir="/etc", files=["passwd"])
     assert seen["scoped_dir"] == str(tmp_path)
-    executor.state = {"scoped_dir": None}
-    bound("select 1", scoped_dir="/etc")
-    assert seen["scoped_dir"] is None
+    # Assignment after inject must not replace the host folder.
+    executor.state["scoped_dir"] = "/tmp/not-the-host"
+    bound("select 1", scoped_dir="/etc", files=["passwd"])
+    assert seen["scoped_dir"] == str(tmp_path)
+
+
+def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions):
+    """A cell must not open another workbook's catalog by passing its session id."""
+    from plugin.scripting.venv.duckdb_sql import session_duckdb
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    other = "calc:file:///other-workbook"
+    seed = _execute_request(
+        "import pandas as pd\n"
+        "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
+        "result = 1",
+        None,
+        session_id=other,
+    )
+    assert seed["status"] == "ok", seed
+    stolen = _execute_request(
+        "result = session_duckdb('calc:file:///other-workbook').execute("
+        "'SELECT x FROM secret').fetchone()[0]",
+        None,
+        session_id="calc:file:///this-workbook",
+    )
+    assert stolen["status"] == "error", stolen
+    direct = _execute_request(
+        "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
+        "result = raw('calc:file:///other-workbook').execute('SELECT x FROM secret').fetchone()[0]",
+        None,
+        session_id="calc:file:///this-workbook",
+    )
+    assert direct["status"] == "error", direct
+    # Host callers outside the sandbox still name a workbook.
+    host = session_duckdb(session_id=other)
+    assert host.execute("SELECT x FROM secret").fetchone()[0] == 7
 
 
 def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):

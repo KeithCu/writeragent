@@ -114,8 +114,9 @@ def _drop_session_snapshot_locked(session_id: str) -> None:
 
 def _restore_remaining_snapshot_locked(remaining: str | None) -> None:
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_DOC
-    global _LAST_ACTIVE_CALC_SCOPED_DIR
+    global _LAST_ACTIVE_CALC_SCOPED_DIR, _LAST_ACTIVE_CALC_INIT_OWNER
     _LAST_ACTIVE_CALC_SESSION_ID = remaining
+    _LAST_ACTIVE_CALC_INIT_OWNER = remaining
     if remaining is None:
         _LAST_ACTIVE_CALC_INIT_KWARGS = {}
         _LAST_ACTIVE_CALC_DOC = None
@@ -203,6 +204,10 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
 _ACTIVE_CALC_SESSION_LOCK = threading.Lock()
 _LAST_ACTIVE_CALC_SESSION_ID: str | None = None
 _LAST_ACTIVE_CALC_INIT_KWARGS: dict[str, Any] = {}
+# Workbook the cached init kwargs belong to. Focus can move without new kwargs
+# (calc_workbook_base_session_id). Closing a different file must not leave
+# this cache pointing at the closed workbook.
+_LAST_ACTIVE_CALC_INIT_OWNER: str | None = None
 # Weakref to the last UI-thread Calc model. Off-main finalize may pass this
 # through to deferred spill; do not call UNO on it off-main.
 _LAST_ACTIVE_CALC_DOC: weakref.ReferenceType[Any] | None = None
@@ -302,17 +307,24 @@ def get_cached_calc_document() -> Any | None:
     return ref()
 
 
+def _assign_calc_init_kwargs_locked(session_id: str | None, init_kwargs: dict[str, Any]) -> None:
+    """Store init kwargs and remember which workbook they belong to."""
+    global _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_INIT_OWNER
+    _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
+    _LAST_ACTIVE_CALC_INIT_OWNER = session_id if session_id is not None else _LAST_ACTIVE_CALC_SESSION_ID
+
+
 def record_active_calc_session(
     session_id: str | None,
     init_kwargs: dict[str, Any] | None = None,
     doc: Any | None = None,
 ) -> None:
     """Cache the active Calc session id and init kwargs on the main thread for off-main formula lookups."""
-    global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS
-    global _LAST_ACTIVE_CALC_SCOPED_DIR
+    global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_SCOPED_DIR
     if doc is not None:
         record_active_calc_document(doc)
     with _ACTIVE_CALC_SESSION_LOCK:
+        previous_sid = _LAST_ACTIVE_CALC_SESSION_ID
         if session_id is not None:
             if is_opencl_probe_session_id(session_id):
                 # Same rule as the assignment below: {} clears, None does not.
@@ -349,8 +361,23 @@ def record_active_calc_session(
         # workbook init calls ``record_active_calc_session(None, {})`` (see
         # ``set_calc_init_script``), and the previous script stayed in the
         # off-main cache. None still means the caller did not supply kwargs.
+        # Omitting kwargs on the *same* workbook leaves the cache. Switching
+        # workbooks (``calc_workbook_base_session_id`` always passes None)
+        # must not keep the previous file's init: closing that file then left
+        # its script on the survivor's unambiguous off-main ``=PY()``.
         if init_kwargs is not None:
-            _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
+            _assign_calc_init_kwargs_locked(session_id, init_kwargs)
+            # set_calc_init_script records with session_id=None. The snapshot
+            # must follow the cache, or the next focus switch reloads the
+            # script that was just cleared.
+            owner = session_id if session_id is not None else _LAST_ACTIVE_CALC_SESSION_ID
+            if owner:
+                if init_kwargs:
+                    _SESSION_INIT[owner] = dict(init_kwargs)
+                else:
+                    _SESSION_INIT.pop(owner, None)
+        elif session_id is not None and session_id != previous_sid:
+            _assign_calc_init_kwargs_locked(session_id, _SESSION_INIT.get(session_id) or {})
 
 
 def recorded_calc_session_count() -> int:
@@ -387,7 +414,7 @@ def get_cached_calc_init_kwargs() -> dict[str, Any]:
 def clear_active_calc_session(session_id: str | None = None) -> None:
     """Clear cached Calc session on document unload or reset."""
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_DOC
-    global _LAST_ACTIVE_CALC_SCOPED_DIR
+    global _LAST_ACTIVE_CALC_SCOPED_DIR, _LAST_ACTIVE_CALC_INIT_OWNER
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is None:
             _RECORDED_CALC_SESSION_IDS.clear()
@@ -395,6 +422,7 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
             _SESSION_INIT.clear()
             _LAST_ACTIVE_CALC_SESSION_ID = None
             _LAST_ACTIVE_CALC_INIT_KWARGS = {}
+            _LAST_ACTIVE_CALC_INIT_OWNER = None
             _LAST_ACTIVE_CALC_DOC = None
             _LAST_ACTIVE_CALC_SCOPED_DIR = None
         else:
@@ -406,6 +434,13 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
                 # Restore that snapshot when we have one; otherwise leave the
                 # model unset so off-main spill does not guess.
                 _restore_remaining_snapshot_locked(next(iter(_RECORDED_CALC_SESSION_IDS), None))
+            elif _LAST_ACTIVE_CALC_INIT_OWNER == session_id:
+                # Bugfix: B was last-active, but the cache still held A's init
+                # (focus moved with init_kwargs=None). Closing A left that
+                # script for B's unambiguous off-main =PY().
+                survivor = _LAST_ACTIVE_CALC_SESSION_ID
+                snapshot = _SESSION_INIT.get(survivor) if survivor else None
+                _assign_calc_init_kwargs_locked(survivor, snapshot or {})
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 

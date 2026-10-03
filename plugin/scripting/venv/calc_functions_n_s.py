@@ -879,8 +879,12 @@ def steyx(data_y: Any, data_x: Any) -> float:
 
 
 def subtotal(fn_num: Any, r: Any) -> float:
-    fn = int(float(fn_num)) % 100
-    flat = np.asarray(r).ravel()
+    # int(float(fn_num)) raises on text. Match small() / steyx and return NaN.
+    try:
+        fn = int(float(fn_num)) % 100
+        flat = np.asarray(r).ravel()
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     nums = []
     for x in flat:
         if x is None or x == "":

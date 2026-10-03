@@ -485,9 +485,13 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # (smallest magnitude). Excel IRR(values, guess) is Newton's method from
     # that guess: guess 0.1 and 0.5 on [-5, 10.5, 1, -8, 1] are different
     # roots (~0.089 and ~0.71). Keep this solver.
-    vals = np.asarray(values, dtype=float).ravel()
+    # dtype=float and float(guess) raise on a text cell. Sibling helpers return NaN.
+    try:
+        vals = np.asarray(values, dtype=float).ravel()
+        x = float(guess)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     # Simple Newton's method for IRR
-    x = float(guess)
     for _unused in range(100):
         f = 0.0
         df = 0.0
@@ -522,8 +526,9 @@ def iseven(val: Any) -> bool:
         f = float(val)
         if np.isnan(f):
             return False
+        # int(inf) raises OverflowError, which the old handler let escape.
         return int(f) % 2 == 0
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return False
 
 
@@ -554,7 +559,7 @@ def isodd(val: Any) -> bool:
         if np.isnan(f):
             return False
         return int(f) % 2 != 0
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return False
 
 

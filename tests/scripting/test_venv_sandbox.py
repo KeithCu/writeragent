@@ -70,6 +70,30 @@ def test_pandas_timestamp_round_trips_as_iso():
     assert host_unpack_data(unpacked["result"]) == "2026-08-13T14:30:00"
 
 
+def test_serialize_nested_dataframe_and_figure():
+    """Nested containers must take the custom serialize path, not child_pack."""
+    pd = pytest.importorskip("pandas")
+    matplotlib = pytest.importorskip("matplotlib")
+    # pyplot's default backend is Qt here and aborts without a display.
+    matplotlib.use("Agg", force=True)
+    from matplotlib.figure import Figure
+
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df1 = pd.DataFrame({"a": [1]})
+    df2 = pd.DataFrame({"b": [2]})
+    sheets = serialize_result({"sheets": [df1, df2]})
+    assert is_dataframe_payload(sheets["sheets"][0])
+    assert is_dataframe_payload(sheets["sheets"][1])
+    assert sheets["sheets"][0]["columns"] == ["a"]
+
+    fig = Figure()
+    fig.add_subplot(111).plot([1, 2])
+    wrapped = serialize_result([{"stats": df1, "plot": fig}])
+    assert is_dataframe_payload(wrapped[0]["stats"])
+    assert wrapped[0]["plot"]["__wa_payload__"] == "image"
+
+
 def test_unknown_result_type_stays_in_the_child():
     class Weird:
         pass

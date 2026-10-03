@@ -420,6 +420,12 @@ def resolve_run_script_selection(
     name_config_key = resolve_run_script_name_config_key(doc)
     last_name = get_config_str(name_config_key)
     names, merged_scripts, _unused_origin_map = build_xdl_script_picker_state(ctx, doc, saved_scripts)
+    # A raw document name from an older list still selects that script when
+    # the picker key is the [Doc] display name and no user script uses the raw name.
+    if last_name and last_name not in merged_scripts:
+        display = document_script_display_name(last_name)
+        if display in merged_scripts:
+            last_name = display
     if not last_name or last_name not in merged_scripts:
         if names:
             last_name = names[0]
@@ -459,7 +465,13 @@ def build_scripts_list_message(
 
     doc_scripts: dict[str, str] = {}
     if doc is not None and not document_stale:
-        doc_scripts = picker_document_scripts(get_document_scripts(doc))
+        # Same keys as build_xdl_script_picker_state. Raw names collided with
+        # My Scripts and did not match selected_script_name ([Doc] …), so
+        # reopen loaded the wrong row and Save wrote a different script.
+        doc_scripts = {
+            document_script_display_name(name): code
+            for name, code in picker_document_scripts(get_document_scripts(doc)).items()
+        }
 
     sections: list[dict[str, Any]] = [
         {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": user_scripts},
@@ -513,6 +525,11 @@ SCRIPT_PICKER_MESSAGE_TYPES = frozenset(
 def _script_code_from_message(msg: dict[str, Any]) -> str:
     raw = msg.get("code", "")
     return raw if isinstance(raw, str) else ""
+
+
+def _document_script_storage_name(name: str) -> str:
+    """Property key for a picker label. ``[Doc] Regional`` stores as ``Regional``."""
+    return parse_document_script_display_name(name) or name
 
 
 def get_user_scripts() -> dict[str, str]:
@@ -607,18 +624,19 @@ def handle_editor_script_message(
             if session_doc is None:
                 _send_list(status_error_text=_("No document is open to save scripts."))
                 return True
-            err = save_document_script(session_doc, name, script_code)
+            storage_name = _document_script_storage_name(name)
+            err = save_document_script(session_doc, storage_name, script_code)
             if err:
-                save_user_script(name, script_code)
-                set_config(name_config_key, name)
+                save_user_script(storage_name, script_code)
+                set_config(name_config_key, storage_name)
                 _send_list(
-                    status_ok_text=_("Saved script '{0}' to My Scripts.").format(name),
+                    status_ok_text=_("Saved script '{0}' to My Scripts.").format(storage_name),
                     status_error_text=err,
                 )
                 return True
-            display_name = document_script_display_name(name)
+            display_name = document_script_display_name(storage_name)
             set_config(name_config_key, display_name)
-            _send_list(status_ok_text=_("Saved script '{0}' to this document.").format(name))
+            _send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
             return True
         save_user_script(name, script_code)
         set_config(name_config_key, name)
@@ -693,11 +711,12 @@ def handle_editor_script_message(
                     )
                 )
                 return True
-            err = delete_document_script(session_doc, name)
+            storage_name = _document_script_storage_name(name)
+            err = delete_document_script(session_doc, storage_name)
             if err:
                 _send_list(status_error_text=err)
                 return True
-            _send_list(status_ok_text=_("Deleted document script '{0}'.").format(name))
+            _send_list(status_ok_text=_("Deleted document script '{0}'.").format(storage_name))
             return True
         delete_user_script(name)
         log.info("scripts picker: delete_script '%s' (user)", name)
