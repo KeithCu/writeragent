@@ -286,10 +286,13 @@ def repair_json_object(text: str) -> Any:
     # crosshair: off
     try:
         return _repair_json_object_bounded(text)
-    except AssertionError as exc:
-        if _is_pre_contract_error(exc):
-            return text
-        raise
+    except Exception as exc:
+        # except Exception, not a deal class: mypy rejects a dynamically loaded
+        # PreContractError in an except clause. Only that contract error is
+        # swallowed; other repair failures still propagate.
+        if not _is_pre_contract_error(exc):
+            raise
+        return text
 
 
 @deal.ensure(lambda text, default=None, strict=False, result=None: isinstance(text, (str, bytes, bytearray)) or result is default)
@@ -376,21 +379,19 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         pass
 
     # 4. Repair attempt for truncated or malformed JSON.
-    # What was wrong: repair_json's @deal.pre rejects text longer than
-    # DEAL_MAX_SOURCE. PreContractError subclasses AssertionError, not
-    # ValueError, so this except missed it and safe_json_loads raised
-    # instead of returning default.
     try:
         repaired = repair_json(stripped)
         if repaired != stripped:
             parsed = json.loads(repaired, strict=False)
             _debug_json_stage("json_repair")
             return parsed
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError):
+    except Exception:
+        # What was wrong: repair_json's @deal.pre rejects text longer than
+        # DEAL_MAX_SOURCE. PreContractError subclasses AssertionError, not
+        # ValueError, and mypy rejects that dynamically loaded class in an
+        # except clause. This try is only the repair attempt, so any failure
+        # returns default.
         pass
-    except AssertionError as exc:
-        if not _is_pre_contract_error(exc):
-            raise
 
     return default
 
