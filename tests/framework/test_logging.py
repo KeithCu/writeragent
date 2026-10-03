@@ -468,6 +468,19 @@ class TestAgentLog:
         handler.flush()
         assert len(handler.buffer) == 0
 
+    def test_agent_log_does_not_raise_on_lock(self):
+        import threading
+
+        import plugin.framework.logging as logging_mod
+        logging_mod._enable_agent_log = True
+        handler = MemoryHandler(capacity=10)
+        handler.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        log.setLevel(logging.DEBUG)
+        agent_log("test.py:3", "lock", data={"lock": threading.Lock()})
+        handler.flush()
+        assert len(handler.buffer) == 0
+
 
 class TestOptionalFlushFileHandler:
 
@@ -646,6 +659,48 @@ def test_log_record_factory_is_not_wrapped_twice() -> None:
     second = logging.getLogRecordFactory()
     assert second is first
     assert getattr(second, "_writeragent_safe_factory", False) is True
+
+
+def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
+    import sys
+
+    import plugin.framework.logging as logging_mod
+
+    path_a = str(tmp_path / "a.log")
+    path_b = str(tmp_path / "b.log")
+    saved_path = logging_mod._debug_log_path
+    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    first = None
+    second = None
+    try:
+        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_log_path = path_a
+        first = logging_mod._shared_debug_file_handler()
+        closed: list[int] = []
+        original_close = first.close
+
+        def tracking_close() -> None:
+            closed.append(1)
+            original_close()
+
+        with patch.object(first, "close", tracking_close):
+            logging_mod._debug_log_path = path_b
+            second = logging_mod._shared_debug_file_handler()
+            assert closed == [1]
+            assert second is not first
+            assert getattr(sys, "_writeragent_debug_file_handler") is second
+            assert logging_mod._shared_debug_file_handler() is second
+            assert closed == [1]
+    finally:
+        logging_mod._debug_log_path = saved_path
+        for handler in (second, first):
+            if handler is None:
+                continue
+            try:
+                logging.FileHandler.close(handler)
+            except Exception:
+                pass
+        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
 
 
 def test_debug_handler_is_stored_on_sys(tmp_path) -> None:
