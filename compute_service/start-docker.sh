@@ -15,6 +15,7 @@ exec docker run --rm \
   --pids-limit=256 \
   --security-opt no-new-privileges \
   --cap-drop ALL \
+  -e PYTHON_COMPUTE_HOST=0.0.0.0 \
   -p 127.0.0.1:8000:8000 \
   ${PYTHON_COMPUTE_API_KEY:+-e PYTHON_COMPUTE_API_KEY="$PYTHON_COMPUTE_API_KEY"} \
   ${PYTHON_COMPUTE_API_KEY_FILE:+-e PYTHON_COMPUTE_API_KEY_FILE="$PYTHON_COMPUTE_API_KEY_FILE"} \

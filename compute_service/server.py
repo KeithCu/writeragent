@@ -33,6 +33,11 @@ from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigErro
 
 log = logging.getLogger("compute_service")
 
+# Bound the post-accept drain. A cell may run up to max_timeout_sec (600s);
+# waiting that out would ignore SIGTERM until the kubelet SIGKILLs the pod.
+_HTTP_DRAIN_SEC = 30.0
+_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN"})
+
 ExecuteFn = Callable[..., dict[str, Any]]
 ResetFn = Callable[..., dict[str, Any]]
 
@@ -69,8 +74,8 @@ def _source_text_from_part(raw: Any, *, limit: int, label: str, required: bool) 
     Multipart ``code`` / ``init_script`` are raw UTF-8. They used to be JSON
     strings inside ``meta``, so the HTTP thread unescape-parsed formula source
     it never executes. Cap the raw part on byte length, then decode once.
-    Peel still passes a ``str`` and character-caps ``code`` only. A non-string
-    peel ``init_script`` stays ignored.
+    Peel passes a ``str`` and character-caps both ``code`` and ``init_script``.
+    A non-string peel ``init_script`` stays ignored.
     """
     if isinstance(raw, (bytes, bytearray)):
         if len(raw) > limit:
@@ -90,7 +95,10 @@ def _source_text_from_part(raw: Any, *, limit: int, label: str, required: bool) 
     if isinstance(raw, str):
         if required and raw == "":
             return None, {"status": "error", "error": "Missing 'code' string parameter."}
-        if required and len(raw) > limit:
+        # Peel init_script is optional, so the old `required and` check let a
+        # JSON body carry an init script up to max_body_bytes. Multipart
+        # already byte-caps both source parts; apply the same cap here.
+        if len(raw) > limit:
             return None, {"status": "error", "code": "CODE_TOO_LARGE", "error": f"{label} exceeds max_code_chars ({limit})."}
         return raw, None
 
@@ -261,8 +269,13 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
 
             mode = parts.mode or "isolated"
-            if mode not in ("isolated", "shared"):
-                mode = "isolated"
+            # A typo such as "Shared" used to be rewritten to isolated and
+            # return 200, so a shared kernel looked successful and kept no state.
+            if not isinstance(mode, str) or mode not in ("isolated", "shared"):
+                err_body = {"status": "error", "error": "mode must be 'isolated' or 'shared'."}
+                if req_id is not None:
+                    err_body["id"] = req_id
+                return _start_json(start_response, "400 Bad Request", err_body)
 
             if mode == "shared" and not session_id:
                 err_body = {"status": "error", "error": "mode='shared' requires a 'session_id' URL query parameter (?session_id=...)."}
@@ -301,6 +314,15 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                     raw_out = result_payload.get("result_json")
                     if isinstance(raw_out, (bytes, bytearray)) and raw_out:
                         return _start_raw_json(start_response, "200 OK", bytes(raw_out))
+                    # Eval errors travel inside result_json and stay HTTP 200.
+                    # These two codes mean the pool never ran the cell. Reset
+                    # already maps them to 503 so a proxy can retry without
+                    # parsing the body; execute used to return 200 for both.
+                    pool_code = result_payload.get("code")
+                    if result_payload.get("status") == "error" and pool_code in _POOL_UNAVAILABLE:
+                        if req_id is not None:
+                            result_payload["id"] = req_id
+                        return _start_json(start_response, "503 Service Unavailable", result_payload)
                     if req_id is not None:
                         result_payload["id"] = req_id
 
@@ -478,7 +500,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             # Secure default: bind only to local loopback interface.
             bind_addresses = [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")]
         elif host in ("0.0.0.0", "::"):
-            # Wildcard binds (e.g. for Docker/container networking) allowed only when explicitly requested via HOST env.
+            # Wildcard binds (Docker) only when host is 0.0.0.0 or :: (PYTHON_COMPUTE_HOST).
             bind_addresses = [(socket.AF_INET, "0.0.0.0"), (socket.AF_INET6, "::")]
         else:
             try:
@@ -530,7 +552,27 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 sock.close()
             except Exception:
                 pass
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        # Do not cancel_futures: those futures already own accepted sockets.
+        # Drain waits for them; cancelling dropped the sockets until process exit.
+        self.executor.shutdown(wait=False, cancel_futures=False)
+
+    def drain_executor(self, timeout: float) -> None:
+        """Wait until accepted requests finish, then return.
+
+        Shutdown used to stop the accept loop and SIGKILL worker children
+        while HTTP threads were still inside execute. ``cancel_futures``
+        also dropped sockets that had been accepted but not yet handled.
+        The wait is bounded so a max_timeout cell cannot hold process exit.
+        """
+        done = threading.Event()
+
+        def _wait() -> None:
+            self.executor.shutdown(wait=True, cancel_futures=False)
+            done.set()
+
+        threading.Thread(target=_wait, name="http-drain", daemon=True).start()
+        if not done.wait(timeout):
+            log.warning("HTTP request drain exceeded %.0fs; abandoning in-flight handlers", timeout)
 
     def fileno(self) -> int:
         return self.socket.fileno()
@@ -625,6 +667,9 @@ class WSGIDualStackServer:
     def shutdown(self) -> None:
         self.srv.shutdown()
 
+    def drain_executor(self, timeout: float) -> None:
+        self.srv.drain_executor(timeout)
+
     def server_close(self) -> None:
         self.srv.server_close()
 
@@ -673,6 +718,10 @@ def run_server(settings: ComputeSettings) -> None:
         server.serve_forever()
     finally:
         log.info("Stopping Python Compute Service...")
+        # Accept has stopped. Finish requests already taken, then kill
+        # workers. The old order SIGKILLed children while HTTP threads were
+        # still inside execute.
+        server.drain_executor(_HTTP_DRAIN_SEC)
         from compute_service.formula_pool import shutdown_formula_pool
         from compute_service.vision_pool import shutdown_vision_pool
 

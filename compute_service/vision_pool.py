@@ -42,13 +42,12 @@ class VisionProcessPool(BaseProcessPool):
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl)
 
     def execute(self, helper: str, image_b64: str | bytes | None = None, file_path: str | None = None, params: dict[str, Any] | None = None, timeout_sec: int | None = None, req_id: str | None = None, allow_paths: tuple[str, ...] | list[str] | None = None) -> dict[str, Any]:
-        """Execute a vision task on an available worker process."""
-        if file_path:
-            from compute_service.config import ocr_path_is_allowed
+        """Execute a vision task on an available worker process.
 
-            prefixes = () if allow_paths is None else allow_paths
-            if not ocr_path_is_allowed(file_path, prefixes):
-                return {"id": req_id, "status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+        The HTTP handler returns 400 for a denied path. The worker checks
+        again before ``open``. A third check here used to answer 200 +
+        ``FILE_PATH_DENIED`` when it fired.
+        """
         if not self.is_enabled():
             return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
 

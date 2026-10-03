@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
-from plugin.scripting.sandbox import optimize_popen_pipes
+from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 
 log = logging.getLogger("compute_service.worker")
 
@@ -95,19 +95,70 @@ class BaseProcessWorker:
             return ""
         return text[-_STDERR_SNIPPET:]
 
+    def _reap_previous_process(self) -> None:
+        """Wait on the Popen ``_spawn`` is about to replace.
+
+        A child that exited outside ``kill()`` used to stay a zombie: the next
+        ``_spawn`` assigned a new ``Popen`` and nothing called ``wait()``.
+        ``poll()`` reaps an already-dead child. Kill first only when it is
+        still running, so a reused pid is not signaled.
+        """
+        previous = self.process
+        if previous is None:
+            return
+        if previous.poll() is None:
+            try:
+                previous.kill()
+            except Exception:
+                pass
+        try:
+            previous.wait(timeout=1.0)
+        except Exception:
+            pass
+        self.process = None
+        drain = self._stderr_drain
+        self._stderr_drain = None
+        if drain is not None:
+            drain.join(timeout=0.2)
+
     def _spawn(self) -> None:
         """Spawn worker subprocess and await readiness handshake."""
+        self._reap_previous_process()
         cmd = [sys.executable, self.script_path]
         try:
+            # Scrub matches the venv host: drop PYTHONHOME / credential-like
+            # names so the child does not inherit the parent's secret env.
             # **creationflags kwargs make the type checker treat this as Popen[str].
-            proc = cast("subprocess.Popen[bytes]", subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, text=False, **get_subprocess_creationflags()))
+            proc = cast(
+                "subprocess.Popen[bytes]",
+                subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=0,
+                    text=False,
+                    env=scrub_subprocess_env(dict(os.environ)),
+                    **get_subprocess_creationflags(),
+                ),
+            )
             self.process = proc
             optimize_popen_pipes(proc)
             self._stderr_drain = start_stderr_drain(proc.stderr, name=f"{self.worker_name}-stderr-{self.worker_id}")
+            ready_data: Any = None
             if proc.stdout is not None:
                 ready_data = read_pickle_frame_with_timeout(proc.stdout, _SPAWN_READY_TIMEOUT_SEC, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, require_dict=True)
-                if isinstance(ready_data, dict):
-                    log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
+            # EOF (None) and any dict whose status is not "ready" used to
+            # count as success. The worker was marked idle, and the next
+            # execute burned the full call timeout before EMPTY_RESPONSE.
+            if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
+                snippet = self._stderr_snippet()
+                extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
+                status = ready_data.get("status") if isinstance(ready_data, dict) else None
+                log.error("%s #%d spawn handshake was not ready (status=%r)%s", self.worker_name, self.worker_id, status, extra)
+                self.kill()
+                return
+            log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
             self.tasks_executed = 0
         except subprocess.TimeoutExpired:
             # Handshake hang: child may still be importing, or stdout was not pickle.
@@ -223,12 +274,14 @@ class BaseProcessPool:
         self._idle_reaper_thread: threading.Thread | None = None
 
         if self.num_workers > 0:
-            now = time.monotonic()
             for i in range(self.num_workers):
                 w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes)
                 self.workers.append(w)
                 self._idle.add(w)
-                self._worker_last_active[w] = now
+                # Stamp after spawn. A timestamp taken before this loop made a
+                # slow handshake look already idle, so a short idle TTL killed
+                # the child as soon as the reaper ran.
+                self._worker_last_active[w] = time.monotonic()
 
         if self.idle_worker_ttl_sec is not None and self.idle_worker_ttl_sec > 0:
             self._start_idle_reaper()
@@ -255,6 +308,8 @@ class BaseProcessPool:
             for w in list(self._idle):
                 if not w.is_alive():
                     continue
+                if self._skip_idle_evict(w):
+                    continue
                 last_active = self._worker_last_active.get(w, now)
                 if now - last_active >= self.idle_worker_ttl_sec:
                     stale.append(w)
@@ -273,6 +328,14 @@ class BaseProcessPool:
                 self._cond.notify_all()
         if stale:
             log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(stale), self.worker_name, self.idle_worker_ttl_sec)
+
+    def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
+        """Return true to leave *worker* running past the idle TTL.
+
+        Formula sessions override this. The base pool has no session map.
+        """
+        del worker
+        return False
 
     def is_enabled(self) -> bool:
         return self.num_workers > 0 and not self._is_shutdown

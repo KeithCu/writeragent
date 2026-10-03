@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import sys
 import threading
@@ -61,6 +62,10 @@ def clamp_timeout_sec(timeout_sec: float | int | None, *, default_timeout_sec: i
 
 def timeout_ms_to_sec(timeout_ms: Any, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)):
+        return default_timeout_sec
+    # +Infinity is a float that passes ``> 0`` and then OverflowError in int().
+    # Multipart meta rejects it; this keeps a direct caller from escaping the handler.
+    if isinstance(timeout_ms, float) and not math.isfinite(timeout_ms):
         return default_timeout_sec
     if timeout_ms <= 0:
         return default_timeout_sec

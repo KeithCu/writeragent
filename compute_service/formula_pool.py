@@ -24,6 +24,7 @@ from typing import Any
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, WIRE_PICKLE, decode_worker_result
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker
+from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
 
@@ -84,36 +85,64 @@ class FormulaProcessPool(BaseProcessPool):
                     worker = self._active_sessions.get(sid)
                     if worker is not None:
                         stale.append((sid, worker))
+        evicted: list[str] = []
         for sid, worker in stale:
-            # Reset the Python namespace *before* dropping maps so the same
-            # session_id cannot hash back onto leftover globals.
+            # Lease first, then re-check the stamp. Popping before the reset
+            # let a cell that finished during the wait get wiped anyway, and
+            # the "evicted" log ran even when the lease was skipped.
             leased = self.lease_specific(worker, timeout_sec=2.0)
-            if leased is not None:
+            if leased is None:
+                log.debug("TTL eviction skipped for %s: worker is currently leased", sid)
+                continue
+            try:
+                with self._cond:
+                    refreshed = self._session_last_activity.get(sid)
+                    mapped = self._active_sessions.get(sid)
+                    still_stale = mapped is worker and refreshed is not None and (time.monotonic() - refreshed) >= self.shared_kernel_ttl_sec
+                if not still_stale:
+                    continue
                 try:
                     leased.execute({"action": "reset_session", "session_id": sid}, timeout_sec=2.0)
                 except Exception:
                     log.exception("TTL reset_session failed for %s; killing worker", sid)
                     leased.kill()
-                finally:
-                    self.release_worker(leased)
-                with self._cond:
-                    self._session_last_activity.pop(sid, None)
-                    mapped = self._active_sessions.pop(sid, None)
-                    if mapped and mapped in self._worker_sessions:
-                        self._worker_sessions[mapped].discard(sid)
-                        if not self._worker_sessions[mapped]:
-                            del self._worker_sessions[mapped]
-            else:
-                # Worker is currently busy executing a task; skip eviction and retry on next cycle
-                log.debug("TTL eviction skipped for %s: worker is currently leased", sid)
-        if stale:
-            log.info("Session TTL reaper evicted %d idle session(s): %s", len(stale), [s for s, _w in stale])
+                self._drop_session_if_worker(sid, leased)
+                evicted.append(sid)
+            finally:
+                self.release_worker(leased)
+        if evicted:
+            log.info("Session TTL reaper evicted %d idle session(s): %s", len(evicted), evicted)
 
     def _clear_worker_sessions_unlocked(self, worker: BaseProcessWorker) -> None:
         sessions = self._worker_sessions.pop(worker, set())
         for sid in sessions:
             self._active_sessions.pop(sid, None)
             self._session_last_activity.pop(sid, None)
+
+    def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
+        """Keep a shared kernel past the idle TTL.
+
+        Idle TTL and session TTL are independent and both default to 3600s.
+        Killing a worker that still holds sessions dropped every workbook on
+        it and left ``_active_sessions`` pointing at a dead process. The next
+        sticky call respawned an empty kernel that still looked live, so
+        ``max_tasks`` recycle stayed blocked. Session TTL already resets
+        those namespaces.
+        """
+        return bool(self._worker_sessions.get(worker))
+
+    def _drop_session_if_worker(self, session_id: str, worker: BaseProcessWorker) -> None:
+        """Pop maps only when they still name *worker*."""
+        with self._cond:
+            if self._active_sessions.get(session_id) is not worker:
+                return
+            self._session_last_activity.pop(session_id, None)
+            self._active_sessions.pop(session_id, None)
+            sessions = self._worker_sessions.get(worker)
+            if sessions is not None:
+                sessions.discard(session_id)
+                if not sessions:
+                    del self._worker_sessions[worker]
 
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
         """Recycle worker if tasks_executed >= max_tasks, unless holding active shared sessions.
@@ -139,13 +168,13 @@ class FormulaProcessPool(BaseProcessPool):
         path). Unknown / already-gone ids are idempotent ``ok``. TTL eviction
         in ``_evict_stale_sessions`` stays the safety net if reset is missed.
         """
+        # Do not pop the map before the lease. The old order let a concurrent
+        # execute re-register the session and run a cell, then this reset
+        # wiped the kernel while the map still pointed at the worker. A lease
+        # miss also left the map already gone, so max_tasks recycle could
+        # kill the process anyway.
         with self._cond:
-            self._session_last_activity.pop(session_id, None)
-            worker = self._active_sessions.pop(session_id, None)
-            if worker and worker in self._worker_sessions:
-                self._worker_sessions[worker].discard(session_id)
-                if not self._worker_sessions[worker]:
-                    del self._worker_sessions[worker]
+            worker = self._active_sessions.get(session_id)
 
         if worker is None:
             return {"status": "ok"}
@@ -156,6 +185,7 @@ class FormulaProcessPool(BaseProcessPool):
             return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
         try:
             res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
+            self._drop_session_if_worker(session_id, leased)
             return res
         finally:
             self.release_worker(leased)
@@ -236,7 +266,14 @@ class FormulaProcessPool(BaseProcessPool):
                 self._session_last_activity[session_id] = time.monotonic()
 
         try:
-            res = leased.execute(payload, timeout_sec=_remaining_sec(deadline))
+            # The child used to get the original full timeout while this read
+            # used only the time left. signal.alarm never won, so a normal
+            # sleep became SIGKILL and dropped every shared session on that
+            # process. Give the child the remaining budget and wait the
+            # LibrePy grace so the alarm returns an error and the process stays up.
+            child_budget = _remaining_sec(deadline)
+            payload["timeout_sec"] = max(1, int(child_budget))
+            res = leased.execute(payload, timeout_sec=child_budget + HOST_IPC_READ_GRACE_SEC)
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             if decode_result and isinstance(res, dict):

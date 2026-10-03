@@ -63,8 +63,13 @@ def _image_to_json(payload: dict[str, Any]) -> dict[str, Any]:
     return {"format": str(payload.get("format") or "png"), "data_b64": data_b64}
 
 
-def to_dumb_json_value(obj: Any) -> Any:
-    """Unpack desktop wire envelopes / ndarrays into plain JSON-friendly trees."""
+def to_dumb_json_value(obj: Any, *, drop_images: bool = False) -> Any:
+    """Unpack desktop wire envelopes / ndarrays into plain JSON-friendly trees.
+
+    ``drop_images`` emits null for a plot that ``normalize_execute_response``
+    already copied into the top-level ``images`` array. Leaving the node
+    inlined base64-duplicated the PNG in ``result`` and ``images``.
+    """
     if obj is None or isinstance(obj, (str, bool, int)):
         return obj
     if isinstance(obj, float):
@@ -72,26 +77,30 @@ def to_dumb_json_value(obj: Any) -> Any:
     if _is_ndarray(obj):
         return _ndarray_to_lists(obj)
     if is_image_payload(obj):
+        if drop_images:
+            return None
         return _image_to_json(obj)
     if is_split_grid(obj):
         return sanitize_for_strict_json(host_unpack_data(obj, as_nested_list=True))
     if is_multi_data(obj):
         items = obj.get("items") or []
-        return [to_dumb_json_value(x) for x in items]
+        return [to_dumb_json_value(x, drop_images=drop_images) for x in items]
     if is_dataframe_payload(obj):
         # Kit spill wants a grid; return data matrix (and columns as sibling if useful).
         cols = obj.get("columns") or []
-        data = to_dumb_json_value(obj.get("data"))
+        data = to_dumb_json_value(obj.get("data"), drop_images=drop_images)
         if cols:
             return {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": list(cols), "data": data}
         return data
     if isinstance(obj, dict):
         # Desktop may still leave nested envelopes.
         if obj.get("__wa_payload__") == "image":
+            if drop_images:
+                return None
             return _image_to_json(obj)
-        return {str(k): to_dumb_json_value(v) for k, v in obj.items()}
+        return {str(k): to_dumb_json_value(v, drop_images=drop_images) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [to_dumb_json_value(x) for x in obj]
+        return [to_dumb_json_value(x, drop_images=drop_images) for x in obj]
     # numpy scalars that slipped through
     mod = getattr(type(obj), "__module__", "")
     if mod == "numpy":
@@ -131,10 +140,11 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
             images.append(_image_to_json(item if isinstance(item, dict) else {}))
         result_out = None
     else:
-        # Collect nested images without requiring them as the sole result
+        # Collect nested images without requiring them as the sole result.
+        # Drop those nodes from result so the PNG is not base64-copied twice.
         for img in find_image_payloads(result):
             images.append(_image_to_json(img))
-        result_out = to_dumb_json_value(result)
+        result_out = to_dumb_json_value(result, drop_images=bool(images))
 
     out = {"status": "ok", "result": result_out, "stdout": payload.get("stdout") or ""}
     if images:

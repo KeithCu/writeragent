@@ -30,9 +30,10 @@ from compute_service.worker_base import run_worker_stdio_loop
 def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[bytes | None, dict[str, Any] | None]:
     """Return ``(bytes, None)`` or ``(None, error)``.
 
-    The parent pool checks the allowlist before the IPC hop. Re-check here and
-    open the realpath: a symlink inside an allowed directory can point outside
-    between that check and ``open`` of the original string.
+    The HTTP handler returns 400 before the pool. Re-check here and open the
+    realpath: a symlink inside an allowed directory can point outside between
+    that check and ``open`` of the original string. The pool used to check a
+    third time and, on denial, the handler sent HTTP 200.
     """
     if not isinstance(file_path, str) or not file_path.strip():
         return None, {"id": req_id, "status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}

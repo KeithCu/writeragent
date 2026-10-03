@@ -557,6 +557,17 @@ class TestHttpBlobForward:
         assert status.startswith("200")
         assert seen["code"] == "c" * 64
 
+    def test_meta_nonfinite_is_400(self) -> None:
+        def execute_fn(**_kwargs):
+            raise AssertionError("NaN/Infinity meta must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        for meta in (b'{"timeout_ms": Infinity}', b'{"id": NaN}'):
+            content_type, body = _manual_multipart([("meta", meta), ("code", b"result = 1")])
+            status, out = _wsgi_post(app, body, content_type=content_type)
+            assert status.startswith("400"), out
+            assert json.loads(out)["error"] == "Invalid multipart execute body"
+
     def test_invalid_utf8_code_is_400(self) -> None:
         def execute_fn(**_kwargs):
             raise AssertionError("invalid utf-8 must not lease a worker")

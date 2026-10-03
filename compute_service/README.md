@@ -167,11 +167,11 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` longer than `max_code_chars` (`CODE_TOO_LARGE`; multipart also applies that byte cap to the `init_script` part), invalid UTF-8 in a multipart source part, missing/empty reset `session_id`, `session_id` in the request body, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
-| **`503 Service Unavailable`** | `/v1/session/reset` worker lease failure (`WORKER_POOL_BUSY`). coolwsd may map this to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute` or `/v1/session/reset` when the pool never ran the cell (`WORKER_POOL_BUSY`, `SERVICE_SHUTDOWN`). Eval errors inside `result_json` stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
@@ -185,7 +185,7 @@ key is non-empty. Configure the **same** secret on the service:
 |--------|-----|
 | Environment | `PYTHON_COMPUTE_API_KEY=...` |
 | Key file | `PYTHON_COMPUTE_API_KEY_FILE=/path` or `--api-key-file /path` |
-| Config JSON | `"auth": { "api_key_file": "..." }` (no raw key in the JSON file) |
+| Config JSON | `"auth": { "api_key_file": "..." }`. A raw `api_key` in the file is a startup error. |
 
 There is **no** `--api-key` CLI flag (secrets in argv are visible in `ps`).
 
@@ -265,7 +265,7 @@ Shared `mode=shared` **must** use a per-document `session_id` query parameter (`
 ## Lifecycle & Signal Handling
 
 - **Graceful Shutdown**: The service traps `SIGTERM` and `SIGINT`.
-- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), the server initiates `server.shutdown()` on a background thread, terminates worker subprocess pools cleanly, stops accepting new connections, drains in-flight evaluations, and closes listening sockets.
+- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), the server stops accepting on a background thread. After the accept loop returns it waits up to 30s for requests already taken, then terminates worker subprocesses and closes listening sockets. A cell still running at the end of that wait is abandoned.
 
 ---
 
@@ -275,7 +275,7 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **HTTP listener**: One thread per formula worker and vision worker (2 with the stock defaults). Not a setting. A `ThreadPoolExecutor` accepts connections, including Kubernetes `/health` probes, without socket stalls.
+- **HTTP listener**: One thread per formula worker and vision worker (2 with the stock defaults). Not a setting. `GET /health` uses that same pool, so a probe can wait behind in-flight `=PY()` calls. See the comment on `ComputeSettings.threads`.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward
@@ -384,7 +384,7 @@ docker run --rm -p 127.0.0.1:8000:8000 \
   python-compute
 ```
 
-- For cross-container networking within a private bridge network, set `HOST=0.0.0.0`.
+- The image and `start-docker.sh` set `PYTHON_COMPUTE_HOST=0.0.0.0` so the published port reaches the process. The host publish stays on `127.0.0.1`. `HOST` and `PORT` are not read.
 - The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`).
 
 ---

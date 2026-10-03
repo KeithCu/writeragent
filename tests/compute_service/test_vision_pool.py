@@ -196,6 +196,7 @@ class TestVisionHttpEndpoint:
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+        shutdown_vision_pool()
 
     def _post(self, url: str, payload: dict, headers: dict | None = None) -> tuple[int, dict]:
         req_headers = {"Content-Type": "application/json"}

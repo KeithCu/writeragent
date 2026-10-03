@@ -17,10 +17,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from compute_service.config import ComputeSettings, ConfigError, load_settings
 from compute_service.executor import clamp_timeout_sec, execute_code, timeout_ms_to_sec
-from compute_service.json_egress import sanitize_for_strict_json, to_dumb_json_value
+from compute_service.formula_pool import shutdown_formula_pool
+from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from compute_service.server import create_wsgi_app
-from compute_service.config import ComputeSettings, load_settings
+from compute_service.vision_pool import shutdown_vision_pool
 
 
 def _wsgi_post(
@@ -91,6 +93,10 @@ def compute_server_info():
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
+    # The first /v1/execute builds the process-global pool. Stop it here so
+    # a later module on this worker does not reuse those children.
+    shutdown_formula_pool()
+    shutdown_vision_pool()
 
 
 @pytest.fixture(scope="module")
@@ -140,12 +146,25 @@ class TestJsonEgressUnit:
         assert len(out) == 10
         assert out[0] == list(range(12))
 
+    def test_nested_image_is_not_copied_into_result(self) -> None:
+        img = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+        out = normalize_execute_response({"status": "ok", "result": {"title": "t", "plot": img}, "stdout": ""})
+        assert out["status"] == "ok"
+        images = out.get("images") or []
+        assert len(images) == 1
+        assert images[0]["format"] == "png"
+        assert images[0]["data_b64"]
+        assert out["result"] == {"title": "t", "plot": None}
+        assert "data_b64" not in json.dumps(out["result"])
+
 
 class TestTimeoutHelpers:
     def test_timeout_ms_rounds_up(self) -> None:
         assert timeout_ms_to_sec(1500) == 2
         assert timeout_ms_to_sec(1000) == 1
         assert timeout_ms_to_sec(0) == 30
+        assert timeout_ms_to_sec(float("inf")) == 30
+        assert timeout_ms_to_sec(float("-inf")) == 30
         assert clamp_timeout_sec(99999) == 600
 
 
@@ -498,6 +517,15 @@ class TestComputeSettings:
         assert s.max_body_bytes == 4096
         assert s.default_timeout_sec == 12
         assert s.shared_kernel_ttl_sec == 1800.0
+
+    def test_raw_api_key_in_json_fails_closed(self, tmp_path) -> None:
+        cfg = tmp_path / "python-compute.json"
+        cfg.write_text(json.dumps({"auth": {"api_key": "from-json"}}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="api_key"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        cfg.write_text(json.dumps({"api_key": "top-level"}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="api_key"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_shared_kernel_ttl_env(self) -> None:
         s = load_settings(environ={"PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC": "7200.0", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
@@ -903,6 +931,62 @@ class TestSessionResetHttp:
         assert body.get("id") == "busy-1"
         assert body.get("status") == "error"
         assert body.get("code") == "WORKER_POOL_BUSY"
+
+    def test_execute_pool_busy_is_503(self) -> None:
+        def busy(**_kwargs):
+            return {"id": "ex-busy", "status": "error", "code": "WORKER_POOL_BUSY", "error": "busy"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=busy)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("code") == "WORKER_POOL_BUSY"
+
+    def test_execute_shutdown_is_503(self) -> None:
+        def down(**_kwargs):
+            return {"status": "error", "code": "SERVICE_SHUTDOWN", "error": "stopping"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=down)
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-down", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("id") == "ex-down"
+        assert body.get("code") == "SERVICE_SHUTDOWN"
+
+    def test_execute_eval_error_stays_200(self) -> None:
+        def failed(**_kwargs):
+            return {"status": "error", "result_json": b'{"status":"error","error":"boom"}'}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=failed)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("200")
+        assert body.get("error") == "boom"
+
+    def test_unknown_mode_is_400(self) -> None:
+        def execute_fn(**_kwargs):
+            raise AssertionError("bad mode must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "mode-1", "code": "result = 1", "mode": "Shared"}).encode("utf-8"),
+            path="/v1/execute",
+        )
+        assert status.startswith("400")
+        assert body.get("id") == "mode-1"
+        assert "mode" in body.get("error", "")
+
+    def test_peel_init_script_over_cap_is_400(self) -> None:
+        def execute_fn(**_kwargs):
+            raise AssertionError("oversize init must not run")
+
+        app = create_wsgi_app(ComputeSettings(max_code_chars=64), execute_fn=execute_fn)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "init-big", "code": "result = 1", "init_script": "i" * 65}).encode("utf-8"),
+            path="/v1/execute",
+        )
+        assert status.startswith("400")
+        assert body.get("code") == "CODE_TOO_LARGE"
+        assert body.get("id") == "init-big"
 
     def test_auth_required_matches_execute(self) -> None:
         app = create_wsgi_app(

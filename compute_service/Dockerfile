@@ -47,8 +47,10 @@ COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
 COPY contrib/vec_pack /app/contrib/vec_pack
 
 ENV PYTHONPATH=/app/pkgs:/app
-ENV HOST=127.0.0.1
-ENV PORT=8000
+# Bind all container interfaces. HOST/PORT were unread; the process used
+# PYTHON_COMPUTE_HOST and defaulted to 127.0.0.1, so docker -p never connected.
+ENV PYTHON_COMPUTE_HOST=0.0.0.0
+ENV PYTHON_COMPUTE_PORT=8000
 # Prefer a mounted secret file in production:
 #   -e PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key
 # or:

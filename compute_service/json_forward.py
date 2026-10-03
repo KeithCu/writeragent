@@ -471,11 +471,20 @@ def _disposition_name(value: str) -> str:
     return found
 
 
+def _reject_json_constant(token: str) -> None:
+    """``json.loads`` accepts NaN/Infinity. The peel walker does not.
+
+    ``timeout_ms: Infinity`` then raised OverflowError outside the execute
+    try, and ``id: NaN`` failed the kit dump. Reject the tokens here.
+    """
+    raise ValueError(token)
+
+
 def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     if len(meta_bytes) > MAX_META_BYTES:
         raise ExecuteRequestError("meta part exceeds size cap")
     try:
-        obj = json.loads(meta_bytes.decode("utf-8"))
+        obj = json.loads(meta_bytes.decode("utf-8"), parse_constant=_reject_json_constant)
     except Exception as exc:
         raise ExecuteRequestError("invalid meta JSON") from exc
     if not isinstance(obj, dict):

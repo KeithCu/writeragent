@@ -239,6 +239,169 @@ class TestFormulaPoolSupervisor:
         finally:
             worker.kill()
 
+    def test_spawn_eof_before_ready_is_killed(self, tmp_path, caplog) -> None:
+        """A child that exits before any frame must not be marked ready."""
+        from compute_service.worker_base import BaseProcessWorker
+
+        script = tmp_path / "exit_worker.py"
+        script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+        t0 = time.monotonic()
+        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+            worker = BaseProcessWorker(1, str(script), worker_name="Exit worker")
+        try:
+            joined = "\n".join(r.getMessage() for r in caplog.records)
+            assert time.monotonic() - t0 < 3.0
+            assert "was not ready" in joined
+            assert "status=None" in joined
+            assert not worker.is_alive()
+        finally:
+            worker.kill()
+
+    def test_spawn_non_ready_status_is_killed(self, tmp_path, caplog) -> None:
+        """A live child whose first dict is not status=ready must be killed."""
+        from compute_service.worker_base import BaseProcessWorker
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "booting_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys, time",
+                    f"sys.path.insert(0, {root!r})",
+                    "from plugin.scripting.ipc import write_pickle_frame",
+                    "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})",
+                    "sys.stdout.buffer.flush()",
+                    "time.sleep(30)",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        t0 = time.monotonic()
+        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+            worker = BaseProcessWorker(1, str(script), worker_name="Booting worker")
+        try:
+            joined = "\n".join(r.getMessage() for r in caplog.records)
+            assert time.monotonic() - t0 < 3.0
+            assert "was not ready" in joined
+            assert "booting" in joined
+            assert not worker.is_alive()
+        finally:
+            worker.kill()
+
+    def test_spawn_reaps_exited_child(self, tmp_path) -> None:
+        """Replacing a dead Popen must wait() it so the pid is not a zombie."""
+        import signal
+
+        from compute_service.worker_base import BaseProcessWorker
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "reap_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys",
+                    f"sys.path.insert(0, {root!r})",
+                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "def handle(req):",
+                    "    return {'status': 'ok'}",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(run_worker_stdio_loop(handle))",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        worker = BaseProcessWorker(1, str(script), worker_name="Reap worker")
+        previous = worker.process
+        assert previous is not None
+        os.kill(previous.pid, signal.SIGKILL)
+        try:
+            worker._spawn()
+            assert previous.returncode is not None
+            assert worker.is_alive()
+            assert worker.process is not previous
+        finally:
+            worker.kill()
+
+    def test_spawn_scrubs_parent_env(self, tmp_path, monkeypatch) -> None:
+        from compute_service.worker_base import BaseProcessWorker
+
+        monkeypatch.setenv("PYTHONPATH", "/should-not-leak")
+        monkeypatch.setenv("PYTHON_COMPUTE_TEST_SECRET", "hidden")
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "env_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import os, sys",
+                    f"sys.path.insert(0, {root!r})",
+                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "def handle(req):",
+                    "    return {'status': 'ok', 'pythonpath': os.environ.get('PYTHONPATH'), 'secret': os.environ.get('PYTHON_COMPUTE_TEST_SECRET')}",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(run_worker_stdio_loop(handle))",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        worker = BaseProcessWorker(1, str(script), worker_name="Env worker")
+        try:
+            res = worker.execute({}, timeout_sec=10)
+            assert res.get("status") == "ok"
+            assert res.get("pythonpath") is None
+            assert res.get("secret") is None
+        finally:
+            worker.kill()
+
+    def test_slow_spawn_is_not_immediately_idle(self, tmp_path) -> None:
+        """last_active is taken after the handshake, not before the spawn loop."""
+        from compute_service.worker_base import BaseProcessPool
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "slow_ready.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys, time",
+                    f"sys.path.insert(0, {root!r})",
+                    "time.sleep(0.35)",
+                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "def handle(req):",
+                    "    return {'status': 'ok'}",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(run_worker_stdio_loop(handle))",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        pool = BaseProcessPool(str(script), num_workers=1, idle_worker_ttl_sec=0.2, worker_name="Slow worker")
+        try:
+            worker = pool.workers[0]
+            pool._evict_idle_workers()
+            assert worker.is_alive()
+        finally:
+            pool.shutdown()
+
+    def test_formula_worker_import_skips_sandbox(self) -> None:
+        import subprocess
+        import sys
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        code = "\n".join(
+            [
+                "import sys",
+                "import compute_service.formula_worker",
+                "assert 'compute_service.executor' not in sys.modules",
+                "assert 'plugin.scripting.venv.venv_sandbox' not in sys.modules",
+            ]
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = root + os.pathsep + env.get("PYTHONPATH", "")
+        proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=False)
+        assert proc.returncode == 0, proc.stderr
+
     def test_shared_and_isolated_exclusive_occupancy(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
@@ -328,6 +491,31 @@ class TestFormulaPoolSupervisor:
             iso = pool.execute(code="result = 3", mode="isolated", timeout_sec=10, req_id="sh-iso")
             assert iso.get("status") == "ok"
             assert iso.get("result") == 3
+        finally:
+            pool.shutdown()
+
+    def test_shared_timeout_keeps_other_session(self) -> None:
+        """A cell timeout must not SIGKILL the worker and drop other workbooks on it."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", mode="shared", req_id="keep-1")
+            assert kept.get("status") == "ok"
+            assert kept.get("result") == 7
+            worker = pool.workers[0]
+            pid = worker.process.pid if worker.process is not None else None
+            hung = pool.execute(
+                code="import time\ntime.sleep(30)\nresult = 1",
+                session_id="doc-hang",
+                mode="shared",
+                timeout_sec=1,
+                req_id="hang-1",
+            )
+            assert hung.get("status") == "error"
+            assert hung.get("code") != "EXECUTION_TIMEOUT"
+            assert worker.process is not None and worker.process.pid == pid
+            again = pool.execute(code="result = keep", session_id="doc-keep", mode="shared", req_id="keep-2")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 7
         finally:
             pool.shutdown()
 
@@ -504,6 +692,103 @@ class TestFormulaPoolSupervisor:
             assert worker.is_alive(), "Worker should re-spawn lazily on next request"
         finally:
             pool.shutdown()
+
+    def test_idle_reaper_skips_shared_session(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=3600.0, shared_kernel_ttl_sec=3600.0)
+        try:
+            res = pool.execute(code="keep = 4\nresult = keep", session_id="idle-shared", mode="shared", req_id="idle-s1")
+            assert res.get("status") == "ok"
+            worker = pool.workers[0]
+            with pool._cond:
+                pool._worker_last_active[worker] = time.monotonic() - 4000.0
+            pool._evict_idle_workers()
+            assert worker.is_alive()
+            again = pool.execute(code="result = keep", session_id="idle-shared", mode="shared", req_id="idle-s2")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 4
+        finally:
+            pool.shutdown()
+
+    def test_reset_keeps_map_when_worker_is_busy(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "busy-reset"
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="busy-1")
+            assert ok.get("status") == "ok"
+            worker = pool._active_sessions[sid]
+            held = pool.lease_specific(worker, timeout_sec=1)
+            assert held is worker
+            try:
+                res = pool.reset_session(sid, timeout_sec=0.05)
+                assert res.get("code") == "WORKER_POOL_BUSY"
+                assert pool._active_sessions.get(sid) is worker
+            finally:
+                pool.release_worker(held)
+        finally:
+            pool.shutdown()
+
+    def test_ttl_skips_session_refreshed_while_waiting(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
+        try:
+            sid = "ttl-race"
+            setx = pool.execute(code="x = 3\nresult = x", session_id=sid, mode="shared", req_id="ttl-race-1")
+            assert setx.get("status") == "ok"
+            original = pool.lease_specific
+
+            def _refresh(worker, timeout_sec=0.0):
+                with pool._cond:
+                    pool._session_last_activity[sid] = time.monotonic()
+                return original(worker, timeout_sec=timeout_sec)
+
+            pool.lease_specific = _refresh  # type: ignore[method-assign]
+            with pool._cond:
+                pool._session_last_activity[sid] = time.monotonic() - 4000.0
+            pool._evict_stale_sessions()
+            assert sid in pool._active_sessions
+            later = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-race-2")
+            assert later.get("status") == "ok"
+            assert later.get("result") == 3
+        finally:
+            pool.shutdown()
+
+    def test_reset_clears_init_companion(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "init-reset"
+            init = "items = [1]"
+            first = pool.execute(
+                code="items.append(2)\nresult = list(items)",
+                session_id=sid,
+                mode="shared",
+                init_script=init,
+                req_id="init-1",
+            )
+            assert first.get("status") == "ok"
+            assert first.get("result") == [1, 2]
+            reset = pool.reset_session(sid)
+            assert reset.get("status") == "ok"
+            second = pool.execute(
+                code="result = list(items)",
+                session_id=sid,
+                mode="shared",
+                init_script=init,
+                req_id="init-2",
+            )
+            assert second.get("status") == "ok"
+            assert second.get("result") == [1]
+        finally:
+            pool.shutdown()
+
+    def test_worker_error_omits_traceback(self) -> None:
+        from compute_service.formula_worker import _handle_request
+
+        res = _handle_request({"id": "bad-json", "code": "result = 1", "wire": "json_forward", "data_json": b"not-json"})
+        raw = res.get("result_json")
+        assert isinstance(raw, (bytes, bytearray))
+        body = json.loads(bytes(raw))
+        assert body.get("status") == "error"
+        assert "traceback" not in body
+        assert "Traceback" not in body.get("error", "")
 
     def test_evicted_idle_worker_removed_from_idle_during_kill(self) -> None:
         """Evicted workers must be removed from _idle during kill (race prevention)

@@ -102,6 +102,12 @@ class ComputeSettings:
         if self.workers is None:
             object.__setattr__(self, "workers", 2)
         # One listener thread per subprocess that can run a job.
+        # GET /health shares this pool with /v1/execute. An execute holds its
+        # thread for the whole lease and eval (up to max_timeout_sec), and
+        # further executes blocked on a lease fill any spare threads, so a
+        # liveness probe can sit in the queue under normal =PY() load. Adding
+        # one thread does not fix that: health needs a path execute cannot
+        # occupy. Left unchanged on purpose.
         object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
         object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))
@@ -215,11 +221,16 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
             out["host"] = listen["host"]
         if "port" in listen:
             out["port"] = listen["port"]
+    # A raw api_key in the file used to be dropped and the process started
+    # with auth off (the log line "auth=no" is easy to miss). Refuse it so
+    # the operator uses a key file or PYTHON_COMPUTE_API_KEY. Do not accept
+    # the raw key.
     auth = raw.get("auth")
+    if "api_key" in raw or (isinstance(auth, Mapping) and "api_key" in auth):
+        raise ConfigError("Do not put api_key in the JSON config. Set PYTHON_COMPUTE_API_KEY or auth.api_key_file.")
     if isinstance(auth, Mapping):
         if "api_key_file" in auth:
             out["api_key_file"] = auth["api_key_file"]
-        # Deliberately ignore raw "api_key" in JSON files — prefer env / key file.
     limits = raw.get("limits")
     if isinstance(limits, Mapping):
         if "max_body_bytes" in limits:
