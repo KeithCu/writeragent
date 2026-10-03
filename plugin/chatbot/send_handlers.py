@@ -37,7 +37,18 @@ from plugin.framework.queue_executor import llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
-from plugin.chatbot.tool_loop_actions import SendTurn, _turn_accepts_write, bind_turn_session, persist_assistant_on_turn, put_for_turn, session_for_turn, stopped_assistant_text
+from plugin.chatbot.tool_loop_actions import (
+    TurnController,
+    _turn_accepts_write,
+    abort_turn,
+    bind_turn_session,
+    current_turn,
+    fold_stop_tail,
+    persist_assistant_on_turn,
+    session_for_turn,
+    stopped_assistant_text,
+    take_stripper_tail,
+)
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -63,32 +74,37 @@ def _direct_image_source_arg(model: Any) -> str | None:
 
 
 class _SendWorkerQueue:
-    """Worker-facing queue. ``put`` re-reads ``_active_turn`` and calls ``put_for_turn``.
+    """Worker-facing queue bound to the turn that created it.
 
     What was wrong: image, agent, and web workers called ``Queue.put`` on the
-    drain queue. After Stop or a newer send, CHUNK and THINKING still arrived,
-    and so did STATUS and the control items. Display text was dropped only
-    later, in ``chunk_applies``. The tool loop enqueues with ``put_for_turn``.
-
-    The drain reads ``raw``. This object is what the worker and the ACP
-    backend hold, so their puts take the same path. Re-reading ``_active_turn``
-    sees the generation Stop bumped on that object.
+    drain queue. After Stop or a newer send those items still arrived, and
+    the drain kept a second queue alive to filter them. ``put`` goes through
+    the controller. Once that turn is aborted, the item is dropped.
     """
 
-    _host: Any
+    _turn: TurnController | None
     raw: "queue.Queue[Any]"
 
-    def __init__(self, host: Any, raw: "queue.Queue[Any]") -> None:
-        self._host = host
+    def __init__(self, turn: TurnController | None, raw: "queue.Queue[Any]") -> None:
+        self._turn = turn
         self.raw = raw
 
     def put(self, item: Any, *_args: Any, **_kwargs: Any) -> None:
-        put_for_turn(self._host, getattr(self._host, "_active_turn", None), self.raw, item)
+        turn = self._turn
+        if isinstance(turn, TurnController):
+            if turn.queue is None:
+                turn.queue = self.raw
+            turn.put(item)
+            return
+        self.raw.put(item)
 
 
 def _send_worker_queues(host: Any) -> tuple["queue.Queue[Any]", _SendWorkerQueue]:
     raw: queue.Queue[Any] = queue.Queue()
-    return raw, _SendWorkerQueue(host, raw)
+    turn = current_turn(host)
+    if isinstance(turn, TurnController):
+        turn.queue = raw
+    return raw, _SendWorkerQueue(turn, raw)
 
 
 def _specialized_tool_error_payload(note: str) -> dict[str, str]:
@@ -144,7 +160,7 @@ class SendHandlerHost(Protocol):
     audio_wav_path: str | None
     _terminal_status: str
     _current_agent_backend: Any
-    _apply_turn: Any
+    _turn: Any
 
     def _set_status(self, text: str) -> None: ...
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
@@ -189,7 +205,7 @@ class SendHandlersMixin:
     _in_brainstorming_mode: bool = False
     _in_writing_plan_mode: bool = False
     _in_ppt_master_mode: bool = False
-    _apply_turn: Any = None
+    _turn: Any = None
 
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread."""
@@ -287,9 +303,15 @@ class SendHandlersMixin:
                     self._in_ppt_master_mode = False
 
         def on_stream_done(item: Any) -> None:
+            # Stop or a new send already aborted this turn. The worker
+            # wrapper may still post STREAM_DONE so the drain unblocks.
+            # That sentinel is not a successful answer.
+            live = current_turn(self)
+            if isinstance(live, TurnController) and not live.alive:
+                return
             payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
             if isinstance(payload, dict):
-                # Store the answer before a mode handoff bumps the generation.
+                # Store the answer before a mode handoff aborts this turn.
                 # Web, librarian, brainstorm, writing, PPT, and deep research
                 # used to persist on the worker. That write raced Clear.
                 if current_state.handler_type != "agent":
@@ -309,7 +331,8 @@ class SendHandlersMixin:
             # so the painted partial never landed in session.messages.
             # Why: store stopped_assistant_text for every handler. Agent still
             # prefers the non-thinking chunks it accumulated; web and image
-            # use the bytes this turn already emitted.
+            # use the open row on the session.
+            fold_stop_tail(self, take_stripper_tail(self))
             partial = "".join(agent_parts).strip() if current_state.handler_type == "agent" else None
             text = stopped_assistant_text(self, partial)
             persist_assistant_on_turn(self, content=text or "No response.")
@@ -318,6 +341,9 @@ class SendHandlersMixin:
             dispatch_event(StopRequestedEvent())
 
         def on_error(e: Exception) -> None:
+            live = current_turn(self)
+            if isinstance(live, TurnController) and not live.alive:
+                return
             dispatch_event(ErrorEvent(e))
             # What was wrong: the banner was painted and the user row was
             # already stored, so the next send had a hole where the assistant
@@ -336,12 +362,9 @@ class SendHandlersMixin:
             # BUT, it's better to refactor the workers to use the passed queue.
             worker_fn()
 
-        turn = getattr(self, "_active_turn", None)
-        if isinstance(turn, SendTurn) and turn.queue is None:
+        turn = current_turn(self)
+        if isinstance(turn, TurnController) and turn.queue is None:
             turn.queue = q
-        previous_apply = getattr(self, "_apply_turn", None)
-        if isinstance(turn, SendTurn):
-            self._apply_turn = turn
         try:
             run_async_worker_with_drain(
                 self.ctx,
@@ -357,7 +380,9 @@ class SendHandlersMixin:
                 on_approval_required=on_approval_callback,
             )
         finally:
-            self._apply_turn = previous_apply
+            # Workers that outlive the drain must not enqueue. The send
+            # drain drops ``_turn`` after it has read the reply to speak.
+            abort_turn(self)
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
         interpreter = EffectInterpreter(self)

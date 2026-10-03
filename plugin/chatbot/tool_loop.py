@@ -54,13 +54,18 @@ from plugin.framework.uno_context import get_toolkit
 from plugin.framework.i18n import _
 from plugin.chatbot.tool_loop_actions import (
     ToolLoopEffectInterpreter,
+    TurnController,
     _turn_accepts_write,
+    abort_turn,
     bind_turn_session,
     build_tool_execute_fn,
+    current_turn,
+    fold_stop_tail,
     persist_assistant_on_turn,
     put_for_turn,
     session_for_turn,
     stopped_assistant_text,
+    take_stripper_tail,
 )
 
 from plugin.chatbot.tool_loop_state import (
@@ -120,7 +125,7 @@ class ToolLoopHost(Protocol):
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None
     _in_brainstorming_mode: bool
     _brainstorming_topic: str
-    _apply_turn: Any
+    _turn: Any
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
@@ -156,6 +161,17 @@ class ToolLoopHost(Protocol):
     _last_compact_reason: str | None
     _last_compact_tokens_before: int | None
     _last_compact_tokens_after: int | None
+
+
+def _live_text(turn: Any, callback: Callable[[str], None]) -> Callable[[str], None]:
+    """Ignore deltas after this turn has been aborted."""
+
+    def wrapped(text: str) -> None:
+        if isinstance(turn, TurnController) and not turn.alive:
+            return
+        callback(text)
+
+    return wrapped
 
 
 def note_stop_partial(host: Any, response: Any) -> None:
@@ -206,7 +222,7 @@ class ToolCallingMixin:
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None = None
     _active_q: queue.Queue[Any] | None = None
     _active_batched_q: BatchingStreamQueue | None = None
-    _apply_turn: Any = None
+    _turn: Any = None
     _active_client: LlmClient | None = None
     _active_model: Any = None
     _active_max_tokens: int = 0
@@ -498,7 +514,7 @@ class ToolCallingMixin:
 
         self._record_assistant_start = True
 
-        turn = getattr(self, "_active_turn", None)
+        turn = current_turn(self)
 
         def emit(item: Any) -> None:
             put_for_turn(self, turn, real_q, item)
@@ -542,8 +558,8 @@ class ToolCallingMixin:
                     payload = messages_for_llm(session)
                     response = client.stream_request_with_tools(
                         payload, max_tokens, tools=tools,
-                        append_callback=(batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))),
-                        append_thinking_callback=(batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t))),
+                        append_callback=_live_text(turn, batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))),
+                        append_thinking_callback=_live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t))),
                         stop_checker=stop_checker,
                         status_callback=status_cb,
                     )
@@ -577,7 +593,7 @@ class ToolCallingMixin:
         self._append_response("\nAI: ")
         self._record_assistant_start = True
 
-        turn = getattr(self, "_active_turn", None)
+        turn = current_turn(self)
 
         def emit(item: Any) -> None:
             put_for_turn(self, turn, real_q, item)
@@ -586,12 +602,15 @@ class ToolCallingMixin:
             session = session_for_turn(self)
             last_streamed: list[str] = []
             try:
+                content_cb = _live_text(turn, batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t)))
+                thinking_cb = _live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t)))
+
                 def append_c(c: str) -> None:
-                    (batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t)))(c)
+                    content_cb(c)
                     last_streamed.append(c)
 
                 def append_t(t: str) -> None:
-                    (batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t)))(t)
+                    thinking_cb(t)
 
                 stop_checker = self.resolve_stop_checker()
                 if stop_checker():
@@ -687,6 +706,10 @@ class ToolCallingMixin:
         return interpreter.execute(effect)
 
     def _handle_stream_completion(self: ToolLoopHost, item: Any) -> bool:
+        # A sentinel after abort is not another tool round.
+        live = current_turn(self)
+        if isinstance(live, TurnController) and not live.alive:
+            return True
         raw_kind = item[0] if isinstance(item, (tuple, list)) else item
         kind = raw_kind if isinstance(raw_kind, StreamQueueKind) else None
         if kind == StreamQueueKind.NEXT_TOOL and self.stop_requested and not self._sm_state.is_stopped:
@@ -711,8 +734,9 @@ class ToolCallingMixin:
 
     def _handle_stream_stopped(self: ToolLoopHost) -> None:
         partial = take_stop_partial(self)
-        # Stop already bumped the generation. Store streamed bytes, not the
-        # "No response." placeholder that used to replace them.
+        # The open row is what the sidebar already painted. The stripper may
+        # still hold the tail of a split tag; fold it before the store.
+        fold_stop_tail(self, take_stripper_tail(self))
         text = stopped_assistant_text(self, partial)
         data: dict[str, Any] = {}
         if text:
@@ -725,6 +749,9 @@ class ToolCallingMixin:
             self._execute_effect(effect)
 
     def _handle_stream_error(self: ToolLoopHost, e: Any) -> bool | None:
+        live = current_turn(self)
+        if isinstance(live, TurnController) and not live.alive:
+            return None
         # Native-audio rejection retries as text on this drain. WAV attach and
         # the STT retry live in audio_recorder_service, next to recording.
         from plugin.scripting.audio_recorder_service import clear_pending_audio_wav, try_native_audio_stt_fallback
@@ -844,10 +871,12 @@ class ToolCallingMixin:
         try:
             raw_q: queue.Queue[Any] = queue.Queue()
             self._active_q = raw_q
-            turn = getattr(self, "_active_turn", None)
-            if turn is not None:
+            turn = current_turn(self)
+            batched = BatchingStreamQueue(raw_q, batch_interval=CHAT_STREAM_BATCH_INTERVAL)
+            self._active_batched_q = batched
+            if isinstance(turn, TurnController):
                 turn.queue = raw_q
-            self._active_batched_q = BatchingStreamQueue(raw_q, batch_interval=CHAT_STREAM_BATCH_INTERVAL)
+                turn.batcher = batched
 
             self._active_client = client
             self._active_model = model
@@ -880,7 +909,6 @@ class ToolCallingMixin:
 
             # --- Kick off the first LLM stream (producer batching at 250 ms) ---
             self._refresh_active_tools_for_session()
-            self._apply_turn = turn
             self._spawn_llm_worker(self._active_batched_q or self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._sm_state.round_num, query_text=self._active_query_text)
 
             def _flush_active_batcher() -> None:
@@ -909,14 +937,10 @@ class ToolCallingMixin:
 
             finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
         finally:
-            # Drop any display text still sitting in the batcher. The drain has
-            # returned; a timer flush after this would enqueue onto a queue the
-            # next send must not read. Stop already discarded on generation bump
-            # when the user cancelled.
-            batched = self._active_batched_q
-            if batched is not None:
-                batched.discard()
-            self._apply_turn = None
+            # The drain has returned. Abort so a timer or a late tool cannot
+            # enqueue. The outer send drain still holds ``_turn`` for the
+            # spoken reply, then drops it.
+            abort_turn(self)
             self._tool_loop_interpreter = None
             self._active_q = None
             self._active_batched_q = None

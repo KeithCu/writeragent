@@ -40,253 +40,270 @@ from plugin.framework.worker_pool import run_in_background
 log = logging.getLogger(__name__)
 
 
-class SendTurn:
-    """One sidebar send.
+class TurnController:
+    """One sidebar send. Stop or the next send aborts it and drops the reference.
 
-    What was wrong: the button listener kept a single session pointer and mode
-    flags. Workers and the UI drain both appended, Clear swapped the message
-    list under a live stream, and a second send painted the first turn's
-    chunks onto that same list. Mode lived on the host, so a dropdown change
-    retargeted the in-flight send.
+    What was wrong: a generation counter, a pinned ``_apply_turn``, and each
+    worker's queue were three copies of "which send is this". Stop bumped the
+    counter and left the old object alive so the banner could still paint.
+    A newer send did the same. Callbacks kept enqueueing onto those queues.
 
-    ``generation`` moves forward on Clear, Stop, a mode change, and the next
-    send. Workers only enqueue. The UI applies a chunk only while this
-    generation is still current. ``mode`` is the argument captured at send
-    start, not a flag read off the host later.
+    This object is the turn. Workers and the drain close over it. ``abort``
+    makes later ``put`` calls no-ops and drops any text still in the batcher.
+    The host holds at most one (``_turn``). The sidebar paints ``session.messages``;
+    streamed tokens are the open row on that list, not a second buffer.
     """
 
-    generation: int
     mode: str
     session: Any
     messages: Any
-    emitted: str
     queue: Any
+    batcher: Any
+    _alive: bool
 
-    def __init__(self, generation: int, mode: str, session: Any, messages: Any) -> None:
-        self.generation = generation
-        self.mode = mode
+    def __init__(self, session: Any, mode: str) -> None:
+        self.mode = str(mode or "")
         self.session = session
-        self.messages = messages
-        self.emitted = ""
+        self.messages = getattr(session, "messages", None) if session is not None else None
         self.queue = None
+        self.batcher = None
+        self._alive = True
+
+    @property
+    def alive(self) -> bool:
+        return self._alive
+
+    def same_messages(self) -> bool:
+        """Clear replaces the list. A write against the old list must not land."""
+        if self.messages is None:
+            return True
+        return getattr(self.session, "messages", None) is self.messages
+
+    def abort(self) -> None:
+        """Refuse later callbacks. Idempotent."""
+        self._alive = False
+        _discard_batcher(self.batcher)
+
+    def open_text(self) -> str:
+        """Assistant bytes already folded into this turn's message list."""
+        if not self.same_messages():
+            return ""
+        messages = self.messages
+        if not isinstance(messages, list) or not messages:
+            return ""
+        last = messages[-1]
+        if not isinstance(last, dict) or not last.get("_open_transcript"):
+            return ""
+        content = last.get("content") or ""
+        return content.strip() if isinstance(content, str) else ""
+
+    def put(self, item: Any) -> bool:
+        """Enqueue only while this turn is the one the host still holds and it is alive.
+
+        After abort, or after a newer send replaced it, the item is dropped.
+        It is not parked on a queue for a later drain.
+        """
+        if not self._alive or self.queue is None:
+            return False
+        self.queue.put(item)
+        return True
+
+    def accepts_history(self, host: Any) -> bool:
+        """The close may still store on this list.
+
+        Stop has already aborted the turn. The partial and the stop line
+        still belong here until a newer send replaces ``_turn`` or Clear
+        replaces the list. A mode change that swapped the visible session
+        does not store: the caller checks ``host.session``.
+        """
+        if current_turn(host) is not self:
+            return False
+        return self.same_messages()
+
+    def accepts_display(self, host: Any, text: str) -> bool:
+        """A chunk paints only while this turn is alive and on screen.
+
+        The stop line is the close, so it still paints after ``abort`` when
+        this object is the host's turn and the sidebar is still showing its
+        session. Any other text after abort is dropped.
+        """
+        if not self.accepts_history(host):
+            return False
+        if getattr(host, "session", None) is not self.session:
+            return False
+        if self._alive:
+            return True
+        return _is_stop_banner(text)
 
 
-def send_generation(host: Any) -> int:
-    """Current send generation. Zero until the first send."""
-    try:
-        return int(getattr(host, "_send_generation", 0) or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def bump_send_generation(host: Any) -> int:
-    """Invalidate in-flight chunks.
-
-    Clear, Stop, and a mode change call this. A later ``begin_send_turn``
-    bumps again, so the previous turn's chunks no longer match.
-    """
-    gen = send_generation(host) + 1
-    host._send_generation = gen
-    batched = getattr(host, "_active_batched_q", None)
-    # What was wrong: the tool loop's finally dropped the batcher while its
-    # timer could still flush the last interval onto whatever queue was
-    # current. Discard here so a bumped generation does not emit that tail.
-    discard = getattr(batched, "discard", None)
+def _discard_batcher(batcher: Any) -> None:
+    """Drop a producer batch so its timer cannot emit after the turn is gone."""
+    discard = getattr(batcher, "discard", None)
     if callable(discard):
         discard()
-    return gen
 
 
-def begin_send_turn(host: Any, mode: str) -> SendTurn:
-    """Start a send. Mode is an argument of this turn, not a host flag."""
-    gen = bump_send_generation(host)
+def current_turn(host: Any) -> TurnController | None:
+    turn = getattr(host, "_turn", None)
+    if isinstance(turn, TurnController):
+        return turn
+    return None
+
+
+def abort_turn(host: Any) -> None:
+    """Stop, a mode change, or dispose. The host still names this turn until ``drop_turn``."""
+    turn = current_turn(host)
+    if turn is not None:
+        turn.abort()
+        return
+    _discard_batcher(getattr(host, "_active_batched_q", None))
+
+
+def drop_turn(host: Any) -> None:
+    """The drain has finished. Forget the turn so a late callback cannot find it."""
+    turn = current_turn(host)
+    if turn is None:
+        return
+    turn.abort()
+    if current_turn(host) is turn:
+        host._turn = None
+
+
+def begin_send_turn(host: Any, mode: str) -> TurnController:
+    """Start a send. The previous turn, if any, is aborted and replaced."""
+    previous = current_turn(host)
+    if previous is not None:
+        previous.abort()
     session = getattr(host, "session", None)
-    messages = getattr(session, "messages", None) if session is not None else None
-    turn = SendTurn(gen, str(mode or ""), session, messages)
-    host._active_turn = turn
-    host._turn_session = session
-    host._turn_messages = messages
+    turn = TurnController(session, mode)
+    host._turn = turn
     return turn
 
 
-def bind_turn_session(host: Any, mode: str | None = None) -> SendTurn:
-    """Pin this send to the ChatSession that receives the user row.
+def bind_turn_session(host: Any, mode: str | None = None) -> TurnController:
+    """Use the turn already started for this session, or start one.
 
     What was wrong: Clear replaces ``messages`` while the drain is inside
     ``processEventsToIdle``, and ``set_session`` swaps ``host.session`` while
     a worker still reads that attribute. The reply was stored on the wiped
     chat, or on a mode that never got the user row.
 
-    A turn already begun for this session is reused. Calling this again must
-    not bump the generation, or the chunks of the send that just started
-    would miss.
+    Calling this again for the same list must not abort the turn that just
+    started, or its own chunks would miss.
     """
     session = getattr(host, "session", None)
-    active = getattr(host, "_active_turn", None)
     messages = getattr(session, "messages", None) if session is not None else None
+    active = current_turn(host)
     if (
-        isinstance(active, SendTurn)
-        and active.generation == send_generation(host)
+        active is not None
+        and active.alive
         and active.session is session
         and active.messages is messages
     ):
         if mode:
             active.mode = str(mode)
-        host._turn_session = active.session
-        host._turn_messages = active.messages
         return active
     return begin_send_turn(host, mode or "")
 
 
-def _turn_for_apply(host: Any) -> SendTurn | None:
-    """The turn the current drain is painting, else the active send.
-
-    A drain pins ``_apply_turn`` so a generation bump still names that send.
-    Outside a drain, a stale ``_active_turn`` (Clear or a finished send) must
-    not hide a pre-bind error line.
-    """
-    pinned = getattr(host, "_apply_turn", None)
-    if isinstance(pinned, SendTurn):
-        return pinned
-    active = getattr(host, "_active_turn", None)
-    if isinstance(active, SendTurn) and active.generation == send_generation(host):
-        return active
-    return None
-
-
 def session_for_turn(host: Any) -> Any:
-    """The session bound at send start, or the live one if this send did not bind."""
-    turn = _turn_for_apply(host)
-    if isinstance(turn, SendTurn) and turn.session is not None:
+    """The session this send bound, or the live one when no turn is current."""
+    turn = current_turn(host)
+    if turn is not None and turn.session is not None:
         return turn.session
-    fields = getattr(host, "__dict__", None)
-    if isinstance(fields, dict) and fields.get("_turn_session") is not None:
-        return fields["_turn_session"]
     return getattr(host, "session", None)
 
 
 def _turn_accepts_write(host: Any, session: Any) -> bool:
-    """True when a live chunk may still change this send.
+    """True when this send may still change ``session``.
 
-    Clear assigns a new list. A second send bumps the generation. Either one
-    rejects the write so the first turn does not gain the late text.
+    No turn yet: the caller is before bind (tests, a pre-send error).
+    A turn that is no longer current, or whose list Clear replaced, rejects.
     """
-    turn = _turn_for_apply(host)
-    if isinstance(turn, SendTurn):
-        if turn.generation != send_generation(host):
-            return False
-        if session is not turn.session:
-            return False
-        if turn.messages is None:
-            return True
-        return getattr(session, "messages", None) is turn.messages
-    fields = getattr(host, "__dict__", None)
-    if not isinstance(fields, dict) or "_turn_messages" not in fields:
+    turn = current_turn(host)
+    if turn is None:
         return True
-    bound = fields.get("_turn_messages")
-    if bound is None:
-        return True
-    return getattr(session, "messages", None) is bound
-
-
-def _may_store_closed_turn(host: Any, turn: SendTurn) -> bool:
-    """Final history row after Stop.
-
-    Stop bumps the generation so later chunks do not paint, but the text
-    already emitted still belongs on this turn. A newer send replaces
-    ``_active_turn``; this close must not append onto that send. Clear's new
-    list fails the identity check.
-    """
-    if turn.messages is not None and getattr(turn.session, "messages", None) is not turn.messages:
+    if session is not turn.session:
         return False
-    if turn.generation == send_generation(host):
-        return True
-    return getattr(host, "_active_turn", None) is turn
+    return turn.accepts_history(host)
 
 
 _STOP_BANNER = "[Stopped by user]"
 
 
-def _stop_banner_applies(host: Any, turn: SendTurn, text: str) -> bool:
-    """The stop line still belongs on this turn after the generation bump.
-
-    What was wrong: Stop bumps the generation, then the drain appends
-    ``[Stopped by user]``. ``chunk_applies`` treated that line like a late
-    stream chunk and dropped it, so the sidebar never showed the marker
-    the stop tests require. Why: the banner is the close of the turn that
-    is still active, same rule as storing the partial. A newer send, Clear,
-    or a mode change fails the check and the line stays off.
-    """
-    if text.strip() != _STOP_BANNER:
-        return False
-    if not _may_store_closed_turn(host, turn):
-        return False
-    # A mode change swapped the session on screen. Do not paint this
-    # turn's banner over that transcript.
-    return getattr(host, "session", None) is turn.session
-
-
-def chunk_applies(host: Any, turn: SendTurn | None, text: str, *, record: bool) -> bool:
-    """UI applies a chunk only when the generation still matches."""
-    if not isinstance(turn, SendTurn):
-        session = session_for_turn(host)
-        if session is None:
-            return True
-        return _turn_accepts_write(host, session)
-    if turn.generation != send_generation(host):
-        if _stop_banner_applies(host, turn, text):
-            # Leave turn.emitted as the answer bytes. The banner is its own row.
-            return True
-        return False
-    if turn.messages is not None and getattr(turn.session, "messages", None) is not turn.messages:
-        return False
-    if record and text:
-        turn.emitted += text
-    return True
+def _is_stop_banner(text: str) -> bool:
+    return bool(text) and text.strip() == _STOP_BANNER
 
 
 def stopped_assistant_text(host: Any, partial: str | None) -> str:
     """Text to store when the user hits Stop.
 
     What was wrong: Stop stored ``No response.`` after the sidebar had already
-    shown streamed tokens, and a later render pasted that placeholder over
-    them. Prefer the worker partial, then bytes this turn already emitted.
+    shown streamed tokens. Those tokens are the open row on the session.
+    Prefer the worker partial, then that row.
     """
-    turn = _turn_for_apply(host)
-    emitted = turn.emitted.strip() if isinstance(turn, SendTurn) else ""
+    turn = current_turn(host)
+    emitted = turn.open_text() if isinstance(turn, TurnController) else ""
     text = partial.strip() if isinstance(partial, str) else ""
     if text and text != "No response.":
         return text
     return emitted
 
 
-_DISPLAY_KINDS = frozenset({StreamQueueKind.CHUNK, StreamQueueKind.THINKING, StreamQueueKind.TOOL_THINKING})
+def take_stripper_tail(host: Any) -> str:
+    """Finish the HTML stripper and return any held fragment.
+
+    Stop aborts the turn before the drain's finalize runs. The fragment was
+    still in the stripper, so the stored answer dropped the tail of an
+    unclosed tag. Folding it into the open row here puts it in the session
+    the sidebar paints.
+    """
+    stripper = getattr(host, "_plain_text_stripper", None)
+    if stripper is None:
+        return ""
+    host._plain_text_stripper = None
+    try:
+        leftover = stripper.finalize()
+    except Exception:
+        log.debug("stripper finalize on stop failed", exc_info=True)
+        return ""
+    return leftover if isinstance(leftover, str) else ""
+
+
+def fold_stop_tail(host: Any, text: str) -> None:
+    """Put the stripper tail on this turn's open row, then the caller stores it."""
+    if not text:
+        return
+    turn = current_turn(host)
+    if turn is None or not turn.accepts_history(host) or turn.session is None:
+        return
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+
+    fold_transcript_chunk(turn.session, text, "assistant")
 
 
 def emit_for_host(host: Any, item: Any) -> bool:
-    """Enqueue on the turn captured for this drain, not whatever ``_active_q`` is now."""
-    turn = getattr(host, "_apply_turn", None)
-    if not isinstance(turn, SendTurn):
-        turn = getattr(host, "_active_turn", None)
-    q = getattr(turn, "queue", None) if isinstance(turn, SendTurn) else None
+    """Enqueue on the current turn. A dead turn drops the item."""
+    turn = current_turn(host)
+    q = turn.queue if isinstance(turn, TurnController) else None
     if q is None:
         q = getattr(host, "_active_q", None)
     return put_for_turn(host, turn, q, item)
 
 
 def put_for_turn(host: Any, turn: Any, q: Any, item: Any) -> bool:
-    """Workers enqueue. They do not append to the transcript.
+    """Workers enqueue on the controller they captured. They do not touch the transcript.
 
-    Display items after Clear, Stop, a mode change, or a newer send are
-    dropped. Control items stay on the queue captured for this turn so they
-    cannot land on the next send's queue.
+    ``host`` is unused. Callers still pass it so a worker closure does not
+    grow a second way to find the queue.
     """
+    del host
+    if isinstance(turn, TurnController):
+        if turn.queue is None and q is not None:
+            turn.queue = q
+        return turn.put(item)
     if q is None:
         return False
-    kind = item[0] if isinstance(item, (tuple, list)) and item else None
-    if isinstance(turn, SendTurn) and turn.generation != send_generation(host):
-        if kind in _DISPLAY_KINDS or kind is None:
-            return False
     q.put(item)
     return True
 
@@ -297,9 +314,9 @@ def persist_assistant_on_turn(
     tool_calls: Any = None,
     reasoning_replay: Any = None,
 ) -> None:
-    turn = _turn_for_apply(host)
-    if isinstance(turn, SendTurn):
-        if not _may_store_closed_turn(host, turn):
+    turn = current_turn(host)
+    if isinstance(turn, TurnController):
+        if not turn.accepts_history(host):
             return
         session = turn.session
     else:
@@ -334,9 +351,9 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     spawn, the same capture that keeps the tool from running on the new send.
     """
     if turn is None:
-        turn = getattr(host, "_active_turn", None)
+        turn = current_turn(host)
     if q is None:
-        q = getattr(turn, "queue", None) if isinstance(turn, SendTurn) else None
+        q = getattr(turn, "queue", None) if isinstance(turn, TurnController) else None
     if q is None:
         q = getattr(host, "_active_q", None)
     payload_error = (StreamQueueKind.ERROR, format_error_payload(exc))
@@ -348,9 +365,9 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
 
 
 def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
-    turn = _turn_for_apply(host)
-    if isinstance(turn, SendTurn):
-        if not _may_store_closed_turn(host, turn):
+    turn = current_turn(host)
+    if isinstance(turn, TurnController):
+        if not turn.accepts_history(host):
             return
         session = turn.session
     else:
@@ -446,21 +463,21 @@ def build_tool_execute_fn(
                 # on host._active_q when the callback ran. Stop or a new send
                 # had replaced that queue, so the text or the dialog landed
                 # on the next turn. Why: the tool worker already captured
-                # this turn's queue at spawn and passes it in. Same put path
-                # as TOOL_DONE.
+                # this turn at spawn. A dead turn drops the item.
                 if captured_turn is not None or captured_q is not None:
                     return captured_turn, captured_q
-                live = getattr(host, "_active_turn", None)
-                live_q = getattr(live, "queue", None) if isinstance(live, SendTurn) else None
+                live = current_turn(host)
+                live_q = live.queue if isinstance(live, TurnController) else None
                 if live_q is None:
                     live_q = getattr(host, "_active_q", None)
                 return live, live_q
 
             def _sub_agent_chat_append(text: str) -> None:
                 emit_turn, emit_q = _subagent_target()
-                put_for_turn(host, emit_turn, emit_q, (StreamQueueKind.CHUNK, text))
+                if not put_for_turn(host, emit_turn, emit_q, (StreamQueueKind.CHUNK, text)):
+                    return
                 cid = captured_call_id if captured_call_id is not None else getattr(host, "_current_tool_call_id", None)
-                if isinstance(emit_turn, SendTurn) and emit_turn.session is not None:
+                if isinstance(emit_turn, TurnController) and emit_turn.session is not None:
                     streamed_session = emit_turn.session
                 else:
                     streamed_session = session_for_turn(host)
@@ -487,7 +504,8 @@ def build_tool_execute_fn(
                         setattr(event, "query_override", None)
                         from plugin.framework.queue_executor import wait_for_approval
 
-                        put_for_turn(host, emit_turn, q, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
+                        if not put_for_turn(host, emit_turn, q, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
+                            return (False, None)
                         checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
                         # event.wait() ignored Stop. Sidebar close latches the
                         # checker and never sets the event, so this worker parked.
@@ -690,8 +708,8 @@ class ToolLoopEffectInterpreter:
         host._current_tool_call_id = call_id
         # Capture the queue at spawn. A later send replaces host._active_q;
         # this worker must not enqueue onto that turn.
-        turn = getattr(host, "_active_turn", None)
-        worker_q = getattr(turn, "queue", None) if isinstance(turn, SendTurn) else None
+        turn = current_turn(host)
+        worker_q = turn.queue if isinstance(turn, TurnController) else None
         if worker_q is None:
             worker_q = host._active_q
 

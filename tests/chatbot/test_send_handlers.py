@@ -1305,13 +1305,16 @@ class _RecordingSession:
 
 
 def _append_recording_turn(panel):
-    """Record assistant chunks the way the sidebar does, so Stop can read them."""
-    from plugin.chatbot.tool_loop_actions import _turn_for_apply, chunk_applies
+    """Fold assistant chunks into the session, the way the sidebar paints them."""
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+    from plugin.chatbot.tool_loop_actions import current_turn
 
     def _append(text, is_thinking=False, role="assistant"):
         panel.responses.append(text)
         panel.thinking_flags.append(bool(is_thinking))
-        chunk_applies(panel, _turn_for_apply(panel), text, record=role != "user")
+        turn = current_turn(panel)
+        if turn is not None and turn.accepts_display(panel, text) and turn.session is not None:
+            fold_transcript_chunk(turn.session, text, role)
 
     panel._append_response = _append
 
@@ -1436,8 +1439,8 @@ def _collecting_drain(kinds):
     return _drain
 
 
-def test_image_worker_drops_stale_display_keeps_status():
-    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+def test_image_worker_drops_output_after_abort():
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
 
     panel = DummyChatbotPanel()
     begin_send_turn(panel, "image")
@@ -1445,7 +1448,7 @@ def test_image_worker_drops_stale_display_keeps_status():
     interpreter = EffectInterpreter(panel)
 
     def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
-        bump_send_generation(panel)
+        abort_turn(panel)
         tctx.status_callback("after bump")
         return {"status": "done", "message": "late"}
 
@@ -1466,14 +1469,13 @@ def test_image_worker_drops_stale_display_keeps_status():
                     panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)
 
     assert StreamQueueKind.CHUNK not in kinds
-    assert StreamQueueKind.STATUS in kinds
-    assert StreamQueueKind.STREAM_DONE in kinds
-    assert "after bump" in panel.status_history
+    assert StreamQueueKind.STATUS not in kinds
+    assert panel.status_history == []
     assert not any("late" in text for text in panel.responses)
 
 
-def test_web_worker_drops_stale_thinking_and_chunks():
-    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+def test_web_worker_drops_output_after_abort():
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
 
     panel = DummyChatbotPanel()
     panel.session.messages = []
@@ -1482,7 +1484,7 @@ def test_web_worker_drops_stale_thinking_and_chunks():
     interpreter = EffectInterpreter(panel)
 
     def execute(_name, _tctx, bypass_thread_guard=False, **_kwargs):
-        bump_send_generation(panel)
+        abort_turn(panel)
         _tctx.append_thinking_callback("secret-thought")
         _tctx.chat_append_callback("secret-chunk")
         _tctx.status_callback("still-here")
@@ -1506,16 +1508,15 @@ def test_web_worker_drops_stale_thinking_and_chunks():
 
     assert StreamQueueKind.CHUNK not in kinds
     assert StreamQueueKind.THINKING not in kinds
-    assert StreamQueueKind.STATUS in kinds
-    assert StreamQueueKind.ERROR in kinds
-    assert "still-here" in panel.status_history
-    assert not any("secret" in text for text in panel.responses)
-    content = panel.session.add_assistant_message.call_args.kwargs["content"]
-    assert "Research Chat error" in content
+    assert StreamQueueKind.STATUS not in kinds
+    assert StreamQueueKind.ERROR not in kinds
+    assert panel.status_history == []
+    assert panel.responses == []
+    panel.session.add_assistant_message.assert_not_called()
 
 
-def test_agent_backend_drops_stale_chunks():
-    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+def test_agent_backend_drops_output_after_abort():
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
 
     panel = DummyChatbotPanel()
     panel.session = _RecordingSession()
@@ -1531,7 +1532,7 @@ def test_agent_backend_drops_stale_chunks():
     adapter.is_available.return_value = True
 
     def send(queue, **_kwargs):
-        bump_send_generation(panel)
+        abort_turn(panel)
         queue.put((StreamQueueKind.CHUNK, "late-agent"))
         queue.put((StreamQueueKind.STATUS, "agent-status"))
         queue.put((StreamQueueKind.STOPPED,))
@@ -1562,7 +1563,8 @@ def test_agent_backend_drops_stale_chunks():
         panel._execute_agent_backend_effect("hi", model, "writer", state, interpreter)
 
     assert StreamQueueKind.CHUNK not in kinds
-    assert StreamQueueKind.STATUS in kinds
-    assert StreamQueueKind.STOPPED in kinds
-    assert "agent-status" in panel.status_history
+    assert StreamQueueKind.STATUS not in kinds
+    assert StreamQueueKind.STOPPED not in kinds
+    assert panel.status_history == []
     assert not any("late-agent" in text for text in panel.responses)
+    assert panel.session.stored == []

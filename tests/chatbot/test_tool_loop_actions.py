@@ -272,13 +272,13 @@ def test_execute_fn_skips_draw_bridge_for_writer():
 
 
 def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
-    """Clear and a second send bump the generation. Late chunks stay off turn 1."""
+    """A new send aborts the first turn. Late puts and a clear do not land on it."""
     import queue
 
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
     from plugin.chatbot.tool_loop_actions import (
+        abort_turn,
         begin_send_turn,
-        bump_send_generation,
-        chunk_applies,
         persist_assistant_on_turn,
         put_for_turn,
     )
@@ -301,43 +301,34 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, "Hello"))
-    chunk = first_q.get_nowait()
-    assert chunk_applies(host, turn, chunk[1], record=True)
-    assert turn.emitted == "Hello"
+    assert first_q.get_nowait() == (StreamQueueKind.CHUNK, "Hello")
+    fold_transcript_chunk(host.session, "Hello", "assistant")
+    assert turn.open_text() == "Hello"
 
     turn2 = begin_send_turn(host, "image")
-    assert turn2.generation != turn.generation
+    assert host._turn is turn2
+    assert not turn.alive
+    assert turn2.alive
     assert turn2.mode == "image"
     assert turn.mode == "chat"
-    # The first worker still holds its queue. A display put must not land there
-    # or on the new turn, and must not extend the first turn's text.
     assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, " late")) is False
+    assert put_for_turn(host, turn, first_q, (StreamQueueKind.STATUS, "late-status")) is False
     assert first_q.empty()
-    assert chunk_applies(host, turn, " late", record=True) is False
-    assert turn.emitted == "Hello"
-    host._apply_turn = turn
-    persist_assistant_on_turn(host, content="late reply")
-    host._apply_turn = None
-    assert all(message.get("content") != "late reply" for message in host.session.messages)
-    assert chunk_applies(host, turn2, "Second", record=True)
-    assert turn2.emitted == "Second"
-    assert "Second" not in turn.emitted
+    assert turn.open_text() == "Hello"
 
-    bump_send_generation(host)
+    abort_turn(host)
     host.session.messages = []
-    assert chunk_applies(host, turn, " after-clear", record=True) is False
-    assert chunk_applies(host, turn2, " after-clear", record=True) is False
-    assert turn.emitted == "Hello"
-    assert turn2.emitted == "Second"
+    persist_assistant_on_turn(host, content="after-clear")
     assert host.session.messages == []
+    assert put_for_turn(host, turn2, turn2.queue, (StreamQueueKind.CHUNK, " after-clear")) is False
 
 
-def test_stop_keeps_emitted_bytes_instead_of_no_response():
-    """Stop bumps the generation and must not replace streamed text."""
+def test_stop_keeps_open_row_instead_of_no_response():
+    """Stop aborts the turn and stores the open row, not a placeholder."""
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
     from plugin.chatbot.tool_loop_actions import (
+        abort_turn,
         begin_send_turn,
-        bump_send_generation,
-        chunk_applies,
         persist_assistant_on_turn,
         stopped_assistant_text,
     )
@@ -355,27 +346,23 @@ def test_stop_keeps_emitted_bytes_instead_of_no_response():
 
     host = Host()
     turn = begin_send_turn(host, "chat")
-    assert chunk_applies(host, turn, "Hello", record=True)
-    bump_send_generation(host)
-    host._apply_turn = turn
+    fold_transcript_chunk(host.session, "Hello", "assistant")
+    abort_turn(host)
+    assert host._turn is turn
     assert stopped_assistant_text(host, None) == "Hello"
     assert stopped_assistant_text(host, "No response.") == "Hello"
     persist_assistant_on_turn(host, content=stopped_assistant_text(host, "No response."))
     assert any(message.get("content") == "Hello" for message in host.session.messages)
-    assert chunk_applies(host, turn, " more", record=True) is False
-    assert turn.emitted == "Hello"
-    # The banner is appended after the bump. It still applies. A later chunk does not.
-    assert chunk_applies(host, turn, "\n[Stopped by user]\n", record=True) is True
-    assert turn.emitted == "Hello"
-    assert chunk_applies(host, turn, "see [Stopped by user] later", record=True) is False
+    assert turn.accepts_display(host, " more") is False
+    assert turn.accepts_display(host, "\n[Stopped by user]\n") is True
+    assert turn.accepts_display(host, "see [Stopped by user] later") is False
     saved_messages = host.session.messages
     host.session.messages = []
-    assert chunk_applies(host, turn, "\n[Stopped by user]\n", record=True) is False
+    assert turn.accepts_display(host, "\n[Stopped by user]\n") is False
     host.session.messages = saved_messages
     turn2 = begin_send_turn(host, "chat")
-    assert chunk_applies(host, turn, "\n[Stopped by user]\n", record=True) is False
-    # The new send's own generation is current, so its stop line applies.
-    assert chunk_applies(host, turn2, "\n[Stopped by user]\n", record=True) is True
+    assert turn.accepts_display(host, "\n[Stopped by user]\n") is False
+    assert turn2.accepts_display(host, "\n[Stopped by user]\n") is True
 
 
 def _capture_background(started: list):
@@ -387,12 +374,11 @@ def _capture_background(started: list):
 
 
 def test_async_tool_failure_uses_model_captured_at_spawn():
-    """A later send must not reclassify a disposed-document tool failure.
+    """The tool's own document classifies the failure, not a model stored later.
 
     A bare RuntimeException is disposal only for the document the tool
-    started against. Scoring it against the next turn's model queues
-    TOOL_DONE when that document was already gone, or ERROR when the
-    tool's own document was still live.
+    started against. The host model can change before the worker runs.
+    A new send drops the result instead of delivering it to either queue.
     """
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
@@ -431,18 +417,42 @@ def test_async_tool_failure_uses_model_captured_at_spawn():
                 )
             )
         host._active_model = later_model
-        second = begin_send_turn(host, "chat")
-        second_q: queue.Queue = queue.Queue()
-        second.queue = second_q
-        host._active_q = second_q
         started[0]()
-        assert second_q.empty()
         item = first_q.get_nowait()
         assert item[0] == expected_kind
         assert first_q.empty()
 
     run(DisposedDoc(), LiveDoc(), StreamQueueKind.ERROR)
     run(LiveDoc(), DisposedDoc(), StreamQueueKind.TOOL_DONE)
+
+
+def test_new_send_drops_the_in_flight_tool_result():
+    """A tool that finishes after the next send must not enqueue anywhere."""
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    host = FakeHost()
+    turn = begin_send_turn(host, "chat")
+    first_q: queue.Queue = queue.Queue()
+    turn.queue = first_q
+    host._active_execute_tool_fn = Mock(return_value='{"status": "ok"}')
+    started: list = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+        interpreter.execute(
+            SpawnToolWorkerEffect(
+                call_id="call_old",
+                func_name="web_research",
+                func_args_str="{}",
+                func_args={"query": "x"},
+                is_async=True,
+            )
+        )
+    second = begin_send_turn(host, "chat")
+    second_q: queue.Queue = queue.Queue()
+    second.queue = second_q
+    started[0]()
+    assert first_q.empty()
+    assert second_q.empty()
 
 
 def test_async_tool_uses_fn_and_model_captured_at_spawn():
@@ -500,11 +510,12 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
     assert old_fn.call_args.kwargs["captured_q"] is first_q
     assert old_fn.call_args.kwargs["captured_call_id"] == "call_old"
     host._active_execute_tool_fn.assert_not_called()
+    assert first_q.empty()
     assert second_q.empty()
 
 
 def test_subagent_append_and_approval_use_the_captured_queue():
-    """Web and document-research events stay on the spawn queue after a new send."""
+    """A new send drops chat lines and approval from the turn that spawned them."""
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
     host = FakeHost()
@@ -589,32 +600,22 @@ def test_subagent_append_and_approval_use_the_captured_queue():
 
     assert seen["doc"] is old_model
     assert seen["stop"] is spawn_checker
-    assert seen["wait_checker"] is spawn_checker
-    assert seen["approval"] == (True, None)
+    assert "wait_checker" not in seen
+    assert seen["approval"] == (False, None)
     assert new_q.empty()
-    kinds = []
-    texts = []
-    while not first_q.empty():
-        item = first_q.get_nowait()
-        kinds.append(item[0])
-        if item[0] == StreamQueueKind.CHUNK:
-            texts.append(item[1])
-    assert StreamQueueKind.APPROVAL_REQUIRED in kinds
-    assert "research line" not in texts
-    assert "opened doc" not in texts
-    assert host.session.tool_streamed_texts.get("call_web") == ["research line"]
-    assert host.session.tool_streamed_texts.get("call_doc") == ["opened doc"]
+    assert first_q.empty()
+    assert not getattr(host.session, "tool_streamed_texts", {})
 
 
-def test_stop_banner_reaches_the_sidebar_after_the_generation_bump():
-    """panel._append_response drops chunks after Stop, except the stop line."""
+def test_stop_banner_reaches_the_sidebar_after_abort():
+    """panel._append_response keeps the stop line and drops a later chunk."""
     import threading
 
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
     from plugin.chatbot.panel import SendButtonListener
     from plugin.chatbot.send_state import SendButtonState
     from plugin.chatbot.sidebar_state import SidebarCompositeState
-    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
 
     with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
         send = SendButtonListener.__new__(SendButtonListener)
@@ -637,9 +638,8 @@ def test_stop_banner_reaches_the_sidebar_after_the_generation_bump():
             self.messages: list[dict[str, str]] = [{"role": "system", "content": "s"}]
 
     send.session = Session()
-    turn = begin_send_turn(send, "chat")
-    send._apply_turn = turn
-    bump_send_generation(send)
+    begin_send_turn(send, "chat")
+    abort_turn(send)
 
     with (
         patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()),
