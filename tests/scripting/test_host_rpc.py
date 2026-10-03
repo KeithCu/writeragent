@@ -27,6 +27,17 @@ def test_resolve_allowed_tools_disabled():
     assert resolve_allowed_tools("") == frozenset()
 
 
+def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
+    """No writeragent_api: a domain string must not disable every tool RPC."""
+    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+        assert resolve_allowed_tools("writer") is None
+        assert resolve_allowed_tools("shapes, footnotes, core") is None
+    # The proxy is present: an unknown name is still a real allowlist.
+    unknown = resolve_allowed_tools("not-a-domain")
+    assert unknown is not None
+    assert "list_open_documents" in unknown
+
+
 def test_resolve_allowed_tools_writer_domain_includes_apply():
     allowed = resolve_allowed_tools("writer")
     assert allowed is not None

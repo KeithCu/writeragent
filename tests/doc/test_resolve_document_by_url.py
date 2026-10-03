@@ -102,6 +102,34 @@ def test_disposed_element_does_not_hide_a_later_match():
     assert doc_type == "writer"
 
 
+def test_next_element_disposal_does_not_hide_a_later_match():
+    """nextElement DisposedException is one closed frame, not a dead enumeration."""
+    class DisposedException(Exception):
+        pass
+
+    good = _model("file:///docs/a.odt", "uid-a")
+    desktop = MagicMock()
+    pending = [DisposedException("frame closed"), good]
+
+    def next_elem():
+        item = pending.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = lambda: len(pending) > 0
+    enum.nextElement.side_effect = next_elem
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+    ):
+        doc, doc_type = resolve_document_by_url(MagicMock(), "file:///docs/a.odt")
+    assert doc is good
+    assert doc_type == "writer"
+
+
 def test_resolve_reraises_when_desktop_is_disposed():
     class DisposedException(Exception):
         pass

@@ -167,16 +167,27 @@ class ACPConnection:
             # that sweep would wait until timeout: the event is never set.
             if not self._running or self._proc is None:
                 raise ToolExecutionError("ACP process is not running")
+            # What was wrong: the write below re-read self._proc
+            # (`if self._proc and self._proc.stdin`). stop() sets
+            # self._proc to None between those two loads, so the second
+            # was None and None.stdin raised AttributeError. That is not
+            # BrokenPipeError or OSError, so it escaped this handler.
+            # Why: keep the process from this locked check and write
+            # through that local. A pipe stop() already closed raises
+            # ValueError ("I/O operation on closed file"), which is the
+            # same failed write.
+            proc = self._proc
             self._pending[req_id] = {"event": event, "response": None}
 
         line = json.dumps(msg) + "\n"
         log.debug(f"→ {method} (id={req_id})")
 
         try:
-            if self._proc and self._proc.stdin:
-                self._proc.stdin.write(line.encode("utf-8"))
-                self._proc.stdin.flush()
-        except (BrokenPipeError, OSError) as e:
+            stdin = proc.stdin
+            if stdin:
+                stdin.write(line.encode("utf-8"))
+                stdin.flush()
+        except (BrokenPipeError, OSError, ValueError) as e:
             with self._lock:
                 self._pending.pop(req_id, None)
             raise ToolExecutionError(f"Failed to write to ACP: {e}") from e
@@ -203,10 +214,17 @@ class ACPConnection:
             return
         msg = {"jsonrpc": _JSONRPC_VERSION, "method": method, "params": params or {}}
         line = json.dumps(msg) + "\n"
+        # What was wrong: `if self._proc and self._proc.stdin` loads
+        # self._proc twice. stop() can set it to None between the loads,
+        # and None.stdin raises AttributeError. The except swallowed that,
+        # so the notification never went out. Why: copy the process once
+        # and write through that local. Same race as send_request.
+        proc = self._proc
         try:
-            if self._proc and self._proc.stdin:
-                self._proc.stdin.write(line.encode("utf-8"))
-                self._proc.stdin.flush()
+            stdin = proc.stdin if proc is not None else None
+            if stdin:
+                stdin.write(line.encode("utf-8"))
+                stdin.flush()
         except Exception:
             pass
 
@@ -221,10 +239,14 @@ class ACPConnection:
             msg["result"] = result or {}
 
         line = json.dumps(msg) + "\n"
+        # Same double-read as send_notification: stop() can clear _proc
+        # between the truthiness check and the .stdin load.
+        proc = self._proc
         try:
-            if self._proc and self._proc.stdin:
-                self._proc.stdin.write(line.encode("utf-8"))
-                self._proc.stdin.flush()
+            stdin = proc.stdin if proc is not None else None
+            if stdin:
+                stdin.write(line.encode("utf-8"))
+                stdin.flush()
         except Exception:
             log.exception("Failed to send response")
 

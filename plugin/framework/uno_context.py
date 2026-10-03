@@ -923,8 +923,15 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 break
             if more is not True and more != 1:
                 break
-            elem = enum.nextElement()
             try:
+                # What was wrong: nextElement sat outside this try. A frame
+                # closed mid-iteration raised DisposedException into the outer
+                # handler, which aborted the walk before later documents were
+                # examined. How: one dead window looked like a dead
+                # enumeration. Why: fetch the element here so that failure
+                # continues. Disposal of the enumeration itself still calls
+                # _reraise_document_disposed from hasMoreElements.
+                elem = enum.nextElement()
                 model = None
                 if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
                     model = elem
@@ -943,7 +950,6 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                         return (_guard_returned_uno(model), doc_type)
             except Exception as e:
                 # One dead window must not hide the rest of the desktop.
-                # Disposal of the enumeration itself is the outer handler.
                 log.debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
     except DocumentDisposedError:

@@ -16,6 +16,66 @@ class DummyToolkit:
     def processEventsToIdle(self):
         self.idle_calls += 1
 
+def test_run_async_worker_with_drain_next_tool_keeps_pumping():
+    """NEXT_TOOL must not end the generic worker drain before later items."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    q = queue.Queue()
+    q.put((StreamQueueKind.NEXT_TOOL,))
+    q.put((StreamQueueKind.CHUNK, "kept"))
+    q.put((StreamQueueKind.STREAM_DONE, "end"))
+    seen = []
+    applied = []
+
+    def worker(worker_q):
+        del worker_q
+
+    def on_done(item):
+        seen.append(item[0] if isinstance(item, tuple) else item)
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(
+            ctx,
+            worker,
+            lambda text, is_thinking: applied.append((text, is_thinking)),
+            on_done,
+            None,
+            q=q,
+        )
+
+    assert StreamQueueKind.NEXT_TOOL in seen
+    assert StreamQueueKind.STREAM_DONE in seen
+    assert ("kept", False) in applied
+
+
+def test_run_stream_drain_loop_next_tool_false_keeps_pumping():
+    """A false NEXT_TOOL return is the tool loop's keep-pumping signal."""
+    q = queue.Queue()
+    q.put((StreamQueueKind.NEXT_TOOL,))
+    q.put((StreamQueueKind.CHUNK, "still"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
+    seen = []
+    applied = []
+
+    def on_stream_done(item):
+        seen.append(item[0])
+        return item[0] == StreamQueueKind.STREAM_DONE
+
+    run_stream_drain_loop(
+        q,
+        None,
+        [False],
+        lambda text, is_thinking: applied.append((text, is_thinking)),
+        on_stream_done=on_stream_done,
+        on_stopped=lambda: None,
+        on_error=lambda err: None,
+    )
+    assert seen == [StreamQueueKind.NEXT_TOOL, StreamQueueKind.STREAM_DONE]
+    assert ("still", False) in applied
+
+
 def test_run_async_worker_with_drain_none_apply_chunk():
     from plugin.framework.async_stream import run_async_worker_with_drain
 
@@ -596,6 +656,9 @@ def test_run_stream_drain_loop_next_tool_and_approval():
     q = queue.Queue()
     q.put((StreamQueueKind.APPROVAL_REQUIRED, "Do you allow file access?", "read_file", '{"path": "test.txt"}', "req_1"))
     q.put((StreamQueueKind.NEXT_TOOL,))
+    # A true NEXT_TOOL return used to set job_done and drop this tail.
+    q.put((StreamQueueKind.CHUNK, "after-next"))
+    q.put((StreamQueueKind.STREAM_DONE, "end"))
 
     toolkit = None
     job_done = [False]
@@ -610,6 +673,8 @@ def test_run_stream_drain_loop_next_tool_and_approval():
     def stream_done(item):
         stream_done_items.append(item)
         if item[0] == StreamQueueKind.NEXT_TOOL:
+            return True
+        if item[0] == StreamQueueKind.STREAM_DONE:
             return True
         return False
 
@@ -626,8 +691,11 @@ def test_run_stream_drain_loop_next_tool_and_approval():
     )
 
     assert job_done[0] is True
-    assert len(stream_done_items) == 1
-    assert stream_done_items[0] == (StreamQueueKind.NEXT_TOOL,)
+    assert [item[0] for item in stream_done_items] == [
+        StreamQueueKind.NEXT_TOOL,
+        StreamQueueKind.STREAM_DONE,
+    ]
+    assert ("after-next", False) in applied
 
     assert len(approvals) == 1
     assert approvals[0] == (
