@@ -50,6 +50,26 @@ def _ovlog(msg: str, *args: object, exc_info: bool = False) -> None:
     log.debug("[SLASH-OV] %s", text, exc_info=exc_info)
 
 
+def _defer_to_next_turn(fn: Any, *args: Any) -> None:
+    """Run ``fn`` on a later main-thread turn. Do not call it inline on failure.
+
+    What was wrong: Accept and Esc reached ``hide()``, which ``dispose()``d the
+    toolkit window from inside its own ``XKeyHandler`` / ``XMouseListener``.
+    VCL was still in that callback.
+    How it happened: ``accept_selected`` → ``run_slash_command`` → ``hide()``
+    (and Esc → ``hide()``) ran on the listener stack.
+    Why this change: ``post_to_main_thread`` enqueues once AsyncCallback exists
+    (the headed sidebar). The listener returns before dispose. An inline
+    fallback would be the same deadlock, so a failed post is only logged.
+    """
+    try:
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(fn, *args)
+    except Exception:
+        log.warning("slash popup: could not defer main-thread turn", exc_info=True)
+
+
 def _ovdiag(obj: Any, label: str) -> None:
     """Peer/window geometry + visibility for headed overlay debugging."""
     # Probes getPosSize / peers. Skip them unless the verbose flag is on;
@@ -576,7 +596,8 @@ class SlashPopupController:
         query_has_peer = callable(getattr(query_control, "getPeer", None))
         if control is not None and not _is_combo_box(control) and not query_has_peer:
             self.control = control
-            self.hide()
+            # Construction is not a dismiss. Do not emit TEXT_UPDATED here.
+            self.hide(restore_send=False)
             self._attach_click()
             self._attach_keys()
             self._listeners_attached = True
@@ -609,7 +630,13 @@ class SlashPopupController:
             return None
         return self._matches[self._selected].name
 
-    def hide(self) -> None:
+    def hide(self, *, restore_send: bool = True) -> None:
+        """Close the popup. Callers inside a key/mouse callback must defer this.
+
+        ``restore_send`` dispatches ``TEXT_UPDATED`` from the live Ask text
+        after the toolkit window is disposed. Recreate passes False so a
+        slash draft does not run UpdateUI while the next overlay is mapped.
+        """
         _ovlog("hide open_was=%s toolkit=%s", self._open, self._popup_window is not None)
         self._detach_frame_keys()
         self._detach_toolkit_keys()
@@ -623,29 +650,60 @@ class SlashPopupController:
             set_control_visible(win, False)
             if floater is not None and floater is not win:
                 set_control_visible(floater, False)
-            dispose = getattr(win, "dispose", None)
-            if callable(dispose):
-                try:
-                    dispose()
-                    _ovlog("hide disposed toolkit window")
-                except Exception:
-                    _ovlog("hide dispose failed", exc_info=True)
-            if floater is not None and floater is not win:
-                dispose_f = getattr(floater, "dispose", None)
-                if callable(dispose_f):
-                    try:
-                        dispose_f()
-                        _ovlog("hide disposed floater")
-                    except Exception:
-                        _ovlog("hide dispose floater failed", exc_info=True)
+            self._dispose_overlay_windows(win, floater)
             self._popup_floater = None
             self._popup_window = None
             self.control = None
             self._ask_origin = None
             self._listeners_attached = False
+            if restore_send:
+                self._dispatch_query_has_text()
             return
         set_control_visible(self.control, False)
         _ovdiag(self.control, "after hide")
+        if restore_send:
+            self._dispatch_query_has_text()
+
+    def _dispose_overlay_windows(self, win: Any, floater: Any) -> None:
+        """Dispose the TOP host after the key/mouse callback has returned.
+
+        ``hide()`` itself is deferred from Accept and Esc. Disposing here is
+        then a later main-thread turn, not the listener stack.
+        """
+        dispose = getattr(win, "dispose", None)
+        if callable(dispose):
+            try:
+                dispose()
+                _ovlog("hide disposed toolkit window")
+            except Exception:
+                log.warning("slash popup: hide dispose failed", exc_info=True)
+        if floater is not None and floater is not win:
+            dispose_f = getattr(floater, "dispose", None)
+            if callable(dispose_f):
+                try:
+                    dispose_f()
+                    _ovlog("hide disposed floater")
+                except Exception:
+                    log.warning("slash popup: hide dispose floater failed", exc_info=True)
+
+    def _dispatch_query_has_text(self) -> None:
+        """Re-enable Send from the text still in Ask.
+
+        What was wrong: ``QueryTextListener`` returns before ``TEXT_UPDATED``
+        for any slash draft, and ``hide()`` / Esc never dispatched ``has_text``.
+        After Esc, Ask still held e.g. ``/he`` while Send stayed disabled.
+        How it happened: the listener skipped UpdateUI so a mapped TOP overlay
+        would not ``getPosSize`` Ask (that deadlocks VCL).
+        Why this change: dispatch only after the popup is closed, using Ask
+        as the source of truth.
+        """
+        dispatch = getattr(self.send_listener, "dispatch", None)
+        if not callable(dispatch):
+            return
+        from plugin.chatbot.send_state import SendEvent, SendEventKind
+
+        text = get_control_text(self.query_control) or ""
+        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(str(text).strip())}))
 
     def on_query_text(self, text: str) -> None:
         """Open or narrow the popup from the current Ask-box contents."""
@@ -696,8 +754,9 @@ class SlashPopupController:
         )
         if self._popup_window is not None:
             # addItems/setPosSize on a mapped TOP window deadlocks; recreate via fill-before-show.
+            # Not a dismiss: do not TEXT_UPDATED while the next overlay is about to map.
             _ovlog("show_matches recreate")
-            self.hide()
+            self.hide(restore_send=False)
         self._bind_overlay()
         _ovlog("after bind control=%s toolkit=%s", self.control is not None, self._popup_window is not None)
         if self.control is None:
@@ -716,7 +775,9 @@ class SlashPopupController:
         if host is not None and host is not self.control:
             set_control_visible(host, True)
         set_control_visible(self.control, True)
-        self.reposition()
+        # Do not reposition() after setVisible. reposition getPosSize's Ask, and
+        # once this TOP overlay is mapped that deadlocks VCL (panel.py
+        # QueryTextListener). The pre-show reposition above is the one that counts.
         self._bring_overlay_front()
         self._late_attach_overlay_keys()
         self._attach_frame_keys()
@@ -752,6 +813,23 @@ class SlashPopupController:
         self._listeners_attached = True
         _ovlog("late mouse+overlay keys attached")
 
+    def _on_document_key(self, key_code: int, modifiers: int = 0, key_char: Any = None) -> bool:
+        """Frame and toolkit handlers: navigation only.
+
+        What was wrong: both passed ``from_overlay=True``, so every printable
+        character was appended to Ask and the handler returned true. Document
+        keystrokes never reached the document.
+        How it happened: the listbox listener is the one that has focus on the
+        menu and must insert; the frame/toolkit handlers see the whole document.
+        Why this change: ``from_overlay=False`` keeps printable keys for the
+        document (or Ask's own listener) and only consumes Esc/arrows/Enter/Tab.
+        """
+        return bool(self.handle_key(key_code, modifiers, key_char, from_overlay=False))
+
+    def _on_list_key(self, key_code: int, modifiers: int = 0, key_char: Any = None) -> bool:
+        """Listbox listener: the menu has focus, so printable keys feed Ask."""
+        return bool(self.handle_key(key_code, modifiers, key_char, from_overlay=True))
+
     def handle_key(
         self,
         key_code: int,
@@ -776,7 +854,8 @@ class SlashPopupController:
                 return True
             return False
         if action == "escape":
-            self.hide()
+            # hide() disposes the toolkit window. Post it so this key callback returns first.
+            _defer_to_next_turn(self.hide)
             return True
         if action == "up":
             self.move_selection(-1)
@@ -811,8 +890,11 @@ class SlashPopupController:
             _ovlog("accept_selected no name selected=%s matches=%s", self._selected, [c.name for c in self._matches])
             return
         _ovlog("accept_selected name=%s", name)
-        run_slash_command(name, self.send_listener)
-        self.hide()
+        # run_slash_command → hide() disposes the list. Post so the key or
+        # mouse callback returns before dispose. hide() is not called again
+        # here; a second hide would TEXT_UPDATED while the window still exists.
+        host = self.send_listener
+        _defer_to_next_turn(run_slash_command, name, host)
 
     def accept_row_at_y(self, y: int) -> bool:
         """Accept the command under mouse Y. Ignores chrome / off-list clicks."""
@@ -879,16 +961,6 @@ class SlashPopupController:
                 popup_bounds=(x, y, w, h),
                 overlay_parent=self._overlay_parent,
             )
-            # Arch diag: trusted screen even for dialog-local list.
-            _screen_bounds_above_ready(
-                qr,
-                rows,
-                query_control=query,
-                send_listener=self.send_listener,
-                overlay_parent=self._overlay_parent,
-                ask_peer=_query_peer(query),
-                frame=getattr(self.send_listener, "frame", None),
-            )
             if self._popup_window is not None:
                 floater = getattr(self, "_popup_floater", None)
                 if floater is not None and floater is not ctrl:
@@ -916,7 +988,13 @@ class SlashPopupController:
         return self.selected_name
 
     def _fill_visible_list(self) -> None:
-        """Populate after show. getItem/getItemCount/makeVisible deadlock VCL so the TOP window never maps."""
+        """Fill the toolkit list before show.
+
+        Non-toolkit lists are filled in ``_refresh_list``. ``addItems`` here
+        too duplicated every row; that path has no VCL ``getItemCount`` deadlock.
+        """
+        if self._popup_window is None:
+            return
         ctrl = self.control
         if ctrl is None:
             return
@@ -928,7 +1006,7 @@ class SlashPopupController:
                 add(labels, 0)
                 _ovlog("fill_visible addItems after show ok")
             except Exception:
-                _ovlog("fill_visible addItems failed", exc_info=True)
+                log.warning("slash popup: fill addItems failed", exc_info=True)
 
     def _refresh_list(self) -> None:
         # Headed: toolkit VCL listbox hung inside getItemCount/addItems so
@@ -994,7 +1072,7 @@ class SlashPopupController:
         try:
             controller = get_controller()
         except Exception:
-            _ovlog("frame key handler: getController failed", exc_info=True)
+            log.warning("slash popup: frame key handler getController failed", exc_info=True)
             return
         add = getattr(controller, "addKeyHandler", None)
         if not callable(add):
@@ -1011,7 +1089,9 @@ class SlashPopupController:
                 mods = int(getattr(aEvent, "Modifiers", 0) or 0)
                 ch = getattr(aEvent, "KeyChar", None)
                 _ovlog("frame keyPressed code=%s mods=%s char=%r", code, mods, ch)
-                return bool(host.handle_key(code, mods, ch, from_overlay=True))
+                # Nav only. Overlay insert mode would append every printable
+                # document key into Ask and consume it.
+                return host._on_document_key(code, mods, ch)
 
             def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
                 return False
@@ -1023,7 +1103,7 @@ class SlashPopupController:
             self._frame_controller = controller
             _ovlog("frame key handler attached")
         except Exception:
-            _ovlog("frame key handler attach failed", exc_info=True)
+            log.warning("slash popup: frame key handler attach failed", exc_info=True)
 
     def _detach_frame_keys(self) -> None:
         handler = self._frame_handler
@@ -1077,7 +1157,7 @@ class SlashPopupController:
                 mods = int(getattr(aEvent, "Modifiers", 0) or 0)
                 ch = getattr(aEvent, "KeyChar", None)
                 _ovlog("toolkit keyPressed code=%s mods=%s char=%r", code, mods, ch)
-                return bool(host.handle_key(code, mods, ch, from_overlay=True))
+                return host._on_document_key(code, mods, ch)
 
             def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
                 return False
@@ -1089,7 +1169,7 @@ class SlashPopupController:
             self._toolkit = tk
             _ovlog("toolkit key handler attached")
         except Exception:
-            _ovlog("toolkit key handler attach failed", exc_info=True)
+            log.warning("slash popup: toolkit key handler attach failed", exc_info=True)
 
     def _detach_toolkit_keys(self) -> None:
         handler = self._toolkit_handler
@@ -1142,7 +1222,7 @@ class SlashPopupController:
             ctrl.addMouseListener(_Click())
             _ovlog("mouse listener attached")
         except Exception:
-            _ovlog("mouse listener attach failed", exc_info=True)
+            log.warning("slash popup: mouse listener attach failed", exc_info=True)
         # skip item/action: addItemListener deadlocks idle addItems/show
 
     def _attach_keys(self) -> None:
@@ -1166,11 +1246,10 @@ class SlashPopupController:
                     int(getattr(e, "KeyCode", 0) or 0),
                     int(getattr(e, "Modifiers", 0) or 0),
                 )
-                if host.handle_key(
+                if host._on_list_key(
                     int(getattr(e, "KeyCode", 0) or 0),
                     int(getattr(e, "Modifiers", 0) or 0),
                     getattr(e, "KeyChar", None),
-                    from_overlay=True,
                 ):
                     with suppress_disposed("slash list Consume", logger=log):
                         if hasattr(e, "Consume"):
@@ -1190,4 +1269,4 @@ class SlashPopupController:
                 ctrl.addKeyListener(listener)
                 _ovlog("key listener attached %s", label)
             except Exception:
-                _ovlog("key listener attach failed %s", label, exc_info=True)
+                log.warning("slash popup: key listener attach failed %s", label, exc_info=True)
