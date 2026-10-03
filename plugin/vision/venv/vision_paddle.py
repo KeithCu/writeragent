@@ -139,53 +139,101 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _positive_span(value: str | None) -> int:
+    if value is None or not str(value).strip():
+        return 1
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return 1
+    return parsed if parsed > 0 else 1
+
+
 class _HtmlTableParser(HTMLParser):
-    """Minimal HTML table parser for PP-Structure table HTML output."""
+    """PP-Structure table HTML as origin cells with colspan/rowspan.
+
+    The previous parser appended each cell's text in document order and
+    ignored colspan/rowspan, so a merged header sat in column 0 and the
+    next header landed under it. Slots covered by an earlier span are
+    skipped, then ``_table_from_span_cells`` builds the same grid Docling uses.
+    """
 
     _in_cell: bool
+    _row: int
+    _col: int
+    _pending_rowspan: int
+    _pending_colspan: int
 
     def __init__(self) -> None:
         super().__init__()
-        self.rows: list[list[str]] = []
-        self._current_row: list[str] | None = None
+        self.cells: list[dict[str, Any]] = []
+        self._row = -1
+        self._col = 0
         self._cell_parts: list[str] = []
         self._in_cell = False
+        self._pending_rowspan = 1
+        self._pending_colspan = 1
+        self._covered: set[tuple[int, int]] = set()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "tr":
-            self._current_row = []
+            self._row += 1
+            self._col = 0
+            self._in_cell = False
         elif tag in ("td", "th"):
+            if self._row < 0:
+                self._row = 0
+            while (self._row, self._col) in self._covered:
+                self._col += 1
+            attr_map = {name: value for name, value in attrs}
+            self._pending_rowspan = _positive_span(attr_map.get("rowspan"))
+            self._pending_colspan = _positive_span(attr_map.get("colspan"))
             self._in_cell = True
             self._cell_parts = []
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("td", "th") and self._in_cell:
             self._in_cell = False
-            if self._current_row is not None:
-                self._current_row.append("".join(self._cell_parts).strip())
-        elif tag == "tr" and self._current_row is not None:
-            self.rows.append(self._current_row)
-            self._current_row = None
+            rowspan = self._pending_rowspan
+            colspan = self._pending_colspan
+            origin = (self._row, self._col)
+            self.cells.append(
+                {
+                    "text": "".join(self._cell_parts).strip(),
+                    "start_row_offset_idx": self._row,
+                    "start_col_offset_idx": self._col,
+                    "row_span": rowspan,
+                    "col_span": colspan,
+                }
+            )
+            for row_idx in range(self._row, self._row + rowspan):
+                for col_idx in range(self._col, self._col + colspan):
+                    if (row_idx, col_idx) != origin:
+                        self._covered.add((row_idx, col_idx))
+            self._col += colspan
 
     def handle_data(self, data: str) -> None:
         if self._in_cell:
             self._cell_parts.append(data)
 
 
-def _parse_html_table(html: str) -> tuple[list[str], list[list[str]]]:
+def _table_from_html(html: str, *, name: str) -> dict[str, Any] | None:
     parser = _HtmlTableParser()
     try:
         parser.feed(html)
+        parser.close()
     except Exception:
-        return [], []
-    if not parser.rows:
-        return [], []
-    columns = [str(c) for c in parser.rows[0]]
-    data_rows = [[str(c) for c in row] for row in parser.rows[1:]]
-    if not columns and data_rows:
-        width = max(len(r) for r in data_rows)
-        columns = [f"col_{i + 1}" for i in range(width)]
-    return columns, data_rows
+        return None
+    if not parser.cells:
+        return None
+    num_rows = 0
+    num_cols = 0
+    for cell in parser.cells:
+        num_rows = max(num_rows, int(cell["start_row_offset_idx"]) + int(cell["row_span"]))
+        num_cols = max(num_cols, int(cell["start_col_offset_idx"]) + int(cell["col_span"]))
+    from plugin.vision.venv.vision_docling import _table_from_span_cells
+
+    return _table_from_span_cells(parser.cells, num_rows, num_cols, name=name)
 
 
 def _text_from_structure_res(res: Any) -> str:
@@ -228,16 +276,9 @@ def _table_from_structure_res(res: Any, *, name: str) -> dict[str, Any] | None:
     if isinstance(res, dict):
         html = res.get("html")
         if isinstance(html, str) and html.strip():
-            columns, rows = _parse_html_table(html)
-            if columns or rows:
-                limited = rows[:MAX_TABLE_ROWS]
-                return {
-                    "name": name,
-                    "columns": columns,
-                    "rows": limited,
-                    "truncated": len(rows) > MAX_TABLE_ROWS,
-                    "total_rows": len(rows),
-                }
+            table = _table_from_html(html, name=name)
+            if table:
+                return table
         cell_block = res.get("cell_bbox") or res.get("cells")
         if isinstance(cell_block, list) and cell_block:
             rows = []
