@@ -14,6 +14,8 @@ Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose
 
 `is_document_disposed` probes `getImplementationName()` and returns true only for `DisposedException` / `DocumentDisposedError`. Any other exception from that probe means the document is still live.
 
+`WriterAgentException` translates short catalog msgids through `i18n._`. A runtime message longer than the gettext msgid bound (`DEAL_MAX_MSGID`) is stored as-is. Passing that string through `_()` raised `deal.PreContractError` in deal-enabled builds, so `NetworkError` and `make_tool_error` never constructed.
+
 `format_error_message` treats `ConnectionError` and `URLError` as network failures. `FileNotFoundError` and `PermissionError` stay filesystem errors. A message that merely contains "timed out" is a request-timeout hint only when it is not a Python execution timeout or a formula timeout. `socket.timeout` / `VenvTimeoutError` keep their own branches. Only `urllib.error.HTTPError` is formatted from an HTTP status. Other `http.client.HTTPException` values (for example `RemoteDisconnected`) keep their text on the connection path or via `str(e)`.
 
 `safe_call` and `handle_errors` re-raise `DocumentDisposedError` only for `DisposedException` (and an already-wrapped `DocumentDisposedError`). A bare `RuntimeException` becomes `UnoObjectError` or `ToolExecutionError`, so it does not short-circuit `is_tool_document_disposed`. `safe_uno_call` still returns its default for that name and re-raises only real disposal.

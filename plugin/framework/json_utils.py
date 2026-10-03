@@ -145,7 +145,14 @@ _LATEX_CLASH_WORDS = [
     "Vert",
 ]
 
-_LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")\b")
+# JSON strings already allow \" \\ \/ \b \f \n \r \t \uXXXX. A clash word
+# that starts with b/f/n/r/t is that escape plus leftover letters: `\ne` is
+# a newline and then "e", not the LaTeX command. Step 1 used to double the
+# backslash, so json.loads kept a literal `\ne`. Commands that are not JSON
+# escapes (`\alpha`, `\vec`) are still doubled. Already-decoded control
+# characters stay on the step-2 path below.
+_JSON_ESCAPE_STARTS = frozenset("bfnrt")
+_LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(word for word in _LATEX_CLASH_WORDS if word[:1] not in _JSON_ESCAPE_STARTS) + r")\b")
 
 _SILENT_CORRUPTIONS = {}
 _escape_map = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
@@ -162,7 +169,8 @@ def _repair_latex_clashes(text: str) -> str:
     # CrossHair: regex + large clash tables explode the SMT heap; identity is enough for contracts.
     if UNDER_CROSSHAIR:
         return text
-    # 1. Handle properly escaped but single-slash clashes (e.g. \\nabla -> \\\\nabla)
+    # 1. Double a single backslash on LaTeX commands that are not JSON escapes
+    # (e.g. \alpha -> \\alpha). Valid escapes (\n, \t, \r, \b, \f) stay put.
     text = _LATEX_CLASH_RE.sub(r"\\\\\1", text)
 
     # 2. Handle cases where the LLM sent a single backslash in the network JSON,

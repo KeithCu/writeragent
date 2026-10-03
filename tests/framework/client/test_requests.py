@@ -132,6 +132,92 @@ def test_sync_request_redacts_x_goog_api_key(caplog):
     assert "<redacted>" in str(raised.value)
 
 
+def test_sync_request_follows_redirect_and_drops_cross_origin_auth():
+    """A 302 from an image/CDN URL must be followed, not raised as HTTP_ERROR.
+
+    302 switches POST to GET and drops the body. Secret headers do not
+    travel to the other host.
+    """
+    seen = []
+    redir = _response(302, b"", "Found")
+    redir.getheader.side_effect = lambda name, default=None: (
+        "https://cdn.example/file.bin" if str(name).lower() == "location" else default
+    )
+    ok = _response(200, b"file-bytes", "OK")
+    conns = []
+
+    def _factory(host, *_args, **_kwargs):
+        conn = MagicMock()
+        conns.append(host)
+        conn.getresponse.return_value = redir if len(conns) == 1 else ok
+
+        def _request(method, path, body=None, headers=None):
+            seen.append((host, method, path, body, dict(headers or {})))
+
+        conn.request.side_effect = _request
+        return conn
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        body = sync_request(
+            "https://example.invalid/img",
+            data=b'{"prompt":"x"}',
+            headers={"Authorization": "Bearer sk-live-secret-value"},
+            timeout=1,
+            parse_json=False,
+        )
+    assert body == b"file-bytes"
+    assert seen[0][0] == "example.invalid"
+    assert seen[0][1] == "POST"
+    assert seen[1][0] == "cdn.example"
+    assert seen[1][1] == "GET"
+    assert seen[1][2] == "/file.bin"
+    assert seen[1][3] is None
+    assert "Authorization" not in {key.lower() for key in seen[1][4]}
+    assert "sk-live-secret-value" not in str(seen[1][4])
+
+
+def test_sync_request_307_keeps_method_and_body():
+    seen = []
+    redir = _response(307, b"", "Temporary Redirect")
+    redir.getheader.side_effect = lambda name, default=None: (
+        "https://cdn.example/upload" if str(name).lower() == "location" else default
+    )
+    ok = _response(200, b"ok", "OK")
+    conns: list[str] = []
+
+    def _factory(host, *_args, **_kwargs):
+        conn = MagicMock()
+        conns.append(host)
+        conn.getresponse.return_value = redir if len(conns) == 1 else ok
+
+        def _request(method, path, body=None, headers=None):
+            seen.append((method, path, body))
+
+        conn.request.side_effect = _request
+        return conn
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        body = sync_request("https://example.invalid/upload", data=b"audio", timeout=1, parse_json=False)
+    assert body == b"ok"
+    assert seen[1] == ("POST", "/upload", b"audio")
+
+
+def test_sync_request_bad_port_is_network_error():
+    from plugin.framework.client.http_transport import origin_and_path, public_target
+
+    for url in ("http://localhost:1a34/v1", "http://localhost:99999/v1"):
+        with pytest.raises(NetworkError) as raised:
+            origin_and_path(url)
+        assert not isinstance(raised.value, ValueError)
+        assert raised.value.code == "INVALID_URL"
+        with pytest.raises(NetworkError) as raised_public:
+            public_target(url)
+        assert raised_public.value.code == "INVALID_URL"
+        with pytest.raises(NetworkError) as raised_sync:
+            sync_request(url, timeout=1)
+        assert raised_sync.value.code == "INVALID_URL"
+
+
 def test_sync_request_truncated_json_is_not_repaired():
     from plugin.framework.json_utils import safe_json_loads
 

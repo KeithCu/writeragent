@@ -308,6 +308,24 @@ class TestSafeJsonLoads:
         repaired = safe_json_loads(corrupted_json)
         assert (repaired) == ({'content': '\\nabla \\times \\frac{1}{c}'})
 
+    def test_long_runtime_message_does_not_raise_precontract(self):
+        """Provider and UNO text longer than the msgid bound must still construct.
+
+        What was wrong: WriterAgentException passed that text through i18n._(),
+        whose deal pre rejects strings longer than DEAL_MAX_MSGID.
+        """
+        from plugin.framework.deal_shim import DEAL_MAX_MSGID
+        from plugin.framework.errors import NetworkError, make_tool_error
+
+        text = "provider body " + ("x" * (DEAL_MAX_MSGID + 50))
+        err = NetworkError(text)
+        assert err.message == text
+        assert isinstance(err, WriterAgentException)
+        payload = make_tool_error(text, code="TOOL_EXECUTION_ERROR")
+        assert payload["status"] == "error"
+        assert payload["message"] == text
+        assert payload["code"] == "TOOL_EXECUTION_ERROR"
+
 class TestAsyncStreamErrorHandling:
 
     def test_run_stream_drain_loop_error_handler(self):
