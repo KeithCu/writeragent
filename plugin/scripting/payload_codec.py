@@ -1684,6 +1684,17 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # vectorized boolean masks to perform C-level bulk modifications, bypassing
         # slow cell-by-cell loops, modulo operations, and manual type-coercion in Python.
         arr = np.frombuffer(raw, dtype=np.float64)
+        # What was wrong: the numeric path above rejects a buffer whose float
+        # count is not nrows*ncols, but this mixed-string path reshaped only
+        # for 2D. A truncated 1D buffer became a shorter list (the cells the
+        # shape still advertised were dropped). A long buffer kept the extra
+        # floats. Why this works: the same check, before reshape, so a corrupt
+        # envelope raises instead of changing the grid.
+        expected_cells = int(nrows) * int(ncols)
+        if arr.size != expected_cells:
+            raise ValueError(
+                f"split_grid buffer has {arr.size} values but shape {list(shape)} needs {expected_cells}"
+            )
         if not is_1d:
             arr = arr.reshape((nrows, ncols))
 
