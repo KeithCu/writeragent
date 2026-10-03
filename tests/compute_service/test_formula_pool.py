@@ -1151,3 +1151,23 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_isolated_worker_lease_prefers_session_free_worker(self) -> None:
+        """Isolated workload lease must prefer idle workers that host zero shared sessions."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            # Register a shared session on one worker
+            res1 = pool.execute(code="x = 10; result = x", session_id="shared-worker-test", mode="shared")
+            assert res1.get("status") == "ok"
+            shared_worker = pool._active_sessions["shared-worker-test"]
+
+            # An isolated execution should prefer the session-free worker
+            with pool._cond:
+                picked = pool._pick_idle_worker()
+                assert picked is not None
+                assert picked is not shared_worker
+                # Put it back
+                pool._idle.add(picked)
+        finally:
+            pool.shutdown()
+
+

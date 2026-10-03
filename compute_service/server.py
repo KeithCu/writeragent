@@ -11,6 +11,7 @@ import hmac
 import json
 import logging
 import os
+import select
 import selectors
 import signal
 import socket
@@ -117,7 +118,8 @@ def _source_text_from_part(raw: Any, *, limit: int, label: str, required: bool) 
     A non-string peel ``init_script`` stays ignored.
     """
     if isinstance(raw, (bytes, bytearray)):
-        if len(raw) > limit:
+        # Fast byte pre-check: UTF-8 characters are at most 4 bytes each.
+        if len(raw) > limit * 4:
             return None, {"status": "error", "code": "CODE_TOO_LARGE", "error": f"{label} exceeds max_code_chars ({limit})."}
         if len(raw) == 0:
             if required:
@@ -127,6 +129,8 @@ def _source_text_from_part(raw: Any, *, limit: int, label: str, required: bool) 
             text = bytes(raw).decode("utf-8")
         except UnicodeDecodeError:
             return None, {"status": "error", "error": f"Invalid UTF-8 in {label} part."}
+        if len(text) > limit:
+            return None, {"status": "error", "code": "CODE_TOO_LARGE", "error": f"{label} exceeds max_code_chars ({limit})."}
         return text, None
 
     if isinstance(raw, str):
@@ -314,11 +318,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if auth_resp is not None:
                 return auth_resp
 
-            raw_body, err_resp = _read_request_body(environ, settings, start_response)
-            if err_resp is not None:
-                return err_resp
-            assert raw_body is not None
-            _set_write_deadline(environ)
             accept_time = environ.get("compute.accept_time")
             if accept_time is not None:
                 queue_wait_sec = time.monotonic() - accept_time
@@ -326,6 +325,12 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                     log.warning("Dropping execute backlog wait %.2fs exceeded %.0fs", queue_wait_sec, _REQUEST_READ_TIMEOUT_SEC)
                     exec_queue_err: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": f"Request queue backlog wait ({int(queue_wait_sec)}s) exceeded timeout."}
                     return _start_json(start_response, "503 Service Unavailable", exec_queue_err, extra_headers=[("Retry-After", "1")])
+
+            raw_body, err_resp = _read_request_body(environ, settings, start_response)
+            if err_resp is not None:
+                return err_resp
+            assert raw_body is not None
+            _set_write_deadline(environ)
 
             from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, is_multipart_content_type, parse_execute_request
 
@@ -452,11 +457,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if auth_resp is not None:
                 return auth_resp
 
-            req_data, err_resp = _read_request_json(environ, settings, start_response)
-            if err_resp is not None:
-                return err_resp
-            assert req_data is not None
-            _set_write_deadline(environ)
             accept_time = environ.get("compute.accept_time")
             if accept_time is not None:
                 queue_wait_sec = time.monotonic() - accept_time
@@ -464,6 +464,12 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                     log.warning("Dropping vision backlog wait %.2fs exceeded %.0fs", queue_wait_sec, _REQUEST_READ_TIMEOUT_SEC)
                     vision_queue_err: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": f"Request queue backlog wait ({int(queue_wait_sec)}s) exceeded timeout."}
                     return _start_json(start_response, "503 Service Unavailable", vision_queue_err, extra_headers=[("Retry-After", "1")])
+
+            req_data, err_resp = _read_request_json(environ, settings, start_response)
+            if err_resp is not None:
+                return err_resp
+            assert req_data is not None
+            _set_write_deadline(environ)
 
             req_id = req_data.get("id")
             helper = str(req_data.get("helper") or "extract_text").strip()
@@ -517,8 +523,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     _dual_shutdown_request: bool
     executor: ThreadPoolExecutor
     health_executor: ThreadPoolExecutor
-    _accept_times: dict[int, float]
-    _accept_lock: threading.Lock
     address_family: int
     # Match TCPServer: tuple[str,int] is invariant vs the AF_INET/AF_INET6 union.
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
@@ -529,8 +533,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         # that type checkers cannot see; our multi-socket ``serve_forever`` must pair with ``shutdown``.
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
-        self._accept_times = {}
-        self._accept_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
         self.health_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="compute-health")
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
@@ -669,6 +671,11 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     def _is_health_request(self, sock: Any) -> bool:
         """True if the socket has buffered bytes starting with GET /health."""
         try:
+            # Brief poll (up to 5ms) for the initial HTTP request line so health
+            # probes whose first packet arrives right after TCP handshake are detected.
+            r, _, _ = select.select([sock], [], [], 0.005)
+            if not r:
+                return False
             sock.setblocking(False)
             peek = sock.recv(16, socket.MSG_PEEK)
             return peek.startswith(b"GET /health")
@@ -687,9 +694,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             return
         if self.verify_request(request, client_address):
             try:
-                fd = request.fileno()
-                with self._accept_lock:
-                    self._accept_times[fd] = time.monotonic()
+                setattr(request, "_accept_time", time.monotonic())
             except Exception:
                 pass
             try:
@@ -708,19 +713,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 raise
         else:
             self.shutdown_request(request)
-
-    def shutdown_request(self, request: Any) -> None:
-        try:
-            fd = request.fileno()
-            with self._accept_lock:
-                self._accept_times.pop(fd, None)
-        except Exception:
-            pass
-        super().shutdown_request(request)
-
-    def pop_accept_time(self, fd: int) -> float | None:
-        with self._accept_lock:
-            return self._accept_times.pop(fd, None)
 
 
 # Backwards-compatibility alias
@@ -760,10 +752,7 @@ class WSGIDualStackServer:
             def get_environ(self) -> dict[str, Any]:
                 environ = super().get_environ()
                 environ["compute.connection"] = self.connection
-                pop_fn = getattr(self.server, "pop_accept_time", None)
-                if callable(pop_fn):
-                    fd = getattr(self.connection, "fileno", lambda: -1)()
-                    environ["compute.accept_time"] = pop_fn(fd)
+                environ["compute.accept_time"] = getattr(self.connection, "_accept_time", None)
                 return environ
 
         class _WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
@@ -869,6 +858,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ocr-timeout", dest="ocr_timeout_sec", type=int, default=None, help=f"Execution timeout for vision tasks in seconds (default: {DEFAULT_SETTINGS.ocr_timeout_sec})")
     parser.add_argument("--ocr-max-tasks", dest="ocr_max_tasks", type=int, default=None, help=f"Recycle OCR worker process after N tasks (default: {DEFAULT_SETTINGS.ocr_max_tasks})")
     parser.add_argument("--api-key-file", dest="api_key_file", default=None, help="Read Bearer shared secret from this file (preferred over argv secrets)")
+    parser.add_argument("--log-level", dest="log_level", default=None, help=f"Logging level: DEBUG, INFO, WARNING, ERROR (default: {DEFAULT_SETTINGS.log_level})")
     return parser
 
 
@@ -877,7 +867,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         settings = load_settings(
-            config_path=args.config_path, host=args.host, port=args.port, workers=args.workers, worker_max_tasks=args.worker_max_tasks, ocr_workers=args.ocr_workers, ocr_timeout_sec=args.ocr_timeout_sec, ocr_max_tasks=args.ocr_max_tasks, api_key_file=args.api_key_file
+            config_path=args.config_path, host=args.host, port=args.port, workers=args.workers, worker_max_tasks=args.worker_max_tasks, ocr_workers=args.ocr_workers, ocr_timeout_sec=args.ocr_timeout_sec, ocr_max_tasks=args.ocr_max_tasks, api_key_file=args.api_key_file, log_level=args.log_level
         )
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)

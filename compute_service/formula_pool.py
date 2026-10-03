@@ -156,6 +156,24 @@ class FormulaProcessPool(BaseProcessPool):
 
         return worker.tasks_executed >= self.max_tasks
 
+    def _pick_idle_worker(self) -> BaseProcessWorker | None:
+        """Pop an idle worker, preferring workers hosting zero active shared sessions.
+
+        Isolates long-lived shared sessions so stateless/isolated workloads that
+        hang or crash do not cause SIGKILL of a worker hosting user spreadsheet state.
+        Caller holds self._cond.
+        """
+        if not self._idle:
+            return None
+        clean_workers = [w for w in self._idle if not self._worker_sessions.get(w)]
+        if clean_workers:
+            chosen = clean_workers[0]
+            self._idle.remove(chosen)
+            return chosen
+        chosen = min(self._idle, key=lambda w: len(self._worker_sessions.get(w, ())))
+        self._idle.remove(chosen)
+        return chosen
+
     def reset_session(self, session_id: str, timeout_sec: float = 5.0) -> dict[str, Any]:
         """Drop the shared sandbox + init companion for *session_id*.
 
@@ -244,6 +262,8 @@ class FormulaProcessPool(BaseProcessPool):
         if mode == "shared" and session_id and workers_snapshot:
             with self._cond:
                 target_worker = self._active_sessions.get(session_id)
+            if target_worker is not None and target_worker not in workers_snapshot:
+                target_worker = None
             if target_worker is None:
                 # Distribute new shared sessions across workers by choosing the worker
                 # currently hosting the fewest active sessions, using hash as tie-breaker.

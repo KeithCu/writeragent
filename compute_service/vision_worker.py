@@ -16,6 +16,13 @@ import os
 import sys
 from typing import Any, cast
 
+# Before any plugin import. writeragent_api treats a missing
+# WRITERAGENT_IS_WORKER as the LibreOffice host and calls execute_tool
+# → get_ctx(). This process has no office and no tool-call pipe.
+# WRITERAGENT_COMPUTE_WORKER makes that call fail before either path.
+os.environ["WRITERAGENT_IS_WORKER"] = "1"
+os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
+
 # Ensure repo root is on sys.path
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _PROJECT_ROOT not in sys.path:
@@ -69,7 +76,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
         if err_body is not None:
             return err_body
-        image_bytes = cast(bytes, image_bytes_opt)
+        image_bytes = cast("bytes", image_bytes_opt)
     elif isinstance(req.get("image_bytes"), (bytes, bytearray)):
         image_bytes = bytes(req["image_bytes"])
     elif image_b64:

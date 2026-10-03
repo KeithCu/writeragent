@@ -313,6 +313,7 @@ def load_settings(
     ocr_timeout_sec: int | None = None,
     ocr_max_tasks: int | None = None,
     api_key_file: str | Path | None = None,
+    log_level: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> ComputeSettings:
     """Resolve settings from defaults → JSON → env → explicit CLI overrides."""
@@ -387,6 +388,8 @@ def load_settings(
         values["ocr_timeout_sec"] = ocr_timeout_sec
     if ocr_max_tasks is not None:
         values["ocr_max_tasks"] = ocr_max_tasks
+    if log_level is not None:
+        values["log_level"] = log_level
 
     # Secret resolution: CLI key-file > env key > env key-file > JSON key-file.
     chosen_key_file = api_key_file or env_key_file or json_key_file or None

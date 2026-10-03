@@ -1324,4 +1324,75 @@ def test_address_string_avoids_reverse_dns() -> None:
         server.server_close()
 
 
+def test_clamp_timeout_sec_boolean() -> None:
+    """clamp_timeout_sec must treat booleans as invalid and return default_timeout_sec."""
+    from compute_service.executor import clamp_timeout_sec
+
+    assert clamp_timeout_sec(True, default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(False, default_timeout_sec=30) == 30
+
+
+def test_source_text_from_part_unicode_chars() -> None:
+    """_source_text_from_part must count characters, not bytes, for UTF-8 code parts."""
+    from compute_service.server import _source_text_from_part
+
+    # 10 Greek letters (each 2 bytes in UTF-8 = 20 bytes total)
+    greek_code = "αβγδεζηθικ".encode("utf-8")
+    assert len(greek_code) == 20
+    # With limit=10, 10 characters should pass even though byte length is 20
+    text, err = _source_text_from_part(greek_code, limit=10, label="code", required=True)
+    assert err is None
+    assert text == "αβγδεζηθικ"
+
+    # With limit=9, 10 characters should be rejected
+    text, err = _source_text_from_part(greek_code, limit=9, label="code", required=True)
+    assert text is None
+    assert err is not None
+    assert err.get("code") == "CODE_TOO_LARGE"
+
+
+def test_log_level_cli_arg() -> None:
+    """--log-level CLI argument must be parsed and set in ComputeSettings."""
+    from compute_service.server import _build_arg_parser, main
+    from unittest.mock import patch
+
+    parser = _build_arg_parser()
+    args = parser.parse_args(["--log-level", "DEBUG"])
+    assert args.log_level == "DEBUG"
+
+    with patch("compute_service.server.run_server") as mock_run:
+        assert main(["--log-level", "WARNING"]) == 0
+        mock_run.assert_called_once()
+        settings = mock_run.call_args[0][0]
+        assert settings.log_level == "WARNING"
+
+
+def test_accept_time_direct_socket_attribute() -> None:
+    """_DeadlineRequestHandler must read _accept_time directly from the socket connection."""
+    from compute_service.server import WSGIDualStackServer
+
+    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    try:
+        handler_cls = server.srv.RequestHandlerClass
+        handler = handler_cls.__new__(handler_cls)
+        mock_conn = MagicMock()
+        mock_conn._accept_time = 12345.678
+        handler.connection = mock_conn
+        handler.server = server.srv
+        handler.client_address = ("127.0.0.1", 54321)
+        handler.request_version = "HTTP/1.1"
+        handler.command = "GET"
+        handler.path = "/health"
+        import email.message
+
+        handler.headers = email.message.Message()
+        handler.rfile = io.BytesIO(b"")
+        with patch.object(handler_cls, "setup"):
+            environ = handler.get_environ()
+            assert environ.get("compute.accept_time") == 12345.678
+    finally:
+        server.server_close()
+
+
+
 

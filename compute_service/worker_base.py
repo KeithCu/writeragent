@@ -492,6 +492,12 @@ class BaseProcessPool:
     def is_enabled(self) -> bool:
         return self.num_workers > 0 and not self._is_shutdown
 
+    def _pick_idle_worker(self) -> BaseProcessWorker | None:
+        """Pop and return one idle worker from self._idle. Caller must hold self._cond."""
+        if not self._idle:
+            return None
+        return self._idle.pop()
+
     def lease_any(self, timeout_sec: float) -> BaseProcessWorker | None:
         """Acquire any idle worker, or None on timeout / shutdown."""
         deadline = time.monotonic() + max(0.0, float(timeout_sec))
@@ -499,8 +505,9 @@ class BaseProcessPool:
             while True:
                 if self._is_shutdown:
                     return None
-                if self._idle:
-                    return self._idle.pop()
+                worker = self._pick_idle_worker()
+                if worker is not None:
+                    return worker
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return None
