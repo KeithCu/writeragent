@@ -19,7 +19,12 @@ Stdlib PNG decode (not Pillow): the extension runs in LibreOffice's Python,
 which typically has no PIL. A thumbnail whose width×height exceeds the pixel
 cap is rejected before one RGB tuple is allocated per pixel (a few-KB
 4096×4096 1-bit PNG is under the raw-byte cap but tens of millions of
-tuples). We never load master pages or open the document via Desktop.
+tuples). ZIP member reads do not trust the declared uncompressed size:
+``ZipFile.read`` with no length inflates up to ``ZipExtFile.MAX_N`` (~1 GiB)
+before slicing to that size. Thumbnail, ``styles.xml``, and ``Pictures/*.svg``
+are copied in small reads and dropped past ``_MAX_MEMBER_BYTES``. 1/2/4-bit
+grayscale samples are scaled to 0–255 so an all-white thumbnail stays a light
+background. We never load master pages or open the document via Desktop.
 """
 
 from __future__ import annotations
@@ -36,6 +41,11 @@ log = logging.getLogger("writeragent.draw.design_look")
 
 # Caps so a hostile/corrupt user ``.otp`` cannot inflate listing.
 _MAX_MEMBER_BYTES = 2 * 1024 * 1024
+# ZipExtFile.read(n) passes n through as zlib max_length, then slices to
+# the header file_size. One read(limit) still builds that whole buffer
+# before the slice, so a forged file_size of 64 still costs ~limit bytes.
+# Chunks keep each inflate request small; the loop enforces the real cap.
+_ZIP_READ_CHUNK = 64 * 1024
 _MAX_RAW_PNG = 4 * 1024 * 1024
 _MAX_SAMPLED_PIXELS = 1024
 # One tuple per pixel, not scanline bytes. 4096×4096 1-bit stays under
@@ -111,16 +121,44 @@ def _picture_tag(names: Iterable[str]) -> str:
 
 
 def _read_member(zf: zipfile.ZipFile, name: str, limit: int = _MAX_MEMBER_BYTES) -> bytes | None:
+    """Return one member's bytes, or None if missing, corrupt, or over *limit*.
+
+    What was wrong: the only size check was ``ZipInfo.file_size``, then
+    ``ZipFile.read`` with no length. That value is the uncompressed size
+    in the central directory; the local file header stores the same field
+    and both are forgeable. ``ZipExtFile.read`` with no size inflates via
+    ``decompress(..., MAX_N)`` (~1 GiB) and only then slices to
+    ``file_size``. A 64KB ``.otp`` whose declared size was 64 bytes still
+    expanded by ~100MB before this cap could see the real length.
+    ``list_designs`` → ``derive_otp_look`` does this on the main thread
+    for every discovered template, including user-writable dirs
+    (thumbnail, ``styles.xml``, and ``Pictures/*.svg``).
+    Why this fixes it: a declared size above *limit* is skipped, but a
+    small declared size is not the read bound. Chunks pass
+    ``_ZIP_READ_CHUNK`` as zlib's ``max_length``, and the loop drops the
+    member once more than *limit* bytes have been produced.
+    """
     try:
         info = zf.getinfo(name)
     except KeyError:
         return None
+    # Honest huge members are not opened. A forged *small* file_size
+    # falls through; the sized loop below is what stops the inflate.
     if info.file_size > limit:
         return None
-    data = zf.read(name)
-    if len(data) > limit:
+    buf = bytearray()
+    try:
+        with zf.open(info, "r") as src:
+            while len(buf) <= limit:
+                piece = src.read(_ZIP_READ_CHUNK)
+                if not piece:
+                    break
+                if len(buf) + len(piece) > limit:
+                    return None
+                buf.extend(piece)
+    except (zipfile.BadZipFile, EOFError, zlib.error):
         return None
-    return data
+    return bytes(buf)
 
 
 def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
@@ -384,8 +422,17 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
         return None
     out: list[tuple[int, int, int]] = []
     if color_type == 0:
+        # What was wrong: bit depths 1/2/4 store samples in 0..maxv, and
+        # this loop copied them as if they were already 0..255. An
+        # all-white 1-bit thumbnail is sample 1, so luminance stays ~1
+        # and _mood_and_accents reports "dark background" for a white
+        # template.
+        # Why this fixes it: PNG scales a grayscale sample with
+        # g * 255 / maxv (integer division). 8-bit maxv is 255, so those
+        # samples are unchanged.
+        maxv = (1 << bit_depth) - 1
         for i in range(width):
-            g = samples[i]
+            g = samples[i] * 255 // maxv
             out.append((g, g, g))
         return out
     if color_type == 4:
