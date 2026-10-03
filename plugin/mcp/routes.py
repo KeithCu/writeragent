@@ -23,6 +23,7 @@ handlers during initialize() and the HTTP server dispatches to them.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable, NamedTuple
 
 log = logging.getLogger("writeragent.framework.http_routes")
@@ -36,6 +37,14 @@ class Route(NamedTuple):
 
 class HttpRouteRegistry:
     """Registry of HTTP route handlers.
+
+    HTTP worker threads read this table while MCP toggle registers and
+    unregisters routes. ``_lock`` covers every read and write. ``GET /``
+    copies the keys under that lock: without it, ``list(self._routes)``
+    raises ``RuntimeError`` (dict changed size during iteration).
+
+    Hold :meth:`batch` across a multi-route register or unregister so a
+    concurrent read sees the set from before the batch or after it.
 
     Usage::
 
@@ -51,8 +60,15 @@ class HttpRouteRegistry:
         routes.add("GET", "/doc-info", doc_handler, main_thread=True)
     """
 
+    _lock: threading.RLock
+
     def __init__(self) -> None:
         self._routes: dict[tuple[str, str], Route] = {}  # (method, path) -> Route
+        self._lock = threading.RLock()
+
+    def batch(self) -> threading.RLock:
+        """Lock held across several add/remove calls (reentrant)."""
+        return self._lock
 
     def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False, main_thread: bool = False) -> None:
         """Register a route handler.
@@ -66,27 +82,32 @@ class HttpRouteRegistry:
             main_thread: If True, handler is wrapped in QueueExecutor.execute().
         """
         key = (method.upper(), path)
-        if key in self._routes:
-            log.warning("Route %s %s already registered — overwriting", method, path)
-        self._routes[key] = Route(handler=handler, raw=raw, main_thread=main_thread)
+        with self._lock:
+            if key in self._routes:
+                log.warning("Route %s %s already registered — overwriting", method, path)
+            self._routes[key] = Route(handler=handler, raw=raw, main_thread=main_thread)
         log.debug("Route registered: %s %s (raw=%s, main_thread=%s)", method, path, raw, main_thread)
 
     def remove(self, method: str, path: str) -> bool:
         """Unregister a route."""
         key = (method.upper(), path)
-        removed = self._routes.pop(key, None)
+        with self._lock:
+            removed = self._routes.pop(key, None)
         if removed:
             log.debug("Route removed: %s %s", method, path)
         return removed is not None
 
     def match(self, method: str, path: str) -> Route | None:
         """Return Route(handler, raw, main_thread) or None."""
-        return self._routes.get((method.upper(), path))
+        with self._lock:
+            return self._routes.get((method.upper(), path))
 
     @property
     def route_count(self) -> int:
-        return len(self._routes)
+        with self._lock:
+            return len(self._routes)
 
     def list_routes(self) -> list[tuple[str, str]]:
-        """Return a list of (method, path) tuples."""
-        return list(self._routes.keys())
+        """Return a snapshot of (method, path) tuples."""
+        with self._lock:
+            return list(self._routes.keys())

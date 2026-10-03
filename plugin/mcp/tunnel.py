@@ -379,9 +379,50 @@ class TunnelManager:
         return "%s/mcp" % normalize_public_base(base)
 
     def _dispatch_unlocked(self, event: TunnelEvent) -> None:
+        previous_provider = self._state.provider
+        previous_url = self._state.public_url
+        previous_status = self._state.status
         transition = next_state(self._state, event)
         self._state = transition.state
         self._apply_effects_unlocked(transition.effects)
+        self._retire_snippet_url_if_not_live(previous_provider, previous_url, previous_status)
+
+    def _retire_snippet_provider(self, provider: str) -> None:
+        """Drop the settings snippet cache for *provider* (no tunnel lock needed)."""
+        try:
+            from plugin.mcp.mcp_ui import clear_tested_provider_tunnel_url
+
+            clear_tested_provider_tunnel_url(provider)
+        except Exception:
+            log.exception("Failed to clear cached MCP tunnel URL for %s", provider)
+
+    def _retire_snippet_url_if_not_live(self, previous_provider: str, previous_url: Optional[str], previous_status: TunnelStatus) -> None:
+        """Retire the snippet URL when this provider is no longer serving it.
+
+        What was wrong: URL acquire copied the public URL into the settings
+        cache, and that cache outlived stop, failure, and reconnect (those
+        clear ``TunnelState.public_url``). The snippet kept copying the dead URL.
+        Why: retire the provider that lost the URL. A later acquire or Test
+        stores a new one. An idle ``stop()`` that was already stopped does not
+        retire, so a Settings Test URL survives until the tunnel actually runs.
+        """
+        serving = self._state.status == TunnelStatus.CONNECTED and bool(self._state.public_url)
+        if serving:
+            # Only the provider that actually published a URL is stale after a switch.
+            # A fresh manager's default provider has no URL; retiring it would drop a
+            # Settings Test for that provider when the first start uses another one.
+            if previous_url and previous_provider and previous_provider != self._state.provider:
+                self._retire_snippet_provider(previous_provider)
+            return
+        # First start has not published a URL yet.
+        if self._state.status == TunnelStatus.STARTING and not previous_url and previous_status == TunnelStatus.STOPPED:
+            return
+        # stop() on a manager that never left STOPPED.
+        if self._state.status == TunnelStatus.STOPPED and previous_status == TunnelStatus.STOPPED and not previous_url:
+            return
+        provider = previous_provider or self._state.provider
+        if provider:
+            self._retire_snippet_provider(provider)
 
     def _apply_effects_unlocked(self, effects: list[Any]) -> None:
         for effect in effects:
@@ -535,6 +576,7 @@ class TunnelManager:
             log.error("Unknown tunnel provider: %s", provider)
             with self._lock:
                 self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
+            self._retire_snippet_provider(provider)
             return False
 
         with self._lock:
@@ -547,6 +589,7 @@ class TunnelManager:
             if not binary_available(provider):
                 binary = info["version_args"][0]
                 self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s binary not found on PATH" % binary, desired_running=False)
+                self._retire_snippet_provider(provider)
                 return False
 
             self._dispatch_unlocked(TunnelEvent(TunnelEventKind.START_REQUESTED, {"port": int(port), "provider": provider, "provider_token": token, "max_retries": max_retries}))

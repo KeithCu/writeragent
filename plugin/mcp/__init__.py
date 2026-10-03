@@ -349,32 +349,37 @@ class McpModule(ModuleBase):
         self._mcp_protocol = MCPProtocolHandler(services)
         p = self._mcp_protocol
 
-        # MCP streamable-http (raw — JSON-RPC + custom headers + SSE)
-        self._registry.add("POST", "/mcp", p.handle_mcp_post, raw=True)
-        self._registry.add("GET", "/mcp", p.handle_mcp_sse, raw=True)
-        self._registry.add("DELETE", "/mcp", p.handle_mcp_delete, raw=True)
+        # One lock across the whole set. GET / snapshots routes under the same
+        # lock, so a toggle cannot expose a half-registered table or raise
+        # RuntimeError while iterating it.
+        with self._registry.batch():
+            # MCP streamable-http (raw — JSON-RPC + custom headers + SSE)
+            self._registry.add("POST", "/mcp", p.handle_mcp_post, raw=True)
+            self._registry.add("GET", "/mcp", p.handle_mcp_sse, raw=True)
+            self._registry.add("DELETE", "/mcp", p.handle_mcp_delete, raw=True)
 
-        # Legacy SSE transport (raw — streaming)
-        self._registry.add("POST", "/sse", p.handle_sse_post, raw=True)
-        self._registry.add("POST", "/messages", p.handle_sse_post, raw=True)
-        self._registry.add("GET", "/sse", p.handle_sse_stream, raw=True)
+            # Legacy SSE transport (raw — streaming)
+            self._registry.add("POST", "/sse", p.handle_sse_post, raw=True)
+            self._registry.add("POST", "/messages", p.handle_sse_post, raw=True)
+            self._registry.add("GET", "/sse", p.handle_sse_stream, raw=True)
 
-        # Debug (simple — returns dict, server handles JSON)
-        self._registry.add("GET", "/debug", p.handle_debug_info)
-        # Debug POST (raw — complex response handling)
-        self._registry.add("POST", "/debug", p.handle_debug_post, raw=True)
+            # Debug (simple — returns dict, server handles JSON)
+            self._registry.add("GET", "/debug", p.handle_debug_info)
+            # Debug POST (raw — complex response handling)
+            self._registry.add("POST", "/debug", p.handle_debug_post, raw=True)
 
-        self._mcp_routes_registered = True
+            self._mcp_routes_registered = True
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self, services: Any) -> None:
-        for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
-            try:
-                self._registry.remove(method, path)
-            except Exception:
-                pass
-        self._mcp_routes_registered = False
-        self._mcp_protocol = None
+        with self._registry.batch():
+            for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
+                try:
+                    self._registry.remove(method, path)
+                except Exception:
+                    pass
+            self._mcp_routes_registered = False
+            self._mcp_protocol = None
         log.info("MCP routes unregistered from HTTP server")
 
     # ── Action dispatch ──────────────────────────────────────────────

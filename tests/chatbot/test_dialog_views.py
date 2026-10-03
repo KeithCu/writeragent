@@ -580,6 +580,7 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
     from plugin.mcp import mcp_ui
 
     mcp_ui._tested_provider_tunnel_urls.clear()
+    mcp_ui._retired_provider_tunnel_urls.clear()
     mcp_ui._mcp_snippet_refresh_scheduled = False
 
     snippet = MagicMock()
@@ -621,6 +622,7 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
         assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
         mcp_ui._tested_provider_tunnel_urls.clear()
+        mcp_ui._retired_provider_tunnel_urls.clear()
         mcp_ui._mcp_snippet_refresh_scheduled = False
 
 

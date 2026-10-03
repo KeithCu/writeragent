@@ -37,6 +37,10 @@ The chosen binary must be on `PATH`. There is **no auth** on the MCP HTTP API it
 
 **Start failures:** If the HTTP listener cannot bind (usually port already in use), Toggle / Settings / Status show `host:port`, the exception line, and guidance to free the port or change `mcp.mcp_port` — not only “check the debug log”. Port conflicts do not offer Report bug. Full traceback remains in `writeragent_debug.log`. Formatter: `format_mcp_start_failure` in [`plugin/mcp/server.py`](../plugin/mcp/server.py).
 
+**Stale public URL:** Settings caches a tested or connected public URL per provider (`_tested_provider_tunnel_urls` in [`plugin/mcp/mcp_ui.py`](../plugin/mcp/mcp_ui.py)). When the tunnel stops, fails, or drops that URL (including reconnect), that provider's entry is retired. The client snippet and its copy button then use the local URL or the provider template, and MCP Server Status already reads `TunnelManager.mcp_public_url()` (cleared with the tunnel state). A later successful Test or a new connection stores a fresh URL.
+
+**Route registry:** [`HttpRouteRegistry`](../plugin/mcp/routes.py) locks route reads together with `add` / `remove`. MCP toggle registers and unregisters while HTTP workers serve `GET /`, which copies the route keys. The lock — held for the whole register or unregister batch — keeps that copy from raising `RuntimeError` and returns one consistent route set.
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/mcp` | JSON-RPC: `initialize`, `tools/list`, `tools/call`, … |
