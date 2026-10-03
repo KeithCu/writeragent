@@ -118,7 +118,9 @@ LRU_MAX_ITEMS = 10
 # Simple AI settings fields that the Tools → Options "AI" page should map
 # directly to top-level config keys (endpoint, model, etc.).
 # ``stt_model`` is the Options field name; Settings saves ``audio.stt_model``.
-AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "request_timeout", "additional_instructions", "parallel_tool_calls"}
+# parallel_tool_calls is not in the Options page until the tool loop can honor
+# it; the wire always sends false (see base_provider_shim).
+AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "request_timeout", "additional_instructions"}
 
 # Dotted keys whose unsuffixed alias must stay in the file. set_config normally
 # drops ``stt_model`` when writing ``audio.stt_model`` (flat name is the alias).

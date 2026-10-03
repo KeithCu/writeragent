@@ -40,7 +40,7 @@ import queue
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, ClassVar, TypeAlias, Callable, cast
+from typing import Any, TypeAlias, Callable, cast
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
@@ -697,31 +697,21 @@ def run_async_worker_with_drain(
     _batched: BatchingStreamQueue | None = q if isinstance(q, BatchingStreamQueue) else None
     _real_q: queue.Queue[Any] = cast("queue.Queue[Any]", _batched.raw if _batched is not None else q)
 
-    class _TerminalWatch:
-        """Forward puts and remember a worker-queued terminal item.
+    # What was wrong: _TerminalWatch only saw puts through the wrapper object
+    # passed to worker_fn. send_handlers closes over the real queue and puts
+    # ERROR/STREAM_DONE there, so finally always posted a second STREAM_DONE.
+    # That can end a recovered drain (on_error True) on a later iteration.
+    # Why: patch the real queue's put for the worker lifetime so every reference
+    # updates saw_terminal; restore in finally. Assign via Any so ty accepts
+    # replacing the bound method.
+    saw_terminal = [False]
+    real_any: Any = _real_q
+    _orig_put = real_any.put
 
-        Workers that catch, queue ERROR or STREAM_DONE, and return used to get
-        a second STREAM_DONE from this wrapper. on_error returning True then
-        ended the drain before a replacement worker's chunks.
-        """
-
-        __slots__: ClassVar[tuple[str, ...]] = ("raw", "saw_terminal")
-        raw: queue.Queue[Any]
-        saw_terminal: bool
-
-        def __init__(self, raw: queue.Queue[Any]) -> None:
-            self.raw = raw
-            self.saw_terminal = False
-
-        def put(self, item: Any, *args: Any, **kwargs: Any) -> None:
-            if isinstance(item, tuple) and item and item[0] in (StreamQueueKind.STREAM_DONE, StreamQueueKind.ERROR, StreamQueueKind.STOPPED, StreamQueueKind.FINAL_DONE):
-                self.saw_terminal = True
-            self.raw.put(item, *args, **kwargs)
-
-        def __getattr__(self, name: str) -> Any:
-            return getattr(self.raw, name)
-
-    watched = _TerminalWatch(_real_q)
+    def _watched_put(item: Any, *args: Any, **kwargs: Any) -> None:
+        if isinstance(item, tuple) and item and item[0] in (StreamQueueKind.STREAM_DONE, StreamQueueKind.ERROR, StreamQueueKind.STOPPED, StreamQueueKind.FINAL_DONE):
+            saw_terminal[0] = True
+        _orig_put(item, *args, **kwargs)
 
     def worker_wrapper() -> None:
         # What was wrong: ``finally`` always queued STREAM_DONE after ERROR.
@@ -730,8 +720,10 @@ def run_async_worker_with_drain(
         # chunks. Skip the sentinel when this wrapper or the worker already
         # queued a terminal item.
         failed = False
+        real_any.put = _watched_put
         try:
-            worker_fn(cast("queue.Queue[Any]", cast("object", watched)))
+            # Pass the real queue (or batcher). Puts go through the patched put.
+            worker_fn(cast("queue.Queue[Any]", q))
         except BaseException as e:
             from plugin.framework.errors import format_error_payload
 
@@ -739,14 +731,15 @@ def run_async_worker_with_drain(
             payload = (StreamQueueKind.ERROR, format_error_payload(e))
             if _batched is not None:
                 _batched.flush()
-            _real_q.put(payload)
+            real_any.put(payload)
         finally:
             # Terminal sentinel — flush pending display text first when using
             # the batcher, then emit the sentinel on the real queue.
             if _batched is not None:
                 _batched.flush()
-            if not failed and not watched.saw_terminal:
-                _real_q.put((StreamQueueKind.STREAM_DONE, None))
+            if not failed and not saw_terminal[0]:
+                real_any.put((StreamQueueKind.STREAM_DONE, None))
+            real_any.put = _orig_put
 
     from plugin.framework.uno_context import get_toolkit
 
@@ -831,6 +824,9 @@ def _run_client_stream(
     ``status_callback``, and ``stop_checker``).
     """
     # crosshair: off
+    # Batch CHUNK/THINKING so Extend/Edit selection does not wake the drain
+    # per token. STATUS still flushes (BatchingStreamQueue boundary).
+    batched = BatchingStreamQueue(queue.Queue(), batch_interval=0.25)
 
     def worker(q: queue.Queue[Any]) -> None:
         kwargs: dict[str, Any] = {"append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)), "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)), "stop_checker": stop_checker}
@@ -840,7 +836,17 @@ def _run_client_stream(
         if stop_checker and stop_checker():
             put_stream_queue_stopped(q)
 
-    run_async_worker_with_drain(ctx, worker, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, on_status_fn=on_status_fn, stop_checker=stop_checker, name=name)
+    run_async_worker_with_drain(
+        ctx,
+        worker,
+        apply_chunk_fn=apply_chunk_fn,
+        on_done_fn=on_done_fn,
+        on_error_fn=on_error_fn,
+        on_status_fn=on_status_fn,
+        stop_checker=stop_checker,
+        name=name,
+        q=batched,
+    )
 
 
 def run_stream_completion_async(ctx: Any, client: Any, prompt: Any, system_prompt: Any, max_tokens: Any, apply_chunk_fn: Any, on_done_fn: Any, on_error_fn: Any, on_status_fn: Any = None, stop_checker: Any = None) -> None:

@@ -166,9 +166,37 @@ else:
     _XMouseClickHandlerParent = _XMouseClickHandler if _HAVE_UNO else _DummyMouseClickHandler
 
 
-# Ids of wrappers produced by ``_catch_and_log``. A subclass ``disposing``
-# that is already one of these must not be wrapped again.
-_CATCH_LOGGED_IDS: set[int] = set()
+# Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
+# collected wrapper cannot suppress wrapping a later override.
+_CATCH_LOGGED_ATTR = "_writeragent_catch_and_log"
+
+# UNO bridge entry points that subclasses sometimes override on the class dict
+# (skipping the @_catch_and_log base method). Keep in sync with Base* methods.
+_UNO_CALLBACK_NAMES = frozenset(
+    {
+        "disposing",
+        "actionPerformed",
+        "itemStateChanged",
+        "textChanged",
+        "keyPressed",
+        "keyReleased",
+        "mousePressed",
+        "mouseReleased",
+        "mouseEntered",
+        "mouseExited",
+        "focusGained",
+        "focusLost",
+        "windowResized",
+        "windowMoved",
+        "windowShown",
+        "windowHidden",
+        "elementInserted",
+        "elementRemoved",
+        "elementReplaced",
+        "documentEventOccured",
+        "activeSpreadsheetChanged",
+    }
+)
 
 
 def _listener_failure_value(func: Any) -> Any:
@@ -213,7 +241,7 @@ def _catch_and_log(func: Any) -> Any:
             log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
             return failure
 
-    _CATCH_LOGGED_IDS.add(id(wrapper))
+    setattr(wrapper, _CATCH_LOGGED_ATTR, True)
     return wrapper
 
 
@@ -229,10 +257,16 @@ class BaseListener(_BaseParent, _XEventListenerParent):
         # @_catch_and_log, so an exception before their own try enters the
         # C++ bridge. How: UNO calls disposing, not on_disposing. Why: wrap
         # that override once. The base method is already wrapped.
-        disposing = cls.__dict__.get("disposing")
-        if disposing is None or id(disposing) in _CATCH_LOGGED_IDS:
-            return
-        setattr(cls, "disposing", _catch_and_log(disposing))
+        #
+        # Same hole for itemStateChanged / textChanged / etc.: Settings and
+        # MCP listeners inherit BaseListener and define those methods on the
+        # class dict, replacing the wrapped BaseItemListener / BaseTextListener
+        # methods. Wrap every UNO callback present on cls.__dict__.
+        for name in _UNO_CALLBACK_NAMES:
+            method = cls.__dict__.get(name)
+            if method is None or getattr(method, _CATCH_LOGGED_ATTR, False):
+                continue
+            setattr(cls, name, _catch_and_log(method))
 
     @_catch_and_log
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature

@@ -1299,6 +1299,28 @@ def test_anthropic_shim(client):
         assert data["max_tokens"] == 100
 
 
+def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
+    client.config["model"] = ""
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        messages = [
+            {"role": "system", "content": "Date line."},
+            {"role": "user", "content": "hi"},
+            {"role": "system", "content": "Extra instructions."},
+        ]
+        method, path, body, _headers = client.make_chat_request(
+            messages,
+            max_tokens=50,
+            chat_extra={"reasoning": {"effort": "minimal"}},
+        )
+        assert method == "POST"
+        assert "/v1/messages" in path
+        data = json.loads(body)
+        assert "Date line." in data["system"]
+        assert "Extra instructions." in data["system"]
+        assert data["output_config"] == {"effort": "low"}
+
+
 def test_anthropic_accepts_openai_shaped_tools(client):
     client.config["model"] = "claude-3-5-sonnet-20241022"
     tools = [{

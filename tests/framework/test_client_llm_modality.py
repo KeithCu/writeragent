@@ -2,6 +2,7 @@ import json
 import socket
 from unittest.mock import patch, MagicMock, mock_open
 import ssl
+import pytest
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.errors import (
@@ -104,6 +105,27 @@ def test_transcribe_audio_uses_native_audio(mock_sync_chat):
         assert result == "Native multimodal transcript"
         assert mock_sync_chat.called
 
+
+@patch("plugin.framework.client.llm_client.LlmClient._request_json")
+@patch("plugin.framework.client.llm_client.LlmClient.chat_completion_sync")
+def test_transcribe_audio_user_stop_does_not_hit_stt_endpoint(mock_sync_chat, mock_request_json):
+    """USER_STOPPED during multimodal chat must not fall through to /audio/transcriptions."""
+    from plugin.framework.errors import ToolExecutionError
+
+    mock_sync_chat.side_effect = ToolExecutionError("LLM request stopped by user.", code="USER_STOPPED")
+    ctx = MagicMock()
+
+    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=True):
+        client = LlmClient({"endpoint": "http://test", "stt_model": "gemini-flash"}, ctx)
+        m = mock_open(read_data=b"dummy audio data")
+        with patch("builtins.open", m):
+            with pytest.raises(ToolExecutionError) as raised:
+                client.transcribe_audio("dummy.wav", stop_checker=lambda: True)
+
+    assert raised.value.code == "USER_STOPPED"
+    assert mock_sync_chat.called
+    assert not mock_request_json.called
+
 @patch("plugin.framework.client.llm_client.LlmClient._request_json")
 def test_transcribe_audio_openrouter_uses_json_body(mock_sync):
     """OpenRouter /audio/transcriptions expects JSON with base64 input_audio, not multipart."""
@@ -196,6 +218,11 @@ def test_format_error_message_edge_cases():
     err = ssl.SSLError("cert error")
     assert "TLS/SSL Error:" in format_error_message(err)
     assert "cert error" in format_error_message(err)
+
+    # Empty body: friendly Settings copy (chat never raises urllib HTTPError)
+    assert "Invalid API Key" in _format_http_error_response(401, "Unauthorized", "")
+    assert "Forbidden" in _format_http_error_response(403, "Forbidden", "")
+    assert "404" in _format_http_error_response(404, "Not Found", "")
 
     # test JSON decoding in _format_http_error_response
     # Valid JSON with error message object

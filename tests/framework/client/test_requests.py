@@ -79,3 +79,38 @@ def test_sync_request_retries_429_then_succeeds():
     remember.assert_called_once()
     assert remember.call_args[0][0] == "api.example"
     assert body.closed
+
+
+def test_sync_request_connection_retry_remembers_host_gap():
+    ok = MagicMock()
+    ok.getcode.return_value = 200
+    ok.read.return_value = b'{"data":[]}'
+    ok.__enter__.return_value = ok
+    ok.__exit__.return_value = False
+    with (
+        patch("plugin.framework.client.requests.wait_abortable", return_value=True),
+        patch("plugin.framework.client.requests.remember_host_gap") as remember,
+        patch(
+            "plugin.framework.client.requests.urlopen",
+            side_effect=[TimeoutError("timed out"), ok],
+        ),
+    ):
+        result = sync_request("https://api.example/v1/models", timeout=1)
+    assert result == {"data": []}
+    remember.assert_called_once()
+    assert remember.call_args[0][0] == "api.example"
+
+
+def test_sync_request_redacts_x_goog_api_key():
+    secret = "goog-secret-key-xyz"
+    body = BytesIO(f'{{"error":{{"message":"bad {secret}"}}}}'.encode())
+    err = HTTPError("https://generativelanguage.googleapis.com/v1", 401, "Unauthorized", hdrs=None, fp=body)
+    with patch("plugin.framework.client.requests.urlopen", side_effect=err):
+        with pytest.raises(NetworkError) as raised:
+            sync_request(
+                "https://generativelanguage.googleapis.com/v1",
+                headers={"x-goog-api-key": secret},
+                timeout=1,
+            )
+    assert secret not in str(raised.value)
+    assert "<redacted>" in str(raised.value)

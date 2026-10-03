@@ -642,6 +642,13 @@ class QueueExecutor:
                 elif not finished:
                     keep_waiting = True
             if keep_waiting and item.event is not None:
+                # Claimed marshal has no second timeout (retry would double-apply).
+                # Log so a hung fn is visible while a pooled worker parks.
+                log.warning(
+                    "QueueExecutor: waiting unbound for in-flight fn=%s %s",
+                    _fn_label(item.fn),
+                    _marshal_thread_tag(self),
+                )
                 item.event.wait()
             elif not finished:
                 raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))

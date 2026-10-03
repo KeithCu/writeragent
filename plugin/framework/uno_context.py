@@ -55,6 +55,7 @@ from plugin.framework.thread_guard import main_thread_only, on_main_thread
 log = logging.getLogger("writeragent.context")
 
 _fallback_ctx = None
+_logged_component_context_fallback = False
 # Set by main.py / main_core.py bootstrap; auto-detected from installed packages when unset.
 _package_extension_id: str | None = None
 
@@ -241,6 +242,15 @@ def get_ctx() -> Any:
         if hasattr(uno, "getComponentContext"):
             ctx = uno.getComponentContext()
             if ctx is not None:
+                # Bootstrap-less unit tests still need this branch. Log once:
+                # a non-extension context can lack VCL and segfault on Desktop.
+                global _logged_component_context_fallback
+                if not _logged_component_context_fallback:
+                    _logged_component_context_fallback = True
+                    log.error(
+                        "get_ctx: no extension fallback; using uno.getComponentContext() "
+                        "(set_fallback_ctx was not called)"
+                    )
                 return _guard_returned_uno(ctx)
     except ImportError:
         pass

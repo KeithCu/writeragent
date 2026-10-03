@@ -59,7 +59,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "LlmClient": (".llm_client", "LlmClient"),
     "OPENROUTER_CHAT_EXTRA_BLOCKLIST": (".llm_client", "OPENROUTER_CHAT_EXTRA_BLOCKLIST"),
     "merge_openrouter_chat_extra": (".llm_client", "merge_openrouter_chat_extra"),
-    "strip_leaked_chat_template_control_tokens": (".llm_client", "strip_leaked_chat_template_control_tokens"),
+    "strip_leaked_chat_template_control_tokens": (".response_normalizers", "strip_leaked_chat_template_control_tokens"),
     "iterate_sse": (".stream_normalizer", "iterate_sse"),
     "run_trusted_analysis": ("plugin.scripting.client", "run_analysis"),
 }

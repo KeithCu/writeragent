@@ -471,7 +471,9 @@ class UnoObjectError(WriterAgentException):
 class DocumentDisposedError(UnoObjectError):
     """Document or UNO object was disposed during operation."""
 
-    code: str = "DISPOSED_OBJECT"
+    # Same code as execute_safe / tool DOCUMENT_DISPOSED so callers comparing
+    # codes do not miss one of the two historical spellings.
+    code: str = "DOCUMENT_DISPOSED"
     object_type: str
 
     def __init__(self, message: Any, object_type: str = "Object", code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:

@@ -87,7 +87,21 @@ LOG_REDACT_SIGNATURE_PLACEHOLDER = "<signature truncated, length=%d>"
 # Image-model reasoning_details[].signature blobs are thousands of chars; keep short values readable.
 LOG_REDACT_SIGNATURE_MIN_LEN = 256
 # Exact casefolded names, not substrings (max_tokens must survive).
-_SECRET_LOG_KEYS = frozenset({"api_key", "api-key", "x-api-key", "authorization", "bearer", "password", "token", "secret"})
+_SECRET_LOG_KEYS = frozenset(
+    {
+        "api_key",
+        "api-key",
+        "x-api-key",
+        "authorization",
+        "bearer",
+        "password",
+        "token",
+        "secret",
+        "access_token",
+        "refresh_token",
+        "id_token",
+    }
+)
 _API_KEYS_BY_ENDPOINT = "api_keys_by_endpoint"
 LOG_REDACT_SECRET_PLACEHOLDER = "<redacted>"
 

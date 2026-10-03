@@ -261,8 +261,8 @@ LibreOffice’s UI (VCL) is single-threaded. To keep the UI responsive during lo
 **The Architecture:**
 
 1. **Worker Threads (Producers):**
-   - The LLM stream (`_spawn_llm_worker`) runs on a background thread. It pushes messages like `("chunk", text)`, `("thinking", text)`, `("stream_done", response)`, or `("error", e)` to the queue.
-   - Long-running network tools (like Web Search or Image Generation) also run on background threads and push `("tool_thinking", text)", `("status", text)`, and `("tool_done", ...)` to the *same* queue.
+   - The LLM stream (`_spawn_llm_worker`) runs on a background thread. It pushes `(StreamQueueKind.CHUNK, text)`, `(StreamQueueKind.THINKING, text)`, `(StreamQueueKind.STREAM_DONE, response)`, or `(StreamQueueKind.ERROR, e)` tuples — the first element must be a `StreamQueueKind` enum member, not a bare string.
+   - Long-running network tools (like Web Search or Image Generation) also run on background threads and push `TOOL_THINKING`, `STATUS`, and `TOOL_DONE` on the *same* queue.
 
 2. **Main Thread (Consumer):**
    - Runs a single `while True` event loop in `_start_tool_calling_async`.

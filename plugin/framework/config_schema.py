@@ -336,9 +336,8 @@ class WriterAgentConfig:
     temperature: float = dataclasses.field(default=-1.0, metadata={"kind": "float", "max": 1.0, "fallback": 1.0, "parse_fallback": -1.0, "code": "INVALID_TEMPERATURE", "message": "Temperature must be <= 1.0"})
     additional_instructions: str = ""
     chat_max_tokens: int = dataclasses.field(default=16384, metadata={"kind": "int", "min": 0, "fallback": 16384, "parse_fallback": 16384, "code": "INVALID_CHAT_MAX_TOKENS", "message": "Chat max tokens must be >= 0"})
-    # Sidebar history auto-compact (plugin/chatbot/compaction.py). Unused by the
-    # tool loop until PR2; default ON matches the v2 plan. False disables both
-    # proactive compact and overflow retry once wired.
+    # Sidebar history auto-compact (plugin/chatbot/compaction.py). False disables
+    # both proactive compact and overflow retry.
     chat_compaction_enabled: bool = True
     request_timeout: int = dataclasses.field(default=120, metadata={"kind": "int", "min_exclusive": 0, "fallback": 120, "parse_fallback": 120, "code": "INVALID_REQUEST_TIMEOUT", "message": "Request timeout must be > 0"})
     stt_model: str = ""
@@ -370,9 +369,9 @@ class WriterAgentConfig:
     calc_prompt_max_tokens: int = 4096
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False
-    # Stored for later. Chat Completions always sends parallel_tool_calls: False
-    # until the tool loop can apply parallel calls. This default is not the wire value.
-    parallel_tool_calls: bool = True
+    # Wire always sends parallel_tool_calls: false until the tool loop can apply
+    # parallel calls. Default matches the wire so Options/file do not lie.
+    parallel_tool_calls: bool = False
     # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
     last_python_script_name_writer: str = "Universal Sample"
@@ -485,6 +484,12 @@ class WriterAgentConfig:
         if not isinstance(self.openrouter_chat_extra, dict):
             log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")
             self.openrouter_chat_extra = {}
+
+        # Legacy ``model`` key: migrate once into text_model, then clear so
+        # to_dict does not keep writing the dead field.
+        if not str(self.text_model or "").strip() and str(self.model or "").strip():
+            self.text_model = str(self.model).strip()
+        self.model = ""
 
         if isinstance(self.saved_python_scripts, dict) and "Sample" in self.saved_python_scripts:
             del self.saved_python_scripts["Sample"]
@@ -640,7 +645,13 @@ def get_config_schema(key: str) -> dict[str, Any] | None:
     Module schemas come from ``module.yaml`` via the manifest and take
     precedence over dataclass defaults, matching ``_resolve_default``.
     """
-    return _module_schema_for_key(key) or _dataclass_schema_for_key(key)
+    schema = _module_schema_for_key(key) or _dataclass_schema_for_key(key)
+    # log_level's runtime default is the plugin/tests probe, not the yaml
+    # literal. Overlay so get_config_schema["default"] matches get_config.
+    if schema is not None and key == "log_level":
+        schema = dict(schema)
+        schema["default"] = _resolve_default("log_level")
+    return schema
 
 
 def _schema_default_from_schema(schema: dict[str, Any] | None) -> Any:

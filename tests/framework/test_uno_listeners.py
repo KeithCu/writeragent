@@ -279,3 +279,14 @@ def test_subclass_disposing_override_is_wrapped():
             raise RuntimeError("before try")
 
     Raw().disposing(MagicMock())
+
+
+def test_subclass_item_state_changed_override_is_wrapped():
+    """Settings/MCP listeners override itemStateChanged on the class dict."""
+    from plugin.framework.uno_listeners import BaseItemListener
+
+    class Raw(BaseItemListener):
+        def itemStateChanged(self, rEvent):
+            raise RuntimeError("before try")
+
+    Raw().itemStateChanged(MagicMock())

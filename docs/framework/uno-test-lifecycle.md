@@ -8,7 +8,7 @@ proof that LibreOffice or WriterAgent is healthy.
 Related: [archive/test_architecture_analysis.md](../archive/test_architecture_analysis.md)
 (TEST start/end lines, Darwin URP abort, keeper document). Windows
 skip inventory (keep / simplify / delete):
-[windows-ci-harness-cleanup-note.md](windows-ci-harness-cleanup-note.md).
+Windows CI harness cleanup notes (if present under `docs/archive/`).
 
 ## What the fixture actually does
 
@@ -37,7 +37,7 @@ Before `doc.close(True)`, `close_doc` runs `gc.collect()` then sleeps 50 ms
 finish `~SvxShape` / `SdrObject` before the drawing item pool dies — not
 proof LibreOffice is healthy. If SalAbort still prints, `#698` fail-closed
 still names that test. Details and soak rates:
-[salabort-svxshape-close.md](salabort-svxshape-close.md).
+[salabort-svxshape-close.md](../archive/salabort-svxshape-close.md).
 
 **`@with_native_doc` Impress/Draw teardown (Windows):** GHA 35413789298
 (master `609490ec`, 0.8.77) and the same abort on `29079e14`: 122 UNO
@@ -842,7 +842,7 @@ on rect teardown. dbgsym offline resolve confirmed `#5` is that same
 `salabort-svxshape-close.md`); file:line still thin under LTO.
 Harness `close_doc` now GC + 50 ms then close (still not an LO cure).
 
-Full write-up: [salabort-svxshape-close.md](salabort-svxshape-close.md).
+Full write-up: [salabort-svxshape-close.md](../archive/salabort-svxshape-close.md).
 `#687`'s post-OK `getServiceManager` probe can miss the race: SalAbort can
 print while URP still answers, then the process exits before the next open.
 

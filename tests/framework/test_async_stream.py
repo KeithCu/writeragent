@@ -171,6 +171,44 @@ def test_worker_exception_on_error_true_still_applies_later_chunk():
     assert "after retry" in applied
 
 
+def test_closed_over_queue_error_skips_wrapper_stream_done():
+    """Puts on a closed-over raw queue must still set saw_terminal (send_handlers)."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    shared: queue.Queue = queue.Queue()
+    applied = []
+    done_payloads = []
+    errors = []
+
+    def worker(_worker_q):
+        # Ignore the passed queue; put on the closed-over one.
+        shared.put((StreamQueueKind.ERROR, {"message": "fail", "code": "X"}))
+
+    def on_error(e):
+        errors.append(e)
+        shared.put((StreamQueueKind.CHUNK, "recovered"))
+        shared.put((StreamQueueKind.STREAM_DONE, "ok"))
+        return True
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(
+            ctx,
+            worker,
+            lambda text, _is_thinking: applied.append(text),
+            lambda item: done_payloads.append(item),
+            on_error,
+            q=shared,
+        )
+
+    assert len(errors) == 1
+    assert "recovered" in applied
+    # on_done receives the STREAM_DONE item; payload must be our "ok", not a
+    # wrapper None that would have ended the drain before "recovered".
+    assert any(p == "ok" or (isinstance(p, tuple) and p[-1] == "ok") for p in done_payloads)
+
+
 def test_on_done_internal_type_error_is_not_retried_as_zero_arg():
     from plugin.framework.async_stream import run_async_worker_with_drain
 

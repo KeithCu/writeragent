@@ -140,7 +140,7 @@ class AnthropicShim(BaseProviderShim):
         self._reset_stream_tools()
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
-        system_msg = ""
+        system_parts: list[str] = []
         converted: list[dict[str, Any]] = []
 
         for m in messages:
@@ -148,10 +148,15 @@ class AnthropicShim(BaseProviderShim):
             content = m.get("content")
 
             if role == "system":
+                # What was wrong: each system message replaced the previous, so
+                # date/dev/instructions earlier in the list were dropped.
+                # OpenAI-compat keeps every system block; join in order.
                 if isinstance(content, list):
-                    system_msg = "\n\n".join([p.get("text", "") for p in _dict_parts(content) if p.get("type") == "text"])
+                    text = "\n\n".join([p.get("text", "") for p in _dict_parts(content) if p.get("type") == "text"])
                 else:
-                    system_msg = str(content or "")
+                    text = str(content or "")
+                if text:
+                    system_parts.append(text)
                 continue
 
             anth_content: list[dict[str, Any]] = []
@@ -232,6 +237,7 @@ class AnthropicShim(BaseProviderShim):
         data: dict[str, Any] = {"model": model_name or "claude-3-5-sonnet-20241022", "messages": converted, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = temperature
+        system_msg = "\n\n".join(system_parts)
         # What was wrong: response_format was accepted and ignored, so a
         # json_object grammar call went out as free text. Anthropic has no
         # OpenAI response_format field on this shim; one system line is the hint.
@@ -244,6 +250,16 @@ class AnthropicShim(BaseProviderShim):
             converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
             if converted_tools:
                 data["tools"] = converted_tools
+        # Grammar sends OpenRouter-shaped chat_extra={"reasoning":{"effort":"minimal"}}.
+        # Pasting that object onto /v1/messages would 400; map known effort values
+        # onto Anthropic output_config and ignore other extra keys.
+        if isinstance(chat_extra, dict):
+            reasoning = chat_extra.get("reasoning")
+            effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
+            if effort == "minimal":
+                effort = "low"
+            if effort in ("low", "medium", "high", "max"):
+                data["output_config"] = {"effort": effort}
 
         path = get_url_path_and_query(url)
         return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()

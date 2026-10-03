@@ -447,7 +447,8 @@ class AsyncProcess:
         self.stdout_cb = stdout_cb
         self.stderr_cb = stderr_cb
         self.on_exit_cb = on_exit_cb
-        self.process: Optional[subprocess.Popen[str]] = None
+        # Popen[Any]: default is binary (text=False); callers may still pass text=True.
+        self.process: Optional[subprocess.Popen[Any]] = None
 
         # Copy: setdefault must not mutate the caller's dict.
         self._popen_kwargs: dict[str, Any] = dict(popen_kwargs)
@@ -455,10 +456,13 @@ class AsyncProcess:
             self._popen_kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
-        self._popen_kwargs.setdefault("text", True)
-        self._popen_kwargs.setdefault("bufsize", 1)  # Line buffered
-        # UnicodeDecodeError is a ValueError, and _read_stream treats ValueError
-        # as "pipe closed". Strict decoding used to kill the reader and drop the tail.
+        # What was wrong: text=True plus _read_stderr_chunk reading .buffer
+        # left the text wrapper unused; a later readline on the same pipe
+        # would desync the two buffers. Why: binary pipes only; decode in
+        # _iter_decoded_chunks (callbacks still receive str).
+        self._popen_kwargs.setdefault("text", False)
+        self._popen_kwargs.setdefault("bufsize", 0)
+        # Callers that pass text=True keep encoding/errors for their path.
         if self._popen_kwargs.get("text"):
             self._popen_kwargs.setdefault("encoding", "utf-8")
             self._popen_kwargs.setdefault("errors", "replace")
@@ -484,25 +488,26 @@ class AsyncProcess:
             except subprocess.TimeoutExpired:
                 log.warning("Previous process still alive after terminate")
         try:
-            self.process = subprocess.Popen(self.args, **self._popen_kwargs)
+            proc: subprocess.Popen[Any] = subprocess.Popen(self.args, **self._popen_kwargs)
         except Exception as e:
             log.exception("Failed to start process: %s", self.args)
             from plugin.framework.errors import ToolExecutionError
 
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
 
-        if self.process.stdout and self.stdout_cb:
-            self._stdout_thread = run_in_background(self._read_stream, self.process.stdout, self.stdout_cb, name=f"asyncproc-out-{self.process.pid}", dedicated=True)
-        elif self.process.stdout:
+        self.process = proc
+        if proc.stdout and self.stdout_cb:
+            self._stdout_thread = run_in_background(self._read_stream, proc.stdout, self.stdout_cb, name=f"asyncproc-out-{proc.pid}", dedicated=True)
+        elif proc.stdout:
             # Drain it silently to avoid deadlocks
-            self._stdout_thread = run_in_background(self._drain_stream, self.process.stdout, name=f"asyncproc-outdrain-{self.process.pid}", dedicated=True)
+            self._stdout_thread = run_in_background(self._drain_stream, proc.stdout, name=f"asyncproc-outdrain-{proc.pid}", dedicated=True)
 
-        if self.process.stderr and self.stderr_cb:
-            self._stderr_thread = run_in_background(self._read_stream, self.process.stderr, self.stderr_cb, name=f"asyncproc-err-{self.process.pid}", dedicated=True)
-        elif self.process.stderr:
-            self._stderr_thread = run_in_background(self._drain_stream, self.process.stderr, name=f"asyncproc-errdrain-{self.process.pid}", dedicated=True)
+        if proc.stderr and self.stderr_cb:
+            self._stderr_thread = run_in_background(self._read_stream, proc.stderr, self.stderr_cb, name=f"asyncproc-err-{proc.pid}", dedicated=True)
+        elif proc.stderr:
+            self._stderr_thread = run_in_background(self._drain_stream, proc.stderr, name=f"asyncproc-errdrain-{proc.pid}", dedicated=True)
 
-        self._wait_thread = run_in_background(self._wait_for_exit, name=f"asyncproc-wait-{self.process.pid}", dedicated=True)
+        self._wait_thread = run_in_background(self._wait_for_exit, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
 
     def _read_stream(self, stream: Any, callback: Any) -> None:
         # ``for line in stream`` blocks in readline. A child that writes a long
@@ -592,7 +597,7 @@ class AsyncProcess:
             except Exception:
                 log.exception("Error in on_exit_cb for process")
 
-    def _reap(self, proc: subprocess.Popen[str], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float) -> None:
+    def _reap(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float) -> None:
         """Wait, then SIGKILL, off the caller stack. See terminate().
 
         Handles are captured at terminate() time. A later start() replaces

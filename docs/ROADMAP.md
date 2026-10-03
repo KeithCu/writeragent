@@ -72,7 +72,7 @@ Not blocking product work. **One item per session.** Each can change user-visibl
 | **Connect vs read timeout** — [`http_transport.py`](../plugin/framework/client/http_transport.py), `LlmClient._timeout` | One value (default 120s) is connect **and** each stream read. Separate short connect vs Stop-aware read; do not set read timeout to `None` without a working Stop path. |
 | **Tool schemas for Gemini/Groq** — [`tool.py`](../plugin/framework/tool.py) `validate` | Union collapse is recursive; empty `properties` still skips the unknown-key check, so hallucinated kwargs can reach `execute`. |
 | **Close / termination veto** — [`uno_listeners.py`](../plugin/framework/uno_listeners.py) `_catch_and_log` | Re-raise `CloseVetoException` / `TerminationVetoException` only when a real listener must block close. |
-| **Extra instructions in the system prompt** — [`prompts.py`](../plugin/framework/prompts.py) | Memory is already wrapped; `additional_instructions` is still concatenated as raw text. |
+| **Extra instructions in the system prompt** — [`prompts.py`](../plugin/framework/prompts.py) | Done: `_append_additional_instructions` wraps text in the same fence as profile data (`_profile_data_block`). |
 
 Shipped and removed from this table: Stop/cancel, missing-API-key 401, drain-handler `job_done`.
 

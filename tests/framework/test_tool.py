@@ -608,6 +608,22 @@ class TestManageChartsSpecializedTier:
         assert "read_cell_range" not in names
         assert "get_sheet_summary" not in names
 
+    def test_shared_shape_upsert_unions_required_core_tools_on_replace(self):
+        """Last-wins registration must keep Calc and Writer core tool sets."""
+        from plugin.calc.shapes import UpsertShape as CalcUpsertShape
+        from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
+
+        reg = _make_registry()
+        reg.register(CalcUpsertShape())
+        reg.register(WriterUpsertShape())
+        tool = reg.get("shape_upsert")
+        assert tool is not None
+        cores = reg._required_core_union.get("shape_upsert") or frozenset()
+        assert "get_document_content" in cores
+        assert "get_document_tree" in cores
+        assert "get_sheet_summary" in cores
+        assert "read_cell_range" in cores
+
     def test_manage_charts_still_dispatches_to_dummy_backends(self):
         from plugin.calc.charts import ManageCharts
 

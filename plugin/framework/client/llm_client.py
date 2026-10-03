@@ -716,8 +716,15 @@ class LlmClient:
 
                 messages = [{"role": "user", "content": [{"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."}, {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}}]}]
 
-                # Using synchronous chat completion with model override
-                return self.chat_completion_sync(messages, max_tokens=16384, model=model_name, stop_checker=stop_checker)
+                # Using synchronous chat completion with model override.
+                # Pass status_callback so 429 waits are visible on this path too.
+                return self.chat_completion_sync(
+                    messages,
+                    max_tokens=16384,
+                    model=model_name,
+                    stop_checker=stop_checker,
+                    status_callback=status_callback,
+                )
             except AuthError:
                 raise
             except NetworkError as e:
@@ -725,7 +732,16 @@ class LlmClient:
                     raise
                 # Fall through to the transcription endpoint; keep the traceback.
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
-            except Exception:
+            except Exception as e:
+                # What was wrong: user Stop raised ToolExecutionError(USER_STOPPED)
+                # and the bare except fell through to POST .../audio/transcriptions.
+                # How: chat_completion_sync raises USER_STOPPED when stop_checker
+                # is set. Why: treat stop like Auth/Network STOPPED — do not retry
+                # the transcription endpoint after the user cancelled.
+                from plugin.framework.errors import ToolExecutionError
+
+                if self._stopped or (isinstance(e, ToolExecutionError) and getattr(e, "code", None) == "USER_STOPPED"):
+                    raise
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
         endpoint = self._endpoint()
@@ -1202,7 +1218,18 @@ class LlmClient:
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
 
-    def chat_completion_sync(self, messages: list[Any], max_tokens: int = 512, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True, stop_checker: Any = None) -> str:
+    def chat_completion_sync(
+        self,
+        messages: list[Any],
+        max_tokens: int = 512,
+        model: str | None = None,
+        response_format: Any = None,
+        chat_extra: Any = None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
+        stop_checker: Any = None,
+        status_callback: Any = None,
+    ) -> str:
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.
@@ -1221,6 +1248,7 @@ class LlmClient:
             chat_extra=chat_extra,
             prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
             stop_checker=stop_checker,
+            status_callback=status_callback,
         )
         # request_with_tools reports Stop as an empty assistant message whose
         # finish_reason is also "stop" — the same finish_reason a normal

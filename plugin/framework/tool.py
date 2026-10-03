@@ -499,6 +499,10 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
+        # Shared names (shape_upsert / manage_charts) last-wins the instance but
+        # must keep the union of required_core_tools. ClassVar cannot be set on
+        # the instance, so store the merge here.
+        self._required_core_union: dict[str, frozenset[str]] = {}
         self.batch_mode = False  # suppress per-tool cache invalidation
 
     # ── Registration ──────────────────────────────────────────────────
@@ -527,6 +531,15 @@ class ToolRegistry:
             # wrappers for shape_upsert / manage_charts) — log so registration order is visible.
             if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
                 log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
+            # What was wrong: last-wins kept only the survivor's required_core_tools
+            # (Writer loads last), so Calc shapes/charts domains never requested
+            # get_sheet_summary / read_cell_range. How: shared names replace the
+            # instance. Why: union both sets (plus any prior merge); get_tools
+            # still drops cores that fail tool_supports_document for the active doc.
+            prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
+            nxt = getattr(tool, "required_core_tools", None)
+            if prev or nxt:
+                self._required_core_union[tool.name] = frozenset(prev or ()) | frozenset(nxt or ())
         self._tools[tool.name] = tool
 
     def auto_discover_package(self, package_name: str) -> None:
@@ -619,10 +632,10 @@ class ToolRegistry:
             # However, we also include any core tools explicitly requested by the domain.
 
             # First, find which core tools are required by any tool in this domain
-            required_core = set()
+            required_core: set[str] = set()
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
-                    req = getattr(t, "required_core_tools", None)
+                    req = (self._required_core_union.get(t.name) if t.name else None) or getattr(t, "required_core_tools", None)
                     if req:
                         required_core.update(req)
 

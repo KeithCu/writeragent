@@ -75,12 +75,24 @@ def _format_http_error_response(status: int, reason: str, err_body: str, context
     """
     if status == 500 and err_body and is_local_model_server_crash(err_body):
         return local_model_overflow_message(context_window)
+    # What was wrong: chat uses http.client, so format_error_message's
+    # urllib HTTPError 401/403/404 sentences never ran. Empty bodies showed
+    # only "HTTP Error N from AI Provider". Why: reuse those sentences here
+    # when the body is empty; keep appending provider detail when present.
+    if not err_body or not err_body.strip():
+        if status == 401:
+            return _("Invalid API Key. Please check your settings.")
+        if status == 403:
+            return _("API access Forbidden. Your key may lack permissions for this model.")
+        if status == 404:
+            return _("Endpoint not found (404). Check your URL and Model name.")
+        if status == 429:
+            return _("Rate limited (429). Wait a moment and try again.")
+        return _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
     if status == 429:
         base = _("Rate limited (429). Wait a moment and try again.")
     else:
         base = _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
-    if not err_body or not err_body.strip():
-        return base
     from plugin.framework.errors import safe_json_loads
 
     data = safe_json_loads(err_body)

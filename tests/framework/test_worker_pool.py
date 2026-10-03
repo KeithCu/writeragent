@@ -66,8 +66,8 @@ def test_async_process_init():
     assert ap.args == ["ls", "-l"]
     assert ap._popen_kwargs["stdout"] == subprocess.PIPE
     assert ap._popen_kwargs["stderr"] == subprocess.PIPE
-    assert ap._popen_kwargs["text"] is True
-    assert ap._popen_kwargs["bufsize"] == 1
+    assert ap._popen_kwargs["text"] is False
+    assert ap._popen_kwargs["bufsize"] == 0
     assert ap.is_running is False
 
 def test_async_process_start_success():

@@ -251,7 +251,7 @@ class TestErrorHandling:
 
         # Test DocumentDisposedError with custom field object_type
         disp_exc = DocumentDisposedError("Object disposed", object_type="TextRange", details={"line": 42})
-        assert (disp_exc.code) == ("DISPOSED_OBJECT")
+        assert (disp_exc.code) == ("DOCUMENT_DISPOSED")
         assert (disp_exc.object_type) == ("TextRange")
         assert (disp_exc.details) == ({"line": 42})
 

@@ -290,15 +290,27 @@ class ConfigService(ServiceBase):
     def remove(self, key: str, caller_module: str | None = None) -> None:
         """Reset a config key."""
         self._check_write_access(key, caller_module)
-        if self._config_path and os.path.exists(self._config_path):
+        if self._config_path:
+            # What was wrong: the test-file branch wrote without
+            # _config_write_lock and skipped config:changed. Production
+            # remove_config does both. Why: same lock + emit on this path.
+            if not os.path.exists(self._config_path):
+                return
+            emit_changed = False
             try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    data = parse_config_json_text(f.read())
-                if isinstance(data, dict) and key in data:
-                    del data[key]
-                    _write_config_file(self._config_path, data)
+                with _config_write_lock:
+                    with open(self._config_path, "r", encoding="utf-8") as f:
+                        data = parse_config_json_text(f.read())
+                    if isinstance(data, dict) and key in data:
+                        del data[key]
+                        _write_config_file(self._config_path, data)
+                        emit_changed = True
             except OSError as e:
                 log.warning("ConfigService.remove config file error for key %s: %s", key, e)
+                return
+            if emit_changed:
+                bus = self._events or global_event_bus
+                bus.emit("config:changed", key=key, value=None, old_value=None, ctx=None)
         else:
             remove_config(key)
 

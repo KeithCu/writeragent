@@ -46,7 +46,7 @@ def _header_secrets(headers: dict[str, str] | None, req: Any) -> list[str]:
     secrets: list[str] = []
     for key, value in items:
         low = key.lower()
-        if low in ("x-api-key", "api-key"):
+        if low in ("x-api-key", "api-key", "x-goog-api-key"):
             token = value.strip()
         elif low == "authorization":
             parts = value.split(None, 1)
@@ -185,6 +185,11 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
                 sends_left -= 1
                 attempt += 1
                 delay = backoff_delay_sec(attempt=attempt)
+                # What was wrong: HTTP 429/503 remembered the host gap, but a
+                # connection timeout only waited and returned. A failed
+                # /v1/models fetch could be followed immediately by chat to the
+                # same host. Why: same remember_host_gap chat already uses.
+                remember_host_gap(host, delay)
                 wait_abortable(delay, None)
                 continue
             log.exception("Request failed: %s", format_error_message(e))
