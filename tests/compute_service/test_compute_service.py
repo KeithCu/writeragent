@@ -357,8 +357,10 @@ class TestComputeHttp:
     def test_health_never_starved_when_worker_semaphore_is_saturated(self) -> None:
         """When calculation requests saturate the worker semaphore, /health must still respond immediately.
 
-        The worker semaphore limits concurrent worker-waiting requests to worker count,
-        guaranteeing that spare HTTP listener threads remain free for health probes.
+        The worker semaphore limits concurrent worker-waiting requests to worker count via
+        non-blocking admission before request bodies are read. Requests waiting for a worker
+        do not hold HTTP listener threads, guaranteeing that spare listener threads remain
+        strictly free for health probes even when incoming requests exceed pool thread capacity.
         """
         from compute_service.server import WSGIDualStackServer
 
@@ -371,7 +373,7 @@ class TestComputeHttp:
             assert hold.wait(timeout=10)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
-        # 1 worker, semaphore size 1
+        # 1 worker, semaphore size 1. Total server pool threads = max(4, 1 + 2) = 4.
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
@@ -380,6 +382,80 @@ class TestComputeHttp:
         thread.start()
         time.sleep(0.15)
         posters: list[threading.Thread] = []
+        results: list[list[Any]] = [[] for _ in range(6)]
+        try:
+            def _post(out_list: list[Any]) -> None:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/execute",
+                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        out_list.append((resp.status, json.loads(resp.read().decode())))
+                except urllib.error.HTTPError as exc:
+                    out_list.append((exc.code, json.loads(exc.read().decode())))
+                except Exception as exc:
+                    out_list.append((599, str(exc)))
+
+            # Launch 6 concurrent posters: 1 occupies the worker, 5 exceed the 4-thread pool capacity.
+            # If waiting requests blocked listener threads, all 4 threads would be pinned,
+            # starving /health. With non-blocking semaphore gating, the 5 excess requests
+            # receive fast 503s without holding listener threads.
+            for idx in range(6):
+                p = threading.Thread(target=_post, args=(results[idx],))
+                p.start()
+                posters.append(p)
+
+            assert started.wait(timeout=5)
+            # The active calculation is still held. Verify that /health responds immediately (<0.5s).
+            t0 = time.perf_counter()
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
+                t_elapsed = time.perf_counter() - t0
+                assert resp.status == 200
+                assert json.loads(resp.read().decode())["status"] == "healthy"
+                assert t_elapsed < 0.5, f"/health took too long: {t_elapsed:.3f}s"
+        finally:
+            hold.set()
+            for p in posters:
+                p.join(timeout=5)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        # 1 active calculation succeeded (200), and 5 excess requests received fast 503 WORKER_POOL_BUSY
+        statuses = [r[0][0] for r in results if r]
+        assert 200 in statuses
+        assert 503 in statuses
+        busy_codes = [r[0][1].get("code") for r in results if r and r[0][0] == 503]
+        assert all(c == "WORKER_POOL_BUSY" for c in busy_codes)
+
+    def test_slow_upload_rejected_fast_when_workers_busy(self) -> None:
+        """When workers are busy, incoming requests are rejected before reading the body.
+
+        A slow client streaming a large request body does not occupy an HTTP listener
+        thread or block /health when all workers are leased.
+        """
+        from compute_service.server import WSGIDualStackServer
+
+        port = get_free_port()
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            started.set()
+            assert hold.wait(timeout=10)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
+
+        sem = threading.Semaphore(1)
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.15)
+        poster: threading.Thread | None = None
         try:
             def _post() -> None:
                 req = urllib.request.Request(
@@ -394,21 +470,45 @@ class TestComputeHttp:
                 except Exception:
                     pass
 
-            # Launch 2 posters: 1 occupies the worker, 1 waits on the semaphore
-            for _idx in range(2):
-                p = threading.Thread(target=_post)
-                p.start()
-                posters.append(p)
-
+            poster = threading.Thread(target=_post)
+            poster.start()
             assert started.wait(timeout=5)
-            # Both worker and semaphore are saturated, but /health must return immediately
+
+            # Send headers with Content-Length: 1000000 but send no body data.
+            # Because semaphore is checked before body read, server responds 503 immediately.
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            sock.connect(("127.0.0.1", port))
+            req_headers = (
+                b"POST /v1/execute HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 1000000\r\n\r\n"
+            )
+            sock.sendall(req_headers)
+            chunks: list[bytes] = []
+            while True:
+                try:
+                    c = sock.recv(4096)
+                    if not c:
+                        break
+                    chunks.append(c)
+                except OSError:
+                    break
+            sock.close()
+            full_resp = b"".join(chunks)
+
+            assert b"503 Service Unavailable" in full_resp
+            assert b"WORKER_POOL_BUSY" in full_resp
+
+            # /health remains immediately responsive
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
                 assert resp.status == 200
                 assert json.loads(resp.read().decode())["status"] == "healthy"
         finally:
             hold.set()
-            for p in posters:
-                p.join(timeout=5)
+            if poster is not None:
+                poster.join(timeout=5)
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
