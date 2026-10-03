@@ -63,6 +63,62 @@ def test_stem_collapses_material_and_requirement_variants():
     assert stem_word("english", "requirements") == stem_word("english", "required")
 
 
+def test_stem_word_serializes_shared_pure_python_stemmer():
+    """Concurrent research must not enter stemWord on the shared instance together."""
+    from plugin.chatbot import web_research_cache as wrc
+
+    class _Stemmer:
+        def __init__(self) -> None:
+            self.inside = threading.Event()
+            self.allow_finish = threading.Event()
+            self.calls = 0
+            self.max_in = 0
+            self._in = 0
+            self._guard = threading.Lock()
+
+        def stemWord(self, token: str) -> str:
+            with self._guard:
+                self._in += 1
+                self.calls += 1
+                self.max_in = max(self.max_in, self._in)
+                call_n = self.calls
+            try:
+                if call_n == 1:
+                    self.inside.set()
+                    self.allow_finish.wait(timeout=2)
+                return token[:4]
+            finally:
+                with self._guard:
+                    self._in -= 1
+
+    fake = _Stemmer()
+    wrc._STEMMER_CACHE["english"] = fake
+    second_entered = threading.Event()
+
+    def _run_second() -> None:
+        second_entered.set()
+        stem_word("english", "required")
+
+    first = threading.Thread(target=lambda: stem_word("english", "materials"))
+    second = threading.Thread(target=_run_second)
+    first.start()
+    assert fake.inside.wait(timeout=2)
+    second.start()
+    assert second_entered.wait(timeout=2)
+    # The second caller is inside stem_word and blocked on the lock, so
+    # stemWord has not run again.
+    second.join(timeout=0.2)
+    assert second.is_alive()
+    assert fake.calls == 1
+    fake.allow_finish.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert fake.calls == 2
+    assert fake.max_in == 1
+
+
 def test_space_elevator_keys_fuzzy_match_at_40_percent():
     query_stems = stem_set_from_word_key(SPACE_ELEVATOR_KEY_2, "english")
     match = find_fuzzy_research_match(

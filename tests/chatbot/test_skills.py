@@ -90,4 +90,14 @@ Vary your sentences.
         assert ("Vary your sentences") in (got)
         assert ("name: humanizer") not in (got)
 
+    def test_front_matter_only_falls_back_to_default(self):
+        from plugin.chatbot.skills import HUMANIZER_GUIDANCE
+
+        store = SkillStore(self.ctx)
+        store.write_humanizer_guidance("---\nname: humanizer\n---\n")
+        self._track_skill_path(store)
+        got = store.get_humanizer_guidance()
+        assert got == HUMANIZER_GUIDANCE
+        assert "Vary sentence length" in got
+
 

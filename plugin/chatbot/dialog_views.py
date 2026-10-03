@@ -153,7 +153,16 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any
         if model_selector:
             current_endpoint = get_current_endpoint()
             current_model = get_text_model()
-            populate_combobox_with_lru(ctx, model_selector, current_model, "model_lru", current_endpoint)
+            # What was wrong: opening Edit/Extend Selection called
+            # fetch_available_models on the UI thread. A slow or dead endpoint
+            # blocked LibreOffice for the full catalog timeout, and a failure
+            # is not memoized. How: this caller omitted skip_remote_fetch while
+            # Settings and the eval dashboard already pass it. Why: fill from
+            # LRU plus provider defaults and do not HTTP on this thread.
+            populate_combobox_with_lru(
+                ctx, model_selector, current_model, "model_lru", current_endpoint,
+                skip_remote_fetch=True,
+            )
 
         extend_tokens_ctrl = get_optional(dlg, "extend_max_tokens")
         extra_tokens_ctrl = get_optional(dlg, "edit_extra_tokens")

@@ -89,7 +89,13 @@ class SkillStore:
                         parts = content.split("---", 2)
                         if len(parts) >= 3:
                             content = parts[2].strip()
-                    return content
+                    # What was wrong: a front-matter-only SKILL.md stripped to
+                    # "" and was returned, so the prompt got no humanizer rules.
+                    # How: split on "---" leaves an empty body when nothing
+                    # follows the closing marker. Why: an empty body is the
+                    # same as a missing file — use HUMANIZER_GUIDANCE.
+                    if content:
+                        return content
             except Exception as e:
                 log.debug("Failed to read user humanizer skill: %s", e)
         else:

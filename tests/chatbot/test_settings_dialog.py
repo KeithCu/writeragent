@@ -114,6 +114,64 @@ def test_update_lru_for_audio_stt_model():
         mock_lru.assert_called_once_with("whisper-1", "audio_model_lru", "https://openrouter.ai/api")
 
 
+def test_apply_settings_skips_model_combobox_placeholders():
+    """OK must not replace a saved image/STT/TTS model with combo placeholder text."""
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    stored: dict[str, str] = {}
+    specs = [
+        {"name": "image_model"},
+        {"name": "audio__stt_model"},
+        {"name": "audio__tts_model"},
+    ]
+    saved = {
+        "image_model": "flux-saved",
+        "audio.stt_model": "whisper-saved",
+        "audio.tts_model": "kokoro-saved",
+    }
+
+    def _cfg(key: str):
+        return saved.get(key, "")
+
+    placeholders = (
+        "(Enter API Key to load models)",
+        "(Connection failed)",
+        "(No image models on this endpoint)",
+        "(Default for current endpoint)",
+        "",
+        "   ",
+    )
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.get_config", side_effect=_cfg), \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://example.test/v1"), \
+         patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
+        for placeholder in placeholders:
+            stored.clear()
+            mock_lru.reset_mock()
+            apply_settings_result(MagicMock(), {
+                "image_model": placeholder,
+                "audio__stt_model": placeholder,
+                "audio__tts_model": placeholder,
+            })
+            assert stored == {}
+            mock_lru.assert_not_called()
+
+        apply_settings_result(MagicMock(), {
+            "image_model": "  flux-dev  ",
+            "audio__stt_model": "whisper-1",
+            "audio__tts_model": "hexgrad/Kokoro-82M",
+        })
+
+    assert stored.get("image_model") == "flux-dev"
+    assert stored.get("audio.stt_model") == "whisper-1"
+    assert stored.get("audio.tts_model") == "hexgrad/Kokoro-82M"
+    mock_lru.assert_any_call("flux-dev", "image_model_lru", "https://example.test/v1")
+    mock_lru.assert_any_call("whisper-1", "audio_model_lru", "https://example.test/v1")
+    mock_lru.assert_any_call("hexgrad/Kokoro-82M", "tts_model_lru", "https://example.test/v1")
+
+
 def test_apply_settings_writes_audio_stt_model():
     """Speech tab save stores audio.stt_model and does not write legacy stt_model."""
     from plugin.chatbot.settings_dialog import apply_settings_result

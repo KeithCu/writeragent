@@ -253,11 +253,23 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             s_val = str(val).strip()
             val = f"{spd:g}x" if s_val.endswith(("x", "X")) or s_val.startswith("1.0x") else f"{spd:g}"
 
-        if save_key == "image_model":
-            sanitized_image = _sanitize_stored_model_value(val)
-            previous_image = str(get_config("image_model") or "").strip()
-            if sanitized_image and sanitized_image != previous_image:
-                image_model_lru = sanitized_image
+        if save_key in ("image_model", "audio.stt_model", "audio.tts_model"):
+            # What was wrong: OK stored combobox placeholders such as
+            # "(Enter API Key to load models)" and "(Connection failed)" as
+            # image_model / audio.stt_model / audio.tts_model when the catalog
+            # could not be listed, wiping the configured model.
+            # How: text_model already dropped those strings; these keys wrote
+            # the raw combo text (image only sanitized the LRU copy).
+            # Why: skip empty and placeholder values, and persist the sanitized
+            # id — the same value the LRU path already computed.
+            sanitized_model = _sanitize_stored_model_value(val)
+            if not sanitized_model:
+                continue
+            val = sanitized_model
+            if save_key == "image_model":
+                previous_image = str(get_config("image_model") or "").strip()
+                if val != previous_image:
+                    image_model_lru = val
 
         pending[save_key] = val
         if val and save_key != "image_model":
