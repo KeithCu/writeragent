@@ -19,15 +19,21 @@ def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool) -> int |
     with suppress_disposed("measure send button width", logger=log):
         m = send_ctrl.getModel()
         saved = m.Label
-        labels = ["Send", "Record", "Stop Rec", "Accept"] if has_recording else ["Send", "Accept"]
-        wmax = send_ctrl.getPosSize().Width
-        for lab in labels:
-            # Live labels are _(effect.send_label). Measuring the English
-            # string let a longer translation change width before the pin.
-            m.Label = _(lab)
-            wmax = max(wmax, send_ctrl.getPosSize().Width)
-        m.Label = saved
-        return wmax if wmax > 0 else None
+        try:
+            labels = ["Send", "Record", "Stop Rec", "Accept"] if has_recording else ["Send", "Accept"]
+            wmax = send_ctrl.getPosSize().Width
+            for lab in labels:
+                # Live labels are _(effect.send_label). Measuring the English
+                # string let a longer translation change width before the pin.
+                m.Label = _(lab)
+                wmax = max(wmax, send_ctrl.getPosSize().Width)
+            return wmax if wmax > 0 else None
+        finally:
+            # What was wrong: a failed width read left the button showing the
+            # last candidate label. How: Label was restored only after the
+            # loop, and suppress_disposed swallows the error. Why: finally
+            # puts the original label back before that swallow.
+            m.Label = saved
     return None
 
 
@@ -38,12 +44,16 @@ def _measure_aux_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
     with suppress_disposed("measure aux button width", logger=log):
         m = ctrl.getModel()
         saved = m.Label
-        wmax = ctrl.getPosSize().Width
-        for lab in labels:
-            m.Label = _(lab)
-            wmax = max(wmax, ctrl.getPosSize().Width)
-        m.Label = saved
-        return wmax if wmax > 0 else None
+        try:
+            wmax = ctrl.getPosSize().Width
+            for lab in labels:
+                m.Label = _(lab)
+                wmax = max(wmax, ctrl.getPosSize().Width)
+            return wmax if wmax > 0 else None
+        finally:
+            # Same as send-width measurement: restore Label even when the
+            # width read raises and suppress_disposed swallows it.
+            m.Label = saved
     return None
 
 
@@ -132,10 +142,33 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     extra_instructions = ""
     model = self._get_document_model()
     initial_mode = "chat"
-    mode_flags = None
+    # What was wrong: mode_flags stayed None when the try below raised.
+    # How: _wire_buttons then read include_brainstorming, and that
+    # AttributeError was inside the Send/Stop try, so the broad except
+    # skipped addActionListener. Why: a real flags object lets Send/Stop
+    # attach even when the mode dropdown fails to wire.
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-    def toggle_image_ui(_is_image: bool) -> None:
-        return None
+    mode_flags: SidebarModeFlags = SidebarModeFlags()
+
+    def toggle_image_ui(is_image: bool) -> None:
+        # What was wrong: this stub no-op'd when mode UI wiring raised, so
+        # the XDL-visible image controls never hid and later mode changes
+        # could not swap them. How: the real closure is local to
+        # _wire_chat_mode_ui and is only returned on success.
+        # Why: _apply_sidebar_mode still calls this function.
+        set_control_visible(controls["model_label"], not is_image)
+        set_control_visible(controls["model_selector"], not is_image)
+        set_control_visible(controls["image_model_selector"], is_image)
+        set_control_visible(controls["aspect_ratio_selector"], is_image)
+        set_control_visible(controls["base_size_input"], is_image)
+        set_control_visible(controls["base_size_label"], is_image)
+        tp = getattr(self, "toolpanel", None)
+        root = getattr(self, "m_panelRootWindow", None)
+        rl = getattr(tp, "resize_listener", None) if tp else None
+        if rl and root:
+            with suppress_disposed("relayout after toggling image UI", logger=log):
+                rl.relayout_now(root)
 
     # 1. Config, Models, and UI
     try:

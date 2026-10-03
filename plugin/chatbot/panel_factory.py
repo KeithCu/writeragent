@@ -555,7 +555,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     length = len(text)
                     response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception:
-            log.exception("_render_session_history failed [greeting=%s]")
+            # What was wrong: the format named greeting but passed no argument,
+            # so the log kept a literal %s. How: Logger.exception only
+            # interpolates when args are supplied. Why: pass greeting so a
+            # failed history render records which greeting was in use.
+            log.exception("_render_session_history failed [greeting=%s]", greeting)
 
     def _refresh_controls_from_config(self) -> None:
         """Reload sidebar controls from config (e.g. after user changes Settings).
@@ -1084,6 +1088,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
         """Wires up the Send, Stop, Clear, Settings, Python, LaTeX, Search, and chat mode selector."""
+        if mode_flags is None:
+            from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+            # What was wrong: a failed mode-UI wire left mode_flags as None.
+            # How: include_brainstorming raised AttributeError inside the
+            # Send/Stop try, and the broad except skipped addActionListener.
+            # Why: default flags keep Send/Stop and the mode listener wired.
+            log.warning("mode_flags missing; wiring Send/Stop with default sidebar mode flags")
+            mode_flags = SidebarModeFlags()
         from plugin.chatbot.panel import (
             ClearButtonListener,
             HamburgerButtonListener,
