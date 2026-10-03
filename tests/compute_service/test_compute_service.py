@@ -354,6 +354,65 @@ class TestComputeHttp:
             server.server_close()
             thread.join(timeout=5)
 
+    def test_health_never_starved_when_worker_semaphore_is_saturated(self) -> None:
+        """When calculation requests saturate the worker semaphore, /health must still respond immediately.
+
+        The worker semaphore limits concurrent worker-waiting requests to worker count,
+        guaranteeing that spare HTTP listener threads remain free for health probes.
+        """
+        from compute_service.server import WSGIDualStackServer
+
+        port = get_free_port()
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            started.set()
+            assert hold.wait(timeout=10)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
+
+        # 1 worker, semaphore size 1
+        sem = threading.Semaphore(1)
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.15)
+        posters: list[threading.Thread] = []
+        try:
+            def _post() -> None:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/execute",
+                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=15):
+                        pass
+                except Exception:
+                    pass
+
+            # Launch 2 posters: 1 occupies the worker, 1 waits on the semaphore
+            for _idx in range(2):
+                p = threading.Thread(target=_post)
+                p.start()
+                posters.append(p)
+
+            assert started.wait(timeout=5)
+            # Both worker and semaphore are saturated, but /health must return immediately
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
+                assert resp.status == 200
+                assert json.loads(resp.read().decode())["status"] == "healthy"
+        finally:
+            hold.set()
+            for p in posters:
+                p.join(timeout=5)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_simple_execution(self, compute_url: str) -> None:
         body = _post_execute(compute_url, {"code": "result = 3 ** 4"})
         assert body["status"] == "ok"

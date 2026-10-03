@@ -356,7 +356,13 @@ def _parse_session_id(environ: dict[str, Any]) -> str | None:
     return None
 
 
-def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
+def create_wsgi_app(
+    settings: ComputeSettings,
+    *,
+    execute_fn: ExecuteFn | None = None,
+    reset_fn: ResetFn | None = None,
+    worker_semaphore: threading.Semaphore | None = None,
+) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
     Executor / pool imports are deferred until the first ``/v1/execute`` or
@@ -367,6 +373,9 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     # (avoids heavy imports during server startup).
     run_execute = execute_fn
     run_reset = reset_fn
+    if worker_semaphore is None:
+        total_workers = max(1, settings.workers + settings.ocr_workers)
+        worker_semaphore = threading.Semaphore(total_workers)
 
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         nonlocal run_execute, run_reset
@@ -445,8 +454,13 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if time.monotonic() >= deadline:
                 late: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before execution."}
                 return _start_json(start_response, "503 Service Unavailable", _inject_req_id(late, req_id), extra_headers=[("Retry-After", "1")])
-            sid = session_id
 
+            sem_wait = max(0.001, deadline - time.monotonic())
+            if not worker_semaphore.acquire(timeout=sem_wait):
+                late = {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+                return _start_json(start_response, "503 Service Unavailable", _inject_req_id(late, req_id), extra_headers=[("Retry-After", "1")])
+
+            sid = session_id
             log.info("exec /v1/execute id=%r mode=%s session=%r code_len=%d timeout=%ds", req_id, mode, sid, len(code), timeout_sec)
 
             start_t = time.perf_counter()
@@ -462,6 +476,8 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 log.exception("fail /v1/execute id=%r duration=%.2fms: %s", req_id, duration_ms, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
                 return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
+            finally:
+                worker_semaphore.release()
 
         if path == "/v1/session/reset" and method == "POST":
             # Query-only session_id so L7 can stick to the host that owns the
@@ -489,6 +505,12 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 err_body = {"status": "error", "error": "Missing 'session_id' URL query parameter (?session_id=...)."}
                 return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
+            reset_deadline = _request_deadline(environ.get("compute.accept_time"), 5.0)
+            sem_wait = max(0.001, reset_deadline - time.monotonic())
+            if not worker_semaphore.acquire(timeout=sem_wait):
+                err_body = {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
+                return _start_json(start_response, "503 Service Unavailable", _inject_req_id(err_body, req_id))
+
             log.info("reset /v1/session/reset id=%r session=%r", req_id, session_id)
             start_t = time.perf_counter()
             try:
@@ -514,6 +536,8 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 log.exception("fail /v1/session/reset id=%r session=%r duration=%.2fms: %s", req_id, session_id, duration_ms, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
                 return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
+            finally:
+                worker_semaphore.release()
 
         if path == "/v1/vision" and method == "POST":
             auth_resp = _authenticate_or_401(environ, settings, start_response)
@@ -560,6 +584,12 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if time.monotonic() >= vision_deadline:
                 vision_late: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before execution."}
                 return _start_json(start_response, "503 Service Unavailable", _inject_req_id(vision_late, req_id), extra_headers=[("Retry-After", "1")])
+
+            sem_wait = max(0.001, vision_deadline - time.monotonic())
+            if not worker_semaphore.acquire(timeout=sem_wait):
+                vision_late = {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+                return _start_json(start_response, "503 Service Unavailable", _inject_req_id(vision_late, req_id), extra_headers=[("Retry-After", "1")])
+
             # The vision pool starts its own clock from timeout_sec. Pass the
             # time still left on the accept deadline so the two clocks agree.
             vision_timeout = max(1, int(vision_deadline - time.monotonic()))
@@ -572,6 +602,8 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 log.exception("fail /v1/vision id=%r: %s", req_id, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
                 return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
+            finally:
+                worker_semaphore.release()
 
         start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
         return [b"Not Found"]
