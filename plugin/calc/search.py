@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.base import ToolCalcSearchBase
 from plugin.calc.calc_utils import resolve_sheet
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
+from plugin.writer.search import validate_regex_pattern, invalid_regex_tool_message
+from plugin.calc.bridge import is_agent_visible_sheet
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -45,6 +47,10 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             return self._tool_error("pattern is required.")
 
         use_regex = kwargs.get("regex", False)
+        if use_regex:
+            err = validate_regex_pattern(pattern)
+            if err:
+                return self._tool_error(invalid_regex_tool_message(err), code="INVALID_REGEX")
         case_sensitive = kwargs.get("case_sensitive", False)
         max_results = kwargs.get("max_results", 50)
         all_sheets = kwargs.get("all_sheets", False)
@@ -81,6 +87,10 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
             return self._tool_error("search is required.")
 
         use_regex = kwargs.get("regex", False)
+        if use_regex:
+            err = validate_regex_pattern(search)
+            if err:
+                return self._tool_error(invalid_regex_tool_message(err), code="INVALID_REGEX")
         case_sensitive = kwargs.get("case_sensitive", False)
         all_sheets = kwargs.get("all_sheets", False)
 
@@ -89,7 +99,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
 
         if all_sheets:
             sheets_obj = doc.getSheets()
-            targets = [sheets_obj.getByName(n) for n in sheets_obj.getElementNames()]
+            targets = [sheets_obj.getByName(n) for n in sheets_obj.getElementNames() if is_agent_visible_sheet(n)]
         else:
             targets = [resolve_sheet(doc, kwargs.get("sheet"))]
 

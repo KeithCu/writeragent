@@ -196,11 +196,19 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
         v = raw.get("value")
         if v is None or str(v).strip() == "":
             raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")
-        return field, op_code, conn, True, float(v), ""
+        try:
+            fv = float(v)
+        except ValueError:
+            raise UnoObjectError(f"Operator {op_label} requires a valid numeric 'value', got {v!r}.")
+        return field, op_code, conn, True, fv, ""
 
     v = raw.get("value")
     if v is None:
         raise UnoObjectError(f"Operator {op_label} requires 'value'.")
     if raw.get("is_numeric") is True:
-        return field, op_code, conn, True, float(v), ""
+        try:
+            fv = float(v)
+        except ValueError:
+            raise UnoObjectError(f"is_numeric=True requires a valid numeric 'value', got {v!r}.")
+        return field, op_code, conn, True, fv, ""
     return field, op_code, conn, False, 0.0, str(v)

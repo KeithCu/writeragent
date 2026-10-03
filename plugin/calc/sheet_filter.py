@@ -148,9 +148,11 @@ class ApplySheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-
-        range_name = kwargs["range"][0]
-        criteria = kwargs["criteria"]
+        range_arg = kwargs.get("range")
+        if not range_arg or not isinstance(range_arg, list):
+            raise UnoObjectError("range parameter must be a non-empty list.")
+        range_name = range_arg[0]
+        criteria = kwargs.get("criteria")
         if not isinstance(criteria, list) or not criteria:
             raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
 
@@ -193,7 +195,10 @@ class ClearSheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name = kwargs["range"][0]
+        range_arg = kwargs.get("range")
+        if not range_arg or not isinstance(range_arg, list):
+            raise UnoObjectError("range parameter must be a non-empty list.")
+        range_name = range_arg[0]
         has_header = bool(kwargs.get("has_header", True))
 
         try:
@@ -227,7 +232,10 @@ class GetSheetFilter(ToolCalcSheetBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name = kwargs["range"][0]
+        range_arg = kwargs.get("range")
+        if not range_arg or not isinstance(range_arg, list):
+            raise UnoObjectError("range parameter must be a non-empty list.")
+        range_name = range_arg[0]
 
         try:
             xf, _cell_range = _get_filterable_for_range(ctx, range_name)
