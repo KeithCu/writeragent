@@ -359,7 +359,9 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
         if math.isnan(val):
             return float("nan")
         return f"${_format_rounded(val, dec, commas=True)}"
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float("inf")) raises OverflowError, so DOLLAR(1, inf) left
+        # this handler and traceback'd instead of the #NUM! nan text returns.
         return float("nan")
 
 
@@ -419,7 +421,9 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
         y = float(yld)
         f = float(frequency)
         b = int(float(basis))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # An infinite basis is OverflowError from int(), not ValueError, so
+        # DURATION used to raise instead of the #NUM! nan a bad basis returns.
         return float("nan")
     if c < 0 or y < 0 or f not in (1, 2, 4) or b < 0 or b > 4 or s >= m:
         return float("nan")
@@ -484,14 +488,22 @@ def edate(start_date: Any, months: Any) -> float:
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
     d = min(date_val.day, [31, 29 if y % 4 == 0 and (y % 100 != 0 or y % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1])
-    return float(dt.date(y, m, d).toordinal() - 693594)
+    # datetime.date rejects years outside 1..9999. Building the result
+    # outside a handler made EDATE(date, 100000) raise ValueError instead
+    # of the #NUM! nan a bad start date already returns.
+    try:
+        return float(dt.date(y, m, d).toordinal() - 693594)
+    except (ValueError, OverflowError):
+        return float("nan")
 
 
 def effect(nominal_rate: Any, npery: Any) -> float:
     try:
         nr = float(nominal_rate)
         np = int(float(npery))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float("inf")) is OverflowError, so EFFECT(rate, inf) raised
+        # instead of the #NUM! nan a non-positive rate already returns.
         return float("nan")
     # Excel EFFECT remarks and LibreOffice AnalysisAddIn::getEffect both
     # reject nominal_rate <= 0 with #NUM!. The algebra at rate 0 is 0, but
@@ -521,12 +533,17 @@ def eomonth(start_date: Any, months: Any) -> float:
     m += month_delta
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
-    if m == 12:
-        next_month = dt.date(y + 1, 1, 1)
-    else:
-        next_month = dt.date(y, m + 1, 1)
-    last_day = next_month - dt.timedelta(days=1)
-    return float(last_day.toordinal() - 693594)
+    # Same year-range miss as EDATE: the result date sat outside the try,
+    # so EOMONTH(date, 100000) raised ValueError instead of #NUM!.
+    try:
+        if m == 12:
+            next_month = dt.date(y + 1, 1, 1)
+        else:
+            next_month = dt.date(y, m + 1, 1)
+        last_day = next_month - dt.timedelta(days=1)
+        return float(last_day.toordinal() - 693594)
+    except (ValueError, OverflowError):
+        return float("nan")
 
 
 def erf(lower: Any, upper: Any | None = None) -> float:
@@ -605,7 +622,9 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
                 if sig < 3:
                     return float("nan")
                 eur_val = round_sig(eur_val, sig)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
+                # int(float("inf")) is OverflowError, so an infinite
+                # triangulation precision raised instead of #NUM!.
                 return float("nan")
 
     if to_curr == "EUR":
@@ -623,9 +642,15 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
             is_full = False
 
     if not is_full:
-        res = round(res, decimals[to_curr])
-        if decimals[to_curr] == 0:
-            res = float(int(res))
+        # 0-decimal currencies take int(round(value)). A non-finite amount
+        # (about 1e308 EUR into BEF) made int() raise OverflowError instead
+        # of the #NUM! nan an unknown currency already returns.
+        try:
+            res = round(res, decimals[to_curr])
+            if decimals[to_curr] == 0:
+                res = float(int(res))
+        except (OverflowError, ValueError):
+            return float("nan")
     return float(res)
 
 
@@ -764,7 +789,9 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
         if math.isnan(val):
             return float("nan")
         return _format_rounded(val, dec, commas=not nc)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float("inf")) raises OverflowError, so FIXED(1, inf) left
+        # this handler and traceback'd instead of the #NUM! nan text returns.
         return float("nan")
 
 
@@ -817,7 +844,9 @@ def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -
         # Only type 1 is beginning-of-period. Any other type is end, matching
         # the old branch (it did not plug the raw type into the annuity).
         t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float("inf")) for type is OverflowError, so FV(..., inf)
+        # raised instead of the #NUM! nan a text rate already returns.
         return float("nan")
     return _npf_result("fv", r, n, pm, p, t)
 
@@ -844,7 +873,9 @@ def gamma(x: Any) -> float:
         if x_val == 0 or (x_val < 0 and x_val.is_integer()):
             return float("nan")
         return float(math.gamma(x_val))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # math.gamma(200) raises OverflowError ("math range error"). That
+        # is #NUM!, same as gamma(0), but the except did not catch it.
         return float("nan")
 
 
@@ -971,5 +1002,7 @@ def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
         if k < 0 or k > n or k > K or k < n - N + K or n < 0 or n > N or K < 0 or K > N or N < 0:
             return float("nan")
         return float(st.hypergeom.pmf(k, N, K, n))
-    except (ValueError, TypeError, ImportError):
+    except (ValueError, TypeError, OverflowError, ImportError):
+        # int(float("inf")) is OverflowError, so HYPGEOMDIST with an
+        # infinite argument raised instead of the #NUM! nan a bad draw returns.
         return float("nan")
