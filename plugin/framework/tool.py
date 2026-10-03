@@ -235,7 +235,9 @@ class ToolBase(ABC):
         intent:      Optional group label (e.g. "navigate", "edit", "review",
                      "media") for ``get_tools(intent=...)`` filtering.
         is_mutation:  Whether the tool mutates the document.  ``None``
-                     means auto-detect from name prefix.
+                     means auto-detect from a read prefix (``get_``,
+                     ``list_``, …) or a later domain-verb token
+                     (``image_list``, ``style_get_info``).
         long_running: Hint that the tool may take a while (e.g. image gen).
     """
 
@@ -462,6 +464,8 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
 
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
+# Sync tools that declare timeout= cannot enforce it. Warn once per name.
+_sync_timeout_warned: set[str] = set()
 _UNSET_EXCLUDE_TIERS = object()
 
 
@@ -590,11 +594,14 @@ class ToolRegistry:
             uno_services_supported: Cached UNO service names from sidebar/MCP (no live doc probe).
             tier: Optional string; main chat tools use ``"core"``.
             intent: Optional string filtering by tool intent.
-            names: Optional list of specific tool names to include.
+            names: Optional collection of exact tool names. ``None`` applies
+                no name filter. An empty collection matches nothing. A bare
+                string is that one name, not a substring.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
             exclude_tiers: Tiers to omit from the result. If omitted, excludes
-                ``specialized`` and ``specialized_control`` so nested Writer tools
-                stay off the main tool list. Pass ``()`` or ``frozenset()`` to include all tiers.
+                ``specialized``, ``specialized_control``, and ``mcp`` so nested
+                Writer tools and MCP-only helpers stay off the main tool list.
+                Pass ``()`` or ``frozenset()`` to include all tiers.
             active_domain: If provided, dynamically includes specialized tools for this domain
                 and the specialized_workflow_finished tool.
         """
@@ -667,8 +674,18 @@ class ToolRegistry:
             tools = [t for t in tools if t.tier == tier]
         if intent:
             tools = [t for t in tools if t.intent == intent]
-        if names:
-            tools = [t for t in tools if t.name in names]
+        # What was wrong: ``if names`` treated ``[]`` and ``""`` as no filter
+        # and returned every tool. A bare string is iterable, so
+        # ``t.name in "target"`` matched the tool named ``get``.
+        # How: only ``None`` skips the filter. A str is one exact name;
+        # any other collection becomes a set, and an empty set matches nothing.
+        # Why: callers pass tool names, not a substring to search.
+        if names is not None:
+            if isinstance(names, str):
+                name_set = frozenset((names,))
+            else:
+                name_set = frozenset(names)
+            tools = [t for t in tools if t.name in name_set]
         ctx = kwargs.get("ctx")
         if ctx is not None:
             from plugin.vision.vision_availability import filter_vision_specialized_tools
@@ -737,7 +754,13 @@ class ToolRegistry:
             return func(**kwargs)
 
         if not run_threaded:
-            log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
+            # What was wrong: this warning ran on every call, so a sync tool
+            # with timeout= flooded the log. How: the timeout needs a thread,
+            # and execute hits this path on each run. Why: one line per tool
+            # name is enough to see the misconfiguration.
+            if tool_name not in _sync_timeout_warned:
+                _sync_timeout_warned.add(tool_name)
+                log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
             return func(**kwargs)
 
         result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
