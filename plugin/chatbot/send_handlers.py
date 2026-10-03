@@ -75,6 +75,9 @@ class _SendWorkerQueue:
     sees the generation Stop bumped on that object.
     """
 
+    _host: Any
+    raw: "queue.Queue[Any]"
+
     def __init__(self, host: Any, raw: "queue.Queue[Any]") -> None:
         self._host = host
         self.raw = raw
