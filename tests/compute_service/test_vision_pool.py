@@ -47,6 +47,53 @@ def test_vision_pool_uses_compute_frame_cap() -> None:
     pool.shutdown()
 
 
+def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
+    """The child loop must use the same 33 MiB cap as the parent pool.
+
+    A frame between the 16 MiB stdio default and COMPUTE_MAX_PAYLOAD_BYTES
+    used to fail the child read. A result over 16 MiB broke the child loop
+    and the host saw EMPTY_RESPONSE.
+    """
+    import io
+
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
+    from compute_service.vision_worker import main
+
+    blob = b"v" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)
+    assert DEFAULT_MAX_PAYLOAD_BYTES < len(blob) < COMPUTE_MAX_PAYLOAD_BYTES
+    stdin_buf = io.BytesIO()
+    write_pickle_frame(stdin_buf, {"blob": blob}, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    stdin_buf.seek(0)
+    stdout_buf = io.BytesIO()
+
+    class _MockStdin:
+        buffer = stdin_buf
+
+    class _MockStdout:
+        buffer = stdout_buf
+
+    monkeypatch.setattr("sys.stdin", _MockStdin())
+    monkeypatch.setattr("sys.stdout", _MockStdout())
+    seen: dict[str, int] = {}
+
+    def handle(req: dict) -> dict:
+        seen["n"] = len(req.get("blob") or b"")
+        return {"status": "ok", "blob": req["blob"]}
+
+    monkeypatch.setattr("compute_service.vision_worker._handle_request", handle)
+    assert main() == 0
+    assert seen["n"] == len(blob)
+
+    stdout_buf.seek(0)
+    ready = read_pickle_frame(stdout_buf, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    assert isinstance(ready, dict)
+    assert ready.get("status") == "ready"
+    result = read_pickle_frame(stdout_buf, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    assert isinstance(result, dict)
+    assert result.get("status") == "ok"
+    assert len(result.get("blob") or b"") == len(blob)
+
+
 def test_vision_file_read_is_capped(tmp_path) -> None:
     path = tmp_path / "big.bin"
     path.write_bytes(b"x" * (_FILE_READ_MAX_BYTES + 1))

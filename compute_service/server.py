@@ -11,6 +11,7 @@ import hmac
 import io
 import json
 import logging
+import math
 import os
 import selectors
 import signal
@@ -43,7 +44,10 @@ _REQUEST_READ_TIMEOUT_SEC = 30.0
 _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # The cell never ran. A proxy can retry. Eval errors and EXECUTION_TIMEOUT
 # stay HTTP 200 so the sheet shows the error instead of #N/A.
-_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE"})
+# QUEUE_TIMEOUT is the same miss as the handler's pre-check. The pool
+# returns it when the accept deadline expires after that check; leaving it
+# out of this set answered HTTP 200 for a request that never leased a worker.
+_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE", "QUEUE_TIMEOUT"})
 
 
 def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
@@ -216,8 +220,15 @@ def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any
     try:
         return _start_json(start_response, "200 OK", result_payload)
     except (TypeError, ValueError) as e:
-        err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
-        return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
+        err_body: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {e}"}
+        try:
+            # Copy so a failed inject does not leave a bad id on err_body.
+            return _start_json(start_response, "500 Internal Server Error", _inject_req_id(dict(err_body), req_id))
+        except (TypeError, ValueError):
+            # req_id itself is not strict JSON (NaN, Infinity, 1e9999).
+            # Re-injecting it raised out of this fallback and the client
+            # got no response. Drop the id and still write the 500.
+            return _start_json(start_response, "500 Internal Server Error", err_body)
 
 
 def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
@@ -257,6 +268,13 @@ def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start
 
     if not isinstance(req_data, dict):
         return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "JSON body must be an object"})
+    # json.loads accepts NaN/Infinity, and 1e9999 becomes inf without
+    # parse_constant. Echoing that id through allow_nan=False crashed the
+    # vision 500 fallback (and reset, after the session was already cleared).
+    # Execute's peel and multipart paths reject the same values as 400.
+    req_id = req_data.get("id")
+    if isinstance(req_id, float) and not math.isfinite(req_id):
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid JSON"})
     return req_data, None
 
 
@@ -680,6 +698,15 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
         self._pending: dict[socket.socket, _PendingIngress] = {}
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
+        # TCPServer.__init__ always opens self.socket, even when
+        # bind_and_activate is False. This class binds its own sockets
+        # below and then replaces self.socket. The inherited fd used to
+        # stay open for the process lifetime.
+        inherited = self.socket
+        try:
+            inherited.close()
+        except OSError:
+            pass
 
         host, port = server_address
 
@@ -1090,7 +1117,13 @@ def run_server(settings: ComputeSettings) -> None:
 
         get_vision_pool(settings)
 
-    server = WSGIDualStackServer(settings.host, settings.port, max_threads=settings.threads)
+    try:
+        server = WSGIDualStackServer(settings.host, settings.port, max_threads=settings.threads)
+    except OSError as exc:
+        # A port already in use used to be a traceback from main. The
+        # operator needs the address and the OS reason.
+        print(f"Failed to bind {settings.host}:{settings.port}: {exc}", file=sys.stderr)
+        raise
     server.set_app(create_wsgi_app(settings))
 
     shutdown_signals_received = 0
@@ -1156,7 +1189,11 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
-    run_server(settings)
+    try:
+        run_server(settings)
+    except OSError:
+        # run_server already printed the bind failure.
+        return 1
     return 0
 
 

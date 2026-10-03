@@ -16,17 +16,33 @@ docker build -f compute_service/Dockerfile -t "$IMAGE" .
 # Do not use --network=none together with -p (published ports need a namespace).
 # --memory-swap equal to --memory disables extra swap (Docker's default is
 # about the same amount of swap again).
-exec docker run --rm \
-  --read-only \
-  --tmpfs /tmp:rw,size=64m,mode=1777 \
-  --memory="$MEMORY" \
-  --memory-swap="$MEMORY" \
-  --cpus="${PYTHON_COMPUTE_CPUS:-1}" \
-  --pids-limit=256 \
-  --security-opt no-new-privileges \
-  --cap-drop ALL \
-  -e PYTHON_COMPUTE_HOST=0.0.0.0 \
-  -p 127.0.0.1:8000:8000 \
-  ${PYTHON_COMPUTE_API_KEY:+-e PYTHON_COMPUTE_API_KEY="$PYTHON_COMPUTE_API_KEY"} \
-  ${PYTHON_COMPUTE_API_KEY_FILE:+-e PYTHON_COMPUTE_API_KEY_FILE="$PYTHON_COMPUTE_API_KEY_FILE"} \
-  "$IMAGE"
+# The key is one array element. An unquoted ${VAR:+...} expansion word-split
+# and globbed the secret into extra docker run arguments.
+docker_args=(
+  docker
+  run
+  --rm
+  --read-only
+  --tmpfs
+  /tmp:rw,size=64m,mode=1777
+  --memory="$MEMORY"
+  --memory-swap="$MEMORY"
+  --cpus="${PYTHON_COMPUTE_CPUS:-1}"
+  --pids-limit=256
+  --security-opt
+  no-new-privileges
+  --cap-drop
+  ALL
+  -e
+  PYTHON_COMPUTE_HOST=0.0.0.0
+  -p
+  127.0.0.1:8000:8000
+)
+if [[ -n "${PYTHON_COMPUTE_API_KEY:-}" ]]; then
+  docker_args+=(-e "PYTHON_COMPUTE_API_KEY=${PYTHON_COMPUTE_API_KEY}")
+fi
+if [[ -n "${PYTHON_COMPUTE_API_KEY_FILE:-}" ]]; then
+  docker_args+=(-e "PYTHON_COMPUTE_API_KEY_FILE=${PYTHON_COMPUTE_API_KEY_FILE}")
+fi
+docker_args+=("$IMAGE")
+exec "${docker_args[@]}"

@@ -244,6 +244,68 @@ class TestMultipartExecute:
         parts = parse_multipart_execute(body, content_type)
         assert parts.data_json == data
 
+    def test_rfc2046_empty_part_is_empty_bytes(self) -> None:
+        """headers\\r\\n\\r\\n--boundary is an empty part, not a malformed body.
+
+        The CRLF before --boundary belongs to the delimiter. On an empty
+        part that CRLF is also the blank line that ended the headers.
+        Treating it only as the delimiter used to reject the part.
+        """
+        nl = b"\r\n"
+        body = (
+            b"--wa-compute"
+            + nl
+            + b'Content-Disposition: form-data; name="meta"'
+            + nl
+            + nl
+            + b"{}"
+            + nl
+            + b"--wa-compute"
+            + nl
+            + b'Content-Disposition: form-data; name="code"'
+            + nl
+            + nl
+            + b"--wa-compute"
+            + nl
+            + b'Content-Disposition: form-data; name="init_script"'
+            + nl
+            + nl
+            + b"--wa-compute--"
+            + nl
+        )
+        parts = parse_multipart_execute(body, "multipart/form-data; boundary=wa-compute")
+        assert parts.code == b""
+        assert parts.init_script == b""
+        assert parts.req_id is None
+
+        lf = body.replace(b"\r\n", b"\n")
+        lf_parts = parse_multipart_execute(lf, "multipart/form-data; boundary=wa-compute")
+        assert lf_parts.code == b""
+        assert lf_parts.init_script == b""
+
+    def test_part_body_keeps_its_own_crlf(self) -> None:
+        """Two CRLFs before the boundary: the first belongs to the body."""
+        nl = b"\r\n"
+        body = (
+            b"--wa-compute"
+            + nl
+            + b'Content-Disposition: form-data; name="meta"'
+            + nl
+            + nl
+            + b"{}"
+            + nl
+            + b"--wa-compute"
+            + nl
+            + b'Content-Disposition: form-data; name="code"'
+            + nl
+            + nl
+            + b"\r\n\r\n"
+            + b"--wa-compute--"
+            + nl
+        )
+        parts = parse_multipart_execute(body, "multipart/form-data; boundary=wa-compute")
+        assert parts.code == b"\r\n"
+
     def test_unterminated_multipart_is_rejected(self) -> None:
         _content_type, body = _manual_multipart([("meta", b"{}"), ("code", b"result = 1")])
         close = b"--wa-compute--\r\n"
