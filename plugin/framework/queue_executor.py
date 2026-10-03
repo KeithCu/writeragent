@@ -16,7 +16,8 @@ until the main thread has executed the work item and stored the result.
 If AsyncCallback is unavailable off the main thread, execute() raises
 RuntimeError instead of calling the function on the caller. post() keeps a
 short pending list and flushes it once AsyncCallback exists; it does not
-run the callback on the background thread.
+run the callback on the background thread. A full list waits for a flush,
+then raises TimeoutError. It does not drop the callable.
 
 Concurrency: ``_claim_lock`` decides whether a timed-out waiter or the
 main thread owns a queued function. An item that has not started is
@@ -33,6 +34,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -55,6 +57,12 @@ _GRAMMAR_INFLIGHT_LOCK = threading.Lock()
 _GRAMMAR_INFLIGHT_CV = threading.Condition(_GRAMMAR_INFLIGHT_LOCK)
 _GRAMMAR_INFLIGHT_COUNT = 0
 _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("current_send_cancellation", default=None)
+
+# Posts queued before AsyncCallback exists. Past this, wait for a flush
+# instead of dropping the callable. Same pressure signal as the grammar gate:
+# wait, then TimeoutError.
+_PENDING_POST_CAP = 32
+_PENDING_POST_WAIT_SEC = 30.0
 
 # Drain ownership: re-export from async_drain_guard (single-owner VCL pump sentry).
 from plugin.framework.async_drain_guard import (
@@ -305,7 +313,9 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
     finally:
         with _GRAMMAR_INFLIGHT_CV:
             _GRAMMAR_INFLIGHT_COUNT = max(0, _GRAMMAR_INFLIGHT_COUNT - 1)
-            _GRAMMAR_INFLIGHT_CV.notify_all()
+            # One release frees one slot. notify_all woke every waiter; the
+            # extras rechecked the count and slept again.
+            _GRAMMAR_INFLIGHT_CV.notify()
 
 
 class _WorkItem:
@@ -342,7 +352,7 @@ class QueueExecutor:
     _callback_instance: Any
     _init_lock: threading.Lock
     _claim_lock: threading.Lock
-    _pending_lock: threading.Lock
+    _pending_lock: threading.Condition
     _initialized: bool
     _logged_missing_ctx: bool
     _logged_async_callback_failure: bool
@@ -360,7 +370,7 @@ class QueueExecutor:
         self._logged_missing_ctx = False
         self._logged_async_callback_failure = False
         self._pending_posts: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any], SendCancellation | None]] = []
-        self._pending_lock = threading.Lock()
+        self._pending_lock = threading.Condition()
 
     def set_context(self, ctx: Any) -> None:
         """Update or set the UNO component context (e.g. at bootstrap)."""
@@ -395,8 +405,8 @@ class QueueExecutor:
 
         Queue depth is the wrong signal: this executor is process-wide, so an
         unrelated item (or a unit test that left one behind) is not this
-        callback. ``post`` drops the callable when the pending list is full;
-        that drop leaves no trace here, so the caller can retry.
+        callback. A full pending list waits, then ``post`` raises; the
+        callable is not stored, so the caller can retry.
         """
         with self._claim_lock:
             # ``Queue.queue`` is the deque. The mutex is the one ``put`` /
@@ -408,6 +418,23 @@ class QueueExecutor:
         with self._pending_lock:
             return any(row[0] is fn for row in self._pending_posts)
 
+    def _await_pending_slot_locked(self) -> bool:
+        """True when the pending list can take one post. Caller holds the lock.
+
+        A full list used to return from ``post`` after a warning. Waiters
+        sleep on ``_pending_lock`` until a flush or cancel frees a slot.
+        """
+        deadline = time.monotonic() + _PENDING_POST_WAIT_SEC
+        while len(self._pending_posts) >= _PENDING_POST_CAP:
+            # Eval harness sets initialized with no service. Flush never runs.
+            if self._initialized and self._async_callback_service is None:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._pending_lock.wait(timeout=remaining)
+        return True
+
     def _flush_pending_posts(self) -> None:
         """Enqueue posts that arrived before AsyncCallback existed."""
         if not self._initialized or self._async_callback_service is None:
@@ -415,6 +442,8 @@ class QueueExecutor:
         with self._pending_lock:
             pending = self._pending_posts
             self._pending_posts = []
+            # Slots just opened. Waiters in post() are on this condition.
+            self._pending_lock.notify_all()
         for fn, args, kwargs, scope in pending:
             self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope)
 
@@ -653,6 +682,7 @@ class QueueExecutor:
                 self._pending_posts.clear()
             else:
                 self._pending_posts = [row for row in self._pending_posts if row[3] is not scope]
+            self._pending_lock.notify_all()
 
     def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: Any = _SCOPE_UNSET) -> _WorkItem:
         """Add work item to queue."""
@@ -799,10 +829,11 @@ class QueueExecutor:
         return self._wait_for_result(item, timeout)
 
     def post(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
-        """Post function to main thread (non-blocking).
+        """Post function to main thread without waiting for its result.
 
-        Unlike execute, does not block or return a result.
-        Used for UI updates from background threads.
+        Unlike execute, this does not return a result. Used for UI updates
+        from background threads. Before AsyncCallback exists, a full pending
+        list waits for a flush and then raises TimeoutError.
         """
         from plugin.framework.thread_guard import get_background_task_name
 
@@ -816,7 +847,7 @@ class QueueExecutor:
         # inline path; post() did not.
         # Why this change: inline only when _should_run_inline() and the caller
         # is not a background task. A tagged worker falls through to enqueue,
-        # or to the existing drop when AsyncCallback is missing. Untagged
+        # or to the pending list when AsyncCallback is missing. Untagged
         # threads still inline.
         if self._should_run_inline() and not bg_task:
             log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
@@ -831,13 +862,18 @@ class QueueExecutor:
                 return
             # What was wrong: post() returned after a warning, so icon and
             # status updates from before set_context never ran.
+            # What was wrong: at _PENDING_POST_CAP the callable was logged and
+            # dropped. The caller saw a normal return. How: the cap was a
+            # silent discard. Why: wait for a flush to free a slot (grammar
+            # gate / llm lane wait, then TimeoutError). If AsyncCallback is
+            # already known missing, waiting cannot help — fail immediately.
             with self._pending_lock:
-                if len(self._pending_posts) < 32:
-                    self._pending_posts.append((fn, args, kwargs, get_current_send_cancellation()))
-                    log.debug("marshal route=post_pending fn=%s %s", fn_label, tag)
-                    return
-            log.warning("marshal route=post_dropped (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, tag)
-            return
+                if not self._await_pending_slot_locked():
+                    log.warning("marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, tag)
+                    raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
+                self._pending_posts.append((fn, args, kwargs, get_current_send_cancellation()))
+                log.debug("marshal route=post_pending fn=%s %s", fn_label, tag)
+                return
 
         self._flush_pending_posts()
         log.debug("marshal route=post_enqueue fn=%s %s", fn_label, tag)
