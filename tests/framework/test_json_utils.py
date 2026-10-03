@@ -106,3 +106,31 @@ def test_safe_json_loads_repairs_bfnrt_latex_clash_commands() -> None:
     assert safe_json_loads('{"a": "\\alpha"}') == {"a": "\\alpha"}
     # A command that is already escaped must not be doubled again.
     assert safe_json_loads('{"a": "\\\\nabla"}') == {"a": "\\nabla"}
+
+
+def test_safe_json_loads_repairs_latex_clash_before_subscript_or_digit() -> None:
+    """A clash command followed by ``_`` or a digit keeps its backslash.
+
+    What was wrong: ``_LATEX_CLASH_RE`` ended in ``\\b``. ``_`` and digits
+    are word characters, so the repair never matched. json.loads then kept
+    the control escape and dropped the backslash (``\\beta_i`` became
+    backspace + ``eta_i``). A following letter (``\\alphax``) is still not
+    the command.
+    """
+    cases = {
+        r'{"x": "\alpha_1"}': "\\alpha_1",
+        r'{"x": "\beta_i"}': "\\beta_i",
+        r'{"x": "\theta_1"}': "\\theta_1",
+        r'{"x": "\nabla_1"}': "\\nabla_1",
+        r'{"x": "\frac_1"}': "\\frac_1",
+        r'{"x": "\times2"}': "\\times2",
+        r'{"x": "\alpha x"}': "\\alpha x",
+        r'{"x": "\alpha^2"}': "\\alpha^2",
+        r'{"x": "\frac{1}{2}"}': "\\frac{1}{2}",
+    }
+    for raw, expected in cases.items():
+        assert safe_json_loads(raw) == {"x": expected}
+    # Already escaped: one backslash in the value, not a second doubling.
+    assert safe_json_loads(r'{"x": "\\alpha_1"}') == {"x": "\\alpha_1"}
+    # ``\alphax`` is not ``\alpha``. literal_eval keeps the bell from ``\a``.
+    assert safe_json_loads(r'{"x": "\alphax"}') == {"x": "\alphax"}

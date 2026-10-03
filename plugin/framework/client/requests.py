@@ -46,8 +46,9 @@ def sync_request(
     Redirects (301/302/303/307/308) are followed on the shared transport,
     at most five hops. 301/302/303 switch a non-GET to GET and drop the
     body; 307/308 keep the method and body. A non-numeric or out-of-range
-    port is ``NetworkError``, including when it is in the URL before the
-    request is sent.
+    port, or an unmatched bracket (``http://[::1``, ``http://[]/v1``), is
+    ``NetworkError``, including when it is in the URL before the request
+    is sent.
     """
     if headers is None:
         headers = {}

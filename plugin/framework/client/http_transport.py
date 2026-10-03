@@ -143,6 +143,32 @@ def _bracket_ipv6_host(host: str) -> str:
     return f"[{host}]"
 
 
+def _invalid_url_error(url: str) -> NetworkError:
+    """``INVALID_URL`` for a URL that ``urlparse`` / ``urljoin`` reject.
+
+    Query strings stay out of the details. The same code as a bad port.
+    """
+    shown = (url or "").split("?", 1)[0]
+    return NetworkError("Invalid URL", code="INVALID_URL", details={"url": shown})
+
+
+def _parse_url(url: str) -> urllib.parse.ParseResult:
+    """``urlparse``, with an invalid bracket URL as ``NetworkError``.
+
+    What was wrong: ``urlparse`` raises ``ValueError`` ("Invalid IPv6 URL",
+    or an empty/illegal address inside ``[]``) for ``http://[::1``,
+    ``http://[::1]extra``, and ``http://[]/v1`` before ``_explicit_port`` or
+    ``_bracket_ipv6_host`` run. #1046 only wrapped ``ParseResult.port``, so
+    ``sync_request``, ``public_target``, and ``_endpoint_parts`` still leaked
+    the raw ``ValueError``.
+    Why: a bad bracket URL is an invalid URL, the same contract as a bad port.
+    """
+    try:
+        return urllib.parse.urlparse(url)
+    except ValueError as exc:
+        raise _invalid_url_error(url) from exc
+
+
 def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
     """Explicit URL port, or None when the URL omits one.
 
@@ -168,7 +194,7 @@ def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
 
 def _origin_key(url: str) -> tuple[str, str, int]:
     """``(scheme, host, port)`` with the default port filled in."""
-    parsed = urllib.parse.urlparse(url)
+    parsed = _parse_url(url)
     scheme = (parsed.scheme or "http").lower()
     host = (parsed.hostname or "").lower()
     port = _explicit_port(parsed)
@@ -197,15 +223,25 @@ def _apply_redirect(
 
     301/302/303 turn a non-GET/HEAD into GET and drop the body. 307/308 keep
     the method and body. Secret headers are dropped when the host changes.
-    Only http and https targets are followed. A bad port is ``NetworkError``.
+    Only http and https targets are followed. A bad port or an unmatched
+    bracket URL is ``NetworkError``.
     """
     if status not in _REDIRECT_STATUSES:
         return None
     loc = (location or "").strip()
     if not loc or any(ch in loc for ch in "\r\n\x00"):
         return None
-    joined = urllib.parse.urljoin(current_url, loc.replace(" ", "%20"))
-    parsed = urllib.parse.urlparse(joined)
+    # What was wrong: ``urljoin`` splits the URL the same way ``urlparse``
+    # does and raises ``ValueError`` for ``Location: http://[::1`` before
+    # ``_explicit_port`` runs. That skipped ``exchange``'s NetworkError catch.
+    # Why: the same invalid-URL contract as a bad port.
+    try:
+        joined = urllib.parse.urljoin(current_url, loc.replace(" ", "%20"))
+    except ValueError as exc:
+        # Relative Location: the bad brackets are on the current URL.
+        blame = loc if "://" in loc else current_url
+        raise _invalid_url_error(blame) from exc
+    parsed = _parse_url(joined)
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
         return None
@@ -235,7 +271,7 @@ def public_target(url_or_path: str) -> str:
     if "://" not in raw:
         path = raw.split("?", 1)[0]
         return path or "/"
-    parsed = urllib.parse.urlparse(raw)
+    parsed = _parse_url(raw)
     host = parsed.hostname or ""
     port_num = _explicit_port(parsed)
     port = f":{port_num}" if port_num else ""
@@ -302,7 +338,7 @@ def _response_bytes(response: Any) -> bytes:
 
 def origin_and_path(url: str) -> tuple[str, str]:
     """Split an absolute URL into the transport origin and the request target."""
-    parsed = urllib.parse.urlparse(url)
+    parsed = _parse_url(url)
     scheme = (parsed.scheme or "https").lower()
     host = _bracket_ipv6_host(parsed.hostname or "")
     port = _explicit_port(parsed)
@@ -343,7 +379,7 @@ class LlmHttpTransport:
 
     def _endpoint_parts(self) -> tuple[str, str, int]:
         endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
-        parsed = urllib.parse.urlparse(endpoint)
+        parsed = _parse_url(endpoint)
         scheme = parsed.scheme.lower()
         host = get_url_hostname(endpoint)
         port = _explicit_port(parsed) or (443 if scheme == "https" else 80)

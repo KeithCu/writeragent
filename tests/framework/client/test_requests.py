@@ -274,6 +274,34 @@ def test_sync_request_bad_port_is_network_error():
         assert raised_sync.value.code == "INVALID_URL"
 
 
+def test_sync_request_malformed_bracket_url_is_network_error():
+    """Unmatched brackets are ``INVALID_URL``, not a raw ``ValueError``.
+
+    What was wrong: ``urlparse`` raises ``ValueError`` for ``http://[::1``,
+    ``http://[::1]extra``, and ``http://[]/v1`` before ``_explicit_port``.
+    ``sync_request`` calls ``origin_and_path`` outside its try.
+    """
+    from plugin.framework.client.http_transport import _apply_redirect, origin_and_path, public_target
+
+    for url in ("http://[::1", "http://[::1]extra", "http://[]/v1"):
+        with pytest.raises(NetworkError) as raised:
+            origin_and_path(url)
+        assert raised.value.code == "INVALID_URL"
+        assert not isinstance(raised.value, ValueError)
+        with pytest.raises(NetworkError) as raised_public:
+            public_target(url)
+        assert raised_public.value.code == "INVALID_URL"
+        assert not isinstance(raised_public.value, ValueError)
+        with pytest.raises(NetworkError) as raised_sync:
+            sync_request(url, timeout=1)
+        assert raised_sync.value.code == "INVALID_URL"
+        assert not isinstance(raised_sync.value, ValueError)
+        with pytest.raises(NetworkError) as raised_redir:
+            _apply_redirect("GET", None, {}, "http://example.invalid/v1", 302, url)
+        assert raised_redir.value.code == "INVALID_URL"
+        assert not isinstance(raised_redir.value, ValueError)
+
+
 def test_sync_request_truncated_json_is_not_repaired():
     from plugin.framework.json_utils import safe_json_loads
 
