@@ -755,6 +755,7 @@ def test_tts_short_answers_absent_when_tts_off():
     assert _TTS_SHORT_INSTRUCTION not in prompt
     assert _TTS_SHORT_REMINDER not in prompt
     assert "house style" in prompt
+    assert "<<<profile>>>" in prompt
 
 
 def test_tts_short_answers_absent_when_checkbox_off():
@@ -788,6 +789,7 @@ def test_user_memory_long_blob_is_truncated_short_is_unchanged():
 
     long_prompt = _prompt(long_mem)
     assert "[USER PROFILE / MEMORY]" in long_prompt
+    assert "<<<profile>>>" in long_prompt
     assert long_mem not in long_prompt
     assert "U" * CHAT_DOCUMENT_CONTEXT_MAX_CHARS in long_prompt
     assert _INJECTED_BLOB_TRUNCATION_MARKER in long_prompt

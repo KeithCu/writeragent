@@ -218,6 +218,20 @@ def test_update_style_schema_emits_no_additional_properties_keyword():
     assert "property_updates" in schema["function"]["parameters"]["properties"]
 
 
+def test_coerce_call_args_wraps_array_range_and_formula_values():
+    from plugin.framework.tool_schema import coerce_call_args
+
+    props = {
+        "range": {"type": "array", "items": {"type": "string"}},
+        "values": {"type": "string"},
+    }
+    out = coerce_call_args("write_formula_range", props, {"range": "A1", "values": ["a", 1]})
+    assert out["range"] == ["A1"]
+    assert out["values"] == '["a", 1]'
+    plain = coerce_call_args("other", {"range": {"type": "string"}}, {"range": "A1"})
+    assert plain["range"] == "A1"
+
+
 def test_write_formula_range_mcp_widens_values_to_string_or_array():
     """#374 Bug 2: MCP hosts reject native arrays when schema is string-only."""
     from plugin.calc.cells import WriteCellRange

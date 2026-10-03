@@ -80,7 +80,9 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
         return "openrouter"
     if _host_is("together.xyz"):
         return "together"
-    if _host_is("ollama") or (host in ("localhost", "127.0.0.1") and port == 11434):
+    # LAN addresses (``::1``, RFC1918) on the Ollama port are the app.
+    # A public host on 11434 stays custom. Hostname equality, not a substring.
+    if _host_is("ollama") or (is_local_host(host) and port == 11434):
         return "ollama"
     if _host_is("api.mistral.ai"):
         return "mistral"
@@ -100,7 +102,7 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
         return "anthropic"
     if _host_is("generativelanguage.googleapis.com"):
         return "google"
-    if host in ("localhost", "127.0.0.1") and port == 1234:
+    if is_local_host(host) and port == 1234:
         return "lmstudio"
     if _host_is("z.ai"):
         return "zai"
@@ -166,4 +168,7 @@ def is_openwebui_endpoint(endpoint: str, explicit_is_openwebui: bool | None = Fa
     if not endpoint:
         return False
     host = get_url_hostname(normalize_endpoint_url(endpoint)).lower()
-    return "openwebui" in host or "open-webui" in host
+    # A label, not a substring. ``notopenwebui.example`` is not this product.
+    # ``chat.openwebui.example`` still is.
+    labels = [part for part in host.split(".") if part]
+    return "openwebui" in labels or "open-webui" in labels

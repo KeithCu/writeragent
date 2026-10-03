@@ -398,6 +398,21 @@ class TestExecute:
         assert result["status"] == "ok"
         assert result["range"] == "A1:D20"
 
+    def test_unknown_schema_type_name_is_rejected(self):
+        class WeirdType(ToolBase):
+            name = "weird_type"
+            description = "type str is not JSON Schema"
+            parameters = {"type": "object", "properties": {"arg1": {"type": "str"}}, "required": ["arg1"]}
+            uno_services = None
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok"}
+
+        reg = _make_registry(WeirdType())
+        result = reg.execute("weird_type", _make_ctx(), arg1="x")
+        assert result["status"] == "error"
+        assert result["code"] == "VALIDATION_ERROR"
+
     def test_string_range_wraps_when_schema_type_lists_array(self):
         class ListedRangeTool(ToolBase):
             name = "listed_range_tool"

@@ -66,13 +66,13 @@ def get_lo_locale(ctx: Any | None = None) -> str:
     try:
         import uno
 
-        if ctx is None:
-            from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.thread_guard import on_main_thread
 
-            # Off-main (e.g. ``_()`` before init_i18n): do not start a new UNO
-            # infection via uno.getComponentContext(); English catalog is fine.
-            if not on_main_thread():
-                return _DEFAULT_LOCALE
+        # Off-main, even with a passed ctx: do not touch configuration UNO.
+        # English catalog is fine until the UI thread asks again.
+        if not on_main_thread():
+            return _DEFAULT_LOCALE
+        if ctx is None:
             from plugin.framework.uno_context import get_ctx
 
             ctx = get_ctx()

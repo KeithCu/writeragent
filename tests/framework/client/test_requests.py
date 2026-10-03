@@ -62,7 +62,8 @@ def test_sync_request_http_error_redacts_authorization_key():
 
 
 def test_sync_request_retries_429_then_succeeds():
-    busy = HTTPError("https://api.example/v1/models", 429, "Too Many Requests", hdrs=None, fp=BytesIO(b"busy"))
+    body = BytesIO(b"busy")
+    busy = HTTPError("https://api.example/v1/models", 429, "Too Many Requests", hdrs=None, fp=body)
     ok = MagicMock()
     ok.getcode.return_value = 200
     ok.read.return_value = b'{"data":[]}'
@@ -70,7 +71,11 @@ def test_sync_request_retries_429_then_succeeds():
     ok.__exit__.return_value = False
     with (
         patch("plugin.framework.client.requests.wait_abortable", return_value=True),
+        patch("plugin.framework.client.requests.remember_host_gap") as remember,
         patch("plugin.framework.client.requests.urlopen", side_effect=[busy, ok]),
     ):
         result = sync_request("https://api.example/v1/models", timeout=1)
     assert result == {"data": []}
+    remember.assert_called_once()
+    assert remember.call_args[0][0] == "api.example"
+    assert body.closed

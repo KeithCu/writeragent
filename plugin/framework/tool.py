@@ -31,7 +31,6 @@ dropped). Python cannot kill a thread cleanly. Cooperative cancel is
 
 from __future__ import annotations
 
-import json
 import logging
 import queue
 from abc import ABC, abstractmethod
@@ -43,7 +42,7 @@ from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
-from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema
+from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, coerce_call_args as coerce_call_args, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema
 
 _log = logging.getLogger(__name__)
 log = logging.getLogger("writeragent.tools")
@@ -191,7 +190,8 @@ class ToolContext:
 def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
     """True when *value* fits a JSON Schema ``type`` (string or union list).
 
-    Unknown or missing types are accepted. Unions accept any listed member.
+    A missing type is accepted. An unknown name such as ``"str"`` matches
+    nothing. Unions accept any listed JSON Schema member.
     """
     if schema_type is None:
         return True
@@ -211,8 +211,7 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
             return True
         if one == "null" and value is None:
             return True
-        if one not in ("string", "integer", "number", "boolean", "array", "object", "null"):
-            return True
+        # Unknown names (``"str"``) used to accept any value. They match nothing.
     return False
 
 
@@ -486,13 +485,6 @@ def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services
             return False
 
     return False
-
-
-def _schema_type_includes_array(type_value: Any) -> bool:
-    """True when a JSON-schema ``type`` is ``array`` or a list that includes it."""
-    if type_value == "array":
-        return True
-    return isinstance(type_value, list) and "array" in type_value
 
 
 class ToolRegistry:
@@ -819,35 +811,7 @@ class ToolRegistry:
                 # still fails validation.
                 kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required_names}
 
-            # MCP widens array ``range`` to string|array. Several Calc tools index
-            # ``[0]``, so a bare string would become its first character.
-            # Wrapping every top-level string did that to non-array ``range`` too
-            # (a string schema became a one-element list before validation).
-            # Only wrap when this property's type is array, or a list of types
-            # that includes array. Nested ``range`` fields are not walked.
-            range_schema = props.get("range") if isinstance(props, dict) else None
-            range_type = range_schema.get("type") if isinstance(range_schema, dict) else None
-            if isinstance(kwargs.get("range"), str) and _schema_type_includes_array(range_type):
-                kwargs = dict(kwargs)
-                kwargs["range"] = [kwargs["range"]]
-
-            # What was wrong: MCP hosts send write_formula_range values as a
-            # native JSON array (to_mcp_schema widens that one field to
-            # string|array). How: validate() uses the source schema, which
-            # stays type string so Gemini/Groq never see a union, so the array
-            # failed with "Invalid type for values" before execute could
-            # json.dumps it. Why: coerce list/number here, same place range
-            # strings are wrapped. OpenAI schemas stay string-only.
-            if tool.name == "write_formula_range":
-                fov = kwargs.get("values")
-                coerced: str | None = None
-                if isinstance(fov, list):
-                    coerced = json.dumps(fov) if fov else ""
-                elif isinstance(fov, (int, float)) and not isinstance(fov, bool):
-                    coerced = str(fov)
-                if coerced is not None:
-                    kwargs = dict(kwargs)
-                    kwargs["values"] = coerced
+            kwargs = coerce_call_args(tool.name, props, kwargs)
 
             # Common context for all error details
             common_details = {"tool_name": tool_name}

@@ -131,7 +131,7 @@ When Calc evaluates an add-in formula like `=PY("1+1")` or `=PROMPT(...)` via a 
 - **Wrapped Entry Roots**:
   1. [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py): `execute_python_addin` enters `with sync_host_dispatch():`. Public add-in entry points `py()` and `python()` forward directly to `execute_python_addin`.
   2. [`plugin/calc/prompt_function.py`](../../plugin/calc/prompt_function.py): `execute_prompt_addin` enters `with sync_host_dispatch():`. Public add-in entry point `prompt()` forwards directly to `execute_prompt_addin`.
-  3. [`plugin/framework/thread_guard.py`](../../plugin/framework/thread_guard.py): `_notify_thread_violation` enters `with sync_host_dispatch():`.
+  3. [`plugin/framework/thread_guard.py`](../../plugin/framework/thread_guard.py): `_notify_thread_violation` logs and posts a message box on the UI thread. It does **not** enter `sync_host_dispatch()` — a blocking marshal from the violation path deadlocks when the UI thread is already waiting (#402).
 - **Why UI Listeners Are NOT Wrapped**: Standard UNO listeners (e.g. `actionPerformed` in `uno_listeners.py`) execute on LibreOffice's main UI thread during interactive user operations. Wrapping them would unnecessarily tag normal UI thread execution as host dispatches.
 - **Refusal Mechanism**: Inside [`QueueExecutor.execute()`](../../plugin/framework/queue_executor.py), if `in_sync_host_dispatch()` is True on a non-main thread, execution is **refused immediately** with:
   ```

@@ -317,10 +317,17 @@ class _UnoThreadGuardProxy:
 
     # --- Common protocols used by enumeration walks etc. (explicit methods are covered by __getattr__) ---
     def __iter__(self) -> Iterator[Any]:  # type: ignore[override]
+        # What was wrong: the assert ran once here, then next() walked the
+        # raw UNO iterator with no check. Why: assert on every yield.
         assert_main_thread("UNO iter")
         it = iter(self._target)
-        # Yield wrapped items lazily
-        return (_wrap_uno(x) for x in it)
+
+        def _guarded() -> Iterator[Any]:
+            for item in it:
+                assert_main_thread("UNO iter")
+                yield _wrap_uno(item)
+
+        return _guarded()
 
     def __bool__(self) -> bool:
         assert_main_thread("UNO bool")

@@ -135,6 +135,22 @@ def test_background_decorator_warns_on_main_thread(monkeypatch):
     assert "@background fn" in warn.call_args[0][0]
 
 
+def test_proxy_iter_asserts_on_each_next():
+    real = [object(), object()]
+    prox = tg._UnoThreadGuardProxy(real)
+    calls = {"n": 0}
+
+    def _count(msg: str = "") -> None:
+        calls["n"] += 1
+
+    with patch.object(tg, "assert_main_thread", side_effect=_count):
+        iterator = iter(prox)
+        after_iter = calls["n"]
+        next(iterator)
+        after_next = calls["n"]
+    assert after_next > after_iter
+
+
 def test_proxy_wraps_pyuno_and_asserts_on_access(monkeypatch):
     # Directly exercise the proxy class (its behaviors); _wrap decision is tested below.
     real = _make_pyuno_like()

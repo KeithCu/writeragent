@@ -538,6 +538,19 @@ class TestFilterFetchedModels:
         assert ("glm-5.2") not in (out)
         assert ("gpt-4o") not in (out)
 
+    def test_text_filter_keeps_vision_and_coder_chat_models(self):
+        from plugin.framework.client.model_fetcher import _filter_fetched_models
+
+        models = ["qwen2.5-coder", "llava", "gpt-4-vision", "whisper-1", "text-embedding-3-small", "deepseek-coder", "gpt-4o"]
+        out = _filter_fetched_models(models, "text")
+        assert "qwen2.5-coder" in out
+        assert "llava" in out
+        assert "gpt-4-vision" in out
+        assert "gpt-4o" in out
+        assert "whisper-1" not in out
+        assert "text-embedding-3-small" not in out
+        assert "deepseek-coder" not in out
+
 
 class TestV1ContextHarvest:
     """Harvest context_length / context_window from /v1/models; lookup never HTTP."""

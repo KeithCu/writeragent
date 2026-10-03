@@ -20,6 +20,8 @@ def test_trusts_deck_hint_when_parent_is_slightly_smaller():
 def test_does_not_wedge_to_minimal_hint():
     # Chat live: nWidth 180 (getMinimalWidth) parent 312 wedged the panel.
     assert sidebar_column_width(180, 312) == 312
+    # 1115 is a stuck ChildFrame, not a column parent.
+    assert sidebar_column_width(180, 1115) == 180
 
 
 def test_shrink_does_not_keep_stale_wide_parent():

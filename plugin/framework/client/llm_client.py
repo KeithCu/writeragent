@@ -470,8 +470,7 @@ class LlmClient:
         ``wait_abortable`` returns early only when its checker is true.
         Streaming and sync tool requests passed the caller's checker alone, so
         ``stop()`` (which only sets ``_stopped``) slept out a backoff of up to
-        ``RETRY_MAX_DELAY_SEC`` when the caller passed no checker. Image/STT
-        ``_request_json`` already combined the latch; these loops did not.
+        ``RETRY_MAX_DELAY_SEC`` when the caller passed no checker.
         """
 
         def _aborted() -> bool:
@@ -588,39 +587,79 @@ class LlmClient:
         shim = self._get_shim()
         return shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
 
-    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str]) -> Any:
+    def _exchange_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None, retry_log_message: str, on_retry: Any = None, wrap_unexpected: bool = False, failure_log: str = "JSON request failed") -> tuple[str, Any]:
+        """One non-streaming JSON exchange with the shared retry budget.
+
+        Returns ``("ok", parsed)`` or ``("stop", None)``. The stream loop stays
+        separate: it tracks ``emitted_any`` and parses SSE.
+
+        What was wrong: ``_request_json`` and the sync half of
+        ``request_with_tools`` each owned this loop. Image and speech only
+        watched ``self._stopped``, so a caller's stop checker slept out a 429
+        and never got a retry status. A connection error after ``read()``
+        had already returned the body re-posted the request.
+        Why: one loop. Stop is a result the caller maps (raise vs stop dict).
+        Bytes already in hand are not sent again.
+        """
+        abort_checker = self._abort_checker(stop_checker)
+        if self._stopped or (stop_checker and stop_checker()):
+            self._stopped = True
+            self._close_connection()
+            return "stop", None
+        sends_left = RETRY_MAX_ATTEMPTS
+        wait_index = 0
+        while True:
+            body_in_hand = False
+            try:
+                if self._stopped or (stop_checker and stop_checker()):
+                    self._stopped = True
+                    self._close_connection()
+                    return "stop", None
+                action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=abort_checker, status_callback=status_callback)
+                if action == "stop":
+                    return "stop", None
+                if action == "retry":
+                    if on_retry is not None:
+                        on_retry()
+                    continue
+                raw = response.read()
+                body_in_hand = True
+                self._close_if_connection_close(response)
+                return "ok", _parse_provider_envelope(raw, path)
+            except CONNECTION_ERRORS as e:
+                if body_in_hand:
+                    raise NetworkError(format_error_message(e), code="CONNECTION_LOST", details={"url": path}) from e
+                action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message=retry_log_message)
+                if action == "stop":
+                    self._stopped = True
+                    return "stop", None
+                continue
+            except NetworkError as e:
+                if getattr(e, "code", None) == "STOPPED":
+                    self._stopped = True
+                    return "stop", None
+                raise
+            except Exception as e:
+                if not wrap_unexpected:
+                    raise
+                err_msg = format_error_message(e)
+                log.exception(failure_log)
+                raise NetworkError(err_msg, details={"url": path}) from e
+
+    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Blocking JSON call on the persistent transport.
 
         Image and speech used ``sync_request``, which ignored Stop and 429/503
         backoff. This shares the chat transport so ``stop()`` closes the socket.
-        Retry waits read the same latch: ``wait_abortable`` only returns early
-        when a checker is set, so a 429 used to sleep out after Stop.
+        ``stop_checker`` / ``status_callback`` match the sync chat path: a 429
+        wait ends when the caller stops, and the sidebar sees the retry line.
         """
-        def _stopped() -> bool:
-            return self._stopped
-
-        if self._stopped:
+        action, parsed = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying JSON request on fresh connection")
+        if action == "stop":
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-        sends_left = RETRY_MAX_ATTEMPTS
-        wait_index = 0
-        while True:
-            try:
-                if self._stopped:
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=_stopped, status_callback=None)
-                if action == "stop":
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                if action == "retry":
-                    continue
-                raw = response.read().decode("utf-8", errors="replace")
-                self._close_if_connection_close(response)
-                return _parse_provider_envelope(raw, path)
-            except CONNECTION_ERRORS as e:
-                action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=_stopped, status_callback=None, retry_log_message="Retrying JSON request on fresh connection")
-                if action == "stop":
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED") from e
+        return parsed
 
-    def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> Any:
+    def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
         method, path, body, headers = self.make_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
@@ -638,14 +677,14 @@ class LlmClient:
 
         # Image generate/edit used sync_request, which Stop cannot abort and
         # which does not retry 429/503. The persistent transport does both.
-        res = self._request_json(method, path, body, headers)
+        res = self._request_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
         if not res:
             return []
 
         shim = self._get_shim()
         return shim.parse_image_responses(res)
 
-    def transcribe_audio(self, wav_path: str, model: str | None = None) -> str:
+    def transcribe_audio(self, wav_path: str, model: str | None = None, *, stop_checker: Any = None, status_callback: Any = None) -> str:
         """Transcribe audio via POST /v1/audio/transcriptions (or chat if STT model supports input_audio).
 
         STT-only models use the transcription endpoint only; chat+audio STT models may
@@ -672,7 +711,7 @@ class LlmClient:
                 messages = [{"role": "user", "content": [{"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."}, {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}}]}]
 
                 # Using synchronous chat completion with model override
-                return self.chat_completion_sync(messages, max_tokens=16384, model=model_name)
+                return self.chat_completion_sync(messages, max_tokens=16384, model=model_name, stop_checker=stop_checker)
             except AuthError:
                 raise
             except NetworkError as e:
@@ -719,7 +758,7 @@ class LlmClient:
         log.debug("STT Model: %s" % model_name)
 
         # Same transport as chat so Stop closes the socket and 429/503 retries.
-        res = self._request_json("POST", api_path + "/audio/transcriptions", body_bytes, headers)
+        res = self._request_json("POST", api_path + "/audio/transcriptions", body_bytes, headers, stop_checker=stop_checker, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
     def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
@@ -1084,45 +1123,16 @@ class LlmClient:
                 self._stopped = True
                 self._close_connection()
                 return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-            result = None
-            sends_left = RETRY_MAX_ATTEMPTS
-            wait_index = 0
-            abort_checker = self._abort_checker(stop_checker)
-            while True:
+            def _log_outgoing_on_retry() -> None:
                 try:
-                    if self._stopped or (stop_checker and stop_checker()):
-                        self._stopped = True
-                        self._close_connection()
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=abort_checker, status_callback=status_callback)
-                    if action == "stop":
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    if action == "retry":
-                        try:
-                            redacted_msgs = redact_sensitive_payload_for_log(messages)
-                            log.debug("request_with_tools outgoing messages (redacted): %s", json.dumps(redacted_msgs, indent=2, ensure_ascii=False))
-                        except Exception as log_exc:
-                            log.warning("Could not log redacted outgoing messages: %s", log_exc)
-                        continue
-                    raw = response.read()
-                    self._close_if_connection_close(response)
-                    result = _parse_provider_envelope(raw, path)
-                    break
-                except CONNECTION_ERRORS as e:
-                    action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection")
-                    if action == "stop":
-                        self._stopped = True
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    continue
-                except NetworkError as e:
-                    if getattr(e, "code", None) == "STOPPED":
-                        self._stopped = True
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    raise
-                except Exception as e:
-                    err_msg = format_error_message(e)
-                    log.exception("request_with_tools failed")
-                    raise NetworkError(err_msg, details={"url": path}) from e
+                    redacted_msgs = redact_sensitive_payload_for_log(messages)
+                    log.debug("request_with_tools outgoing messages (redacted): %s", json.dumps(redacted_msgs, indent=2, ensure_ascii=False))
+                except Exception as log_exc:
+                    log.warning("Could not log redacted outgoing messages: %s", log_exc)
+
+            action, result = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection", on_retry=_log_outgoing_on_retry, wrap_unexpected=True, failure_log="request_with_tools failed")
+            if action == "stop":
+                return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
 
             log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 

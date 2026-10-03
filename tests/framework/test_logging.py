@@ -450,6 +450,12 @@ class TestAgentLog:
         assert "sk-live" not in shown
         assert "<redacted>" in shown
         assert "cats" in shown
+        nested = format_tool_call_for_display(
+            "fetch",
+            {"api_keys_by_endpoint": {"https://api.example": "sk-nested"}, "x-api-key": "sk-header"},
+        )
+        assert "sk-nested" not in nested
+        assert "sk-header" not in nested
 
     def test_agent_log_noop_when_disabled(self):
         import plugin.framework.logging as logging_mod
@@ -585,6 +591,7 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
 
     raw = {
         "api_keys_by_endpoint": {"https://api.example": "sk-live", "count": 1},
+        "x-api-key": "sk-header",
         "token": "abc",
         "Secret": "xyz",
         "max_tokens": 128,
@@ -593,6 +600,7 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
     out = redact_sensitive_payload_for_log(raw)
     assert out["api_keys_by_endpoint"]["https://api.example"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["api_keys_by_endpoint"]["count"] == 1
+    assert out["x-api-key"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["token"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["Secret"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["max_tokens"] == 128

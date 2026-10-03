@@ -17,20 +17,62 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """OpenAI and MCP JSON Schema conversion for ToolBase instances.
 
-Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. That path
-wraps a string ``range`` as ``[str]`` before validation; these converters
-only advertise schemas.
+Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. ``coerce_call_args``
+is the one place that aligns MCP-widened arguments with the source schema
+before ``validate``.
 """
 
 from __future__ import annotations
 
 import copy
+import json
 from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
 
 
 _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
+
+
+def _schema_type_includes_array(type_value: Any) -> bool:
+    """True when a JSON-schema ``type`` is ``array`` or a list that includes it."""
+    if type_value == "array":
+        return True
+    return isinstance(type_value, list) and "array" in type_value
+
+
+def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Align a call with the source schema before ``validate``.
+
+    MCP widens array ``range`` to string|array. Several Calc tools index
+    ``[0]``, so a bare string would become its first character. Wrap only
+    when this property's type includes array. Nested ``range`` fields are
+    not walked.
+
+    ``write_formula_range`` values stay type string on the source schema
+    (Gemini/Groq must not see a union) while MCP sends a native array.
+    A list or number becomes the string ``execute`` already json-encodes.
+    """
+    if not isinstance(kwargs, dict):
+        return kwargs
+    out = kwargs
+    range_schema = props.get("range") if isinstance(props, dict) else None
+    range_type = range_schema.get("type") if isinstance(range_schema, dict) else None
+    if isinstance(out.get("range"), str) and _schema_type_includes_array(range_type):
+        out = dict(out)
+        out["range"] = [out["range"]]
+    if tool_name == "write_formula_range":
+        fov = out.get("values")
+        coerced: str | None = None
+        if isinstance(fov, list):
+            coerced = json.dumps(fov) if fov else ""
+        elif isinstance(fov, (int, float)) and not isinstance(fov, bool):
+            coerced = str(fov)
+        if coerced is not None:
+            if out is kwargs:
+                out = dict(out)
+            out["values"] = coerced
+    return out
 
 
 @deal.pre(lambda types: isinstance(types, list))

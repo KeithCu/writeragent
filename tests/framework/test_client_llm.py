@@ -1092,6 +1092,94 @@ def test_image_completion_passes_client_timeout(client):
         assert mock_sync.called
 
 
+def test_image_completion_http_200_error_raises(client):
+    resp = create_mock_http_response(200, json_data={"error": {"message": "nope"}})
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        with pytest.raises(NetworkError) as err:
+            client.image_completion("Draw a cat")
+    assert err.value.code == "STREAM_ERROR"
+    assert mock_https.call_count == 1
+
+
+def test_image_completion_stop_during_backoff(client):
+    """A caller's stop checker ends a 429 wait and the sidebar sees the retry line."""
+    busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
+    statuses: list[str] = []
+    armed = {"stop": False}
+
+    def _checker() -> bool:
+        return armed["stop"]
+
+    def _wait(delay, checker):
+        armed["stop"] = True
+        return not bool(checker and checker())
+
+    with (
+        patch("plugin.framework.client.llm_client.wait_abortable", side_effect=_wait),
+        patch("http.client.HTTPSConnection") as mock_https,
+    ):
+        _https_steps(mock_https, busy)
+        with pytest.raises(NetworkError) as err:
+            client.image_completion("Draw a cat", stop_checker=_checker, status_callback=statuses.append)
+    assert err.value.code == "STOPPED"
+    assert mock_https.call_count == 1
+    assert len(statuses) == 1
+    assert "retrying" in statuses[0].lower()
+
+
+def test_sync_request_with_tools_stop_during_backoff_returns_stop_dict(client):
+    """Sync Stop stays a finish_reason dict. Image/STT raise STOPPED instead."""
+    busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
+    armed = {"stop": False}
+
+    def _checker() -> bool:
+        return armed["stop"]
+
+    def _wait(delay, checker):
+        armed["stop"] = True
+        return not bool(checker and checker())
+
+    with (
+        patch("plugin.framework.client.llm_client.wait_abortable", side_effect=_wait),
+        patch("http.client.HTTPSConnection") as mock_https,
+    ):
+        _https_steps(mock_https, busy)
+        result = client.request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            stream=False,
+            stop_checker=_checker,
+        )
+    assert result["finish_reason"] == "stop"
+    assert result["content"] == ""
+    assert mock_https.call_count == 1
+
+
+def test_sync_json_body_already_read_is_not_reposted(client):
+    """A connection error after read() returned must not send the POST again."""
+    ok = MagicMock()
+    ok.status = 200
+    ok.read.return_value = json.dumps(
+        {"choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    ).encode("utf-8")
+
+    def _getheader(name, default=None):
+        raise ConnectionResetError("reset after body")
+
+    ok.getheader.side_effect = _getheader
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, ok)
+        with pytest.raises(NetworkError) as err:
+            client.request_with_tools(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                stream=False,
+            )
+    assert err.value.code == "CONNECTION_LOST"
+    assert mock_https.call_count == 1
+
+
 def test_openrouter_shim_image(client):
     client.config["endpoint"] = "https://openrouter.ai/api"
     with (

@@ -206,11 +206,24 @@ class EventBus:
                 self._subscribers[event] = [(cb, w) for cb, w in subs if cb is not ref]
 
 
+_event_bus_lock = threading.Lock()
+
+
 def get_event_bus() -> EventBus:
-    """Return the true singleton EventBus across all LO import contexts."""
-    if not hasattr(sys, "_writeragent_event_bus"):
-        setattr(sys, "_writeragent_event_bus", EventBus())
-    return getattr(sys, "_writeragent_event_bus")
+    """Return the true singleton EventBus across all LO import contexts.
+
+    The lock covers create only, not ``emit``.
+    """
+    existing = getattr(sys, "_writeragent_event_bus", None)
+    if isinstance(existing, EventBus):
+        return existing
+    with _event_bus_lock:
+        existing = getattr(sys, "_writeragent_event_bus", None)
+        if isinstance(existing, EventBus):
+            return existing
+        bus = EventBus()
+        setattr(sys, "_writeragent_event_bus", bus)
+        return bus
 
 
 global_event_bus = get_event_bus()

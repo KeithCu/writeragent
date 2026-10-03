@@ -543,8 +543,48 @@ def test_product_display_name_follows_extension_id():
     set_package_extension_id(EXTENSION_ID_WRITERAGENT)
     try:
         assert product_display_name() == "WriterAgent"
+        with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
+            assert product_display_name() == "LibreHarper"
     finally:
         reset_package_extension_id_for_tests()
+
+
+def test_get_desktop_returns_none_without_service_manager():
+    from plugin.framework.uno_context import get_desktop
+
+    ctx = MagicMock()
+    ctx.ServiceManager = None
+    ctx.getServiceManager.return_value = None
+    with (
+        patch.object(sys, "argv", ["soffice"]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+    ):
+        assert get_desktop(ctx) is None
+
+
+def test_get_extension_path_rejects_non_file_url():
+    from plugin.framework.uno_context import get_extension_path
+
+    with patch("plugin.framework.uno_context.get_extension_url", return_value="vnd.sun.star.extension://org.writeragent"):
+        assert get_extension_path() == ""
+
+
+def test_leave_query_rolls_back_half_attached_pair():
+    from plugin.framework import uno_context as uc
+
+    control = MagicMock()
+    mouse = object()
+    focus = object()
+    uc._stream_focus_trackers.append(mouse)
+    uc._stream_focus_trackers.append(focus)
+    try:
+        uc._rollback_leave_query_attach(control, mouse, focus)
+        control.removeMouseListener.assert_called_once_with(mouse)
+        control.removeFocusListener.assert_called_once_with(focus)
+        assert mouse not in uc._stream_focus_trackers
+        assert focus not in uc._stream_focus_trackers
+    finally:
+        uc._stream_focus_trackers.clear()
 
 
 def test_get_desktop_skips_create_on_uno_bin_helper():

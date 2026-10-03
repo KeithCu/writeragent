@@ -87,7 +87,7 @@ LOG_REDACT_SIGNATURE_PLACEHOLDER = "<signature truncated, length=%d>"
 # Image-model reasoning_details[].signature blobs are thousands of chars; keep short values readable.
 LOG_REDACT_SIGNATURE_MIN_LEN = 256
 # Exact casefolded names, not substrings (max_tokens must survive).
-_SECRET_LOG_KEYS = frozenset({"api_key", "authorization", "bearer", "password", "token", "secret"})
+_SECRET_LOG_KEYS = frozenset({"api_key", "api-key", "x-api-key", "authorization", "bearer", "password", "token", "secret"})
 _API_KEYS_BY_ENDPOINT = "api_keys_by_endpoint"
 LOG_REDACT_SECRET_PLACEHOLDER = "<redacted>"
 
@@ -487,11 +487,18 @@ def log_exception(ex: BaseException, context: str = "WriterAgent") -> None:
         pass
 
 
+def _redacted_display_args(args: Any) -> Any:
+    """Same secret walk as the debug log, before the display truncates reprs."""
+    if isinstance(args, dict):
+        return redact_sensitive_payload_for_log(args)
+    return args
+
+
 def format_tool_call_for_display(tool: Any, args: Any, method: Any = None) -> str:
     """Format an MCP tool call or generic method call for UI display, summarizing long arguments."""
     try:
         if tool:
-            args_dict = args or {}
+            args_dict = _redacted_display_args(args or {})
             arg_vals = []
             if isinstance(args_dict, dict):
                 for k, v in args_dict.items():
@@ -542,7 +549,7 @@ def format_tool_result_for_display(tool: Any, result: Any, args: Any = None) -> 
 
         args_str = ""
         if args:
-            args_dict = args if isinstance(args, dict) else {}
+            args_dict = _redacted_display_args(args) if isinstance(args, dict) else {}
             arg_vals = []
             for k, v in args_dict.items():
                 if isinstance(k, str) and k.casefold() in _SECRET_LOG_KEYS and isinstance(v, str):

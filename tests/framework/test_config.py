@@ -574,6 +574,30 @@ class TestConfigSyncFileIO:
         assert (data.get('request_timeout')) == (60)
         assert (data.get('text_model')) == ('custom-model')
 
+    def test_get_config_nested_dict_does_not_alias_cache(self):
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"openrouter_chat_extra": {"provider": {"order": ["a"]}}}, f)
+        reset_config_for_tests()
+        first = get_config("openrouter_chat_extra")
+        first["provider"]["order"].append("b")
+        second = get_config("openrouter_chat_extra")
+        assert second["provider"]["order"] == ["a"]
+
+    def test_get_config_keeps_last_good_cache_when_json_is_unrepairable(self):
+        import plugin.framework.config as config_mod
+
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"text_model": "kept-model"}, f)
+        reset_config_for_tests()
+        assert get_config("text_model") == "kept-model"
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            f.write("{ not json")
+        config_mod._cache.mtime_last_checked = 0
+        with patch("plugin.framework.config._try_repair_config_dict", return_value=None):
+            assert get_config("text_model") == "kept-model"
+        with open(self.config_path, encoding="utf-8") as f:
+            assert f.read().startswith("{ not")
+
     def test_set_config_does_not_replace_unrepairable_json(self):
         original = "{ this is not json, but keep me"
         with open(self.config_path, 'w', encoding='utf-8') as f:

@@ -332,14 +332,15 @@ class WriterAgentConfig:
     endpoint: str = "http://localhost:11434"
     text_model: str = ""
     model: str = ""
-    temperature: float = -1.0
+    # max 1.0; parse failures stay the unset sentinel -1.0. See validate().
+    temperature: float = dataclasses.field(default=-1.0, metadata={"kind": "float", "max": 1.0, "fallback": 1.0, "parse_fallback": -1.0, "code": "INVALID_TEMPERATURE", "message": "Temperature must be <= 1.0"})
     additional_instructions: str = ""
-    chat_max_tokens: int = 16384
+    chat_max_tokens: int = dataclasses.field(default=16384, metadata={"kind": "int", "min": 0, "fallback": 16384, "parse_fallback": 16384, "code": "INVALID_CHAT_MAX_TOKENS", "message": "Chat max tokens must be >= 0"})
     # Sidebar history auto-compact (plugin/chatbot/compaction.py). Unused by the
     # tool loop until PR2; default ON matches the v2 plan. False disables both
     # proactive compact and overflow retry once wired.
     chat_compaction_enabled: bool = True
-    request_timeout: int = 120
+    request_timeout: int = dataclasses.field(default=120, metadata={"kind": "int", "min_exclusive": 0, "fallback": 120, "parse_fallback": 120, "code": "INVALID_REQUEST_TIMEOUT", "message": "Request timeout must be > 0"})
     stt_model: str = ""
     api_keys_by_endpoint: Dict[str, str] = dataclasses.field(default_factory=dict)
     image_base_size: int = DEFAULT_IMAGE_BASE_SIZE
@@ -438,17 +439,38 @@ class WriterAgentConfig:
         else:
             self.endpoint = ""
 
-        if not isinstance(self.chat_max_tokens, int):
-            try:
-                self.chat_max_tokens = parse_int_robust(self.chat_max_tokens)
-            except ValueError:
-                self.chat_max_tokens = 16384
-        if self.chat_max_tokens < 0:
-            if coerce_out_of_range:
-                log.warning("chat_max_tokens %s out of range; using 16384", self.chat_max_tokens)
-                self.chat_max_tokens = 16384
-            else:
-                raise ConfigValidationError(_("Chat max tokens must be >= 0"), code="INVALID_CHAT_MAX_TOKENS")
+        # Bounds live on the field metadata. calc_prompt_max_tokens < 100 is a
+        # one-time migration, not a generic minimum.
+        for f in dataclasses.fields(self):
+            meta = f.metadata
+            if "kind" not in meta:
+                continue
+            value = getattr(self, f.name)
+            if meta["kind"] == "int" and not isinstance(value, int):
+                try:
+                    value = parse_int_robust(value)
+                except ValueError:
+                    value = meta["parse_fallback"]
+            elif meta["kind"] == "float" and not isinstance(value, (int, float)):
+                try:
+                    value = parse_float_robust(value)
+                except ValueError:
+                    value = meta["parse_fallback"]
+            out_of_range = False
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if "min" in meta and value < meta["min"]:
+                    out_of_range = True
+                if "min_exclusive" in meta and value <= meta["min_exclusive"]:
+                    out_of_range = True
+                if "max" in meta and value > meta["max"]:
+                    out_of_range = True
+            if out_of_range:
+                if coerce_out_of_range:
+                    log.warning("%s %s out of range; using %s", f.name, value, meta["fallback"])
+                    value = meta["fallback"]
+                else:
+                    raise ConfigValidationError(_(meta["message"]), code=meta["code"])
+            setattr(self, f.name, value)
 
         # Old shipped default was 70; values below 100 are treated as stale and upgraded.
         if not isinstance(self.calc_prompt_max_tokens, int):
@@ -459,30 +481,6 @@ class WriterAgentConfig:
         if self.calc_prompt_max_tokens < 100:
             log.info("Upgrading calc_prompt_max_tokens from %s to 4096", self.calc_prompt_max_tokens)
             self.calc_prompt_max_tokens = 4096
-
-        if not isinstance(self.request_timeout, int):
-            try:
-                self.request_timeout = parse_int_robust(self.request_timeout)
-            except ValueError:
-                self.request_timeout = 120
-        if self.request_timeout <= 0:
-            if coerce_out_of_range:
-                log.warning("request_timeout %s out of range; using 120", self.request_timeout)
-                self.request_timeout = 120
-            else:
-                raise ConfigValidationError(_("Request timeout must be > 0"), code="INVALID_REQUEST_TIMEOUT")
-
-        if not isinstance(self.temperature, (int, float)):
-            try:
-                self.temperature = parse_float_robust(self.temperature)
-            except ValueError:
-                self.temperature = -1.0
-        if self.temperature > 1.0:
-            if coerce_out_of_range:
-                log.warning("temperature %s out of range; using 1.0", self.temperature)
-                self.temperature = 1.0
-            else:
-                raise ConfigValidationError(_("Temperature must be <= 1.0"), code="INVALID_TEMPERATURE")
 
         if not isinstance(self.openrouter_chat_extra, dict):
             log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")

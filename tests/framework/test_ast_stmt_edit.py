@@ -39,6 +39,14 @@ def test_remove_with_siblings_deletes_without_pass() -> None:
     ast.parse(out)
 
 
+def test_one_line_suite_splices_pass_after_colon() -> None:
+    src = "if cond: debug()\n"
+    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"debug"})))
+    assert n == 1
+    assert out == "if cond: pass\n"
+    ast.parse(out)
+
+
 def test_same_line_sibling_is_kept() -> None:
     src = "print(1); keep()\n"
     out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))

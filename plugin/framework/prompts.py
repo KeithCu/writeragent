@@ -1147,6 +1147,38 @@ def _fill_chat_role_template(template: str, delegation: str, core_directives: st
     return base.replace("{core_directives}", core_directives)
 
 
+_PROFILE_DATA_OPEN = "<<<profile>>>"
+_PROFILE_DATA_CLOSE = "<<<</profile>>>"
+
+
+def _profile_data_block(heading: str, body: str) -> str:
+    """Wrap profile text so the model does not treat it as tool instructions."""
+    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{body}\n{_PROFILE_DATA_CLOSE}\n"
+
+
+def _append_additional_instructions(base: str, additional_instructions: str) -> str:
+    text = str(additional_instructions or "").strip()
+    if not text:
+        return base
+    return base + _profile_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text)
+
+
+def _assemble_chat_prompt(label: str, delegation: str, ctx: Any) -> str:
+    """Writer / Calc / Draw role template, delegation, and response format.
+
+    Vision, peer, memory, and humanizer stay with the document caller.
+    """
+    _ensure_venv_import_policy_strings()
+    if label == "calc":
+        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
+    elif label == "draw":
+        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
+        base = _apply_draw_get_image_tool_line(base)
+    else:
+        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
+    return base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
+
+
 def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "", ctx: Any = None) -> str:
     """Ambient chat prompt keyed by doc-type label — no document model / get_document_type.
 
@@ -1157,27 +1189,24 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     ``ctx=None`` (no vision / peer / memory injection).
     """
     label = (kind or "writer").strip().lower()
-    _ensure_venv_import_policy_strings()
     if label == "calc":
         from plugin.calc.base import ToolCalcSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc", ctx=ctx)
-        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
+        asm = "calc"
     elif label in ("draw", "impress"):
         from plugin.draw.base import ToolDrawSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw", ctx=ctx)
-        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
-        base = _apply_draw_get_image_tool_line(base)
+        asm = "draw"
     else:
         from plugin.writer.specialized_base import ToolWriterSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
-        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
+        asm = "writer"
 
-    base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
-    if additional_instructions and str(additional_instructions).strip():
-        base += "\n\n" + str(additional_instructions).strip()
+    base = _assemble_chat_prompt(asm, delegation, ctx)
+    base = _append_additional_instructions(base, additional_instructions)
     short_answers = tts_short_answers_prompt_suffix()
     if short_answers:
         base += "\n\n" + short_answers
@@ -1206,19 +1235,14 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     Callers must pass the document that is being chatted about."""
     from plugin.doc.doc_type import is_calc, is_draw
 
-    _ensure_venv_import_policy_strings()
     delegation = get_specialized_delegation_for_model(model, ctx=ctx)
-
     if is_calc(model):
-        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
+        asm = "calc"
     elif is_draw(model):
-        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
-        # Drop the get_image TOOLS bullet when the selected model cannot see PNGs.
-        base = _apply_draw_get_image_tool_line(base)
+        asm = "draw"
     else:
-        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
-
-    base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
+        asm = "writer"
+    base = _assemble_chat_prompt(asm, delegation, ctx)
 
     vision_directive = get_vision_core_directive(model, ctx)
     if vision_directive:
@@ -1235,7 +1259,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
             store = MemoryStore(ctx)
             user_mem = store.read("user")
             if user_mem:
-                base += "\n\n[USER PROFILE / MEMORY]\n" + _cap_injected_prompt_blob(user_mem) + "\n"
+                base += _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
         except Exception as e:
             import logging
 
@@ -1261,8 +1285,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
 
             logging.getLogger(__name__).debug(f"Failed to inject humanizer guidance: {e}")
 
-    if additional_instructions and str(additional_instructions).strip():
-        base += "\n\n" + str(additional_instructions).strip()
+    base = _append_additional_instructions(base, additional_instructions)
 
     # After custom instructions so those stay intact and the reminder is last.
     short_answers = tts_short_answers_prompt_suffix()

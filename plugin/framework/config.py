@@ -59,6 +59,7 @@ cache, and JSON I/O only. Do not import this file from ``config_schema.py``.
 # crosshair: off
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import logging
@@ -333,11 +334,13 @@ def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, pers
                 except OSError as e:
                     raise ConfigError(f"Failed to write repaired config: {e}", "CONFIG_SAVE_ERROR", details={"path": config_file_path, "backup_path": backup_path}) from e
             return data
-        log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.", config_file_path, backup_path or "none")
         if fail_on_unrepairable:
             # A later set_config used to load this {} and os.replace the file,
-            # wiping every other setting. Reads may still fall back to defaults.
+            # wiping every other setting. The GET path raises too, so a bad
+            # file is not cached as a fresh install with empty API keys.
+            log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s).", config_file_path, backup_path or "none")
             raise ConfigError(f"Invalid JSON in {config_file_path} could not be repaired", "CONFIG_INVALID_FORMAT", details={"path": config_file_path, "backup_path": backup_path})
+        log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.", config_file_path, backup_path or "none")
         return {}
 
     log.warning("Invalid JSON in %s (repair disabled). Using empty dict for this load.", config_file_path)
@@ -443,16 +446,14 @@ def _build_validated_config_export(data: Dict[str, Any], config: _config_schema.
 
 
 def _copy_config_value(value: Any) -> Any:
-    """Return a shallow copy of dict/list config values.
+    """Return a copy of dict/list config values.
 
-    ``_cache.data`` stores the validated file. Handing that object out let a
-    caller change memory without a write (``set_api_key_for_endpoint`` already
-    copied for that reason). Nested objects stay shared.
+    ``_cache.data`` stores the validated file. A shallow copy left nested
+    ``openrouter_chat_extra`` and ``api_keys_by_endpoint`` aliased to the
+    cache for the two-second mtime window.
     """
-    if isinstance(value, dict):
-        return dict(value)
-    if isinstance(value, list):
-        return list(value)
+    if isinstance(value, (dict, list)):
+        return copy.deepcopy(value)
     return value
 
 
@@ -831,7 +832,7 @@ def _get_validated_config_dict() -> dict[str, Any]:
             return _cache.data
 
         try:
-            data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=True)
+            data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=True, fail_on_unrepairable=True)
 
             if not isinstance(data, dict):
                 raise ConfigError("Config must be a JSON object", "CONFIG_INVALID_FORMAT")
@@ -848,8 +849,6 @@ def _get_validated_config_dict() -> dict[str, Any]:
             # validates strictly so the UI can reject a bad new value.
             # Snapshot before validate(). It upgrades calc_prompt_max_tokens < 100
             # in memory and may coerce other fields that alias this dict.
-            import copy
-
             loaded = copy.deepcopy(data)
             config = _config_schema.WriterAgentConfig.from_dict(data)
             try:
@@ -882,6 +881,10 @@ def _get_validated_config_dict() -> dict[str, Any]:
             return out
         except ConfigError:
             log.exception("Config error reading %s", config_file_path)
+            # Keep the last good snapshot. Caching {} made the session look
+            # like a fresh install (empty API keys) until the file was fixed.
+            if isinstance(_cache.data, dict):
+                return _cache.data
             return {}
         except OSError:
             log.exception("Error reading %s", config_file_path)

@@ -250,6 +250,8 @@ We chose the **lightweight, dependency-free** approach:
 
 This avoids adding the heavy `openai` dependency to the LibreOffice extension while ensuring 100% compatibility with OpenAI-style streaming deltas.
 
+Non-streaming JSON (images, speech, and the sync half of `request_with_tools`) shares one retry loop, `_exchange_json` in `plugin/framework/client/llm_client.py`. Stop during a 429/503 wait aborts that call. A body that `read()` already returned is not posted again. The stream loop stays separate because it must not retry after tokens have reached the UI.
+
 ---
 
 ## 7. Event Loop and UI Threading

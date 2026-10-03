@@ -324,5 +324,12 @@ class AnthropicShim(BaseProviderShim):
         content, finish_reason, _unused, delta = self.parse_response_chunk(response_data)
         tool_calls = delta.get("tool_calls")
         usage = response_data.get("usage") or {}
+        if isinstance(usage, dict):
+            # The librarian reads OpenAI names. Anthropic sends input_tokens.
+            usage = dict(usage)
+            if "prompt_tokens" not in usage and "input_tokens" in usage:
+                usage["prompt_tokens"] = usage["input_tokens"]
+            if "completion_tokens" not in usage and "output_tokens" in usage:
+                usage["completion_tokens"] = usage["output_tokens"]
         images = delta.get("images") or []
         return content, finish_reason, tool_calls, usage, images, delta

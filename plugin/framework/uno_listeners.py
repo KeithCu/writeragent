@@ -39,12 +39,15 @@ _XWindowListener: Any = None
 _XDocumentEventListener: Any = None
 _XActivationEventListener: Any = None
 _XContainerListener: Any = None
+_XMouseListener: Any = None
+_XFocusListener: Any = None
+_XMouseClickHandler: Any = None
 _HAVE_UNO = False
 
 try:
     import unohelper as _unohelper_impl
     from com.sun.star.lang import XEventListener as _XEventListener_impl
-    from com.sun.star.awt import XActionListener as _XActionListener_impl, XItemListener as _XItemListener_impl, XTextListener as _XTextListener_impl, XKeyListener as _XKeyListener_impl, XWindowListener as _XWindowListener_impl
+    from com.sun.star.awt import XActionListener as _XActionListener_impl, XItemListener as _XItemListener_impl, XTextListener as _XTextListener_impl, XKeyListener as _XKeyListener_impl, XWindowListener as _XWindowListener_impl, XMouseListener as _XMouseListener_impl, XFocusListener as _XFocusListener_impl, XMouseClickHandler as _XMouseClickHandler_impl
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
     from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
     from com.sun.star.container import XContainerListener as _XContainerListener_impl
@@ -59,6 +62,9 @@ try:
     _XDocumentEventListener = _XDocumentEventListener_impl
     _XActivationEventListener = _XActivationEventListener_impl
     _XContainerListener = _XContainerListener_impl
+    _XMouseListener = _XMouseListener_impl
+    _XFocusListener = _XFocusListener_impl
+    _XMouseClickHandler = _XMouseClickHandler_impl
     _HAVE_UNO = True
 except ImportError:
     pass
@@ -95,6 +101,15 @@ if TYPE_CHECKING:
 
     class _XContainerListenerParent:
         pass
+
+    class _XMouseListenerParent:
+        pass
+
+    class _XFocusListenerParent:
+        pass
+
+    class _XMouseClickHandlerParent:
+        pass
 else:
 
     class _DummyBase:
@@ -127,6 +142,15 @@ else:
     class _DummyContainerListener:
         pass
 
+    class _DummyMouseListener:
+        pass
+
+    class _DummyFocusListener:
+        pass
+
+    class _DummyMouseClickHandler:
+        pass
+
     _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
     _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener
     _XActionListenerParent = _XActionListener if _HAVE_UNO else _DummyActionListener
@@ -137,6 +161,9 @@ else:
     _XDocumentEventListenerParent = _XDocumentEventListener if _HAVE_UNO else _DummyDocumentEventListener
     _XActivationEventListenerParent = _XActivationEventListener if _HAVE_UNO else _DummyActivationListener
     _XContainerListenerParent = _XContainerListener if _HAVE_UNO else _DummyContainerListener
+    _XMouseListenerParent = _XMouseListener if _HAVE_UNO else _DummyMouseListener
+    _XFocusListenerParent = _XFocusListener if _HAVE_UNO else _DummyFocusListener
+    _XMouseClickHandlerParent = _XMouseClickHandler if _HAVE_UNO else _DummyMouseClickHandler
 
 
 def _catch_and_log(func: Any) -> Any:
@@ -297,3 +324,65 @@ class BaseActivationEventListener(BaseListener, _XActivationEventListenerParent)
 
     def on_active_spreadsheet_changed(self, aEvent: Any) -> None:
         pass
+
+
+class BaseMouseListener(BaseListener, _XMouseListenerParent):
+    @_catch_and_log
+    def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_pressed(e)
+
+    @_catch_and_log
+    def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_released(e)
+
+    @_catch_and_log
+    def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_entered(e)
+
+    @_catch_and_log
+    def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_exited(e)
+
+    def on_mouse_pressed(self, e: Any) -> None:
+        pass
+
+    def on_mouse_released(self, e: Any) -> None:
+        pass
+
+    def on_mouse_entered(self, e: Any) -> None:
+        pass
+
+    def on_mouse_exited(self, e: Any) -> None:
+        pass
+
+
+class BaseFocusListener(BaseListener, _XFocusListenerParent):
+    @_catch_and_log
+    def focusGained(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_focus_gained(e)
+
+    @_catch_and_log
+    def focusLost(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_focus_lost(e)
+
+    def on_focus_gained(self, e: Any) -> None:
+        pass
+
+    def on_focus_lost(self, e: Any) -> None:
+        pass
+
+
+class BaseMouseClickHandler(BaseListener, _XMouseClickHandlerParent):
+    @_catch_and_log
+    def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_mouse_pressed(e))
+
+    @_catch_and_log
+    def mouseReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_mouse_released(e))
+
+    def on_mouse_pressed(self, e: Any) -> bool:
+        return False
+
+    def on_mouse_released(self, e: Any) -> bool:
+        return False

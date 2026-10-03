@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.errors import NetworkError
-from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, LocalHttpsCertificateFallback, backoff_delay_sec, parse_retry_after, wait_abortable
+from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, LocalHttpsCertificateFallback, backoff_delay_sec, parse_retry_after, remember_host_gap, wait_abortable
 from .ssl_helpers import _is_certificate_verify_error, get_verified_ssl_context, get_unverified_ssl_context
 from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response
@@ -147,11 +147,24 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
             if e.code in RETRYABLE_HTTP_STATUS and sends_left > 1:
                 sends_left -= 1
                 attempt += 1
+                # What was wrong: the retry continued without reading the error
+                # body, so the socket stayed checked out, and chat did not learn
+                # the host was busy. The raise path already reads the body.
+                # Why: drain and close, then the same host gap chat waits on.
+                try:
+                    e.read()
+                except Exception:
+                    pass
+                try:
+                    e.close()
+                except Exception:
+                    pass
                 retry_after = None
                 headers_obj = getattr(e, "headers", None)
                 if headers_obj is not None:
                     retry_after = parse_retry_after(headers_obj.get("Retry-After"))
                 delay = backoff_delay_sec(attempt=attempt, retry_after_sec=retry_after)
+                remember_host_gap(host, delay)
                 # Catalog and update checks have no Stop callback. Chat stays on LlmHttpTransport.
                 wait_abortable(delay, None)
                 continue

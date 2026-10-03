@@ -197,6 +197,8 @@ def product_display_name(ctx: Any | None = None) -> str:
     """User-visible product name for dialog titles (LibrePy vs WriterAgent)."""
     if resolve_package_extension_id(ctx) == EXTENSION_ID_LIBREPY:
         return "LibrePy"
+    if is_libreharper():
+        return "LibreHarper"
     return "WriterAgent"
 
 
@@ -272,10 +274,12 @@ def get_desktop(ctx: Any | None = None) -> Any:
         log.debug("get_desktop skipped: no-VCL helper process (issue #768)")
         return None
     ctx = ctx or get_ctx()
-    assert ctx is not None
+    if ctx is None:
+        return None
     ctx_any = cast("Any", ctx)
     smgr = get_service_manager(ctx_any)
-    assert smgr is not None
+    if smgr is None:
+        return None
     desktop = cast("Any", smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
     return _guard_returned_uno(desktop)
 
@@ -474,7 +478,9 @@ def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) 
         import uno
 
         return str(uno.fileUrlToSystemPath(url))
-    return url
+    # A vnd.sun.star.extension:// URL is not a filesystem path. Callers join
+    # this with os.path; returning the URL made that join look like a file.
+    return ""
 
 
 @main_thread_only
@@ -637,37 +643,32 @@ def _attach_leave_query_listeners(control: Any) -> None:
         if existing is control:
             return
     try:
-        import unohelper
-        from com.sun.star.awt import XFocusListener, XMouseListener
+        import unohelper as _unohelper
+        from com.sun.star.awt import XFocusListener as _XFocusListener, XMouseListener as _XMouseListener
     except ImportError:
         return
+    if _unohelper is None or _XFocusListener is None or _XMouseListener is None:
+        return
 
-    class _LeaveQueryFocus(unohelper.Base, XFocusListener):
-        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
+    from plugin.framework.uno_listeners import BaseFocusListener, BaseMouseListener
+
+    class _LeaveQueryFocus(BaseFocusListener):
+        def on_disposing(self, Source: EventObject) -> None:  # noqa: N803 -- UNO signature
             _release_leave_query_binding(control, mouse_track, self)
 
-        def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
-            return
-
-        def focusGained(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
+        def on_focus_gained(self, e: FocusEvent) -> None:
             note_user_left_query()
             log.debug("stream focus: sidebar control")
 
-    class _LeaveQueryMouse(unohelper.Base, XMouseListener):
-        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
+    class _LeaveQueryMouse(BaseMouseListener):
+        def on_disposing(self, Source: EventObject) -> None:  # noqa: N803 -- UNO signature
             _release_leave_query_binding(control, self, focus_track)
 
-        def mousePressed(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
+        def on_mouse_pressed(self, e: MouseEvent) -> None:
             note_user_left_query()
 
-        def mouseReleased(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
-            return
-
-        def mouseEntered(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
+        def on_mouse_entered(self, e: MouseEvent) -> None:
             note_user_left_query()
-
-        def mouseExited(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
-            return
 
     mouse_track: Any = None
     focus_track: Any = None
@@ -683,7 +684,35 @@ def _attach_leave_query_listeners(control: Any) -> None:
         if mouse_track is not None or focus_track is not None:
             _leave_query_bindings.append((control, mouse_track, focus_track))
     except Exception as e:
+        # What was wrong: addFocusListener threw after addMouseListener
+        # succeeded, and the mouse listener was not recorded, so dispose
+        # never removed it. Why: drop whichever half attached.
         log.debug("leave-query listeners: %s", e)
+        _rollback_leave_query_attach(control, mouse_track, focus_track)
+
+
+def _rollback_leave_query_attach(control: Any, mouse_track: Any, focus_track: Any) -> None:
+    """Remove a half-attached leave-query pair and forget the tracker list."""
+    if focus_track is not None:
+        try:
+            if hasattr(control, "removeFocusListener"):
+                control.removeFocusListener(focus_track)
+        except Exception:
+            log.debug("leave-query rollback focus", exc_info=True)
+        try:
+            _stream_focus_trackers.remove(focus_track)
+        except ValueError:
+            pass
+    if mouse_track is not None:
+        try:
+            if hasattr(control, "removeMouseListener"):
+                control.removeMouseListener(mouse_track)
+        except Exception:
+            log.debug("leave-query rollback mouse", exc_info=True)
+        try:
+            _stream_focus_trackers.remove(mouse_track)
+        except ValueError:
+            pass
 
 
 def _release_doc_click_binding(controller: Any, handler: Any) -> None:
@@ -733,9 +762,11 @@ def _ensure_document_click_handler(ctx: Any, frame: Any = None) -> None:
     is not kept alive.
     """
     try:
-        import unohelper
-        from com.sun.star.awt import XMouseClickHandler
+        import unohelper as _unohelper
+        from com.sun.star.awt import XMouseClickHandler as _XMouseClickHandler
     except ImportError:
+        return
+    if _unohelper is None or _XMouseClickHandler is None:
         return
 
     try:
@@ -746,16 +777,15 @@ def _ensure_document_click_handler(ctx: Any, frame: Any = None) -> None:
             if uno_same(existing, controller):
                 return
 
-        class _DocClick(unohelper.Base, XMouseClickHandler):
-            def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
+        from plugin.framework.uno_listeners import BaseMouseClickHandler
+
+        class _DocClick(BaseMouseClickHandler):
+            def on_disposing(self, Source: EventObject) -> None:  # noqa: N803 -- UNO signature
                 _release_doc_click_binding(controller, self)
 
-            def mousePressed(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
+            def on_mouse_pressed(self, e: MouseEvent) -> bool:
                 note_user_left_query()
                 log.debug("stream focus: document click")
-                return False
-
-            def mouseReleased(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
                 return False
 
         handler = _DocClick()
@@ -800,19 +830,20 @@ def _attach_query_focus_listener(query: Any) -> None:
         if existing is query:
             return
     try:
-        import unohelper
-        from com.sun.star.awt import XFocusListener
+        import unohelper as _unohelper
+        from com.sun.star.awt import XFocusListener as _XFocusListener
     except ImportError:
         return
+    if _unohelper is None or _XFocusListener is None:
+        return
 
-    class _QueryFocus(unohelper.Base, XFocusListener):
-        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
+    from plugin.framework.uno_listeners import BaseFocusListener
+
+    class _QueryFocus(BaseFocusListener):
+        def on_disposing(self, Source: EventObject) -> None:  # noqa: N803 -- UNO signature
             _drop_query_focus_listener(self)
 
-        def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
-            return
-
-        def focusGained(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
+        def on_focus_gained(self, e: FocusEvent) -> None:
             note_user_wants_query()
             log.debug("stream focus: query")
 
