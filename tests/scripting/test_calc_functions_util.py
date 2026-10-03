@@ -15,10 +15,9 @@ from plugin.scripting.venv.calc_functions_util import (
     _collect_a_values,
     _extract_numeric_array,
     _find_match_index,
+    _find_text_cut,
     _npf_result,
-    _parse_holidays,
     _parse_weekend,
-    _parse_weekend_code,
     _serial_to_date,
     _to_float_a,
     _wildcard_fullmatch,
@@ -153,7 +152,6 @@ def test_serial_to_date():
 def test_build_holiday_set():
     assert _build_holiday_set(None) == set()
     assert _build_holiday_set([]) == set()
-    assert _parse_holidays is _build_holiday_set
 
     # Scalar and list of serials
     h1 = _build_holiday_set(46181)
@@ -164,7 +162,6 @@ def test_build_holiday_set():
 
 
 def test_parse_weekend():
-    assert _parse_weekend_code is _parse_weekend
 
     # Standard numeric weekend codes
     assert _parse_weekend(1) == {5, 6}   # Sat, Sun
@@ -184,5 +181,51 @@ def test_parse_weekend():
 
     # Invalid non-numeric input returns NaN
     assert math.isnan(_parse_weekend(None))
+
+
+def test_find_text_cut():
+    import pytest
+
+    # Positive instance, before
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=False)
+    assert (s, delim, inst, idx, at_end) == ("a-b-c", "-", 1, 1, False)
+
+    # Positive instance, after
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 1, after=True)
+    assert (s, delim, inst, idx, at_end) == ("a-b-c", "-", 1, 2, False)
+
+    # Second instance, before and after
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=False)
+    assert idx == 3
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 2, after=True)
+    assert idx == 4
+
+    # Negative instance
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=False)
+    assert (idx, at_end) == (3, False)
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=True)
+    assert (idx, at_end) == (3, False)
+
+    # Match mode 1 (case insensitive)
+    s, delim, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=False)
+    assert idx == 3
+    s, delim, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=True)
+    assert idx == 6
+
+    # Match end miss (instance lands on boundary)
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 3)
+    assert idx is None and at_end is True
+
+    # Real miss (beyond boundary)
+    s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 4)
+    assert idx is None and at_end is False
+
+    # Instance 0 raises ValueError
+    with pytest.raises(ValueError):
+        _find_text_cut("a-b-c", "-", 0)
+
+    # Non-numeric instance raises ValueError
+    with pytest.raises(ValueError):
+        _find_text_cut("a-b-c", "-", "invalid")
 
 

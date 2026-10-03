@@ -20,6 +20,7 @@ from .calc_functions_util import (
     _build_holiday_set,
     _collect_a_values,
     _extract_numeric_array,
+    _find_text_cut,
     _npf_result,
     _parse_weekend,
     _serial_to_date,
@@ -1005,38 +1006,14 @@ def py_str(val: Any) -> str:
 
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
-        s = str(text)
-        delim = str(delimiter)
-        inst = int(float(instance_num))
-        if match_mode == 1:
-            s_search = s.lower()
-            delim_search = delim.lower()
-        else:
-            s_search = s
-            delim_search = delim
-
-        if inst > 0:
-            parts = s_search.split(delim_search)
-            if len(parts) <= inst:
-                if match_end and len(parts) == inst:
-                    return ""
-                return if_not_found
-            # Find the actual split point in the original string
-            idx = 0
-            for _i in range(inst):
-                idx = s_search.find(delim_search, idx) + len(delim_search)
-            return s[idx:]
-        elif inst < 0:
-            parts = s_search.split(delim_search)
-            if len(parts) <= abs(inst):
-                if match_end and len(parts) == abs(inst):
-                    return ""
-                return if_not_found
-            idx = len(s)
-            for _i in range(abs(inst)):
-                idx = s_search.rfind(delim_search, 0, idx)
-            return s[idx + len(delim_search) :]
-        else:
-            return float("nan")
+        s, delim, inst, idx, match_end_miss = _find_text_cut(
+            text, delimiter, instance_num, match_mode, after=True
+        )
+        if idx is not None:
+            return s[idx + len(delim) :] if inst < 0 else s[idx:]
+        if match_end and match_end_miss:
+            return ""
+        return if_not_found
     except (ValueError, TypeError):
         return float("nan")
+

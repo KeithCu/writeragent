@@ -378,10 +378,34 @@ def test_t():
 def test_textafter():
     assert calc.textafter("a-b-c", "-") == "b-c"
     assert calc.textafter("a-b-c", "-", 2) == "c"
+    assert calc.textafter("a-b-c", "-", -1) == "c"
+    assert calc.textafter("a-b-c", "-", -2) == "b-c"
+    assert calc.textafter("Foo-Bar-Baz", "bar", 1, match_mode=1) == "-Baz"
+    # match_end when landing on the end returns ""
+    assert calc.textafter("a-b-c", "-", 3, match_end=1) == ""
+    assert calc.textafter("a-b-c", "-", -3, match_end=1) == ""
+    # Miss returns if_not_found
+    assert calc.textafter("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
+    assert calc.textafter("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
+    # Instance 0 or invalid returns NaN
+    assert math.isnan(calc.textafter("a-b-c", "-", 0))
+    assert math.isnan(calc.textafter("a-b-c", "-", "invalid"))
 
 def test_textbefore():
     assert calc.textbefore("a-b-c", "-") == "a"
     assert calc.textbefore("a-b-c", "-", 2) == "a-b"
+    assert calc.textbefore("a-b-c", "-", -1) == "a-b"
+    assert calc.textbefore("a-b-c", "-", -2) == "a"
+    assert calc.textbefore("Foo-Bar-Baz", "bar", 1, match_mode=1) == "Foo-"
+    # match_end when landing on the end returns the original string
+    assert calc.textbefore("a-b-c", "-", 3, match_end=1) == "a-b-c"
+    assert calc.textbefore("a-b-c", "-", -3, match_end=1) == "a-b-c"
+    # Miss returns if_not_found
+    assert calc.textbefore("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
+    assert calc.textbefore("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
+    # Instance 0 or invalid returns NaN
+    assert math.isnan(calc.textbefore("a-b-c", "-", 0))
+    assert math.isnan(calc.textbefore("a-b-c", "-", "invalid"))
 
 def test_textsplit():
     assert calc.textsplit("a-b-c", "-") == [["a", "b", "c"]]
