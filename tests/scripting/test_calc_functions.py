@@ -646,6 +646,28 @@ def test_ipmt_beginning_of_period_matches_calc():
     assert math.isclose(calc.ipmt(0.1, 1, 3, 8000, 0, 0), -800.0)
 
 
+def test_numpy_financial_annuity_keeps_excel_errors():
+    # numpy-financial ipmt returns 0 when per > nper; Excel/Calc are #NUM!.
+    assert math.isnan(calc.ipmt(0.1, 4, 3, 8000))
+    # Fractional per is truncated, not interpolated.
+    assert math.isclose(calc.ipmt(0.1, 1.9, 3, 8000), calc.ipmt(0.1, 1, 3, 8000))
+    # No payment, or a payment that never amortizes, is #NUM! rather than ±inf.
+    assert math.isnan(calc.nper(0, 0, 1000))
+    assert math.isnan(calc.nper(0.01, 0, 1000))
+    # nper == 0 used to raise ZeroDivisionError. numpy-financial returns ±inf.
+    assert math.isnan(calc.pmt(0.1, 0, 1000))
+    assert math.isnan(calc.pmt("x", 12, 1000))
+
+
+def test_irr_honors_guess_when_two_real_roots():
+    # numpy-financial 1.1 ignores guess and returns ~0.089 for both starts.
+    values = [-5, 10.5, 1, -8, 1]
+    low = calc.irr(values, 0.1)
+    high = calc.irr(values, 0.5)
+    assert math.isclose(low, 0.08859833852, rel_tol=1e-6)
+    assert math.isclose(high, 0.70955952768, rel_tol=1e-6)
+
+
 def test_countif_numeric_operator_does_not_count_text():
     # "abc" > "5" is lexicographic True; numeric ">" must not count text.
     assert calc.countif(["abc"], ">5") == 0.0

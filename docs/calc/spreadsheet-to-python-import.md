@@ -563,7 +563,10 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 
 | Calc function | Python | Tier |
 |---------------|--------|------|
-| `PMT`, `PV`, `FV`, `NPV`, `IRR` | `numpy_financial` or TODO | P3 |
+| `PMT`, `PV`, `FV`, `NPER`, `IPMT`, `MIRR` | `numpy-financial` via `calc.*` (Excel `type` 0/1; NaN on bad input) | P3 |
+| `NPV` | custom. Excel discounts the first cash flow; `numpy-financial.npv` starts at t=0 | P3 |
+| `IRR` | custom. Excel `guess` starts Newton; `numpy-financial` 1.1 ignores `guess` | P3 |
+| `PPMT`, `RATE` | not helpers. `numpy-financial` implements both; import still refuses them (no Excel test contract in this tree) | — |
 | `DB`, `DDB`, `SLN` | specialized | N/A |
 
 ### 8.9 Array & matrix (P3 / N/A)
