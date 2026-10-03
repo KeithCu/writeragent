@@ -384,7 +384,7 @@ class TunnelManager:
         previous_status = self._state.status
         transition = next_state(self._state, event)
         self._state = transition.state
-        self._apply_effects_unlocked(transition.effects)
+        self._apply_effects_unlocked(transition.effects, previous_status)
         self._retire_snippet_url_if_not_live(previous_provider, previous_url, previous_status)
 
     def _retire_snippet_provider(self, provider: str) -> None:
@@ -424,7 +424,7 @@ class TunnelManager:
         if provider:
             self._retire_snippet_provider(provider)
 
-    def _apply_effects_unlocked(self, effects: list[Any]) -> None:
+    def _apply_effects_unlocked(self, effects: list[Any], previous_status: TunnelStatus) -> None:
         for effect in effects:
             if isinstance(effect, CancelRetryTimerEffect):
                 if self._reconnect_timer is not None:
@@ -450,7 +450,18 @@ class TunnelManager:
                 provider = effect.provider or self._state.provider
                 info = PROVIDERS.get(provider)
                 post_stop = info.get("post_stop") if info else None
-                if proc is not None and post_stop:
+                # What was wrong: post_stop also required a live process.
+                # RECONNECTING and FAILED already cleared _process in
+                # _on_exit, so switching provider or disabling the tunnel
+                # skipped Tailscale funnel/serve reset. That config lives
+                # on tailscaled and kept the public URL pointed at the
+                # local MCP port.
+                # Why: reset whenever we leave that provider, including
+                # when the subprocess is already gone. An idle stop that
+                # was already STOPPED must not reset — settings sync calls
+                # stop() again and would wipe Funnel on every save.
+                leaving_live_session = proc is not None or previous_status != TunnelStatus.STOPPED
+                if post_stop and leaving_live_session:
                     try:
                         post_stop()
                     except Exception:
@@ -542,8 +553,17 @@ class TunnelManager:
                     except Exception:
                         pass
                 log.info("Scheduling MCP tunnel reconnect in %.1fs (attempt %s/%s)", effect.delay_seconds, effect.attempt, effect.max_retries)
-                timer = threading.Timer(effect.delay_seconds, self._on_retry_timer_expired)
+                # Identity of this timer, same idea as spawned["proc"] for
+                # exit. Filled in before start() so a callback that is
+                # already queued still sees the owner.
+                scheduled: dict[str, threading.Timer] = {}
+
+                def _fire(owner: dict[str, threading.Timer] = scheduled) -> None:
+                    self._on_retry_timer_expired(owner.get("timer"))
+
+                timer = threading.Timer(effect.delay_seconds, _fire)
                 timer.daemon = True
+                scheduled["timer"] = timer
                 self._reconnect_timer = timer
                 timer.start()
 
@@ -557,8 +577,20 @@ class TunnelManager:
                 except Exception:
                     pass
 
-    def _on_retry_timer_expired(self) -> None:
+    def _on_retry_timer_expired(self, timer: Optional[threading.Timer]) -> None:
         with self._lock:
+            # What was wrong: Timer.cancel() does not stop a callback that
+            # has already started. start() holds this lock across
+            # binary_available() (a subprocess, up to ~10s), so a pending
+            # retry blocks there, survives CancelRetryTimerEffect, then
+            # dispatches RETRY_TIMER_EXPIRED after StartProcessEffect.
+            # desired_running is already True, so that starts a second
+            # tunnel and leaves the one just spawned running.
+            # Why: ignore the callback unless this timer is still the one
+            # TunnelManager tracks — the same identity guard as process exit.
+            if timer is None or self._reconnect_timer is not timer:
+                log.info("Ignoring stale MCP tunnel retry timer")
+                return
             self._reconnect_timer = None
             self._dispatch_unlocked(TunnelEvent(TunnelEventKind.RETRY_TIMER_EXPIRED))
 

@@ -134,6 +134,27 @@ def test_progress_notification_shape():
     assert "id" not in note
 
 
+def test_initialize_result_accepts_long_odd_client_protocol_version():
+    """initialize params.protocolVersion is client input.
+
+    The pytest deal profile must not raise PreContractError for a long or
+    odd version. The body copies it. CrossHair keeps the short token.
+    """
+    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+
+    long_version = "v" * (DEAL_MAX_TOKEN + 1)
+    odd_version = "2025-11-25-üñícode / odd\nversion"
+    both = "ü" * (DEAL_MAX_TOKEN + 1)
+    for version in (long_version, odd_version, both):
+        result = wire_types.initialize_result(
+            protocol_version=wire_types.MCP_PROTOCOL_VERSION,
+            client_protocol_version=version,
+            server_version="1.0.0",
+            instructions="test instructions",
+        )
+        assert result["protocolVersion"] == version
+
+
 def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     """Image bytes and tool arguments are external. They must not PreContract."""
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE

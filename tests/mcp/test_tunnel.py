@@ -416,8 +416,10 @@ def test_tunnel_manager_reconnect_and_url_recovery(monkeypatch):
         assert mgr.public_url is None
         assert "reconnecting (attempt 1/5" in (mgr.last_error or "")
 
-        # 3. Simulate timer firing / reconnect attempt -> recovers URL
-        mgr._on_retry_timer_expired()
+        # 3. Simulate timer firing / reconnect attempt -> recovers URL.
+        # cancel() only stops the daemon thread. The manager still tracks
+        # this timer, so the callback is a live expiry.
+        _fire_current_retry_timer(mgr)
         assert mgr.public_url == "http://bore.pub:1111"
         assert mgr.is_reconnecting is False
         assert mgr.retry_count == 0
@@ -445,12 +447,9 @@ def test_tunnel_manager_max_retries_failure(monkeypatch):
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_die_process),
     ):
         def _expire_retry() -> None:
-            # The exit callback arms a real Timer. Cancel it before simulating
-            # expiry so the thread cannot start another process after the test.
-            timer = mgr._reconnect_timer
-            if timer is not None:
-                timer.cancel()
-            mgr._on_retry_timer_expired()
+            # The exit callback arms a real Timer. Fire its callback on this
+            # thread so the identity guard sees the timer still being tracked.
+            _fire_current_retry_timer(mgr)
 
         assert mgr.start(18765, "bore", max_retries=2) is True
         # Attempt 1 drop. A second call on this same callback is stale: the
@@ -473,6 +472,77 @@ def test_tunnel_manager_max_retries_failure(monkeypatch):
         assert mgr.is_reconnecting is False
         assert "failed to reconnect after 2 attempts" in (mgr.last_error or "")
 
+        mgr.stop()
+
+
+def _fire_current_retry_timer(mgr: TunnelManager) -> None:
+    """Run the armed reconnect callback on this thread.
+
+    ``Timer.cancel()`` stops the daemon thread. It does not clear the timer
+    ``TunnelManager`` is tracking, so this is a live expiry, not a stale one.
+    """
+    timer = mgr._reconnect_timer
+    assert timer is not None
+    timer.cancel()
+    timer.function(*timer.args, **timer.kwargs)
+
+
+def test_stale_retry_timer_does_not_spawn_second_process(monkeypatch):
+    """A retry callback that already started must not outlive start()'s cancel.
+
+    Timer.cancel() does not stop a callback blocked on the lock start() holds
+    across binary_available(). After that start() has spawned the replacement,
+    the callback must not start another process.
+    """
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    procs: list = []
+    exits: list = []
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        procs.append(proc)
+        exits.append(on_exit_cb)
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "cloudflare") is True
+        exits[0](1)
+        assert mgr.is_reconnecting is True
+        stale = mgr._reconnect_timer
+        assert stale is not None
+        stale.cancel()
+
+        # Config change while the callback is already in flight: cancel is a
+        # no-op for a running callback. The exited process is already gone
+        # (_process is None); start() spawns the replacement (P2).
+        assert mgr.start(18765, "bore", provider_token="relay.example") is True
+        assert len(procs) == 2
+        assert mgr._process is procs[1]
+
+        stale.function(*stale.args, **stale.kwargs)
+        assert len(procs) == 2
+        assert mgr._process is procs[1]
+        procs[1].terminate.assert_not_called()
+        assert mgr.is_reconnecting is False
+
+        # The replacement's own exit still arms a timer the stale callback
+        # must not clear.
+        exits[1](1)
+        assert mgr.is_reconnecting is True
+        live = mgr._reconnect_timer
+        assert live is not None
+        assert live is not stale
+        stale.function(*stale.args, **stale.kwargs)
+        assert mgr._reconnect_timer is live
+        assert mgr._process is None
+        assert len(procs) == 2
         mgr.stop()
 
 
@@ -584,6 +654,80 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         assert mgr._process is procs[1]
         assert mgr.is_reconnecting is False
         mgr.stop()
+
+
+def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
+    """Funnel config outlives the process. Reset it when leaving while reconnecting."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    exits: list = []
+
+    def _run(cmd, **kwargs):
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        exits.append(on_exit_cb)
+        return proc
+
+    tailscale_reset = [
+        ["tailscale", "funnel", "reset"],
+        ["tailscale", "serve", "reset"],
+    ]
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert reset_cmds == tailscale_reset
+        exits[0](1)
+        assert mgr.is_reconnecting is True
+        assert mgr._process is None
+        if mgr._reconnect_timer is not None:
+            mgr._reconnect_timer.cancel()
+
+        # Provider switch: no process object, but the effect's provider is tailscale.
+        assert mgr.start(18765, "cloudflare") is True
+        assert reset_cmds == tailscale_reset + tailscale_reset
+        mgr.stop()
+        assert reset_cmds == tailscale_reset + tailscale_reset
+
+        # Disable while reconnecting.
+        assert mgr.start(18765, "tailscale") is True
+        exits[-1](1)
+        assert mgr._process is None
+        assert mgr.is_reconnecting is True
+        if mgr._reconnect_timer is not None:
+            mgr._reconnect_timer.cancel()
+        mgr.stop()
+        assert reset_cmds == tailscale_reset + tailscale_reset + tailscale_reset + tailscale_reset
+
+        # Idle stop was already STOPPED. Another stop must not reset again.
+        mgr.stop()
+        assert reset_cmds == tailscale_reset + tailscale_reset + tailscale_reset + tailscale_reset
+
+        # FAILED also has no process. Giving up must still reset.
+        # Restart from STOPPED does not post_stop (already reset above);
+        # pre_start resets once, then stop-from-FAILED resets again.
+        assert mgr.start(18765, "tailscale", max_retries=0) is True
+        exits[-1](1)
+        assert mgr.status == TunnelStatus.FAILED
+        assert mgr._process is None
+        mgr.stop()
+        assert reset_cmds == tailscale_reset * 6
+        mgr.stop()
+        assert reset_cmds == tailscale_reset * 6
 
 
 def test_test_tunnel_connectivity_binary_missing():
