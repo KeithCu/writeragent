@@ -271,19 +271,26 @@ def run_grammar_check(
         emit_grammar_status("failed", "Grammar check", result=str(e))
 
 
-def persisted_grammar_skip_lang_detect(ctx: Any, doc_id: str, text: str) -> bool:
-    """True if persistence already stores grammar for this sentence (fingerprint).
+def persisted_grammar_skip_lang_detect(
+    ctx: Any,
+    doc_id: str,
+    text: str,
+    locale: str | None = None,
+) -> bool:
+    """True if persistence already stores grammar for this sentence in ``locale``.
 
-    Heuristic to skip redundant language-detect LLM on reopen: any stored row (including
-    empty errors for 'good' sentences) implies prior proofreading — good enough to treat
-    as language-resolved for this session. Wrong-locale clean rows could skip redetect.
+    Heuristic to skip redundant language-detect LLM on reopen: a stored row (including
+    empty errors for 'good' sentences) implies prior proofreading. The lookup is
+    locale-specific so another CharLocale's clean row does not skip detection.
     """
     try:
         if not doc_id:
             return False
         fp = grammar_proofread_cache.sentence_identity_fp(text)
         p = grammar_persistence.get_persistence(ctx, doc_id)
-        return p is not None and p.get(fp) is not None
+        # Do not adopt a v2/v3 row here. That probe would retag an unknown
+        # locale as this chunk's CharLocale before proofreading reads it.
+        return p is not None and p.get(fp, locale, adopt_legacy=False) is not None
     except Exception as e:
         log.debug("[grammar] persisted grammar heuristic lookup failed: %s", e, exc_info=True)
         return False
@@ -426,7 +433,7 @@ def _fill_from_cache_and_persistence(
             canon = grammar_proofread_locale.normalize_detected_bcp47(cached) or cached
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "cache", cached, canon, text)
-        elif trust_persisted and persisted_grammar_skip_lang_detect(ec.ctx, item.doc_id, text):
+        elif trust_persisted and persisted_grammar_skip_lang_detect(ec.ctx, item.doc_id, text, ec.grammar_bcp47):
             grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32] if item.doc_id else "")
             canon = grammar_proofread_locale.normalize_detected_bcp47(ec.grammar_bcp47) or ec.grammar_bcp47
             grammar_persistence.grammar_registry.put_cached_language(text, canon)

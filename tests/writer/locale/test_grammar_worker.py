@@ -319,7 +319,7 @@ def test_fill_from_cache_and_persistence() -> None:
     ec.grammar_bcp47 = "fr-FR"
 
     with patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.get_cached_language", side_effect=lambda t: "en-US" if t == a.text else None), \
-         patch("plugin.writer.locale.grammar_worker.persisted_grammar_skip_lang_detect", side_effect=lambda _ctx, _doc, t: t == b.text), \
+         patch("plugin.writer.locale.grammar_worker.persisted_grammar_skip_lang_detect", side_effect=lambda _ctx, _doc, t, *_rest: t == b.text), \
          patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.put_cached_language") as mock_put:
         res = _fill_from_cache_and_persistence([(a, a.text), (b, b.text), (c, c.text)], ec)
 

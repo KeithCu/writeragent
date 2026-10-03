@@ -13,8 +13,9 @@ _TEST_IDENT = "llm:test"
 
 
 def _v3_payload(*, good: list | None = None, bad: dict | None = None) -> dict:
+    """Locale-blind blob. Version stays 3 even after the writer moved to v4."""
     return {
-        "version": GRAMMAR_CACHE_VERSION,
+        "version": 3,
         "model": _TEST_IDENT,
         "good": good or [],
         "bad": bad or {},
@@ -127,9 +128,10 @@ class TestGrammarPersistence:
         written = json.loads(str(args[2]))
         assert (written.get("version")) == (GRAMMAR_CACHE_VERSION)
         assert ("model") in (written)
-        assert ("fp1") in (written.get("bad", {}))
-        assert ("fp2") in (written.get("good", []))
-        assert (written["bad"]["fp1"][0]["s"]) == (0)
+        en = written["locales"]["en-US"]
+        assert ("fp1") in (en.get("bad", {}))
+        assert ("fp2") in (en.get("good", []))
+        assert (en["bad"]["fp1"][0]["s"]) == (0)
 
     def test_document_event_on_save_triggers_persist(self) -> None:
         """documentEventOccured with OnSave should drive set_document_property."""
@@ -152,7 +154,7 @@ class TestGrammarPersistence:
         args = mock_set.call_args[0]
         assert (args[0]) is (model)
         written = json.loads(str(args[2]))
-        assert ("fp_save") in (written.get("good", []))
+        assert ("fp_save") in (written["locales"]["en-US"].get("good", []))
 
     def test_document_event_on_unload_triggers_teardown(self) -> None:
         """documentEventOccured with OnUnload should teardown and clear the cache."""
@@ -213,8 +215,8 @@ class TestGrammarPersistence:
 
             # Check that _entries was populated
             assert (len(dp._entries)) == (2)
-            assert (dp._entries["fp_clean"]) == ([])
-            assert (len(dp._entries["fp_err"])) == (1)
+            assert (dp._entries["fp_clean"]) == ({"": []})
+            assert (len(dp._entries["fp_err"][""])) == (1)
 
             # Check that grammar_registry.sentence_cache was NOT populated by _load_from_udprops
             assert (len(gp.grammar_registry.sentence_cache)) == (0)
@@ -290,12 +292,126 @@ class TestGrammarPersistence:
         model = MagicMock()
         cached = _v3_payload(good=["fp_clean"])
         cached["model"] = "harper"
+        cached["ignored_rules"] = ["old-harper-rule"]
         gp.grammar_registry.clear_all(ctx)
         try:
             with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence(ctx, "doc-mismatch", model=model)
             assert (len(dp._entries)) == (0)
+            assert (dp._ignored_rules) == (set())
+        finally:
+            gp.clear_all_document_persistence(ctx)
+
+    def test_v3_legacy_row_adopts_first_locale_only(self) -> None:
+        """A locale-blind v3 row is not served to a second CharLocale."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        cached = _v3_payload(
+            bad={"fp_same": [{"s": 0, "l": 3, "g": ["fix"], "c": "c", "f": "f", "r": "wa_g_rule||en"}]},
+        )
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+                 patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
+                dp = gp.DocumentPersistence(ctx, "doc-legacy-locale", model=model)
+            # A non-adopting probe must not bind the blind row to a locale.
+            assert (dp.get("fp_same", "en-US", adopt_legacy=False)) is None
+            en_hit = dp.get("fp_same", "en-US")
+            fr_hit = dp.get("fp_same", "fr-FR")
+            assert (dp.get("fp_same", "en-US", adopt_legacy=False)) is not None
+            assert (en_hit) is not None
+            assert (en_hit[0]["rule_identifier"]) == ("wa_g_rule||en")
+            assert (fr_hit) is None
+        finally:
+            gp.clear_all_document_persistence(ctx)
+
+    def test_v4_round_trip_keeps_locales_apart(self) -> None:
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+                 patch("plugin.doc.udprops.get_document_property", return_value=None):
+                dp = gp.DocumentPersistence(ctx, "doc-v4", model=model)
+            dp.put("fp_same", "en-US", [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "en"}])
+            dp.put("fp_same", "fr-FR", [])
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+                 patch("plugin.doc.udprops.set_document_property") as mock_set:
+                dp._persist_to_udprops()
+            raw = str(mock_set.call_args[0][2])
+            written = json.loads(raw)
+            assert (written["version"]) == (GRAMMAR_CACHE_VERSION)
+            assert ("fp_same") in (written["locales"]["en-US"]["bad"])
+            assert ("fp_same") in (written["locales"]["fr-FR"]["good"])
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+                 patch("plugin.doc.udprops.get_document_property", return_value=raw):
+                dp2 = gp.DocumentPersistence(ctx, "doc-v4-load", model=model)
+            en_hit = dp2.get("fp_same", "en-US")
+            fr_hit = dp2.get("fp_same", "fr-FR")
+            assert (en_hit) is not None
+            assert (en_hit[0]["rule_identifier"]) == ("en")
+            assert (fr_hit) == ([])
+        finally:
+            gp.clear_all_document_persistence(ctx)
+
+    def test_identity_switch_drops_loaded_ignored_rules(self) -> None:
+        """A checker switch clears ignore ids that were valid for the old identity."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        matched = _v3_payload(good=["fp_clean"])
+        matched["ignored_rules"] = ["old-rule"]
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+                 patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(matched)):
+                dp = gp.DocumentPersistence(ctx, "doc-ignore-switch", model=model)
+            assert ("old-rule") in (dp._ignored_rules)
+            dp.ensure_identity(_TEST_IDENT)
+            assert ("old-rule") in (dp._ignored_rules)
+            dp.ensure_identity("harper")
+            assert (dp._ignored_rules) == (set())
+            assert (dp._entries) == ({})
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="harper"), \
+                 patch("plugin.doc.udprops.set_document_property") as mock_set:
+                dp._persist_to_udprops()
+            written = json.loads(str(mock_set.call_args[0][2]))
+            assert (written["ignored_rules"]) == ([])
+        finally:
+            gp.clear_all_document_persistence(ctx)
+
+    def test_unknown_cache_version_clears(self) -> None:
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        future = {
+            "version": 99,
+            "model": _TEST_IDENT,
+            "locales": {"en-US": {"good": ["fp_future"], "bad": {}}},
+            "ignored_rules": ["future-rule"],
+        }
+        non_string_model = _v3_payload(good=["fp_clean"])
+        non_string_model["model"] = ["not", "a", "string"]
+        non_string_model["ignored_rules"] = ["bad-model-rule"]
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+                 patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(future)):
+                dp = gp.DocumentPersistence(ctx, "doc-future", model=model)
+            assert (dp._entries) == ({})
+            assert (dp._ignored_rules) == (set())
+            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+                 patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(non_string_model)):
+                dp_bad = gp.DocumentPersistence(ctx, "doc-bad-model", model=model)
+            assert (dp_bad._entries) == ({})
+            assert (dp_bad._ignored_rules) == (set())
         finally:
             gp.clear_all_document_persistence(ctx)
 

@@ -488,7 +488,9 @@ def reconcile_active_and_paragraph_spans(
     """Return the active sentence spans that need background enqueuing.
 
     An active span needs checking if its start offset matches an uncached sentence
-    in the paragraph.
+    in the paragraph. Start-only matching assumes ``split_into_sentences`` yields
+    non-overlapping spans (unique starts). A splitter that reused a start with a
+    different end would coalesce those sentences; match ``(start, end)`` then.
     """
     uncached_starts = {start for start, _end, _text in uncached_paragraph_spans}
     return [

@@ -562,6 +562,24 @@ class TestTypingIntegration:
         assert res.aErrors == ()
         mock_queue_fixture.enqueue.assert_not_called()
 
+    def test_do_proofreading_does_not_retry_failed_empty_result(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """A failed ProofreadingResult create must not be attempted again.
+
+        The handler used to call _create_empty_result a second time with the
+        same arguments. That second failure escaped onto the Linguistic worker.
+        """
+        pr = _make_proofreader()
+        with patch.object(
+            proofreader,
+            "_create_empty_result",
+            side_effect=RuntimeError("createUnoStruct failed"),
+        ) as mock_create:
+            with pytest.raises(RuntimeError, match="createUnoStruct failed"):
+                pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+        assert mock_create.call_count == 1
+
     def test_harper_incremental_returns_only_active_sentence_errors(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
