@@ -483,6 +483,8 @@ class LlmHttpTransport:
         model = request_model_from_body(body)
         while True:
             body_in_hand = False
+            # True once this iteration has already spent one attempt on a non-200.
+            attempt_charged = False
             try:
                 if stop_checker is not None and stop_checker():
                     self.close()
@@ -492,6 +494,7 @@ class LlmHttpTransport:
                 if status != 200:
                     sends_left -= 1
                     attempt += 1
+                    attempt_charged = True
                     action = self.handle_http_status(
                         response,
                         request_body=body,
@@ -522,8 +525,16 @@ class LlmHttpTransport:
             except CONNECTION_ERRORS as exc:
                 if body_in_hand:
                     raise NetworkError(redact_secrets(format_error_message(exc), wire_secrets), code="CONNECTION_LOST", details={"url": public_target(path)}) from exc
-                sends_left -= 1
-                attempt += 1
+                # What was wrong: handle_http_status reads the error body, and
+                # that read can raise IncompleteRead, a reset, or a timeout.
+                # How: the non-200 branch above had already decremented
+                # sends_left, then this handler decremented it again, so one
+                # failed read consumed two of the three attempts and the last
+                # try never ran. Why: a status that already charged this
+                # attempt must not be charged a second time here.
+                if not attempt_charged:
+                    sends_left -= 1
+                    attempt += 1
                 action = self.handle_connection_error(
                     exc,
                     path=public_target(path),
