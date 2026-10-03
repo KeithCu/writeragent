@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.acp.acp_backend import ACPBackend
+from plugin.acp.acp_backend import ACPBackend, _STARTUP_POLL_S, _STARTUP_POLLS
 from plugin.acp.claude_simple import ClaudeBackend
 from plugin.acp.grok_simple import GrokBackend
 from plugin.acp.hermes_simple import HermesBackend
@@ -541,7 +541,7 @@ class TestStopAndShutdown:
         conn.is_alive = True
         conn.send_request.return_value = {"stopReason": "end_turn"}
         backend._conn = conn
-        backend._ensure_connection = lambda: None
+        backend._ensure_connection = lambda stop_checker=None: None
         backend._ensure_session = lambda **kwargs: None
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
@@ -556,7 +556,7 @@ class TestStopAndShutdown:
         conn = MagicMock()
         conn.is_alive = True
 
-        def ensure_connection():
+        def ensure_connection(stop_checker=None):
             backend._conn = conn
 
         backend._ensure_connection = ensure_connection
@@ -585,7 +585,7 @@ class TestStopAndShutdown:
 
         conn.send_request.side_effect = send_request
         backend._conn = conn
-        backend._ensure_connection = lambda: None
+        backend._ensure_connection = lambda stop_checker=None: None
         backend._ensure_session = lambda **kwargs: None
         backend._pending_permissions[4] = [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}]
         q = queue.Queue()
@@ -659,7 +659,7 @@ class TestStopAndShutdown:
         conn.set_notification_callback.side_effect = set_notification_callback
         conn.send_request.side_effect = send_request
 
-        def ensure_connection():
+        def ensure_connection(stop_checker=None):
             backend._conn = conn
 
         backend._ensure_connection = ensure_connection
@@ -667,5 +667,83 @@ class TestStopAndShutdown:
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         assert (order.index("callback")) < (order.index("session/new"))
         assert ((StreamQueueKind.CHUNK, "during-new")) in (_drain(q))
+
+
+def _startup_conn(*, alive: bool = True):
+    conn = MagicMock()
+    conn.is_alive = alive
+    conn.send_request.return_value = {"protocolVersion": 1}
+    return conn
+
+
+class TestStartupWait:
+    """The post-start grace period must notice Stop before initialize."""
+
+    def _backend(self):
+        backend = _bare_backend()
+        backend._binary_path = "/usr/bin/test-agent"
+        backend._extra_args = []
+        return backend
+
+    def test_stop_during_startup_wait_does_not_initialize_or_prompt(self):
+        backend = self._backend()
+        conn = _startup_conn()
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            backend.stop()
+
+        q = queue.Queue()
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=sleep):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        kinds = [event[0] for event in _drain(q)]
+        assert (StreamQueueKind.STOPPED) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert (sleeps) == ([_STARTUP_POLL_S])
+        conn.send_request.assert_not_called()
+        conn.stop.assert_called()
+
+    def test_stop_checker_during_startup_wait_does_not_prompt(self):
+        backend = self._backend()
+        conn = _startup_conn()
+        armed = {"stop": False}
+
+        def sleep(seconds: float) -> None:
+            assert (seconds) == (_STARTUP_POLL_S)
+            armed["stop"] = True
+
+        q = queue.Queue()
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=sleep):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None, stop_checker=lambda: armed["stop"])
+        kinds = [event[0] for event in _drain(q)]
+        assert (StreamQueueKind.STOPPED) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert (backend._stop_requested) is True
+        conn.send_request.assert_not_called()
+
+    def test_grace_period_still_initializes_when_not_stopped(self):
+        backend = self._backend()
+        conn = _startup_conn()
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            if conn.send_request.called:
+                raise AssertionError("initialize ran during the startup wait")
+
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=sleep):
+            backend._ensure_connection()
+        assert (sleeps) == ([_STARTUP_POLL_S] * _STARTUP_POLLS)
+        conn.send_request.assert_called_once()
+        assert (conn.send_request.call_args.args[0]) == ("initialize")
+
+    def test_dead_process_still_raises_before_initialize(self):
+        backend = self._backend()
+        conn = _startup_conn(alive=False)
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=AssertionError("slept")):
+            with pytest.raises(RuntimeError, match="failed to start"):
+                backend._ensure_connection()
+        conn.send_request.assert_not_called()
 
 
