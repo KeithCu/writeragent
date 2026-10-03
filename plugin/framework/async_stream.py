@@ -38,6 +38,8 @@ import json
 import logging
 import queue
 import threading
+import time
+import weakref
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, TypeAlias, Callable, cast
@@ -108,6 +110,93 @@ def put_stream_queue_stopped(q: queue.Queue[Any]) -> None:
     q.put((StreamQueueKind.STOPPED, None))
 
 
+class _ReusableBurstTimer:
+    """One daemon thread for a batcher. ``arm`` sets the deadline; it does not start a new thread.
+
+    ``threading.Timer`` cannot be restarted, so each burst used to construct
+    another one. This thread waits until the deadline, fires once, then waits
+    again. ``cancel`` clears the deadline without leaving the thread.
+    """
+
+    _interval: float
+    _owner: weakref.ReferenceType["BatchingStreamQueue"]
+    _cv: threading.Condition
+    _deadline: float | None
+    _started: bool
+    _stopped: bool
+
+    def __init__(self, owner: "BatchingStreamQueue", interval: float) -> None:
+        # crosshair: off
+        self._interval = interval
+        # Weak so a finished send can drop the batcher. The thread would
+        # otherwise keep it alive through the flush callback.
+        self._owner = weakref.ref(owner)
+        self._cv = threading.Condition()
+        self._deadline = None
+        self._started = False
+        self._stopped = False
+
+    def arm(self) -> None:
+        """Start the interval if idle. A live deadline is left alone."""
+        # crosshair: off
+        with self._cv:
+            if self._stopped or self._deadline is not None:
+                return
+            if not self._started:
+                # Infinite wait: dedicated, not a pool slot. Start before the
+                # deadline is visible so a failed start can be retried.
+                run_in_background(self._run, name="batch-stream-timer", dedicated=True)
+                self._started = True
+            self._deadline = time.monotonic() + self._interval
+            self._cv.notify()
+
+    def cancel(self) -> None:
+        """Drop the deadline. The thread stays for the next burst."""
+        # crosshair: off
+        with self._cv:
+            self._deadline = None
+            self._cv.notify()
+
+    def stop(self) -> None:
+        """Wake the thread so it exits. Used when the batcher is released."""
+        # crosshair: off
+        with self._cv:
+            self._stopped = True
+            self._deadline = None
+            self._cv.notify()
+
+    def _run(self) -> None:
+        # crosshair: off
+        # Catch here: run_in_background ends the thread on Exception, and a
+        # later burst would then have no timer.
+        while True:
+            with self._cv:
+                while self._deadline is None and not self._stopped:
+                    self._cv.wait()
+                if self._stopped:
+                    return
+                deadline = self._deadline
+                if deadline is None:
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    self._cv.wait(timeout=remaining)
+                    continue
+                self._deadline = None
+            owner = self._owner()
+            if owner is None:
+                return
+            try:
+                owner._timer_flush()
+            except Exception:
+                log.exception("BatchingStreamQueue timer flush failed")
+            finally:
+                # Drop the strong ref before waiting again. Holding it across
+                # the wait would keep the batcher (and this thread) alive
+                # after the send released it.
+                del owner
+
+
 class BatchingStreamQueue:
     """Producer-side batcher for chat display text (CHUNK / THINKING).
 
@@ -119,13 +208,13 @@ class BatchingStreamQueue:
     Contract (per user direction 2026-05-25, refined 2026-05-25):
     - Simple append: internal buffers just do buf.append(delta).
     - **Hard 250 ms max latency ("every 250 ms max, or when done")**:
-      The *first* display delta that starts a new burst arms a one-shot timer
-      for exactly `batch_interval` (default 0.25 s) from the moment that first
-      fragment arrived. Subsequent deltas during the burst are appended but
-      do *not* push the deadline. When the timer fires we emit one joined
-      string per contiguous CHUNK or THINKING run, in arrival order. This
-      guarantees the UI sees an update at least every 250 ms during a long
-      fast stream.
+      The *first* display delta that starts a new burst arms the batcher's
+      reusable timer for exactly `batch_interval` (default 0.25 s) from the
+      moment that first fragment arrived. Subsequent deltas during the burst
+      are appended but do *not* push the deadline, and they do not start
+      another thread. When the timer fires we emit one joined string per
+      contiguous CHUNK or THINKING run, in arrival order. This guarantees the
+      UI sees an update at least every 250 ms during a long fast stream.
     - Explicit `.flush()`, or any control/boundary item (STREAM_DONE, ERROR,
       STOPPED, APPROVAL_REQUIRED, TOOL_*, NEXT_TOOL, FINAL_DONE, etc.),
       also causes immediate emission of whatever has accumulated so far
@@ -159,24 +248,37 @@ class BatchingStreamQueue:
         # every THINKING buffer showed the reply before [Thinking].
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock = threading.Lock()
-        self._timer: threading.Timer | None = None
+        self._timer: _ReusableBurstTimer | None = None
+
+    def __del__(self) -> None:
+        # crosshair: off
+        # The timer thread holds only a weakref, and only while flushing.
+        # Stop it when this batcher is released so a chat send does not leave
+        # a waiting thread behind.
+        timer = getattr(self, "_timer", None)
+        if timer is None:
+            return
+        try:
+            timer.stop()
+        except Exception:
+            return
 
     def _cancel_timer(self) -> None:
         # crosshair: off
+        # Clear the deadline only. Dropping the timer object used to force
+        # the next burst to construct a new threading.Timer.
         if self._timer is not None:
             self._timer.cancel()
-            self._timer = None
 
     def _schedule_timer(self) -> None:
         # crosshair: off
         # One deadline per burst. The first CHUNK and the first THINKING each
         # called this, and cancel-then-restart moved the 250 ms mark when the
-        # other kind arrived. Leave an armed timer alone. Caller holds _lock.
-        if self._timer is not None:
-            return
-        self._timer = threading.Timer(self._interval, self._timer_flush)
-        self._timer.daemon = True
-        self._timer.start()
+        # other kind arrived. Leave an armed deadline alone. Caller holds _lock.
+        # The thread itself is created once and reused.
+        if self._timer is None:
+            self._timer = _ReusableBurstTimer(self, self._interval)
+        self._timer.arm()
 
     def _timer_flush(self) -> None:
         # crosshair: off
@@ -493,13 +595,18 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
 def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[[], bool] | None, flush_pending: Callable[[], None] | None = None) -> None:
     # crosshair: off
     # Trailing flush_buffers() must still raise on the success path (outer catch
-    # / test_stream_drain_loop_processing_error). After a fatal inner handler
-    # failure, skip it: a second raise would double-call on_error.
+    # / test_stream_drain_loop_processing_error). Skip it after stop and after
+    # an inner handler failure: those paths already flushed, and a second raise
+    # would call on_error again.
     skip_trailing_flush = False
     for item in items:
         if stop_checker and stop_checker():
             log.info("run_stream_drain_loop: Stop requested via checker.")
             _finish_on_stop(state, flush_pending)
+            # What was wrong: this break left skip_trailing_flush False, so
+            # the trailing flush ran after _finish_on_stop had already flushed.
+            # Why: that second flush is not the success-path flush.
+            skip_trailing_flush = True
             break
 
         raw_kind = item[0] if isinstance(item, (tuple, list)) else item
@@ -540,6 +647,12 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
                 # Continuing used to run STREAM_DONE and set job_done, so the
                 # replacement worker's chunks were ignored. Leave job_done
                 # clear so the drain waits for that worker.
+                # What was wrong: this break left skip_trailing_flush False.
+                # The trailing flush_buffers() could raise, and
+                # run_stream_drain_loop then called on_error a second time
+                # for the same failure. The fatal path already skipped it.
+                # Why: on_error already ran; do not flush again.
+                skip_trailing_flush = True
                 break
             state.job_done[0] = True
             skip_trailing_flush = True
@@ -608,11 +721,11 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
                     break
 
                 if not items:
-                    marshal_depth = default_executor._work_queue.qsize()
+                    marshal_depth = default_executor.pending_work_count()
                     if toolkit:
                         pump_ui_idle(toolkit)
                     if marshal_depth > 0:
-                        remaining = default_executor._work_queue.qsize()
+                        remaining = default_executor.pending_work_count()
                         # pump_ui_idle drains one item. A healthy backlog of 2+
                         # still has remaining > 0; that is not a blocked worker.
                         if remaining >= marshal_depth:
@@ -675,6 +788,73 @@ def _call_item_or_zero_arg(fn: Callable[..., None], item: Any) -> None:
         fn()
 
 
+_TERMINAL_WATCH_KINDS = frozenset((
+    StreamQueueKind.STREAM_DONE,
+    StreamQueueKind.ERROR,
+    StreamQueueKind.STOPPED,
+    StreamQueueKind.FINAL_DONE,
+))
+_terminal_watch_lock = threading.Lock()
+
+
+def _watch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
+    """Count this caller on the queue's put wrapper.
+
+    What was wrong: each drain saved ``Queue.put`` and assigned that saved
+    method back in ``finally``. A second drain on the same queue captured the
+    first wrapper as the original. Whichever call restored first either
+    dropped the live wrapper or left the finished call's wrapper installed.
+    Why: one wrapper, a list of per-call flags, restore only when the last
+    watcher leaves. Flags are removed by identity (``list.remove`` treats
+    equal ``[False]`` cells as the same).
+    """
+    # crosshair: off
+    with _terminal_watch_lock:
+        state = getattr(real_q, "_wa_terminal_watch", None)
+        if not isinstance(state, dict):
+            orig_put = real_q.put
+            flags: list[list[bool]] = []
+
+            def _watched_put(item: Any, *args: Any, **kwargs: Any) -> None:
+                if isinstance(item, tuple) and item and item[0] in _TERMINAL_WATCH_KINDS:
+                    with _terminal_watch_lock:
+                        active = list(flags)
+                    for flag in active:
+                        flag[0] = True
+                orig_put(item, *args, **kwargs)
+
+            state = {"orig": orig_put, "flags": flags, "watched": _watched_put}
+            real_q.put = _watched_put
+            real_q._wa_terminal_watch = state
+        state["flags"].append(saw_terminal)
+
+
+def _unwatch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
+    """Drop this caller's flag. Restore ``Queue.put`` when none remain."""
+    # crosshair: off
+    with _terminal_watch_lock:
+        state = getattr(real_q, "_wa_terminal_watch", None)
+        if not isinstance(state, dict):
+            return
+        flags: list[list[bool]] = state["flags"]
+        for index, flag in enumerate(flags):
+            if flag is saw_terminal:
+                del flags[index]
+                break
+        else:
+            return
+        if flags:
+            return
+        watched = state.get("watched")
+        orig = state.get("orig")
+        if real_q.put is watched and orig is not None:
+            real_q.put = orig
+        try:
+            delattr(real_q, "_wa_terminal_watch")
+        except AttributeError:
+            return
+
+
 def run_async_worker_with_drain(
     ctx: Any,
     worker_fn: Callable[[queue.Queue[Any]], None],
@@ -715,17 +895,10 @@ def run_async_worker_with_drain(
     # passed to worker_fn. send_handlers closes over the real queue and puts
     # ERROR/STREAM_DONE there, so finally always posted a second STREAM_DONE.
     # That can end a recovered drain (on_error True) on a later iteration.
-    # Why: patch the real queue's put for the worker lifetime so every reference
-    # updates saw_terminal; restore in finally. Assign via Any so ty accepts
-    # replacing the bound method.
+    # Why: watch the real queue's put for this worker. Overlapping drains on
+    # one queue share the wrapper; see _watch_queue_terminal.
     saw_terminal = [False]
     real_any: Any = _real_q
-    _orig_put = real_any.put
-
-    def _watched_put(item: Any, *args: Any, **kwargs: Any) -> None:
-        if isinstance(item, tuple) and item and item[0] in (StreamQueueKind.STREAM_DONE, StreamQueueKind.ERROR, StreamQueueKind.STOPPED, StreamQueueKind.FINAL_DONE):
-            saw_terminal[0] = True
-        _orig_put(item, *args, **kwargs)
 
     def worker_wrapper() -> None:
         # What was wrong: ``finally`` always queued STREAM_DONE after ERROR.
@@ -734,7 +907,7 @@ def run_async_worker_with_drain(
         # chunks. Skip the sentinel when this wrapper or the worker already
         # queued a terminal item.
         failed = False
-        real_any.put = _watched_put
+        _watch_queue_terminal(real_any, saw_terminal)
         try:
             # Pass the real queue (or batcher). Puts go through the patched put.
             worker_fn(cast("queue.Queue[Any]", q))
@@ -753,7 +926,7 @@ def run_async_worker_with_drain(
                 _batched.flush()
             if not failed and not saw_terminal[0]:
                 real_any.put((StreamQueueKind.STREAM_DONE, None))
-            real_any.put = _orig_put
+            _unwatch_queue_terminal(real_any, saw_terminal)
 
     from plugin.framework.uno_context import get_toolkit
 

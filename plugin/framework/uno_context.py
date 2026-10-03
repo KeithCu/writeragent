@@ -655,9 +655,10 @@ def _post_secondary_idle(ctx: Any) -> None:
     # How it happened: wait_while_pumping called this on every poll whether or
     # not the previous pump was still sitting in the work queue.
     # Why this change: skip while default_executor's queue is non-empty. One
-    # outstanding pump is enough. qsize() is not a sticky flag — if post()
-    # drops the callback the queue stays empty and the next tick tries again.
-    if default_executor._work_queue.qsize() != 0:
+    # outstanding pump is enough. pending_work_count() is not a sticky flag —
+    # if post() drops the callback the queue stays empty and the next tick
+    # tries again.
+    if default_executor.pending_work_count() != 0:
         return
 
     def _pump() -> None:
