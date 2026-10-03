@@ -295,8 +295,12 @@ def _config_assignment_matches(
     as maps, not as rewritten blobs.
     """
     if key == "endpoint":
-        from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
-
+        # config_ui_helpers is WriterAgent-only. LibrePy ships this module
+        # and must still import when that helper is absent.
+        try:
+            from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+        except (ImportError, ModuleNotFoundError):
+            return str(proposed or "").strip() == str(current or "").strip()
         return endpoint_from_selector_text(str(proposed or "")) == endpoint_from_selector_text(str(current or ""))
     if isinstance(proposed, dict) or isinstance(current, dict):
         return proposed == current
