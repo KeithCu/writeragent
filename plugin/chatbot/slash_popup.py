@@ -1089,7 +1089,7 @@ class SlashPopupController:
                 mods = int(getattr(aEvent, "Modifiers", 0) or 0)
                 ch = getattr(aEvent, "KeyChar", None)
                 _ovlog("frame keyPressed code=%s mods=%s char=%r", code, mods, ch)
-                # Nav only. from_overlay=True would append every printable
+                # Nav only. Overlay insert mode would append every printable
                 # document key into Ask and consume it.
                 return host._on_document_key(code, mods, ch)
 
