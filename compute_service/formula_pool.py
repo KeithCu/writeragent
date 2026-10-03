@@ -425,7 +425,14 @@ class FormulaProcessPool(BaseProcessPool):
         if blob is None and data is not None:
             # Convenience for pool tests / in-process callers. The HTTP
             # path always supplies data_json so the host never dumps the grid.
-            blob = json.dumps(data, allow_nan=False).encode("utf-8")
+            # allow_nan=False raises ValueError for NaN/Inf and TypeError for
+            # a non-JSON object. That escaped execute() before any lease.
+            # execute() already turns ExecuteRequestError into an error
+            # payload. Do not validate data_json: those bytes are the wire.
+            try:
+                blob = json.dumps(data, allow_nan=False).encode("utf-8")
+            except (TypeError, ValueError) as exc:
+                raise ExecuteRequestError(f"data is not JSON-serializable: {exc}") from exc
         if blob is not None:
             payload["data_json"] = bytes(blob)
         return payload

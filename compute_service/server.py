@@ -47,7 +47,10 @@ _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # QUEUE_TIMEOUT is the same miss as the handler's pre-check. The pool
 # returns it when the accept deadline expires after that check; leaving it
 # out of this set answered HTTP 200 for a request that never leased a worker.
-_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE", "QUEUE_TIMEOUT"})
+# VISION_POOL_BUSY is that miss on /v1/vision (lease wait expired, no
+# worker). The route's accept-deadline pre-check is already 503; this code
+# was not in the set, so the same miss came back HTTP 200.
+_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE", "QUEUE_TIMEOUT", "VISION_POOL_BUSY"})
 
 
 def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
@@ -317,7 +320,17 @@ def authenticate_request(environ: dict[str, Any], settings: ComputeSettings) -> 
     expected = settings.api_key
     # Use compare_digest alone — the len() pre-check would short-circuit before
     # compare_digest runs, leaking expected key length via timing side-channel.
-    if not hmac.compare_digest(provided, expected):
+    # compare_digest on str raises TypeError for any non-ASCII character, even
+    # when the token matches. The key-file reader accepts that UTF-8, and
+    # nothing around this call catches the error, so the client got a dropped
+    # socket instead of 401. Compare the UTF-8 bytes. A surrogate that cannot
+    # be encoded is a bad token, not a crash.
+    try:
+        provided_bytes = provided.encode("utf-8")
+        expected_bytes = expected.encode("utf-8")
+    except UnicodeEncodeError:
+        return None, "invalid"
+    if not hmac.compare_digest(provided_bytes, expected_bytes):
         return None, "invalid"
     return settings.default_principal, None
 
