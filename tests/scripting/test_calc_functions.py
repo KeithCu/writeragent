@@ -455,3 +455,68 @@ def test_yearfrac_basis_matches_days360_and_can_be_negative():
 
     assert _year_frac(float(start), float(end), 0) == calc.yearfrac(start, end, 0)
 
+
+def test_avedev_ignores_text_and_logicals():
+    # Mean of 1,2,3 is 2; mean absolute deviation is 2/3. Text and TRUE are ignored.
+    assert calc.avedev([1.0, 2.0, 3.0]) == 2.0 / 3.0
+    assert calc.avedev([1.0, "x", "", 2.0, True, 3.0]) == 2.0 / 3.0
+    assert math.isnan(calc.avedev(["x", True, ""]))
+
+
+def test_address_bad_input_returns_value_error():
+    assert calc.address(1, 1) == "$A$1"
+    assert calc.address("x", 1) == "#VALUE!"
+    assert calc.address(1, float("inf")) == "#VALUE!"
+    assert calc.address(float("nan"), 1) == "#VALUE!"
+    assert calc.address(1, 1, float("inf")) == "#VALUE!"
+
+
+def test_averageifs_and_countifs_reject_odd_predicates():
+    assert calc.averageifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) == "#VALUE!"
+    assert calc.countifs([1.0, 2.0], ">0", [1.0, 2.0]) == "#VALUE!"
+    assert calc.countifs([1.0, 2.0, 3.0], ">1") == 2.0
+    assert calc.averageifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], ">1") == 2.5
+
+
+def test_bit_char_choose_combin_inf_does_not_raise():
+    assert math.isnan(calc.bitand(float("inf"), 1))
+    assert math.isnan(calc.bitlshift(1, float("inf")))
+    assert math.isnan(calc.bitor(1, float("inf")))
+    assert math.isnan(calc.bitrshift(float("inf"), 1))
+    assert math.isnan(calc.bitxor(float("inf"), 1))
+    assert calc.bitand(5, 3) == 1.0
+    assert calc.char(float("inf")) == "#VALUE!"
+    assert calc.char(256) == "#VALUE!"
+    assert calc.char("nope") == "#VALUE!"
+    assert calc.char(65) == "A"
+    assert calc.choose(float("inf"), "a", "b") is None
+    assert calc.choose(2, "a", "b") == "b"
+    assert math.isnan(calc.combin(float("inf"), 2))
+    assert math.isnan(calc.combina(5, float("inf")))
+    assert calc.combin(5, 2) == 10.0
+
+
+def test_aggregate_error_options_and_text():
+    data = [1.0, 2.0, float("nan"), 3.0]
+    # Ignore-error options are 2, 3, 6, 7 (Microsoft AGGREGATE). Sum is 6.
+    for opt in (2, 3, 6, 7):
+        assert calc.aggregate(9, opt, data) == 6.0
+    # Hidden-row-only options 1 and 5 do not ignore errors.
+    for opt in (1, 4, 5):
+        assert math.isnan(calc.aggregate(9, opt, data))
+    # Text must not fail the whole call. SUM ignores it; COUNTA counts it.
+    assert calc.aggregate(9, 4, [1.0, "x", "", 3.0]) == 4.0
+    assert calc.aggregate(3, 4, [1.0, "x", "", 3.0]) == 3.0
+    assert calc.aggregate(3, 6, [1.0, "x", float("nan")]) == 2.0
+    assert calc.aggregate(3, 4, [1.0, "x", float("nan")]) == 3.0
+    assert calc.aggregate(9, 4, [1.0, 2.0, 3.0]) == 6.0
+
+
+def test_base_returns_num_error_token():
+    assert calc.base(255, 16) == "FF"
+    assert calc.base(-1, 10) == "#NUM!"
+    assert calc.base(10, 1) == "#NUM!"
+    assert calc.base("x", 10) == "#NUM!"
+    assert calc.base(float("inf"), 10) == "#NUM!"
+    assert calc.base(15, 16, 4) == "000F"
+
