@@ -239,6 +239,7 @@ class BatchingStreamQueue:
     _raw: queue.Queue[Any]
     _interval: float
     _lock: threading.Lock
+    _dropped: bool
 
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
         # crosshair: off
@@ -249,6 +250,7 @@ class BatchingStreamQueue:
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock = threading.Lock()
         self._timer: _ReusableBurstTimer | None = None
+        self._dropped = False
 
     def __del__(self) -> None:
         # crosshair: off
@@ -324,17 +326,25 @@ class BatchingStreamQueue:
             if kind == StreamQueueKind.CHUNK or kind == StreamQueueKind.THINKING:
                 data = item[1] if len(item) > 1 else ""
                 with self._lock:
+                    # Abort discarded this batcher. A later put must not arm the timer.
+                    if self._dropped:
+                        return
                     self._append_display_locked(kind, data or "")
                 return
 
         # Any other kind (including bare kinds or control tuples) is a boundary
         self.flush()
+        with self._lock:
+            if self._dropped:
+                return
         self._raw.put(item)
 
     def flush(self) -> None:
         """Force immediate emission of any pending display text (one joined string per kind)."""
         # crosshair: off
         with self._lock:
+            if self._dropped:
+                return
             self._emit_pending_locked()
 
     def discard(self) -> None:
@@ -342,12 +352,13 @@ class BatchingStreamQueue:
 
         What was wrong: the tool-loop ``finally`` cleared the host's batcher
         reference while the 250 ms timer could still flush those runs. After
-        Clear, Stop, or a new send that flush applied the first turn's tail
-        onto the next queue. Discard under the same lock as emit so the timer
-        and this call cannot both deliver the buffer.
+        Stop or a new send that flush applied the first turn's tail onto the
+        next queue. Discard under the same lock as emit, and stay dropped so
+        a later ``put`` cannot arm the timer again.
         """
         # crosshair: off
         with self._lock:
+            self._dropped = True
             self._runs.clear()
             self._cancel_timer()
 

@@ -486,6 +486,30 @@ def _visible_message_text(content: Any) -> str:
     return str(content)
 
 
+def plain_transcript_text(session: Any, greeting: str = "") -> str:
+    """Plain sidebar text for ``session.messages``. The control is this string."""
+    from plugin.framework.i18n import _
+
+    text = greeting + "\n" if greeting else ""
+    messages = getattr(session, "messages", None)
+    if not isinstance(messages, list):
+        return text
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role", "")
+        content = _visible_message_text(msg.get("content", ""))
+        if role == "user":
+            text += "\nUser: %s\n" % content
+        elif role == "assistant":
+            if content:
+                text += "\n%s %s" % (_("Assistant:"), content)
+            elif msg.get("tool_calls"):
+                text += "\n%s [Thinking...]" % _("Assistant:")
+            text += "\n"
+    return text
+
+
 def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, str]]:
     """Build (role, content) pairs for session history display (skips system messages)."""
     items: list[tuple[str, str]] = []

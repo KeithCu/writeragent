@@ -532,22 +532,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 return
 
             if response_ctrl and response_ctrl.getModel():
-                text = greeting + "\n" if greeting else ""
+                from plugin.chatbot.rich_text_paste import plain_transcript_text
 
-                # Append loaded history (skipping system context)
-                for msg in session.messages:
-                    role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if role == "user":
-                        text += "\nUser: %s\n" % content
-                    elif role == "assistant":
-                        # Plain-text fallback when the rich widget is absent.
-                        # Literal inside _() so the role prefix is extractable.
-                        if content:
-                            text += "\n%s %s" % (_("Assistant:"), content)
-                        elif msg.get("tool_calls"):
-                            text += "\n%s [Thinking...]" % _("Assistant:")
-                        text += "\n"
+                text = plain_transcript_text(session, greeting)
 
                 set_control_text(response_ctrl, text)
                 # Scroll to bottom
@@ -962,11 +949,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         )
 
         if send_listener is not None:
-            from plugin.chatbot.tool_loop_actions import bump_send_generation
+            from plugin.chatbot.tool_loop_actions import abort_turn
 
-            # The in-flight turn keeps the mode it started with. Chunks from
-            # that generation stop applying once the dropdown moves.
-            bump_send_generation(send_listener)
+            # The in-flight turn keeps the session it started with. Later
+            # chunks must not paint onto the transcript this switch shows.
+            abort_turn(send_listener)
         if mode != CHAT_MODE_BRAINSTORMING and send_listener:
             clear_brainstorming_session(send_listener)
         if mode != CHAT_MODE_PPT_MASTER and send_listener:
