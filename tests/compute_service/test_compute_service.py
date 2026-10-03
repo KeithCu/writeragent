@@ -1821,6 +1821,19 @@ class TestDockerEntrypoint:
         assert "compute_service/server.py" in ran
 
 
+class _AcceptedConnectionHandler:
+    """Request handler stand-in that does not treat the socket as a Mock spec.
+
+    ``MagicMock(sock, address, server)`` binds the socket to ``spec``. A
+    MagicMock socket then raises InvalidSpecError inside the listener thread.
+    """
+
+    def __init__(self, request: object, client_address: object, server: object) -> None:
+        self.request = request
+        self.client_address = client_address
+        self.server = server
+
+
 class TestListenerQueue:
     def test_busy_listener_pool_queues_instead_of_503(self) -> None:
         """A full listener queue used to answer 503 and close the socket.
@@ -1830,7 +1843,7 @@ class TestListenerQueue:
         """
         from compute_service.server import DualStackThreadPoolHTTPServer
 
-        server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), MagicMock, max_threads=1)
+        server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
         hold = threading.Event()
         running = threading.Event()
 
@@ -1900,7 +1913,7 @@ def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
         return sock
 
     monkeypatch.setattr(socket, "socket", tracking)
-    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), MagicMock, max_threads=1)
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
     try:
         leaked = [sock for sock in created if sock not in server.sockets and sock.fileno() != -1]
         assert leaked == []

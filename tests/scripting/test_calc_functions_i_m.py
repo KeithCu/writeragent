@@ -24,27 +24,42 @@ _INF = float("inf")
 _DATE = (43831, 43983)
 
 
-def _float_or_none(got: object) -> float | None:
-    # bool is an int subclass. A boolean is never a numeric spreadsheet result here.
-    if isinstance(got, bool) or not isinstance(got, (int, float)):
+def _plain_number(value: object) -> float | None:
+    """Number behind a float, int, or a plain numeric string.
+
+    Complex helpers stringify an integer-valued coefficient as ``1`` or ``0``
+    (``_complex_coeff``). The table stores the number ``1.0`` / ``0.0``.
+    Compare the value, not the spelling. Bool is an int subclass and is not
+    a numeric cell. Error tokens such as ``#VALUE!`` are not numbers.
+    """
+    if isinstance(value, bool):
         return None
-    return float(got)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value and not value.startswith("#"):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _same(got: object, expected: object) -> bool:
     if expected is _NAN:
-        number = _float_or_none(got)
+        number = _plain_number(got)
         return number is not None and math.isnan(number)
     if isinstance(expected, list):
         if not isinstance(got, list) or len(got) != len(expected):
             return False
         return all(_same(item, exp) for item, exp in zip(got, expected))
-    if isinstance(expected, float) and math.isinf(expected):
-        number = _float_or_none(got)
-        return number is not None and math.isinf(number) and (number > 0) == (expected > 0)
-    if isinstance(expected, float):
-        number = _float_or_none(got)
-        return number is not None and math.isfinite(number) and math.isclose(number, expected, rel_tol=1e-9, abs_tol=1e-12)
+    left = _plain_number(got)
+    right = _plain_number(expected)
+    if left is not None and right is not None:
+        if math.isnan(left) or math.isnan(right):
+            return math.isnan(left) and math.isnan(right)
+        if math.isinf(left) or math.isinf(right):
+            return math.isinf(left) and math.isinf(right) and (left > 0) == (right > 0)
+        return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-12)
     return bool(got == expected)
 
 
@@ -70,15 +85,15 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     # Complex string helpers return #VALUE! when the text is not a complex number.
     ("imconjugate-text", "imconjugate", ("text",), "#VALUE!"),
     ("imconjugate-blank", "imconjugate", (None,), "#VALUE!"),
-    ("imconjugate-zero", "imconjugate", (0,), "0.0"),
+    ("imconjugate-zero", "imconjugate", (0,), 0.0),
     ("imconjugate-inf", "imconjugate", (_INF,), "inf"),
     ("imcos-text", "imcos", ("text",), "#VALUE!"),
     ("imcos-blank", "imcos", (None,), "#VALUE!"),
-    ("imcos-zero", "imcos", (0,), "1.0"),
+    ("imcos-zero", "imcos", (0,), 1.0),
     ("imcos-inf", "imcos", (_INF,), "#VALUE!"),
     ("imcosh-text", "imcosh", ("text",), "#VALUE!"),
     ("imcosh-blank", "imcosh", (None,), "#VALUE!"),
-    ("imcosh-zero", "imcosh", (0,), "1.0"),
+    ("imcosh-zero", "imcosh", (0,), 1.0),
     ("imcosh-inf", "imcosh", (_INF,), "inf"),
     ("imcot-text", "imcot", ("text",), "#VALUE!"),
     ("imcot-blank", "imcot", (None,), "#VALUE!"),
@@ -91,7 +106,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imcsch-text", "imcsch", ("text",), "#VALUE!"),
     ("imcsch-blank", "imcsch", (None,), "#VALUE!"),
     ("imcsch-zero", "imcsch", (0,), "#VALUE!"),
-    ("imcsch-inf", "imcsch", (_INF,), "0.0"),
+    ("imcsch-inf", "imcsch", (_INF,), 0.0),
     ("imexp-text", "imexp", ("text",), "#VALUE!"),
     ("imexp-blank", "imexp", (None,), "#VALUE!"),
     ("imexp-inf", "imexp", (_INF,), "inf"),
@@ -106,38 +121,38 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imlog2-inf", "imlog2", (_INF,), "#VALUE!"),
     ("imsec-text", "imsec", ("text",), "#VALUE!"),
     ("imsec-blank", "imsec", (None,), "#VALUE!"),
-    ("imsec-zero", "imsec", (0,), "1.0"),
+    ("imsec-zero", "imsec", (0,), 1.0),
     ("imsec-inf", "imsec", (_INF,), "#VALUE!"),
     ("imsech-text", "imsech", ("text",), "#VALUE!"),
     ("imsech-blank", "imsech", (None,), "#VALUE!"),
-    ("imsech-zero", "imsech", (0,), "1.0"),
-    ("imsech-inf", "imsech", (_INF,), "0.0"),
+    ("imsech-zero", "imsech", (0,), 1.0),
+    ("imsech-inf", "imsech", (_INF,), 0.0),
     ("imsin-text", "imsin", ("text",), "#VALUE!"),
     ("imsin-blank", "imsin", (None,), "#VALUE!"),
     ("imsin-inf", "imsin", (_INF,), "#VALUE!"),
     ("imsinh-text", "imsinh", ("text",), "#VALUE!"),
     ("imsinh-blank", "imsinh", (None,), "#VALUE!"),
-    ("imsinh-zero", "imsinh", (0,), "0.0"),
+    ("imsinh-zero", "imsinh", (0,), 0.0),
     ("imsinh-inf", "imsinh", (_INF,), "inf"),
     ("imsqrt-text", "imsqrt", ("text",), "#VALUE!"),
     ("imsqrt-blank", "imsqrt", (None,), "#VALUE!"),
-    ("imsqrt-zero", "imsqrt", (0,), "0.0"),
+    ("imsqrt-zero", "imsqrt", (0,), 0.0),
     ("imsqrt-inf", "imsqrt", (_INF,), "inf"),
     ("imtan-text", "imtan", ("text",), "#VALUE!"),
     ("imtan-blank", "imtan", (None,), "#VALUE!"),
-    ("imtan-zero", "imtan", (0,), "0.0"),
+    ("imtan-zero", "imtan", (0,), 0.0),
     ("imtan-inf", "imtan", (_INF,), "#VALUE!"),
     ("imtanh-text", "imtanh", ("text",), "#VALUE!"),
     ("imtanh-blank", "imtanh", (None,), "#VALUE!"),
-    ("imtanh-zero", "imtanh", (0,), "0.0"),
-    ("imtanh-inf", "imtanh", (_INF,), "1.0"),
+    ("imtanh-zero", "imtanh", (0,), 0.0),
+    ("imtanh-inf", "imtanh", (_INF,), 1.0),
     ("imdiv-text", "imdiv", ("text", "1"), "#VALUE!"),
     ("imdiv-blank", "imdiv", (None, "1"), "#VALUE!"),
     ("imdiv-zero", "imdiv", ("1", 0), "#VALUE!"),
-    ("imdiv-inf", "imdiv", ("1", _INF), "0.0"),
+    ("imdiv-inf", "imdiv", ("1", _INF), 0.0),
     ("imsub-text", "imsub", ("text", "1"), "#VALUE!"),
     ("imsub-blank", "imsub", (None, "1"), "#VALUE!"),
-    ("imsub-zero", "imsub", ("1", 0), "1.0"),
+    ("imsub-zero", "imsub", ("1", 0), 1.0),
     ("imsub-inf", "imsub", ("1", _INF), "-inf"),
     # 0**negative and a finite base to inf used to raise ZeroDivisionError.
     ("impower-text", "impower", ("text", 2), "#VALUE!"),
@@ -146,12 +161,12 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("impower-inf", "impower", ("1+i", _INF), "#VALUE!"),
     ("improduct-text", "improduct", ("text",), "#VALUE!"),
     ("improduct-blank", "improduct", (None,), "#VALUE!"),
-    ("improduct-zero", "improduct", (0,), "0.0"),
+    ("improduct-zero", "improduct", (0,), 0.0),
     # A non-finite product does not raise. _from_complex stringifies it.
     ("improduct-inf", "improduct", (_INF,), "infnani"),
     ("imsum-text", "imsum", ("text",), "#VALUE!"),
     ("imsum-blank", "imsum", (None,), "#VALUE!"),
-    ("imsum-zero", "imsum", (0,), "0.0"),
+    ("imsum-zero", "imsum", (0,), 0.0),
     ("imsum-inf", "imsum", (_INF,), "inf"),
     ("intercept-text", "intercept", (["text", "b"], [1.0, 2.0]), _NAN),
     ("intercept-blank", "intercept", ([None, None], [1.0, 2.0]), _NAN),
