@@ -75,6 +75,14 @@ def test_match_criteria_comparisons():
     assert match_criteria("apple", "=apple") is True
     assert match_criteria("orange", "<>apple") is True
 
+    # Huge ints are not floats. They follow the text-cell rule instead of raising.
+    huge = 10**400
+    assert match_criteria(huge, ">5") is False
+    assert match_criteria(huge, "<>5") is True
+    assert match_criteria(huge, huge) is True
+    # float("1" + 400 zeros) is inf, not OverflowError, so this is 5 > inf.
+    assert match_criteria(5, ">" + str(huge)) is False
+
 
 def test_find_match_index():
     arr = ["apple", "banana", "cherry", "date"]
@@ -133,6 +141,9 @@ def test_to_float_a():
     assert _to_float_a("") == 0.0
     assert _to_float_a("invalid") == 0.0
     assert _to_float_a("#VALUE!") == 0.0
+    # int past the float range used to raise OverflowError out of the helper.
+    assert _to_float_a(10**400) == 0.0
+    assert _to_float_a(-(10**400)) == 0.0
 
 
 def test_collect_a_values():
@@ -341,6 +352,14 @@ def test_dollar_fraction_terms():
     assert _dollar_fraction_terms(1.02, -4) is None
     assert _dollar_fraction_terms("invalid", 4) is None
     assert _dollar_fraction_terms(1.02, "invalid") is None
+
+    # inf used to crash in math.floor / int(float(inf)) via OverflowError.
+    assert _dollar_fraction_terms(1.02, float("inf")) is None
+    assert _dollar_fraction_terms(1.02, float("-inf")) is None
+    assert _dollar_fraction_terms(float("inf"), 4) is None
+    assert _dollar_fraction_terms(float("-inf"), 4) is None
+    assert _dollar_fraction_terms(float("nan"), 4) is None
+    assert _dollar_fraction_terms(10**400, 4) is None
 
 
 

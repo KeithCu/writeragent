@@ -5,7 +5,10 @@
 """Tests for Calc formula parity helpers (plugin.scripting.calc_functions / calc)."""
 
 from __future__ import annotations
+
+import datetime as dt
 import math
+import time
 
 import plugin.scripting.calc_functions as calc
 
@@ -1157,6 +1160,70 @@ def test_coup_days_nonfinite_frequency_reaches_guard():
     assert math.isnan(_coup_days_in_period(0.4, 0))
     assert _coup_days_in_period(2, 0) == 180.0
     assert _coup_days_in_period(2, 3) == 182.5
+
+
+def _serial(day: dt.date) -> float:
+    return float(day.toordinal() - 693594)
+
+
+def _slow_workday(start: dt.date, days: int, weekend: set[int], holidays: set[dt.date]) -> dt.date:
+    """Previous one-day loop, kept as the oracle for in-range counts."""
+    curr = start
+    remaining = days
+    step = 1 if remaining >= 0 else -1
+    while remaining != 0:
+        curr += dt.timedelta(days=step)
+        if curr.weekday() not in weekend and curr not in holidays:
+            remaining -= step
+    return curr
+
+
+def test_workday_matches_day_loop_with_holidays():
+    # 46181 is 2026-06-08, a Monday. +1 is Tuesday, +4 is Friday.
+    start = dt.date(2026, 6, 8)
+    assert _serial(start) == 46181.0
+    assert calc.workday(46181, 0) == 46181.0
+    assert calc.workday(46181, 5) == _serial(dt.date(2026, 6, 15))
+    assert calc.workday(46181, -1) == _serial(dt.date(2026, 6, 5))
+
+    holidays = {
+        dt.date(2026, 6, 9),
+        dt.date(2026, 6, 12),
+        dt.date(2026, 6, 13),  # Saturday: not a workday, must not extend the span
+        dt.date(2026, 6, 8),  # start itself is not counted
+    }
+    holiday_serials = [_serial(day) for day in holidays]
+    weekends = ({5, 6}, {6}, {0, 4}, set())
+    for weekend in weekends:
+        for days in (0, 1, -1, 4, 5, 6, 10, -10, 22, -17, 40):
+            expected = _slow_workday(start, days, weekend, holidays)
+            mask = "".join("1" if i in weekend else "0" for i in range(7))
+            assert calc.workday_intl(_serial(start), days, mask, holiday_serials) == _serial(expected)
+        if weekend == {5, 6}:
+            for days in (0, 1, -1, 10, 22, -17):
+                expected = _slow_workday(start, days, weekend, holidays)
+                assert calc.workday(_serial(start), days, holiday_serials) == _serial(expected)
+
+
+def test_workday_large_days_does_not_hang():
+    # A day-by-day loop of 10**7+ iterations froze the UI thread. The result
+    # is past year 9999, which is #NUM! / NaN, and it has to come back at once.
+    started = time.perf_counter()
+    assert math.isnan(calc.workday(46181, 10**7))
+    assert math.isnan(calc.workday(46181, -(10**7)))
+    assert math.isnan(calc.workday_intl(46181, 10**12, 1))
+    assert math.isnan(calc.workday_intl(46181, float("inf"), "0000011"))
+    # Every day is a weekend: the old loop never decremented `remaining`.
+    assert math.isnan(calc.workday_intl(46181, 1, "1111111"))
+    assert calc.workday_intl(46181, 0, "1111111") == 46181.0
+    assert time.perf_counter() - started < 1.0
+
+    # Still inside the datetime range, so the week jump must match the old loop.
+    start = dt.date(2026, 6, 8)
+    holidays = {dt.date(2026, 12, 25), dt.date(2027, 1, 1)}
+    for days in (250, 1000, -250):
+        expected = _slow_workday(start, days, {5, 6}, holidays)
+        assert calc.workday(_serial(start), days, [_serial(day) for day in holidays]) == _serial(expected)
 
 
 def test_coupon_nonpositive_frequency_is_nan():

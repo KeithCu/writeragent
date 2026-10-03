@@ -46,6 +46,19 @@ def test_dollarde_dollarfr_match_excel_calc_scale():
     assert math.isclose(calc.dollarfr(1.02, 1), 1.02)
 
 
+def test_dollarde_dollarfr_nonfinite_is_nan():
+    # math.floor(inf) and int(inf) raise OverflowError. That escaped the
+    # (ValueError, TypeError) handler and crashed the formula.
+    assert math.isnan(calc.dollarde(1.02, float("inf")))
+    assert math.isnan(calc.dollarde(1.02, float("-inf")))
+    assert math.isnan(calc.dollarfr(float("inf"), 4))
+    assert math.isnan(calc.dollarfr(float("-inf"), 4))
+    assert math.isnan(calc.dollarde(float("nan"), 4))
+    assert math.isnan(calc.dollarfr(1.5, float("nan")))
+    assert math.isclose(calc.dollarde(1.02, 4), 1.05)
+    assert math.isclose(calc.dollarfr(1.5, 4), 1.2)
+
+
 def test_db_period_past_final_stub_is_nan():
     # life+1 is still a real period. Past that, Calc returns #NUM!.
     partial = calc.db(1_000_000, 100_000, 6, 7, 7)

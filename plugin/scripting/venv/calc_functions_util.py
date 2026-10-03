@@ -102,7 +102,10 @@ def _to_float_a(val: Any) -> float:
         return 1.0 if val else 0.0
     try:
         return float(val)
-    except (ValueError, TypeError):
+    # A Python int bigger than the float range raises OverflowError, which
+    # the (ValueError, TypeError) handler missed, so AVERAGEA-style callers
+    # crashed instead of treating the cell as 0 the way other non-numbers do.
+    except (ValueError, TypeError, OverflowError):
         return 0.0
 
 
@@ -153,11 +156,13 @@ def match_criteria(val: Any, crit: Any) -> bool:
             op, val_str = m.groups()
             try:
                 c_num = float(val_str)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 c_num = None
             try:
                 v_num = float(val)
-            except (ValueError, TypeError):
+            # float() of an int past the float range is OverflowError, not
+            # ValueError. That used to escape and crash COUNTIF/SUMIF.
+            except (ValueError, TypeError, OverflowError):
                 v_num = None
             # A numeric criterion used to fall through to lexicographic
             # compare whenever the cell failed float(). "abc" > "5" is True,
@@ -199,7 +204,9 @@ def match_criteria(val: Any, crit: Any) -> bool:
     try:
         if float(val) == float(crit):
             return True
-    except (ValueError, TypeError):
+    # Same OverflowError hole as the operator branch above: a huge int is
+    # not a float, so fall through to the string compare.
+    except (ValueError, TypeError, OverflowError):
         pass
     return str(val) == str(crit)
 
@@ -423,10 +430,14 @@ def _dollar_fraction_terms(
     """Parse and compute terms for dollarde and dollarfr: (sign, i_part, f_part, f, scale)."""
     try:
         amt = float(amount)
-        f = int(float(fraction))
-    except (ValueError, TypeError):
+        frac = float(fraction)
+        f = int(frac)
+    # int(inf) and float(10**400) raise OverflowError, not ValueError.
+    # math.floor(inf) does too, and that call sat outside this try, so
+    # dollarde(1.02, inf) and dollarfr(inf, 4) crashed the formula.
+    except (ValueError, TypeError, OverflowError):
         return None
-    if f <= 0:
+    if f <= 0 or not math.isfinite(amt) or not math.isfinite(frac):
         return None
     sign = -1.0 if amt < 0 else 1.0
     amt = abs(amt)
