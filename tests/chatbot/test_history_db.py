@@ -94,18 +94,33 @@ def test_json_history_hashes_session_ids(tmp_path):
     import hashlib
     from plugin.chatbot.history_db import _json_history_filename
 
-    history = JSONHistory("../outside", str(tmp_path / "writeragent_history.db"))
+    db_path = str(tmp_path / "writeragent_history.db")
+    history_dir = db_path + ".d"
+    os.makedirs(history_dir, exist_ok=True)
+
+    # 1. Unsafe ids are hashed.
+    history = JSONHistory("../outside", db_path)
     assert os.path.dirname(history.file_path) == history.history_dir
-    assert os.path.basename(history.file_path) == _json_history_filename("../outside")
+    assert os.path.basename(history.file_path) == _json_history_filename("../outside", history.history_dir)
     assert "/" not in os.path.basename(history.file_path)
+    assert os.path.basename(history.file_path) != "../outside.json"
 
-    plain_A = JSONHistory("session_A", str(tmp_path / "writeragent_history.db"))
-    plain_a = JSONHistory("session_a", str(tmp_path / "writeragent_history.db"))
+    # 2. Safe plain lowercase ids are NOT hashed.
+    plain = JSONHistory("session_abc", db_path)
+    assert plain.file_path.endswith("session_abc.json")
+
+    # 3. Case variants do not share a file (one hashes, one does not).
+    plain_A = JSONHistory("session_A", db_path)
+    plain_a = JSONHistory("session_a", db_path)
     assert plain_A.file_path != plain_a.file_path
+    assert plain_a.file_path.endswith("session_a.json")
+    expected_hash_A = hashlib.sha256(b"session_A").hexdigest()
+    assert plain_A.file_path.endswith(f"{expected_hash_A}.json")
 
-    expected_hash = hashlib.sha256(b"session_abc").hexdigest()
-    plain = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
-    assert plain.file_path.endswith(f"{expected_hash}.json")
+    # 4. If an old safe uppercase file exists, we fall back to it.
+    open(os.path.join(history_dir, "session_B.json"), "w").close()
+    plain_B = JSONHistory("session_B", db_path)
+    assert plain_B.file_path.endswith("session_B.json")
 
 
 def test_json_history_refuses_to_replace_invalid_utf8_file(tmp_path):

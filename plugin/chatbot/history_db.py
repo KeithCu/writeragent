@@ -150,13 +150,29 @@ class SQLite3History:
             conn.commit()
 
 
-def _json_history_filename(session_id: str) -> str:
+def _json_history_filename(session_id: str, history_dir: str) -> str:
     """One path segment under the history directory.
 
-    Always uses a SHA-256 hash to prevent case-aliasing on case-insensitive
-    filesystems and to sanitize paths.
+    Regenerated ids are SHA-256 hex or UUID. Unsafe ids are hashed for the filename only.
+    To stop case-alias collisions on case-insensitive filesystems, any id that contains
+    an uppercase letter is also hashed, unless an older unhashed file already exists.
     """
-    name = hashlib.sha256((session_id or "").encode("utf-8")).hexdigest()
+    name = session_id or ""
+    is_unsafe = (
+        not name
+        or name in (".", "..")
+        or "/" in name
+        or "\\" in name
+        or os.path.basename(name) != name
+    )
+    if is_unsafe:
+        name = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    elif name != name.lower():
+        hashed_name = hashlib.sha256(name.encode("utf-8")).hexdigest()
+        if history_dir and os.path.exists(os.path.join(history_dir, f"{name}.json")):
+            pass
+        else:
+            name = hashed_name
     return f"{name}.json"
 
 
@@ -179,7 +195,7 @@ class JSONHistory:
         except OSError:
             log.exception("JSONHistory: Error creating directory")
 
-        self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id))
+        self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id, self.history_dir))
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
