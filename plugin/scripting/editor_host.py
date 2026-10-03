@@ -124,17 +124,41 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
 
 
 _PROBE_CACHE: dict[str, tuple[bool, str]] = {}
+# Failures only: (monotonic expiry, result). Successes stay in _PROBE_CACHE
+# until the venv path changes.
+_PROBE_FAILURE_CACHE: dict[str, tuple[float, tuple[bool, str]]] = {}
+# Short on purpose: long enough that a 30s hung probe is not repeated on every
+# menu open, short enough that installing pywebview is picked up without
+# restarting LibreOffice.
+_PROBE_FAILURE_TTL_SEC = 30.0
 
 
 def probe_webview_import(exe: str) -> tuple[bool, str]:
     """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics.
 
-    Only successes are cached. A failed probe used to stick until LibreOffice
-    exited, so installing pywebview in that venv kept the native dialog.
+    Successes stay cached until the venv path changes. Failures are remembered
+    for ``_PROBE_FAILURE_TTL_SEC``.
     """
     cached = _PROBE_CACHE.get(exe)
     if cached is not None and cached[0]:
         return cached
+    failed = _PROBE_FAILURE_CACHE.get(exe)
+    if failed is not None:
+        expires_at, result = failed
+        if time.monotonic() < expires_at:
+            return result
+        _PROBE_FAILURE_CACHE.pop(exe, None)
+
+    def _remember_failure(result: tuple[bool, str]) -> tuple[bool, str]:
+        # What was wrong: only successes were cached. monaco_editor_available
+        # calls this on the UI thread, and subprocess.run waits up to 30s.
+        # A slow or hung venv blocked every editor open for that full timeout.
+        # A failed probe used to be uncached so installing pywebview was visible
+        # immediately; caching it forever brought back the stuck native dialog.
+        # Why this works: the failure is reused until the TTL, then probed again.
+        _PROBE_FAILURE_CACHE[exe] = (time.monotonic() + _PROBE_FAILURE_TTL_SEC, result)
+        return result
+
     try:
         r = subprocess.run(
             wrap_command_for_sandbox([exe, "-c", _WEBVIEW_PROBE_CODE]),
@@ -146,18 +170,19 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         )
     except (subprocess.TimeoutExpired, OSError) as e:
         log.warning("probe_webview_import failed for %s: %s", exe, e, exc_info=True)
-        return (False, failure_detail(exc=e))
+        return _remember_failure((False, failure_detail(exc=e)))
     detail = (r.stdout or "").strip()
     if r.stderr:
         detail = f"{detail}\n{r.stderr}".strip() if detail else r.stderr.strip()
     if r.returncode == 0:
         res = (True, detail)
         _PROBE_CACHE[exe] = res
+        _PROBE_FAILURE_CACHE.pop(exe, None)
         return res
     if not detail:
         detail = f"exit code {r.returncode}"
     log.warning("probe_webview_import: %s returned %s: %s", exe, r.returncode, detail)
-    return (False, detail)
+    return _remember_failure((False, detail))
 
 
 def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subprocess.Popen[bytes]:
@@ -174,7 +199,13 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
     if sys.platform == "win32":
         popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
-        popen_kw["preexec_fn"] = os.setsid
+        # What was wrong: preexec_fn=os.setsid runs Python in the child between
+        # fork and exec. Other LibreOffice threads can hold locks the child
+        # inherits, so the editor spawn can deadlock.
+        # Why this works: start_new_session asks the C runtime to call setsid()
+        # in the child. The process group is unchanged, so terminate() still
+        # kills Qt grandchildren via killpg.
+        popen_kw["start_new_session"] = True
     return cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox([exe, _EDITOR_MAIN]), **popen_kw))
 
 
@@ -209,6 +240,7 @@ class PersistentEditor:
     _stdin_lock: threading.Lock
     _stderr_tail_lock: threading.Lock
     _stderr_tail: deque[str]
+    _stderr_tail_chars: int
     _stderr_tail_max_chars: int
     _ready_event: threading.Event
     _closed_event: threading.Event
@@ -221,6 +253,7 @@ class PersistentEditor:
         self._stderr_thread: BackgroundHandle | None = None
         self._stderr_tail_lock = threading.Lock()
         self._stderr_tail = deque[str]()
+        self._stderr_tail_chars = 0
         self._stderr_tail_max_chars = 65536
         self._ready_event = threading.Event()
         self._closed_event = threading.Event()
@@ -295,6 +328,7 @@ class PersistentEditor:
         self._closed_event.clear()
         with self._stderr_tail_lock:
             self._stderr_tail.clear()
+            self._stderr_tail_chars = 0
         self._reader_thread = run_in_background(self._read_loop, name="editor-pipe-reader", daemon=True, dedicated=True)
         if proc.stderr is not None:
             self._stderr_thread = run_in_background(self._stderr_drain_loop, name="editor-stderr-drain", daemon=True, dedicated=True)
@@ -302,8 +336,9 @@ class PersistentEditor:
     def terminate(self) -> None:
         """Force terminate the subprocess and its WebEngine children.
 
-        Spawn uses ``os.setsid``. ``proc.terminate()`` leaves Qt grandchildren
-        alive, and a surviving parent is then reused as if it were healthy.
+        Spawn uses ``start_new_session`` (POSIX ``setsid`` in the child).
+        ``proc.terminate()`` leaves Qt grandchildren alive, and a surviving
+        parent is then reused as if it were healthy.
         """
         proc = self._proc
         self._proc = None
@@ -369,8 +404,15 @@ class PersistentEditor:
             return
         with self._stderr_tail_lock:
             self._stderr_tail.append(line)
-            while self._stderr_tail and sum(len(s) + 1 for s in self._stderr_tail) > self._stderr_tail_max_chars:
-                self._stderr_tail.popleft()
+            # +1 matches the old sum(len(s) + 1) budget (one join newline per line).
+            # What was wrong: every popleft recomputed that sum under the lock,
+            # so a chatty child was O(n²) while the drain thread held it.
+            # Why this works: the same budget is a running total, updated by
+            # the appended line and by each dropped line.
+            self._stderr_tail_chars += len(line) + 1
+            while self._stderr_tail and self._stderr_tail_chars > self._stderr_tail_max_chars:
+                dropped = self._stderr_tail.popleft()
+                self._stderr_tail_chars -= len(dropped) + 1
 
     @background
     def _stderr_drain_loop(self) -> None:
@@ -443,17 +485,12 @@ class PersistentEditor:
             return
         proc = self._proc
         stdout = proc.stdout
-        reader_failed = False
         try:
             if sys.platform == "win32":
                 self._read_loop_blocking(proc, stdout)
             else:
                 self._read_loop_select(proc, stdout)
         except Exception:
-            # A truncated frame, a save TimeoutError, or a payload over the cap
-            # used to exit this loop and leave the child up with no reader.
-            # The next launch then treated is_running as success.
-            reader_failed = True
             log.exception("Editor pipe reader failed")
         finally:
             log.info("editor_host: persistent reader loop finished.")
@@ -462,7 +499,15 @@ class PersistentEditor:
                 self._handle_disconnect()
             else:
                 log.info("editor_host: old reader loop ignored disconnect (superseded by new process)")
-            if reader_failed and still_ours and proc.poll() is None:
+            # What was wrong: terminate() ran only when the reader raised.
+            # A clean EOF (child closed stdout) while poll() was still None
+            # dropped sessions via _handle_disconnect but left the process on
+            # self._proc. is_running stayed True, so the next launch reused a
+            # child with no reader.
+            # Why this works: any exit of this loop that still owns a live
+            # process kills it. A child that already exited, or a reader
+            # superseded by a new spawn, is left alone.
+            if still_ours and proc.poll() is None:
                 self.terminate()
 
     def _read_editor_message(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> dict[str, Any] | None:
@@ -529,17 +574,34 @@ class PersistentEditor:
         if kind in SCRIPT_PICKER_MESSAGE_TYPES:
 
             def _handle_picker() -> None:
-                handle_editor_script_message(
-                    kind,
-                    msg,
-                    ctx=self.ctx,
-                    # Launch document, not whichever window is focused now.
-                    # _resolve_run_script_doc used to return the active doc, so a
-                    # focus change saved the script into the newly focused file.
-                    session_doc=self.run_script_doc,
-                    session_doc_url=self.run_script_doc_url,
-                    send=self.send,
-                )
+                try:
+                    handle_editor_script_message(
+                        kind,
+                        msg,
+                        ctx=self.ctx,
+                        # Launch document, not whichever window is focused now.
+                        # _resolve_run_script_doc used to return the active doc, so a
+                        # focus change saved the script into the newly focused file.
+                        session_doc=self.run_script_doc,
+                        session_doc_url=self.run_script_doc_url,
+                        send=self.send,
+                    )
+                except Exception as e:
+                    # What was wrong: only TimeoutError from executor.execute was
+                    # caught. Any other exception (disposed document, config/UNO
+                    # error, send() rejecting a payload over 16 MB) left
+                    # _dispatch_incoming, the reader loop's blanket except marked
+                    # the reader failed, and terminate() killed the editor —
+                    # unsaved buffer included. Save and close already wrap their
+                    # bodies; the picker did not.
+                    # Why this works: the picker reports the error on the pipe
+                    # and the reader stays up. A second failure while sending
+                    # that frame is logged here so it cannot escape either.
+                    log.exception("Editor script picker failed")
+                    try:
+                        self.send({"type": "error", "message": str(e), "traceback": exception_traceback(e)})
+                    except Exception:
+                        log.exception("Editor script picker could not send the error frame")
 
             try:
                 # What was wrong: save and close pass timeout=_marshal_timeout(),
@@ -762,8 +824,19 @@ def set_active_session(session: EditorSession | None) -> None:
 
 def terminate_persistent_editor() -> None:
     """Force terminate the background Monaco editor process."""
-    _PERSISTENT_EDITOR.sessions.clear()
-    _PERSISTENT_EDITOR.focused_id = None
+    # What was wrong: sessions and focused_id were cleared with no lock, and
+    # run_script_doc / run_script_doc_url kept pointing at the document the
+    # dead editor was launched for. The picker reads those two fields, so a
+    # later message still targeted that document.
+    # Why this works: the clear holds the same lock as the active session,
+    # and both document fields go back to None. terminate() stays outside
+    # the lock so a reader blocked in set_active_session is not stuck behind
+    # the process wait.
+    with _SESSION_LOCK:
+        _PERSISTENT_EDITOR.sessions.clear()
+        _PERSISTENT_EDITOR.focused_id = None
+        _PERSISTENT_EDITOR.run_script_doc = None
+        _PERSISTENT_EDITOR.run_script_doc_url = None
     _PERSISTENT_EDITOR.terminate()
 
 
@@ -775,6 +848,7 @@ def _on_config_changed(**kwargs: Any) -> None:
     if key == "scripting.python_venv_path" or "scripting.python_venv_path" in changed:
         log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
         _PROBE_CACHE.clear()
+        _PROBE_FAILURE_CACHE.clear()
         terminate_persistent_editor()
         try:
             from plugin.vision.vision_availability import invalidate_vision_availability_cache
@@ -855,6 +929,14 @@ def _register_load_session(
         existing.target = target
         existing.mode = mode
         existing.dirty = False
+        # What was wrong: reuse reset dirty but left pending_load /
+        # pending_on_save / pending_on_closed. A queue_save_then_load still
+        # in flight then applied that stale load on a later unrelated save.
+        # Why this works: reuse means this target is current; the queued
+        # switch is no longer the next buffer.
+        existing.pending_load = None
+        existing.pending_on_save = None
+        existing.pending_on_closed = None
         state = existing
     else:
         focused = _PERSISTENT_EDITOR.focused()
