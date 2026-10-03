@@ -28,11 +28,12 @@ docs/framework/threading.md.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import logging
 import threading
 import weakref
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 log = logging.getLogger("writeragent.events")
 
@@ -85,12 +86,34 @@ class EventBus:
     def __init__(self) -> None:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         self._subscribers: dict[str, list[tuple[Any, bool]]] = {}  # event -> list of (callback, is_weakref)
-        # Guards list create/replace only. emit copies under the lock, then
-        # drops it before calling handlers.
-        self._lock: threading.Lock = threading.Lock()
+        # RLock: a weakref callback can run on this thread while the lock is
+        # already held (GC during a list copy). A plain Lock deadlocks there.
+        # _guard_depth is how many of our own sections are on the stack.
+        # Cleanup is queued and applied only at the outermost exit so a
+        # callback cannot replace the list a caller is still copying.
+        self._lock: threading.RLock = threading.RLock()
+        self._guard_depth: int = 0
+        self._applying_cleanups: bool = False
+        self._pending_cleanups: list[tuple[str, Any]] = []
         # Per-thread names currently in emit(); instance-wide would drop
         # legitimate parallel emits of the same event from two threads.
         self._dispatching = threading.local()
+
+    @contextlib.contextmanager
+    def _guard(self) -> Iterator[None]:
+        """Hold ``_lock`` and apply queued weakref drops after the outermost exit."""
+        # crosshair: off
+        self._lock.acquire()
+        self._guard_depth += 1
+        try:
+            yield
+        finally:
+            self._guard_depth -= 1
+            try:
+                if self._guard_depth == 0:
+                    self._apply_pending_cleanups()
+            finally:
+                self._lock.release()
 
     def subscribe(self, event: str, callback: Any, weak: bool = False) -> None:
         """Register *callback* for *event*.
@@ -127,7 +150,7 @@ class EventBus:
             entry = self._weakref_or_strong(event, callback)
         else:
             entry = (callback, False)
-        with self._lock:
+        with self._guard():
             self._subscribers.setdefault(event, []).append(entry)
 
     def _weakref_or_strong(self, event: str, callback: Any) -> tuple[Any, bool]:
@@ -145,7 +168,7 @@ class EventBus:
     def unsubscribe(self, event: str, callback: Any) -> None:
         """Remove *callback* from *event*."""
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
-        with self._lock:
+        with self._guard():
             subs = self._subscribers.get(event)
             if not subs:
                 return
@@ -202,7 +225,7 @@ class EventBus:
         that writes a second key still notifies listeners.
         """
         # crosshair: off
-        with self._lock:
+        with self._guard():
             live = self._subscribers.get(event)
             if not live:
                 return
@@ -237,13 +260,46 @@ class EventBus:
         return cb
 
     def _cleanup(self, event: str, ref: Any) -> None:
-        """Called when a weakref target is garbage-collected."""
+        """Called when a weakref target is garbage-collected.
+
+        What was wrong: ``_lock`` was a ``threading.Lock``, and emit /
+        subscribe / unsubscribe allocate while holding it. GC of a cyclic
+        weak subscriber runs this callback on that same thread, and the
+        callback took ``_lock`` again. A non-reentrant lock never returns.
+        How: queue the dead ref. Apply the queue only when this thread is
+        not already inside ``_guard`` (outermost exit, or a callback that
+        found the lock free). ``RLock`` lets the callback enter at all.
+        Why: the list a caller is copying stays stable until that copy
+        finishes, and the callback cannot deadlock against the bus lock.
+        """
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
-        with self._lock:
-            subs = self._subscribers.get(event)
-            if subs:
-                # Replace, do not mutate in place (emit may still hold a snapshot).
-                self._subscribers[event] = [(cb, w) for cb, w in subs if cb is not ref]
+        self._lock.acquire()
+        try:
+            self._pending_cleanups.append((event, ref))
+            # _apply drops the depth to 0 before it runs, and the list copy
+            # can collect another subscriber. Don't re-enter apply from that
+            # callback; the loop already in progress picks the new ref up.
+            if self._guard_depth == 0 and not self._applying_cleanups:
+                self._apply_pending_cleanups()
+        finally:
+            self._lock.release()
+
+    def _apply_pending_cleanups(self) -> None:
+        """Drop queued dead refs. Caller holds ``_lock``."""
+        # crosshair: off
+        self._applying_cleanups = True
+        try:
+            while self._pending_cleanups:
+                pending = self._pending_cleanups
+                self._pending_cleanups = []
+                for event, ref in pending:
+                    subs = self._subscribers.get(event)
+                    if not subs:
+                        continue
+                    # Replace, do not mutate in place (emit may still hold a snapshot).
+                    self._subscribers[event] = [(cb, w) for cb, w in subs if cb is not ref]
+        finally:
+            self._applying_cleanups = False
 
 
 _event_bus_lock = threading.Lock()

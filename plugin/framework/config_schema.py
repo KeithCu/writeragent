@@ -217,19 +217,36 @@ def parse_int_robust(val: Any) -> int:
         raise ValueError(f"Could not robustly parse integer from {val!r}") from e
 
 
+def _float_or_value_error(val: Any) -> float:
+    """``float(val)``, mapping overflow to ``ValueError``.
+
+    What was wrong: JSON accepts an integer of 309+ digits. ``float(val)``
+    then raises ``OverflowError``. ``clamp_schema_value`` and
+    ``_is_equal_to_default`` caught only ``ValueError``, so loading
+    ``writeragent.json`` crashed instead of degrading.
+    How: CPython's ``float()`` overflows past the IEEE range rather than
+    raising ``ValueError``.
+    Why: callers already treat ``ValueError`` as "not a usable number".
+    """
+    try:
+        return float(val)
+    except OverflowError as exc:
+        raise ValueError(f"Could not robustly parse float from {val!r}") from exc
+
+
 @deal.post(lambda result: isinstance(result, float))
 @deal.raises(ValueError)
 def parse_float_robust(val: Any) -> float:
     """Robustly parse a float value from a string, int, or other type,
     handling locale-specific decimal commas (like "1,5" in German)."""
     if isinstance(val, (int, float)):
-        return float(val)
+        return _float_or_value_error(val)
     if val is None:
         raise ValueError("Cannot parse None as float")
 
     if UNDER_CROSSHAIR:
         if isinstance(val, (int, float)):
-            return float(val)
+            return _float_or_value_error(val)
         raise ValueError("Cannot parse symbolic type as float under CrossHair")
 
     s = str(val).strip()
@@ -237,7 +254,7 @@ def parse_float_robust(val: Any) -> float:
         raise ValueError("Cannot parse empty string as float")
 
     try:
-        return float(s)
+        return _float_or_value_error(s)
     except (ValueError, TypeError):
         pass
 
@@ -247,7 +264,7 @@ def parse_float_robust(val: Any) -> float:
     normalized = _normalize_comma_number(s)
     if normalized is not None:
         try:
-            return float(normalized)
+            return _float_or_value_error(normalized)
         except (ValueError, TypeError) as e:
             raise ValueError(f"Could not robustly parse float from {val!r}") from e
 
@@ -437,12 +454,12 @@ class WriterAgentConfig:
             if meta["kind"] == "int" and not isinstance(value, int):
                 try:
                     value = parse_int_robust(value)
-                except ValueError:
+                except (ValueError, OverflowError):
                     value = meta["parse_fallback"]
             elif meta["kind"] == "float" and not isinstance(value, (int, float)):
                 try:
                     value = parse_float_robust(value)
-                except ValueError:
+                except (ValueError, OverflowError):
                     value = meta["parse_fallback"]
             out_of_range = False
             if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -721,7 +738,7 @@ def _numeric_outside_schema_bounds(schema: dict[str, Any], value: Any) -> bool:
             return True
         if "max" in schema and value > parse_float_robust(schema["max"]):
             return True
-    except ValueError:
+    except (ValueError, OverflowError):
         return False
     return False
 
@@ -740,11 +757,13 @@ def clamp_schema_value(key: str, value: Any) -> Any:
             numeric_value = max(parse_float_robust(schema["min"]), numeric_value)
         if "max" in schema:
             numeric_value = min(parse_float_robust(schema["max"]), numeric_value)
-    except ValueError:
+        # int(inf) is OverflowError. A number that cannot be clamped degrades
+        # to the original value, same as a ValueError from parse_float_robust.
+        if schema_type == "int":
+            return int(numeric_value)
+        return numeric_value
+    except (ValueError, OverflowError):
         return value
-    if schema_type == "int":
-        return int(numeric_value)
-    return numeric_value
 
 
 def _strict_bool_ok(value: Any) -> bool:
@@ -779,13 +798,13 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
     if schema_type == "int":
         try:
             value = parse_int_robust(value)
-        except ValueError:
+        except (ValueError, OverflowError):
             fallback = _invalid("not an integer")
             return fallback if fallback is not _MISSING_VALUE else value
     elif schema_type == "float":
         try:
             value = parse_float_robust(value)
-        except ValueError:
+        except (ValueError, OverflowError):
             fallback = _invalid("not a number")
             return fallback if fallback is not _MISSING_VALUE else value
     elif schema_type == "boolean":
@@ -912,7 +931,7 @@ def _is_equal_to_default(key: str, value: Any, default_val: Any) -> bool:
             return False
         try:
             return parse_float_robust(value) == parse_float_robust(default_val)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             return False
 
     if isinstance(default_val, (dict, list)):

@@ -198,6 +198,17 @@ class TestConfigSyncFileIO:
         assert isinstance(data, dict), text[:300]
         return data
 
+    def test_get_config_huge_integer_does_not_crash(self):
+        """A ≥309-digit JSON int used to raise OverflowError inside float()."""
+        huge = 10**400
+        with open(self.config_path, "w", encoding="utf-8") as handle:
+            json.dump({"chat_max_tokens": huge, "temperature": huge, "endpoint": "http://localhost:11434"}, handle)
+        reset_config_for_tests()
+        assert get_config("chat_max_tokens") == huge
+        temperature = get_config("temperature")
+        assert temperature != huge
+        assert get_config_float("temperature") == float(temperature)
+
     def test_set_audio_stt_model_keeps_legacy_stt_model(self):
         """Saving the Speech-tab key must not delete a pre-move stt_model."""
         from plugin.framework.client.model_fetcher import get_stt_model

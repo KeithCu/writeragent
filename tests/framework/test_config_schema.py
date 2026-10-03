@@ -149,6 +149,22 @@ def test_config_does_not_reexport_schema_names() -> None:
             exec(f"from plugin.framework.config import {name}")
 
 
+def test_parse_float_robust_huge_int_is_value_error() -> None:
+    """A ≥309-digit int must degrade as ValueError, not OverflowError.
+
+    JSON decodes that integer. float() then overflows. Config load catches
+    ValueError and continues.
+    """
+    huge = 10**400
+    with pytest.raises(ValueError):
+        parse_float_robust(huge)
+    with pytest.raises(ValueError):
+        parse_float_robust(-huge)
+    assert clamp_schema_value("chat_max_tokens", huge) == huge
+    assert is_default_value("temperature", huge) is False
+    assert coerce_config_value("temperature", huge) == -1.0
+
+
 def test_as_bool_and_numeric_parsers() -> None:
     assert as_bool("true") is True
     assert as_bool("off") is False

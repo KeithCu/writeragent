@@ -29,7 +29,7 @@ from typing import Any
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_MSGID, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 
 try:
     from com.sun.star.lang import DisposedException
@@ -142,6 +142,24 @@ def resolve_exception_message(e: Any) -> str:
     return msg
 
 
+def _translate_exception_message(message: Any) -> str:
+    """Translate a catalog msgid. Long runtime text skips ``_()``.
+
+    What was wrong: ``_()`` rejects strings longer than ``DEAL_MAX_MSGID``
+    with ``deal.PreContractError``. ``NetworkError`` on a provider body and
+    ``make_tool_error`` on UNO text raised that contract error instead of
+    the exception the caller asked for.
+    How: gettext only matches an extracted source string. A message longer
+    than the msgid bound is not in the catalog, so ``_()`` would not
+    translate it even without the contract.
+    Why: return the runtime text unchanged so construction succeeds.
+    """
+    text = resolve_exception_message(message)
+    if len(text) > DEAL_MAX_MSGID:
+        return text
+    return _(text)
+
+
 class WriterAgentException(Exception):
     """Base exception for all WriterAgent errors.
 
@@ -165,7 +183,9 @@ class WriterAgentException(Exception):
         else:
             # Runtime / interpolated strings are not in the gettext catalog;
             # _() is a no-op unless the exact source string was extracted.
-            self.message = _(resolve_exception_message(message))
+            # Messages longer than the msgid bound skip _() — see
+            # _translate_exception_message.
+            self.message = _translate_exception_message(message)
         if code is not None:
             self.code = code
         self.details = details or {}
@@ -446,7 +466,12 @@ def format_error_message(e: Exception) -> str:
 @deal.pre(lambda message, code="TOOL_EXECUTION_ERROR", **details: isinstance(message, str) and ascii_bounded(code, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
 def make_tool_error(message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
-    """Central factory for all standardized tool error payloads."""
+    """Central factory for all standardized tool error payloads.
+
+    A long UNO or provider string is a runtime message. Construction goes
+    through ``WriterAgentException``, which does not apply the gettext msgid
+    length contract to that text.
+    """
     return format_error_payload(ToolExecutionError(message, code=code, details=details))
 
 

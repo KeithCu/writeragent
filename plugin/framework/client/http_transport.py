@@ -51,6 +51,11 @@ _SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-go
 _SECRET_QUERY_KEYS = frozenset({"api_key", "apikey", "api-key", "key", "token", "access_token"})
 # A one-character key would punch holes through ordinary error text ("k", "1").
 _MIN_SECRET_LEN = 4
+# urllib followed these. 304/300 are not automatic hops.
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# Browsers and urllib turn these into GET and drop the body. 307/308 keep both.
+_REDIRECT_SWITCH_TO_GET = frozenset({301, 302, 303})
+_MAX_REDIRECTS = 5
 
 HttpObserve = Callable[[Any, str, str, Any], str]
 HttpSender = Callable[..., http.client.HTTPResponse]
@@ -123,6 +128,92 @@ def collect_secrets(*groups: list[str] | None) -> list[str]:
     return found
 
 
+def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
+    """Explicit URL port, or None when the URL omits one.
+
+    What was wrong: ``ParseResult.port`` raises ``ValueError`` for
+    ``localhost:1a34`` and for ports outside 0–65535. ``sync_request``
+    calls ``origin_and_path`` before its try, and ``public_target`` /
+    ``_endpoint_parts`` did not catch it, so the raw ``ValueError`` escaped.
+    How: urllib validates the port only when ``.port`` is read.
+    Why: a bad port is an invalid URL. Callers already handle ``NetworkError``.
+    """
+    try:
+        return parsed.port
+    except ValueError as exc:
+        host = ""
+        try:
+            host = parsed.hostname or ""
+        except ValueError:
+            host = ""
+        scheme = parsed.scheme or "http"
+        path = parsed.path or "/"
+        raise NetworkError("Invalid URL port", code="INVALID_URL", details={"url": f"{scheme}://{host}{path}"}) from exc
+
+
+def _origin_key(url: str) -> tuple[str, str, int]:
+    """``(scheme, host, port)`` with the default port filled in."""
+    parsed = urllib.parse.urlparse(url)
+    scheme = (parsed.scheme or "http").lower()
+    host = (parsed.hostname or "").lower()
+    port = _explicit_port(parsed)
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    return scheme, host, port
+
+
+def _response_header(response: Any, name: str) -> str:
+    getter = getattr(response, "getheader", None)
+    if not callable(getter):
+        return ""
+    value = getter(name)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _apply_redirect(
+    method: str,
+    body: Any,
+    headers: dict[str, str],
+    current_url: str,
+    status: int,
+    location: str,
+) -> tuple[str, Any, dict[str, str], str, str] | None:
+    """Next hop for one redirect, or None when it must not be followed.
+
+    301/302/303 turn a non-GET/HEAD into GET and drop the body. 307/308 keep
+    the method and body. Secret headers are dropped when the host changes.
+    Only http and https targets are followed. A bad port is ``NetworkError``.
+    """
+    if status not in _REDIRECT_STATUSES:
+        return None
+    loc = (location or "").strip()
+    if not loc or any(ch in loc for ch in "\r\n\x00"):
+        return None
+    joined = urllib.parse.urljoin(current_url, loc.replace(" ", "%20"))
+    parsed = urllib.parse.urlparse(joined)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return None
+    host = parsed.hostname or ""
+    if not host:
+        return None
+    port = _explicit_port(parsed)
+    origin = f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    new_method = method
+    new_body = body
+    new_headers = dict(headers)
+    if status in _REDIRECT_SWITCH_TO_GET and method.upper() not in ("GET", "HEAD"):
+        new_method = "GET"
+        new_body = None
+        new_headers = {key: value for key, value in new_headers.items() if key.lower() not in ("content-length", "content-type")}
+    if _origin_key(current_url) != _origin_key(origin):
+        new_headers = {key: value for key, value in new_headers.items() if key.lower() not in _SECRET_HEADER_NAMES}
+    return new_method, new_body, new_headers, origin, path
+
+
 def public_target(url_or_path: str) -> str:
     """Host and path for logs and error details. Query and userinfo are dropped."""
     raw = url_or_path or ""
@@ -131,7 +222,8 @@ def public_target(url_or_path: str) -> str:
         return path or "/"
     parsed = urllib.parse.urlparse(raw)
     host = parsed.hostname or ""
-    port = f":{parsed.port}" if parsed.port else ""
+    port_num = _explicit_port(parsed)
+    port = f":{port_num}" if port_num else ""
     path = parsed.path or "/"
     scheme = parsed.scheme or "http"
     return f"{scheme}://{host}{port}{path}"
@@ -198,7 +290,8 @@ def origin_and_path(url: str) -> tuple[str, str]:
     parsed = urllib.parse.urlparse(url)
     scheme = (parsed.scheme or "https").lower()
     host = parsed.hostname or ""
-    origin = f"{scheme}://{host}:{parsed.port}" if parsed.port else f"{scheme}://{host}"
+    port = _explicit_port(parsed)
+    origin = f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
@@ -220,6 +313,10 @@ class LlmHttpTransport:
         self._cert_fallback = cert_fallback or LocalHttpsCertificateFallback()
         self._persistent_conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
         self._conn_key: tuple[str, str, int, str] | None = None
+        # Set while exchange follows a redirect onto a different origin.
+        # Cleared before exchange returns so the next chat send uses the
+        # configured endpoint again.
+        self._redirect_origin: str | None = None
 
     @property
     def persistent_conn(self) -> http.client.HTTPConnection | http.client.HTTPSConnection | None:
@@ -230,12 +327,20 @@ class LlmHttpTransport:
         return self._conn_key
 
     def _endpoint_parts(self) -> tuple[str, str, int]:
-        endpoint = self._endpoint_getter()
+        endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
         parsed = urllib.parse.urlparse(endpoint)
         scheme = parsed.scheme.lower()
         host = get_url_hostname(endpoint)
-        port = parsed.port or (443 if scheme == "https" else 80)
+        port = _explicit_port(parsed) or (443 if scheme == "https" else 80)
         return scheme, host, port
+
+    def _absolute_url(self, path: str) -> str:
+        scheme, host, port = self._endpoint_parts()
+        default = 443 if scheme == "https" else 80
+        origin = f"{scheme}://{host}" if port == default else f"{scheme}://{host}:{port}"
+        if not path.startswith("/"):
+            path = "/" + path
+        return origin + path
 
     def current_host(self) -> str:
         return self._endpoint_parts()[1]
@@ -469,86 +574,125 @@ class LlmHttpTransport:
 
         ``parse_json`` uses :func:`parse_strict_json`. Truncated JSON raises
         ``BAD_RESPONSE`` instead of becoming a repaired object.
+
+        301/302/303/307/308 are followed up to ``_MAX_REDIRECTS`` hops.
+        301/302/303 switch a non-GET to GET and drop the body. 307/308 keep
+        the method and body. A redirect onto another host drops secret
+        headers and opens a new connection. That host is not kept as the
+        persistent chat endpoint.
         """
         wire_headers = dict(headers or {})
         wire_secrets = collect_secrets(secrets, secrets_from_headers(wire_headers), secrets_from_target(path))
+        self._redirect_origin = None
 
         def _send(send_method: str, send_path: str, send_body: Any, send_headers: dict[str, str], *, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None) -> http.client.HTTPResponse:
-            if sender is not None:
+            # A custom sender is bound to the caller's connection. After a
+            # cross-origin redirect, send() on this transport uses the new host.
+            if sender is not None and self._redirect_origin is None:
                 return sender(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
             return self.send(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
 
         sends_left = RETRY_MAX_ATTEMPTS
         attempt = 0
+        redirects_followed = 0
         model = request_model_from_body(body)
-        while True:
-            body_in_hand = False
-            # True once this iteration has already spent one attempt on a non-200.
-            attempt_charged = False
-            try:
-                if stop_checker is not None and stop_checker():
-                    self.close()
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                response = _send(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
-                status = int(getattr(response, "status", 0) or 0)
-                if status != 200:
-                    sends_left -= 1
-                    attempt += 1
-                    attempt_charged = True
-                    action = self.handle_http_status(
-                        response,
-                        request_body=body,
-                        path=path,
+        try:
+            while True:
+                body_in_hand = False
+                # True once this iteration has already spent one attempt on a non-200.
+                attempt_charged = False
+                try:
+                    if stop_checker is not None and stop_checker():
+                        self.close()
+                        raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                    response = _send(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
+                    status = int(getattr(response, "status", 0) or 0)
+                    if status in _REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
+                        # What was wrong: only status 200 was accepted, so a
+                        # CDN 301/302/307 became NetworkError. Image URLs, TTS
+                        # audio, catalogs, and update checks used to follow
+                        # Location via urllib.
+                        # How: one hop rewrites method/body, then loops.
+                        # Why: the retry budget is for 429/503, not for a
+                        # redirect the server asked us to take.
+                        current_url = self._absolute_url(path)
+                        hop = _apply_redirect(method, body, wire_headers, current_url, status, _response_header(response, "Location"))
+                        if hop is not None:
+                            _response_bytes(response)
+                            new_method, new_body, new_headers, new_origin, new_path = hop
+                            if _origin_key(new_origin) != _origin_key(current_url):
+                                self._redirect_origin = new_origin
+                                self.close()
+                            log.debug("Following HTTP %s to %s", status, public_target(new_origin + new_path))
+                            method = new_method
+                            body = new_body
+                            wire_headers = new_headers
+                            path = new_path
+                            redirects_followed += 1
+                            wire_secrets = collect_secrets(secrets, secrets_from_headers(wire_headers), secrets_from_target(path))
+                            continue
+                    if status != 200:
+                        sends_left -= 1
+                        attempt += 1
+                        attempt_charged = True
+                        action = self.handle_http_status(
+                            response,
+                            request_body=body,
+                            path=path,
+                            retries_left=sends_left,
+                            emitted_any=False,
+                            stop_checker=stop_checker,
+                            status_callback=status_callback,
+                            attempt=attempt,
+                            secrets=wire_secrets,
+                            observe_http_error=observe_http_error,
+                        )
+                        if action == "stop":
+                            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                        if on_retry is not None:
+                            on_retry()
+                        continue
+                    if attempt == 0:
+                        clear_host_gap(pacing_key(self.current_host(), model))
+                    raw = _response_bytes(response)
+                    body_in_hand = True
+                    if after_read is not None:
+                        after_read(response)
+                    parsed = parse_strict_json(raw) if parse_json else None
+                    return HttpResult(status=status, body=raw, content_type=_response_content_type(response), parsed=parsed)
+                except NetworkError:
+                    raise
+                except CONNECTION_ERRORS as exc:
+                    if body_in_hand:
+                        raise NetworkError(redact_secrets(format_error_message(exc), wire_secrets), code="CONNECTION_LOST", details={"url": public_target(path)}) from exc
+                    # What was wrong: handle_http_status reads the error body, and
+                    # that read can raise IncompleteRead, a reset, or a timeout.
+                    # How: the non-200 branch above had already decremented
+                    # sends_left, then this handler decremented it again, so one
+                    # failed read consumed two of the three attempts and the last
+                    # try never ran. Why: a status that already charged this
+                    # attempt must not be charged a second time here.
+                    if not attempt_charged:
+                        sends_left -= 1
+                        attempt += 1
+                    action = self.handle_connection_error(
+                        exc,
+                        path=public_target(path),
                         retries_left=sends_left,
-                        emitted_any=False,
+                        retry_log_message=retry_log_message,
                         stop_checker=stop_checker,
                         status_callback=status_callback,
                         attempt=attempt,
+                        model=model,
                         secrets=wire_secrets,
-                        observe_http_error=observe_http_error,
                     )
                     if action == "stop":
                         raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                    if on_retry is not None:
-                        on_retry()
                     continue
-                if attempt == 0:
-                    clear_host_gap(pacing_key(self.current_host(), model))
-                raw = _response_bytes(response)
-                body_in_hand = True
-                if after_read is not None:
-                    after_read(response)
-                parsed = parse_strict_json(raw) if parse_json else None
-                return HttpResult(status=status, body=raw, content_type=_response_content_type(response), parsed=parsed)
-            except NetworkError:
-                raise
-            except CONNECTION_ERRORS as exc:
-                if body_in_hand:
-                    raise NetworkError(redact_secrets(format_error_message(exc), wire_secrets), code="CONNECTION_LOST", details={"url": public_target(path)}) from exc
-                # What was wrong: handle_http_status reads the error body, and
-                # that read can raise IncompleteRead, a reset, or a timeout.
-                # How: the non-200 branch above had already decremented
-                # sends_left, then this handler decremented it again, so one
-                # failed read consumed two of the three attempts and the last
-                # try never ran. Why: a status that already charged this
-                # attempt must not be charged a second time here.
-                if not attempt_charged:
-                    sends_left -= 1
-                    attempt += 1
-                action = self.handle_connection_error(
-                    exc,
-                    path=public_target(path),
-                    retries_left=sends_left,
-                    retry_log_message=retry_log_message,
-                    stop_checker=stop_checker,
-                    status_callback=status_callback,
-                    attempt=attempt,
-                    model=model,
-                    secrets=wire_secrets,
-                )
-                if action == "stop":
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                continue
+        finally:
+            if self._redirect_origin is not None:
+                self._redirect_origin = None
+                self.close()
 
     def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1, model: str | None = None, secrets: list[str] | None = None) -> RetryAction:
         """Close failed connections and decide whether a request should retry."""
