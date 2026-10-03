@@ -13,6 +13,8 @@ import numpy as np
 
 import plugin.scripting.calc_functions as calc
 
+from plugin.calc.spreadsheet_import.emit import build_converted_output_model
+from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.spreadsheet_import.translate import translate_formula
 
@@ -355,6 +357,9 @@ def test_translate_tier_abc_functions():
     assert res.ok
     assert "calc.fmt" in res.code
     assert "calc.text(" not in res.code
+    # 46181 is 2026-06-08. Executing the translated formula used to raise
+    # AttributeError because calc.fmt was never exported.
+    assert exec_result(res, 46181) == "June"
 
     res = translate_formula("=ROUNDUP(7692.30769230769; 0)")
     assert res.ok
@@ -1010,83 +1015,52 @@ def test_translate_complex_functions():
     # sin(i) = i sinh(1) approx 1.1752i
     assert "1.1752" in exec_result(res, [])
 
-def test_translate_financial_group_c():
-    """Verify Group C translation logic (Financial functions)."""
+# Helpers the translator used to emit that are not on the calc facade.
+# Import must refuse them. A successful translation writes =PY("calc.<name>(...)")
+# that AttributeErrors at recalc.
+_UNIMPLEMENTED_FINANCE = (
+    ('=ODDLYIELD("2008-04-20"; "2008-06-15"; "2008-03-12"; 0.05; 99.875; 100; 2; 0)', "oddlyield"),
+    ("=PDURATION(0.025; 10000; 12000)", "pduration"),
+    ("=PPMT(0.01; 1; 24; 2000)", "ppmt"),
+    ('=PRICE("2008-02-15"; "2017-11-15"; 0.0575; 0.065; 100; 2; 0)', "price"),
+    ('=PRICEDISC("2008-02-15"; "2008-03-01"; 0.0525; 100; 2)', "pricedisc"),
+    ('=PRICEMAT("2008-02-15"; "2008-04-13"; "2007-11-11"; 0.061; 0.061; 2)', "pricemat"),
+    ("=RATE(48; -200; 8000)", "rate"),
+    ('=RECEIVED("2008-02-15"; "2008-05-15"; 1000000; 0.0575; 2)', "received"),
+    ("=RRI(48; 10000; 12000)", "rri"),
+    ("=SLN(30000; 7500; 10)", "sln"),
+    ("=SYD(30000; 7500; 10; 1)", "syd"),
+    ('=TBILLEQ("2008-03-31"; "2008-06-01"; 0.0914)', "tbilleq"),
+    ('=TBILLPRICE("2008-03-31"; "2008-06-01"; 0.09)', "tbillprice"),
+    ('=TBILLYIELD("2008-03-31"; "2008-06-01"; 98.45)', "tbillyield"),
+    ("=VDB(2400; 300; 10; 0; 0.875; 1.5)", "vdb"),
+)
 
-    # 1. ODDLYIELD
-    res = translate_formula('=ODDLYIELD("2008-04-20"; "2008-06-15"; "2008-03-12"; 0.05; 99.875; 100; 2; 0)')
-    assert res.ok
-    assert "calc.oddlyield" in res.code
 
-    # 2. PDURATION
-    res = translate_formula('=PDURATION(0.025; 10000; 12000)')
-    assert res.ok
-    assert "calc.pduration" in res.code
-
-    # 3. PPMT
-    res = translate_formula('=PPMT(0.01; 1; 24; 2000)')
-    assert res.ok
-    assert "calc.ppmt" in res.code
-
-    # 4. PRICE
-    res = translate_formula('=PRICE("2008-02-15"; "2017-11-15"; 0.0575; 0.065; 100; 2; 0)')
-    assert res.ok
-    assert "calc.price" in res.code
-
-    # 5. PRICEDISC
-    res = translate_formula('=PRICEDISC("2008-02-15"; "2008-03-01"; 0.0525; 100; 2)')
-    assert res.ok
-    assert "calc.pricedisc" in res.code
-
-    # 6. PRICEMAT
-    res = translate_formula('=PRICEMAT("2008-02-15"; "2008-04-13"; "2007-11-11"; 0.061; 0.061; 2)')
-    assert res.ok
-    assert "calc.pricemat" in res.code
-
-    # 7. RATE
-    res = translate_formula('=RATE(48; -200; 8000)')
-    assert res.ok
-    assert "calc.rate" in res.code
-
-    # 8. RECEIVED
-    res = translate_formula('=RECEIVED("2008-02-15"; "2008-05-15"; 1000000; 0.0575; 2)')
-    assert res.ok
-    assert "calc.received" in res.code
-
-    # 9. RRI
-    res = translate_formula('=RRI(48; 10000; 12000)')
-    assert res.ok
-    assert "calc.rri" in res.code
-
-    # 10. SLN
-    res = translate_formula('=SLN(30000; 7500; 10)')
-    assert res.ok
-    assert "calc.sln" in res.code
-
-    # 11. SYD
-    res = translate_formula('=SYD(30000; 7500; 10; 1)')
-    assert res.ok
-    assert "calc.syd" in res.code
-
-    # 12. TBILLEQ
-    res = translate_formula('=TBILLEQ("2008-03-31"; "2008-06-01"; 0.0914)')
-    assert res.ok
-    assert "calc.tbilleq" in res.code
-
-    # 13. TBILLPRICE
-    res = translate_formula('=TBILLPRICE("2008-03-31"; "2008-06-01"; 0.09)')
-    assert res.ok
-    assert "calc.tbillprice" in res.code
-
-    # 14. TBILLYIELD
-    res = translate_formula('=TBILLYIELD("2008-03-31"; "2008-06-01"; 98.45)')
-    assert res.ok
-    assert "calc.tbillyield" in res.code
-
-    # 15. VDB
-    res = translate_formula('=VDB(2400; 300; 10; 0; 0.875; 1.5)')
-    assert res.ok
-    assert "calc.vdb" in res.code
+def test_unimplemented_finance_stays_unsupported():
+    """These formulas must not import as =PY(); the helpers do not exist."""
+    for formula, helper in _UNIMPLEMENTED_FINANCE:
+        res = translate_formula(formula)
+        assert res.ok is False, formula
+        assert res.reason == "UNSUPPORTED_FUNCTION"
+        assert not hasattr(calc, helper), helper
+        model = SheetModel(
+            sheet_name="Sheet1",
+            used_range="A1",
+            cells={
+                "A1": CellRecord(
+                    address="A1",
+                    type="formula",
+                    value=None,
+                    formula=formula,
+                    number_format=None,
+                )
+            },
+        )
+        output, report = build_converted_output_model(model)
+        assert output.cells["A1"].formula == formula
+        assert "A1" not in report.converted
+        assert report.skipped and report.skipped[0].reason == "UNSUPPORTED_FUNCTION"
 
 
 def test_translate_financial_group_a():

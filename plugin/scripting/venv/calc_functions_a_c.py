@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from .coerce import is_missing_value
+from .coerce import header_label, is_missing_value
 
 
 __all__ = [
@@ -117,24 +117,42 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
     db_arr = np.asarray(db, dtype=object)
     if db_arr.ndim != 2:
         return []
-    headers = [str(h).upper() for h in db_arr[0]]
+    headers = [header_label(h).upper() for h in db_arr[0]]
 
     f_idx = -1
-    if field is not None and field != "":
+    # int/float is a 1-based column index. Numeric text such as "2024" is a
+    # header name. int(float("2024"))-1 used to select a column past the grid,
+    # so DSUM of that field returned 0.
+    if isinstance(field, str) or isinstance(field, bool):
+        f_name = header_label(field).upper()
+        if f_name in headers:
+            f_idx = headers.index(f_name)
+    elif isinstance(field, (int, float)):
         try:
-            f_idx = int(float(field)) - 1
-        except (ValueError, TypeError):
-            f_name = str(field).upper()
-            if f_name in headers:
-                f_idx = headers.index(f_name)
+            f_idx = int(field) - 1
+        except (ValueError, TypeError, OverflowError):
+            f_idx = -1
+    elif field is not None and field != "":
+        # numpy scalars are not int/float subclasses. Prefer a matching header
+        # name so a numeric-looking label is not consumed as an index.
+        f_name = header_label(field).upper()
+        if f_name in headers:
+            f_idx = headers.index(f_name)
+        else:
+            try:
+                f_idx = int(float(field)) - 1
+            except (ValueError, TypeError, OverflowError):
+                f_idx = -1
 
     if f_idx < 0 or f_idx >= db_arr.shape[1]:
         return []
 
-    crit_arr = np.asarray(criteria)
+    # Text headers beside numbers must stay object. The default asarray upcasts
+    # that block to a string dtype, so a numeric criterion 1 becomes "1".
+    crit_arr = np.asarray(criteria, dtype=object)
     if crit_arr.ndim != 2:
         return []
-    crit_headers = [str(h).upper() for h in crit_arr[0]]
+    crit_headers = [header_label(h).upper() for h in crit_arr[0]]
 
     matching_vals = []
     for r_idx in range(1, db_arr.shape[0]):

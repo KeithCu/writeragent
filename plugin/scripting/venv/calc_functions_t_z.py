@@ -20,6 +20,7 @@ from .coerce import is_missing_value
 
 
 __all__ = [
+    "fmt",
     "t",
     "tdist",
     "text",
@@ -100,7 +101,10 @@ def text(val: Any, fmt: Any) -> str:
 
 
 # Alias for spreadsheet-import emission: Calc's formula lexer treats ``TEXT(`` inside
-# ``=PY("xl.text(...)")`` as a spreadsheet function (#NAME?).
+# ``=PY("calc.text(...)")`` as a spreadsheet function (#NAME?). ``formula_edit`` also
+# rewrites ``.text(`` to ``.fmt(``. The name has to be in ``__all__``: the venv
+# facade star-imports this module, so an unlisted alias never became an attribute
+# and ``=TEXT(...)`` recalc raised AttributeError (no attribute ``fmt``).
 fmt = text
 
 
