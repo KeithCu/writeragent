@@ -17,6 +17,34 @@ def _reset_host_pacing():
     reset_local_unverified_hosts_for_tests()
 
 
+def test_endpoint_parts_bad_port_is_network_error():
+    for url in ("http://localhost:1a34", "https://localhost:70000"):
+        transport = LlmHttpTransport(lambda url=url: url, lambda: 5)
+        with pytest.raises(NetworkError) as raised:
+            transport._endpoint_parts()
+        assert raised.value.code == "INVALID_URL"
+        assert not isinstance(raised.value, ValueError)
+
+
+def test_exchange_stops_after_bounded_redirects():
+    transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
+    calls = {"n": 0}
+
+    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+        calls["n"] += 1
+        response = MagicMock()
+        response.status = 302
+        response.reason = "Found"
+        response.read.return_value = b"go"
+        response.getheader.side_effect = lambda name, default=None: "/next" if str(name).lower() == "location" else default
+        return response
+
+    with pytest.raises(NetworkError):
+        transport.exchange("GET", "/start", None, {}, sender=sender, parse_json=False)
+    # One original response plus _MAX_REDIRECTS followed hops, then the next 302 errors.
+    assert calls["n"] == 6
+
+
 def test_transport_reuses_connection_and_reopens_on_endpoint_change():
     from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
 

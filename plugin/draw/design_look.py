@@ -16,8 +16,10 @@ module reads the template ZIP at list time:
    ``styles.xml`` + ``Pictures/*.svg``. Empty ``look`` rather than inventing.
 
 Stdlib PNG decode (not Pillow): the extension runs in LibreOffice's Python,
-which typically has no PIL. Thumbnails are tiny; we never load master pages
-or open the document via Desktop.
+which typically has no PIL. A thumbnail whose width×height exceeds the pixel
+cap is rejected before one RGB tuple is allocated per pixel (a few-KB
+4096×4096 1-bit PNG is under the raw-byte cap but tens of millions of
+tuples). We never load master pages or open the document via Desktop.
 """
 
 from __future__ import annotations
@@ -36,6 +38,11 @@ log = logging.getLogger("writeragent.draw.design_look")
 _MAX_MEMBER_BYTES = 2 * 1024 * 1024
 _MAX_RAW_PNG = 4 * 1024 * 1024
 _MAX_SAMPLED_PIXELS = 1024
+# One tuple per pixel, not scanline bytes. 4096×4096 1-bit stays under
+# _MAX_RAW_PNG (~2MB inflated, a few KB on disk) and would be ~16.7M
+# tuples. Shipped Impress thumbs are at most 512×384; 1024×1024 leaves
+# room for a larger preview without the tuple explosion.
+_MAX_DECODED_PIXELS = 1024 * 1024
 
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _HEX_RE = re.compile(rb"#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?")
@@ -244,7 +251,7 @@ def _inflate_capped(data: bytes, limit: int) -> bytes | None:
 
 
 def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
-    """Return RGB pixels or ``None`` if the PNG is unsupported/corrupt."""
+    """Return RGB pixels or ``None`` if the PNG is unsupported, corrupt, or too large."""
     if len(data) < 33 or data[:8] != _PNG_SIG:
         return None
     width = height = bit_depth = color_type = interlace = -1
@@ -281,6 +288,15 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         elif tag == b"IEND":
             break
     if width < 1 or height < 1 or width > 4096 or height > 4096:
+        return None
+    # What was wrong: after the raw-byte cap, this still built one RGB
+    # tuple per pixel. A valid 4096×4096 1-bit thumbnail is a few KB and
+    # under _MAX_RAW_PNG, then ~16.7M tuples (~1GB) before _downsample.
+    # How it happened: list_designs / apply_design feed Thumbnails/thumbnail.png
+    # from discovered .otp files, including the user-writable template dir.
+    # Why this fixes it: reject on width*height before inflate and before
+    # the pixel list. Mood falls back to styles.xml / SVG hex colors.
+    if width * height > _MAX_DECODED_PIXELS:
         return None
     if interlace != 0:
         return None

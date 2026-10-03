@@ -104,6 +104,17 @@ def test_is_openwebui_endpoint_matches_host_not_path():
     assert not is_openwebui_endpoint("https://notopenwebui.example/api")
 
 
+def test_malformed_port_is_config_error_not_value_error():
+    """``:1a34`` and an out-of-range port must not escape as ValueError."""
+    from plugin.framework.errors import ConfigError
+
+    for url in ("http://localhost:1a34", "http://localhost:99999/v1", "http://[::1]:70000"):
+        with pytest.raises(ConfigError) as raised:
+            get_provider_from_endpoint(url)
+        assert raised.value.code == "CONFIG_INVALID_URL"
+        assert not isinstance(raised.value, ValueError)
+
+
 def test_local_ollama_and_lmstudio_ports_cover_lan_hosts():
     assert get_provider_from_endpoint("http://192.168.1.20:11434") == "ollama"
     assert get_provider_from_endpoint("http://[::1]:11434") == "ollama"

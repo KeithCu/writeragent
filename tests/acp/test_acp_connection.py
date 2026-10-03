@@ -5,7 +5,11 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""ACPConnection stop and reader exit must unblock send_request."""
+"""ACPConnection stop and reader exit must unblock send_request.
+
+A response still buffered on stdout after the child exits must be
+delivered, not replaced by the reader-exit sweep.
+"""
 
 import subprocess
 import sys
@@ -195,4 +199,81 @@ class TestACPConnectionReaderExit:
             release.set()
             conn.stop()
             worker.join(timeout=2)
+            reader.join(timeout=2)
+
+    def test_response_buffered_after_child_exit_is_returned(self):
+        """In-flight send_request returns a line written as the child exits.
+
+        The child emits a session/update, then waits. The reader is parked
+        in that callback when the child writes the JSON-RPC result and
+        exits, so the next loop check observes a dead process with the
+        answer still unread. That result must win over the exit sweep.
+        """
+        script = r"""
+import json, sys
+note = {"jsonrpc": "2.0", "method": "session/update", "params": {}}
+sys.stdout.buffer.write((json.dumps(note) + "\n").encode())
+sys.stdout.buffer.flush()
+sys.stdin.buffer.readline()
+resp = {"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}
+sys.stdout.buffer.write((json.dumps(resp) + "\n").encode())
+sys.stdout.buffer.flush()
+"""
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        in_callback = threading.Event()
+        release = threading.Event()
+
+        def on_notify(method: str, params: object, msg_id: object = None) -> None:
+            # Park the reader between lines until the child has exited.
+            # A mismatch must not set the gate: the reader swallows callback
+            # errors and would otherwise block in the next readline, hiding
+            # the poll() race this test is here to catch.
+            assert method == "session/update"
+            assert params == {}
+            assert msg_id is None
+            in_callback.set()
+            assert release.wait(timeout=5)
+
+        conn = ACPConnection(cmd_line=["agent"])
+        conn._proc = proc
+        conn._running = True
+        conn.set_notification_callback(on_notify)
+        reader = threading.Thread(target=conn._reader_loop, daemon=True)
+        reader.start()
+        results: list[object] = []
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=5))
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run, daemon=True)
+        try:
+            assert in_callback.wait(timeout=2)
+            worker.start()
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and proc.poll() is None:
+                time.sleep(0.01)
+            assert proc.poll() is not None
+            started = time.monotonic()
+            release.set()
+            worker.join(timeout=2)
+            assert worker.is_alive() is False
+            assert errors == []
+            assert results == [{"text": "kept-answer"}]
+            assert time.monotonic() - started < 2
+        finally:
+            release.set()
+            if proc.poll() is None:
+                proc.kill()
+            conn.stop()
+            if worker.ident is not None:
+                worker.join(timeout=2)
             reader.join(timeout=2)

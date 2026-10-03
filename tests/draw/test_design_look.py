@@ -60,6 +60,35 @@ def test_decode_png_rgb_roundtrip():
     assert decoded == pix
 
 
+def _gray1_png(width: int, height: int) -> bytes:
+    """1-bit grayscale, filter None, every pixel 0. Solid rows deflate to a few KB."""
+    row = b"\x00" * (1 + (width + 7) // 8)
+    raw = row * height
+    ihdr = struct.pack(">IIBBBBB", width, height, 1, 0, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(raw, 9)) + _chunk(b"IEND", b"")
+
+
+def test_decode_png_rgb_rejects_large_1bit_before_pixel_tuples():
+    # Same builder at a tiny size must still decode, so a corrupt PNG is
+    # not why the large image is rejected. 1-bit samples stay 0/1 (not 0/255).
+    assert decode_png_rgb(_gray1_png(8, 1)) == [(0, 0, 0)] * 8
+
+    # 4096×4096 1-bit: ~2MB of scanlines (under the 4MB raw cap) and a few KB
+    # on disk, but one RGB tuple per pixel is ~16.7M objects.
+    png = _gray1_png(4096, 4096)
+    assert len(png) < 32 * 1024
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        decoded = decode_png_rgb(png)
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert decoded is None
+    assert peak < 1024 * 1024
+
+
 def test_decode_png_rgb_rejects_deflate_bomb_before_expanding():
     # IHDR is 1x1, so the declared-size cap does not trip. The IDAT inflates
     # far past that. zlib.decompress would materialize the whole bomb first.

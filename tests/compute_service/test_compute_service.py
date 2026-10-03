@@ -809,6 +809,35 @@ class TestComputeSettings:
             load_settings(config_path=ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert isinstance(exc_info.value.__cause__, OverflowError)
 
+    @pytest.mark.parametrize(
+        ("field", "env_name"),
+        [
+            ("shared_kernel_ttl_sec", "PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC"),
+            ("idle_worker_ttl_sec", "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"),
+        ],
+    )
+    @pytest.mark.parametrize("token", ["Infinity", "NaN", "1e9999"])
+    def test_nonfinite_ttl_rejected_from_json_and_env(self, tmp_path, field: str, env_name: str, token: str) -> None:
+        """Infinity, NaN, and 1e9999 must not land in a TTL.
+
+        json.loads and float() turn those into inf/nan. inf < 0 and nan < 0
+        are false, so the old >= 0 check let them through and the reaper
+        never evicted.
+        """
+        cfg = tmp_path / "ttl.json"
+        cfg.write_text(f'{{"limits": {{"{field}": {token}}}}}', encoding="utf-8")
+        with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
+            load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", env_name: token})
+
+    @pytest.mark.parametrize("field", ["shared_kernel_ttl_sec", "idle_worker_ttl_sec"])
+    @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
+    def test_compute_settings_rejects_nonfinite_ttl(self, field: str, value: float) -> None:
+        """Direct construction skips _as_float. validate() still rejects non-finite TTLs."""
+        with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
+            ComputeSettings(**{field: value})
+
     def test_non_utf8_key_and_config_files_are_config_errors(self, tmp_path) -> None:
         """Binary key and config files raise ConfigError, not UnicodeDecodeError."""
         key_path = tmp_path / "key.bin"

@@ -51,6 +51,7 @@ import ipaddress
 import urllib.parse
 from typing import Optional
 
+from plugin.framework.errors import ConfigError
 from plugin.framework.url_utils import get_url_hostname, normalize_endpoint_url
 
 
@@ -68,7 +69,16 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
 
     url = normalize_endpoint_url(endpoint).lower()
     host = get_url_hostname(url).lower()
-    port = urllib.parse.urlparse(url).port
+    # What was wrong: ``ParseResult.port`` raises ValueError for ``:1a34``
+    # and for ports outside 0–65535. Settings and catalog code call this
+    # on the configured endpoint, so the raw ValueError escaped.
+    # How: urllib validates the port only when ``.port`` is read.
+    # Why: a bad port is a config error, the same contract as other
+    # invalid settings, not an uncaught ValueError.
+    try:
+        port = urllib.parse.urlparse(url).port
+    except ValueError as exc:
+        raise ConfigError("Invalid URL port", code="CONFIG_INVALID_URL", details={"endpoint": url.split("?", 1)[0]}) from exc
 
     def _host_is(*names: str) -> bool:
         # Hostname equality, not a substring of the whole URL. "ollama" inside

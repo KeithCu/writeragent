@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -15,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from compute_service.config import ComputeSettings
+from compute_service.config import ComputeSettings, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
 from compute_service.vision_pool import (
     VisionProcessPool,
@@ -92,6 +93,25 @@ def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
     assert isinstance(result, dict)
     assert result.get("status") == "ok"
     assert len(result.get("blob") or b"") == len(blob)
+
+
+def _hide_proc_fd(monkeypatch, platform: str) -> None:
+    """Pretend ``/proc/self/fd`` is not a symlink to the opened file.
+
+    macOS and Windows ``realpath`` that path as the literal string. Patching
+    the platform and that realpath lets the portable branch run on Linux.
+    """
+    monkeypatch.setattr("compute_service.config.sys.platform", platform)
+    real_realpath = os.path.realpath
+
+    def realpath(path, *args, **kwargs):
+        text = os.fspath(path)
+        normalized = text.replace("\\", "/")
+        if normalized.startswith("/proc/") and "/fd/" in normalized:
+            return text
+        return real_realpath(path, *args, **kwargs)
+
+    monkeypatch.setattr("compute_service.config.os.path.realpath", realpath)
 
 
 def test_vision_file_read_is_capped(tmp_path) -> None:
@@ -248,6 +268,15 @@ class TestVisionPoolSupervisor:
         The allowlist check returns, then the directory entry is replaced.
         Opening that path must not return the bytes outside the prefix.
         """
+        self._assert_swap_before_open_is_denied(tmp_path)
+
+    @pytest.mark.parametrize("platform", ["darwin", "win32"])
+    def test_symlink_swapped_before_open_is_denied_without_proc(self, tmp_path, monkeypatch, platform: str) -> None:
+        """The non-Linux check still rejects a swap that landed before open returns."""
+        _hide_proc_fd(monkeypatch, platform)
+        self._assert_swap_before_open_is_denied(tmp_path)
+
+    def _assert_swap_before_open_is_denied(self, tmp_path) -> None:
         outside = tmp_path / "secret.png"
         outside.write_bytes(b"secret-bytes")
         allowed = tmp_path / "allowed"
@@ -270,6 +299,60 @@ class TestVisionPoolSupervisor:
         assert data != b"secret-bytes"
         assert err is not None
         assert err.get("code") == "FILE_PATH_DENIED"
+
+    def test_proc_fd_rejects_inode_after_name_is_restored(self, tmp_path) -> None:
+        """Restoring the directory entry after open must not hide the inode.
+
+        realpath of the path string would then see an inside file and allow
+        the read. ``/proc/self/fd`` still names the outside inode ``open``
+        returned. This is the Linux check the portable fallback does not have.
+        """
+        if not sys.platform.startswith("linux"):
+            pytest.skip("/proc/self/fd inode check")
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(b"secret-bytes")
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        inside = allowed / "img.png"
+        inside.write_bytes(b"ok-bytes")
+        real_open = os.open
+        state = {"phase": "before"}
+
+        def open_swap_then_restore(path: str, flags: int, *args, **kwargs):
+            if state["phase"] == "before" and os.path.basename(str(path)) == "img.png":
+                state["phase"] = "opening"
+                os.remove(path)
+                os.symlink(outside, path)
+                fd = real_open(path, flags, *args, **kwargs)
+                os.remove(path)
+                restored = real_open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+                os.write(restored, b"ok-bytes")
+                os.close(restored)
+                state["phase"] = "done"
+                return fd
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("compute_service.config.os.open", side_effect=open_swap_then_restore):
+            data, err = read_allowlisted_file(str(inside), [str(allowed)], max_bytes=1024)
+        assert state["phase"] == "done"
+        assert data != b"secret-bytes"
+        assert err is not None
+        assert err.get("code") == "FILE_PATH_DENIED"
+
+    @pytest.mark.parametrize("platform", ["darwin", "win32"])
+    def test_allowlisted_read_works_without_proc_fd(self, tmp_path, monkeypatch, platform: str) -> None:
+        """An allowlisted file must be readable when ``/proc/self/fd`` is not the file.
+
+        On macOS and Windows, realpath of that node is the literal string and
+        the prefix check denied every path. The stub runs on Linux so this
+        does not need a macOS or Windows runner.
+        """
+        _hide_proc_fd(monkeypatch, platform)
+        img = tmp_path / "ok.png"
+        img.write_bytes(b"png-bytes")
+        data, err = read_allowlisted_file(str(img), [str(tmp_path)], max_bytes=1024)
+        assert err is None
+        assert data == b"png-bytes"
 
     def test_worker_crash_recovery(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=10)

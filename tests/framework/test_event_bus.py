@@ -399,6 +399,44 @@ def test_subscribe_weak_method_wrapper_falls_back_to_strong_ref():
     assert stored is method
 
 
+def test_weakref_cleanup_while_lock_held_does_not_deadlock():
+    """GC of a cyclic weak subscriber must not hang on the bus lock.
+
+    What was wrong: emit/subscribe allocate while holding a non-reentrant
+    Lock. Collecting the subscriber ran ``_cleanup``, which took that lock
+    again on the same thread and never returned.
+    """
+    import threading
+
+    bus = EventBus()
+
+    class Cyclic:
+        def handler(self, **_kwargs):
+            pass
+
+    node = Cyclic()
+    node.cycle = node
+    bus.subscribe("gone", node.handler, weak=True)
+    del node
+
+    done = threading.Event()
+
+    def _collect_while_held():
+        with bus._lock:
+            gc.collect()
+        done.set()
+
+    worker = threading.Thread(target=_collect_while_held, daemon=True)
+    worker.start()
+    assert done.wait(2.0), "weakref cleanup deadlocked on the bus lock"
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    # Cleanup ran on the thread that held the lock. A skipped callback would
+    # leave the dead weakref in the list.
+    assert bus._subscribers.get("gone") == []
+    bus.emit("gone")
+
+
 def test_subscribe_weak_python_method_stays_weakmethod():
     import weakref
 

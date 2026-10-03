@@ -75,3 +75,19 @@ def test_repair_json_object_trailing_comma() -> None:
     from plugin.framework.json_utils import repair_json_object
 
     assert repair_json_object('{"a": 1,}') == {"a": 1}
+
+
+def test_safe_json_loads_keeps_json_escapes_that_look_like_latex() -> None:
+    """A JSON escape is not a LaTeX command, even when the tail is a clash word.
+
+    What was wrong: step 1 matched one backslash plus ``ne`` / ``not`` /
+    ``times`` / ``right`` / ``frac`` and doubled it. ``json.loads`` then
+    kept a literal backslash instead of the control character.
+    """
+    assert safe_json_loads('{"x": "line\\ne.g. more"}') == {"x": "line\ne.g. more"}
+    assert safe_json_loads('{"a": "\\not"}') == {"a": "\not"}
+    assert safe_json_loads('{"a": "\\times"}') == {"a": "\times"}
+    assert safe_json_loads('{"a": "\\right"}') == {"a": "\right"}
+    assert safe_json_loads('{"a": "\\frac"}') == {"a": "\frac"}
+    # Commands that are not JSON escapes are still escaped so loads succeeds.
+    assert safe_json_loads('{"a": "\\alpha"}') == {"a": "\\alpha"}
