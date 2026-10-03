@@ -42,8 +42,10 @@ def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[
 
     The HTTP handler returns 400 for a path that is outside the allowlist
     before the pool is touched. The read itself is ``read_allowlisted_file``:
-    the same prefix rule, applied to the inode that was opened, so a symlink
-    swapped in after the path check cannot be followed out of the prefix.
+    the same prefix rule, applied to the opened path. Linux uses
+    ``/proc/self/fd`` for that descriptor. Other platforms realpath the path
+    that was opened, so a symlink swapped in before ``open`` returns cannot
+    leave the prefix.
     """
     prefixes = allow_paths if isinstance(allow_paths, (list, tuple)) else ()
     data, err = read_allowlisted_file(file_path, prefixes, max_bytes=_FILE_READ_MAX_BYTES)

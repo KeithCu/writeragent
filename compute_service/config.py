@@ -17,8 +17,10 @@ Secrets come from ``PYTHON_COMPUTE_API_KEY`` or a key file — never from argv.
 from __future__ import annotations
 
 import json
+import math
 import os
 import stat
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -90,15 +92,31 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
     return _resolved_under_prefixes(resolved, prefixes)
 
 
+def _post_open_realpath(fd: int, file_path: str) -> str:
+    """Path to compare with the allowlist after ``open`` returns.
+
+    Linux ``/proc/self/fd/<fd>`` is the inode ``open`` returned, so a symlink
+    swapped in between the name check and ``open`` is still outside the
+    prefix even if the directory entry is restored afterward. macOS and
+    Windows have no ``/proc``. ``realpath`` of that string is the literal
+    path, which is never under ``ocr.allow_paths``, so every vision
+    ``file_path`` was denied. Those platforms realpath the path that was
+    opened. A swap that landed before ``open`` returned is still outside
+    the prefix.
+    """
+    if sys.platform.startswith("linux"):
+        return os.path.realpath(f"/proc/self/fd/{fd}")
+    return os.path.realpath(os.path.expanduser(file_path.strip()))
+
+
 def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list[str], *, max_bytes: int) -> tuple[bytes | None, dict[str, Any] | None]:
     """Return ``(bytes, None)`` or ``(None, error)`` for one allowlisted file.
 
     The path check and ``open`` are not the same moment. A name inside an
     allowed directory can be replaced with a symlink to somewhere else after
     ``ocr_path_is_allowed`` returns and before ``open`` of that string. Opening
-    the saved realpath has the same hole. The bytes come from the file
-    descriptor, and the allowlist is applied to ``/proc/self/fd`` for that
-    descriptor, which is the inode already open.
+    the saved realpath has the same hole. The bytes come from the descriptor.
+    ``_post_open_realpath`` applies the allowlist to that opened path.
     """
     if not isinstance(file_path, str) or not file_path.strip():
         return None, {"status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
@@ -117,12 +135,12 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
         if not stat.S_ISREG(info.st_mode):
             return None, {"status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
         try:
-            opened = os.path.realpath(f"/proc/self/fd/{fd}")
+            opened = _post_open_realpath(fd, file_path)
         except (OSError, ValueError):
             return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
         if not _resolved_under_prefixes(opened, prefixes):
             # The name was allowlisted, then replaced with a symlink that
-            # leaves the prefix. The earlier check cannot see this inode.
+            # leaves the prefix. The earlier check cannot see the opened path.
             return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
         chunks: list[bytes] = []
         remaining = max_bytes + 1
@@ -227,10 +245,16 @@ class ComputeSettings:
             raise ConfigError("ocr_max_tasks must be >= 1")
         if self.max_code_chars < MIN_MAX_CODE_CHARS:
             raise ConfigError(f"max_code_chars must be >= {MIN_MAX_CODE_CHARS}")
-        if self.shared_kernel_ttl_sec < 0:
-            raise ConfigError("shared_kernel_ttl_sec must be >= 0")
-        if self.idle_worker_ttl_sec < 0:
-            raise ConfigError("idle_worker_ttl_sec must be >= 0")
+        # inf < 0 and nan < 0 are both false, so a bare >= 0 check accepted
+        # them. inf never satisfies `now - last_active >= ttl`, so the session
+        # reaper never evicts and the idle reaper skips workers that still
+        # hold a session. nan fails the > 0 guard, so the reaper never starts.
+        # _as_float rejects the same values from JSON and the environment;
+        # ComputeSettings() can be built without that helper.
+        if not math.isfinite(self.shared_kernel_ttl_sec) or self.shared_kernel_ttl_sec < 0:
+            raise ConfigError("shared_kernel_ttl_sec must be a finite number >= 0")
+        if not math.isfinite(self.idle_worker_ttl_sec) or self.idle_worker_ttl_sec < 0:
+            raise ConfigError("idle_worker_ttl_sec must be a finite number >= 0")
         if self.log_level.upper() not in VALID_LOG_LEVELS:
             raise ConfigError(f"Invalid log_level: {self.log_level!r} (must be one of {sorted(VALID_LOG_LEVELS)})")
         # Loopback with no key stays open for local dev. Any other bind used to
@@ -258,12 +282,17 @@ def _as_int(value: Any, *, field: str) -> int:
 
 def _as_float(value: Any, *, field: str) -> float:
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError, OverflowError) as exc:
         # A JSON number with no decimal point arrives as a Python int.
         # float() of an int bigger than the float range raises OverflowError,
         # not ValueError, and used to escape the same way as _as_int.
         raise ConfigError(f"{field} must be a number: {value!r}") from exc
+    if not math.isfinite(number):
+        # JSON Infinity/NaN and 1e9999 become inf/nan without raising.
+        # See ComputeSettings.validate for how that disables the reapers.
+        raise ConfigError(f"{field} must be a finite number >= 0: {value!r}")
+    return number
 
 
 def _read_key_file(path: str | Path) -> str:
