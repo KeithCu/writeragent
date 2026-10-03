@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting import python_runner_ui as ui
@@ -95,6 +96,58 @@ def test_start_native_script_run_returns_before_venv_wait():
     assert callable(scheduled["func"])
 
 
+@contextmanager
+def _deliver_posted_native_run():
+    """Run the main-thread turn that delivers ``on_complete``.
+
+    What was wrong: these tests inline the native-run worker and then read
+    the listener immediately. ``seen`` stayed ``[]`` on CI.
+    How it happened: LibreOffice has already created AsyncCallback, so
+    ``post()`` enqueues (``marshal route=post_enqueue``) even on the logical
+    main thread. ``execute()`` still inlines, which is why prepare / venv /
+    finish ran and only the completion post was missing.
+    Why this works: mark AsyncCallback ready (the CI route, not the
+    no-service inline) and drain that queue from the poke. The product still
+    posts the outcome; the harness plays the UI turn that would run it.
+    """
+    from plugin.framework import queue_executor as qe
+
+    executor = qe.default_executor
+    saved_init = executor._initialized
+    saved_svc = executor._async_callback_service
+    saved_cb = executor._callback_instance
+    saved_poke = qe._test_poke_handler
+    draining = False
+
+    def _poke(ex: qe.QueueExecutor) -> None:
+        nonlocal draining
+        # process_queue pokes again while items remain. The flag keeps that
+        # re-poke from nesting; the loop drains the rest.
+        if draining:
+            return
+        draining = True
+        try:
+            while ex.pending_work_count():
+                ex.process_queue()
+        finally:
+            draining = False
+
+    # CI's real service takes this branch. A MagicMock is enough: the poke
+    # handler replaces addCallback, and execute() still inlines on this thread.
+    executor._initialized = True
+    executor._async_callback_service = MagicMock()
+    executor._callback_instance = MagicMock()
+    qe.set_test_poke_handler(_poke)
+    try:
+        yield
+    finally:
+        _poke(executor)
+        qe.set_test_poke_handler(saved_poke)
+        executor._initialized = saved_init
+        executor._async_callback_service = saved_svc
+        executor._callback_instance = saved_cb
+
+
 def test_start_native_script_run_worker_splits_main_and_venv():
     """Prep and insert run through the main-thread marshal; venv wait is in between."""
     ctx = MagicMock()
@@ -134,6 +187,7 @@ def test_start_native_script_run_worker_splits_main_and_venv():
         return MagicMock()
 
     with (
+        _deliver_posted_native_run(),
         patch.object(ui, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.python_runner._prepare_rps_execution", side_effect=_prepare),
         patch("plugin.scripting.python_runner._run_prepared_rps", side_effect=_run),
@@ -168,6 +222,7 @@ def test_start_native_script_run_reports_venv_failure():
         return MagicMock()
 
     with (
+        _deliver_posted_native_run(),
         patch.object(ui, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.python_runner._prepare_rps_execution", side_effect=_prepare),
         patch("plugin.scripting.python_runner._run_prepared_rps", side_effect=RuntimeError("venv down")),
