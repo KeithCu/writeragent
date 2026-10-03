@@ -21,6 +21,7 @@ import logging
 import json
 import os
 import tempfile
+from contextlib import closing
 from typing import Any
 
 try:
@@ -60,7 +61,11 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
         for item in content:
             if isinstance(item, dict):
                 if item.get("type") == "text":
-                    text_parts.append(item.get("text", ""))
+                    # A present "text" of None, or any non-str, used to reach
+                    # " ".join and raise TypeError here. add_message calls
+                    # this before its try, so the turn never saved. str(... or
+                    # "") is always a str (None and missing become "").
+                    text_parts.append(str(item.get("text") or ""))
                 elif item.get("type") == "input_audio":
                     has_audio = True
                 elif item.get("type") == "image_url":
@@ -95,7 +100,11 @@ class SQLite3History:
 
     def _init_db(self) -> None:
         assert sqlite3 is not None
-        with sqlite3.connect(self.db_path) as conn:
+        # sqlite3.Connection's context manager commits or rolls back and does
+        # not close. Each history call left a connection until GC. closing()
+        # calls close() on the way out, including when execute raises. Every
+        # connect in this file uses the same wrap.
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS message_store (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,14 +118,14 @@ class SQLite3History:
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         assert sqlite3 is not None
         msg_dict = message_to_dict(role, content, tool_calls)
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg_dict)))
             conn.commit()
             log.info(f"SQLite3: Added message for session {self.session_id}")
 
     def get_messages(self) -> list[dict[str, Any]]:
         assert sqlite3 is not None
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn:
             cursor = conn.execute("SELECT id, message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
             msgs: list[dict[str, Any]] = []
             for row_id, raw in cursor.fetchall():
@@ -136,7 +145,7 @@ class SQLite3History:
 
     def clear(self) -> None:
         assert sqlite3 is not None
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
             conn.commit()
 
