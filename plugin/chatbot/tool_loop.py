@@ -58,7 +58,9 @@ from plugin.chatbot.tool_loop_actions import (
     bind_turn_session,
     build_tool_execute_fn,
     persist_assistant_on_turn,
+    put_for_turn,
     session_for_turn,
+    stopped_assistant_text,
 )
 
 from plugin.chatbot.tool_loop_state import (
@@ -118,6 +120,7 @@ class ToolLoopHost(Protocol):
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None
     _in_brainstorming_mode: bool
     _brainstorming_topic: str
+    _apply_turn: Any
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
@@ -203,6 +206,7 @@ class ToolCallingMixin:
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None = None
     _active_q: queue.Queue[Any] | None = None
     _active_batched_q: BatchingStreamQueue | None = None
+    _apply_turn: Any = None
     _active_client: LlmClient | None = None
     _active_model: Any = None
     _active_max_tokens: int = 0
@@ -494,6 +498,11 @@ class ToolCallingMixin:
 
         self._record_assistant_start = True
 
+        turn = getattr(self, "_active_turn", None)
+
+        def emit(item: Any) -> None:
+            put_for_turn(self, turn, real_q, item)
+
         def run() -> None:
             session = session_for_turn(self)
             try:
@@ -502,11 +511,11 @@ class ToolCallingMixin:
                 if stop_checker():
                     if batched:
                         batched.flush()
-                    real_q.put((StreamQueueKind.STOPPED,))
+                    emit((StreamQueueKind.STOPPED,))
                     return
                 # Status via queue only — never self._set_status from this worker (UNO).
                 def status_cb(t: str) -> None:
-                    real_q.put((StreamQueueKind.STATUS, t))
+                    emit((StreamQueueKind.STATUS, t))
                 with llm_request_lane():
                     # Compact + stream share one lane hold. compaction.py must
                     # not take the non-reentrant lock itself.
@@ -528,13 +537,13 @@ class ToolCallingMixin:
                         if result.reason == "aborted":
                             if batched:
                                 batched.flush()
-                            real_q.put((StreamQueueKind.STOPPED,))
+                            emit((StreamQueueKind.STOPPED,))
                             return
                     payload = messages_for_llm(session)
                     response = client.stream_request_with_tools(
                         payload, max_tokens, tools=tools,
-                        append_callback=(batched.content_cb() if batched else lambda t: real_q.put((StreamQueueKind.CHUNK, t))),
-                        append_thinking_callback=(batched.thinking_cb() if batched else lambda t: real_q.put((StreamQueueKind.THINKING, t))),
+                        append_callback=(batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))),
+                        append_thinking_callback=(batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t))),
                         stop_checker=stop_checker,
                         status_callback=status_cb,
                     )
@@ -543,18 +552,18 @@ class ToolCallingMixin:
                 if self.stop_requested or getattr(client, "_stopped", False):
                     if batched: batched.flush()
                     note_stop_partial(self, response)
-                    real_q.put((StreamQueueKind.STOPPED,))
+                    emit((StreamQueueKind.STOPPED,))
                 else:
                     update_activity_state("tool_loop", round_num=round_num)
                     if batched: batched.flush()
-                    real_q.put((StreamQueueKind.STREAM_DONE, response))
+                    emit((StreamQueueKind.STREAM_DONE, response))
             except Exception as e:
                 if isinstance(e, NetworkError):
                     log.exception("Tool loop round %d: NetworkError" % round_num)
                 else:
                     log.exception("Tool loop round %d: API ERROR" % round_num)
                 if batched: batched.flush()
-                real_q.put((StreamQueueKind.ERROR, format_error_payload(e)))
+                emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run, name=f"llm-worker-{round_num}", dedicated=True)
 
@@ -568,25 +577,30 @@ class ToolCallingMixin:
         self._append_response("\nAI: ")
         self._record_assistant_start = True
 
+        turn = getattr(self, "_active_turn", None)
+
+        def emit(item: Any) -> None:
+            put_for_turn(self, turn, real_q, item)
+
         def run_final() -> None:
             session = session_for_turn(self)
             last_streamed: list[str] = []
             try:
                 def append_c(c: str) -> None:
-                    (batched.content_cb() if batched else lambda t: real_q.put((StreamQueueKind.CHUNK, t)))(c)
+                    (batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t)))(c)
                     last_streamed.append(c)
 
                 def append_t(t: str) -> None:
-                    (batched.thinking_cb() if batched else lambda t: real_q.put((StreamQueueKind.THINKING, t)))(t)
+                    (batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t)))(t)
 
                 stop_checker = self.resolve_stop_checker()
                 if stop_checker():
                     if batched:
                         batched.flush()
-                    real_q.put((StreamQueueKind.STOPPED,))
+                    emit((StreamQueueKind.STOPPED,))
                     return
                 def status_cb(t: str) -> None:
-                    real_q.put((StreamQueueKind.STATUS, t))
+                    emit((StreamQueueKind.STATUS, t))
                 with llm_request_lane():
                     # Same compact-then-view path as _spawn_llm_worker. Final
                     # stream has no tools; still compact when the transcript
@@ -609,7 +623,7 @@ class ToolCallingMixin:
                         if result.reason == "aborted":
                             if batched:
                                 batched.flush()
-                            real_q.put((StreamQueueKind.STOPPED,))
+                            emit((StreamQueueKind.STOPPED,))
                             return
                     client.stream_chat_response(
                         messages_for_llm(session), max_tokens, append_c, append_t,
@@ -619,17 +633,17 @@ class ToolCallingMixin:
                 if self.stop_requested or getattr(client, "_stopped", False):
                     if batched: batched.flush()
                     note_stop_partial(self, "".join(last_streamed))
-                    real_q.put((StreamQueueKind.STOPPED,))
+                    emit((StreamQueueKind.STOPPED,))
                 else:
                     if batched: batched.flush()
-                    real_q.put((StreamQueueKind.FINAL_DONE, "".join(last_streamed)))
+                    emit((StreamQueueKind.FINAL_DONE, "".join(last_streamed)))
             except Exception as e:
                 if isinstance(e, NetworkError):
                     log.exception("Final stream NetworkError")
                 else:
                     log.exception("Final stream failed")
                 if batched: batched.flush()
-                real_q.put((StreamQueueKind.ERROR, format_error_payload(e)))
+                emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run_final, name="llm-worker-final", dedicated=True)
 
@@ -697,9 +711,12 @@ class ToolCallingMixin:
 
     def _handle_stream_stopped(self: ToolLoopHost) -> None:
         partial = take_stop_partial(self)
+        # Stop already bumped the generation. Store streamed bytes, not the
+        # "No response." placeholder that used to replace them.
+        text = stopped_assistant_text(self, partial)
         data: dict[str, Any] = {}
-        if partial is not None:
-            data["content"] = partial
+        if text:
+            data["content"] = text
         event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data=data)
         tr = next_state(self._sm_state, event)
         self._sm_state = tr.state
@@ -827,6 +844,9 @@ class ToolCallingMixin:
         try:
             raw_q: queue.Queue[Any] = queue.Queue()
             self._active_q = raw_q
+            turn = getattr(self, "_active_turn", None)
+            if turn is not None:
+                turn.queue = raw_q
             self._active_batched_q = BatchingStreamQueue(raw_q, batch_interval=CHAT_STREAM_BATCH_INTERVAL)
 
             self._active_client = client
@@ -860,6 +880,7 @@ class ToolCallingMixin:
 
             # --- Kick off the first LLM stream (producer batching at 250 ms) ---
             self._refresh_active_tools_for_session()
+            self._apply_turn = turn
             self._spawn_llm_worker(self._active_batched_q or self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._sm_state.round_num, query_text=self._active_query_text)
 
             def _flush_active_batcher() -> None:
@@ -889,6 +910,14 @@ class ToolCallingMixin:
 
             finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
         finally:
+            # Drop any display text still sitting in the batcher. The drain has
+            # returned; a timer flush after this would enqueue onto a queue the
+            # next send must not read. Stop already discarded on generation bump
+            # when the user cancelled.
+            batched = self._active_batched_q
+            if batched is not None:
+                batched.discard()
+            self._apply_turn = None
             self._tool_loop_interpreter = None
             self._active_q = None
             self._active_batched_q = None

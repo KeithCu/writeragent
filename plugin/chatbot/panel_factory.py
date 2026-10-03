@@ -937,6 +937,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             is_image_mode,
         )
 
+        if send_listener is not None:
+            from plugin.chatbot.tool_loop_actions import bump_send_generation
+
+            # The in-flight turn keeps the mode it started with. Chunks from
+            # that generation stop applying once the dropdown moves.
+            bump_send_generation(send_listener)
         if mode != CHAT_MODE_BRAINSTORMING and send_listener:
             clear_brainstorming_session(send_listener)
         if mode != CHAT_MODE_PPT_MASTER and send_listener:

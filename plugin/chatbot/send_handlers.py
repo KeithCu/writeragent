@@ -36,7 +36,7 @@ from plugin.framework.queue_executor import llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
-from plugin.chatbot.tool_loop_actions import _turn_accepts_write, bind_turn_session, persist_assistant_on_turn, session_for_turn
+from plugin.chatbot.tool_loop_actions import SendTurn, _turn_accepts_write, bind_turn_session, persist_assistant_on_turn, session_for_turn, stopped_assistant_text
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -100,6 +100,7 @@ class SendHandlerHost(Protocol):
     audio_wav_path: str | None
     _terminal_status: str
     _current_agent_backend: Any
+    _apply_turn: Any
 
     def _set_status(self, text: str) -> None: ...
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
@@ -144,6 +145,7 @@ class SendHandlersMixin:
     _in_brainstorming_mode: bool = False
     _in_writing_plan_mode: bool = False
     _in_ppt_master_mode: bool = False
+    _apply_turn: Any = None
 
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread."""
@@ -243,14 +245,14 @@ class SendHandlersMixin:
         def on_stream_done(item: Any) -> None:
             payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
             if isinstance(payload, dict):
-                _finish_specialized_session(payload)
+                # Store the answer before a mode handoff bumps the generation.
                 # Web, librarian, brainstorm, writing, PPT, and deep research
                 # used to persist on the worker. That write raced Clear.
-                # The answer rides this payload and is stored on the drain.
                 if current_state.handler_type != "agent":
                     answer = payload.get("assistant_content")
                     if isinstance(answer, str) and answer:
                         persist_assistant_on_turn(self, content=answer)
+                _finish_specialized_session(payload)
             if current_state.handler_type == "agent":
                 text = "".join(agent_parts).strip()
                 if text:
@@ -260,7 +262,8 @@ class SendHandlersMixin:
         def on_stopped() -> None:
             if current_state.handler_type == "agent":
                 partial = "".join(agent_parts).strip()
-                persist_assistant_on_turn(self, content=partial or "No response.")
+                text = stopped_assistant_text(self, partial)
+                persist_assistant_on_turn(self, content=text or "No response.")
             elif on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
@@ -276,19 +279,28 @@ class SendHandlersMixin:
             # BUT, it's better to refactor the workers to use the passed queue.
             worker_fn()
 
-        run_async_worker_with_drain(
-            self.ctx,
-            worker_wrapper,
-            apply_chunk,
-            on_stream_done,
-            on_error,
-            on_status_fn=self._set_status,
-            stop_checker=self.resolve_stop_checker(),
-            on_stopped_fn=on_stopped,
-            name="chatbot-send-handler",
-            q=q,
-            on_approval_required=on_approval_callback,
-        )
+        turn = getattr(self, "_active_turn", None)
+        if isinstance(turn, SendTurn) and turn.queue is None:
+            turn.queue = q
+        previous_apply = getattr(self, "_apply_turn", None)
+        if isinstance(turn, SendTurn):
+            self._apply_turn = turn
+        try:
+            run_async_worker_with_drain(
+                self.ctx,
+                worker_wrapper,
+                apply_chunk,
+                on_stream_done,
+                on_error,
+                on_status_fn=self._set_status,
+                stop_checker=self.resolve_stop_checker(),
+                on_stopped_fn=on_stopped,
+                name="chatbot-send-handler",
+                q=q,
+                on_approval_required=on_approval_callback,
+            )
+        finally:
+            self._apply_turn = previous_apply
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
         interpreter = EffectInterpreter(self)
