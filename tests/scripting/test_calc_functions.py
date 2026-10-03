@@ -242,14 +242,6 @@ def test_financial_group_a():
 
     assert abs(calc.cumipmt(0.09 / 12, 360, 125000, 1, 12, 0) - (-11215.34288)) < 1e-2
     assert abs(calc.cumprinc(0.09 / 12, 360, 125000, 1, 12, 0) - (-853.99637)) < 1e-2
-    # PPMT: principal part of period 1
-    assert abs(calc.ppmt(0.09 / 12, 1, 360, 125000) - (-68.27827)) < 1e-2
-    # PPMT + IPMT == PMT
-    pmt_val = calc.pmt(0.09 / 12, 360, 125000)
-    assert abs((calc.ppmt(0.09 / 12, 1, 360, 125000) + calc.ipmt(0.09 / 12, 1, 360, 125000)) - pmt_val) < 1e-6
-    # Invalid period for ppmt
-    assert math.isnan(calc.ppmt(0.09 / 12, 0, 360, 125000))
-    assert math.isnan(calc.ppmt(0.09 / 12, 361, 360, 125000))
     # XNPV: cash flows at dates
     assert abs(calc.xnpv(0.1, [-10000, 2750, 4250, 3250, 2750], [43831, 43900, 44000, 44100, 44200]) - 2294.3573) < 1e-2
 

@@ -208,7 +208,6 @@ HELPER_NAMES = frozenset(
         "permut",
         "pmt",
         "poisson",
-        "ppmt",
         "prob",
         "pv",
         "quartile",
