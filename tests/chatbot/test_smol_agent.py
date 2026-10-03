@@ -449,6 +449,51 @@ def test_smol_tool_adapter_handles_positional_arguments():
         mock_main.assert_called_once()
 
 
+def test_smol_tool_adapter_read_only_target_rejects_mutation():
+    """forward skips ToolRegistry.execute, so the read-only flag must be checked here."""
+    ctx = SimpleNamespace(read_only_target=True, caller="document_research", doc_type="writer")
+
+    class AsyncMutator(_StubTool):
+        name = "get_document_content"
+        is_mutation = True
+
+        def is_async(self):
+            return True
+
+    for tool_cls in (_StubTool, AsyncMutator):
+        tool = tool_cls()
+        tool.execute = MagicMock(return_value={"status": "ok"})
+        tool.execute_safe = MagicMock(return_value={"status": "ok"})
+        adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
+        with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+            out = adapter.forward(p="v")
+        mock_main.assert_not_called()
+        tool.execute.assert_not_called()
+        tool.execute_safe.assert_not_called()
+        assert (out["status"]) == ("error")
+        assert (out["code"]) == ("READ_ONLY_TARGET")
+        assert ("read-only") in (out["message"])
+        assert (out["details"]["tool_name"]) == (tool.name)
+        assert (out["details"]["caller"]) == ("document_research")
+        assert (out["details"]["doc_type"]) == ("writer")
+
+
+def test_smol_tool_adapter_read_only_target_allows_non_mutation():
+    class FlaggedRead(_StubTool):
+        name = "apply_fake"
+        is_mutation = False
+
+    ctx = SimpleNamespace(read_only_target=True, caller=None, doc_type="writer")
+    tool = FlaggedRead()
+    tool.execute = MagicMock(return_value={"status": "ok"})
+    adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
+    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        out = adapter.forward(p="v")
+    tool.execute.assert_called_once()
+    assert (out["status"]) == ("ok")
+
+
 def test_smol_tool_adapter_resolves_dynamic_parameters():
     class DynamicTool(_StubTool):
         def get_parameters(self, doc_type):
@@ -1239,20 +1284,22 @@ class TestRunSubagentTool:
         assert (result) == ({"status": "ok", "result": "done"})
         runner.assert_called_once_with(ctx, query="Draft essay", history_text="hi", topic="AI")
 
-    def test_run_subagent_tool_catches_exception_and_formats_error(self):
+    def test_run_subagent_tool_catches_exception_and_formats_error(self, caplog):
         ctx = MagicMock()
 
         def failing_runner(c, **kwargs):
             raise RuntimeError("API timeout")
 
-        result = run_subagent_tool("Brainstorming", failing_runner, ctx, query="Brainstorm ideas")
+        with caplog.at_level("ERROR", logger="writeragent.smol_agent"):
+            result = run_subagent_tool("Brainstorming", failing_runner, ctx, query="Brainstorm ideas")
 
         assert (result.get("status")) == ("error")
         message = result.get("message", "")
         assert ("Brainstorming failed: API timeout") in (message)
-        assert ("RuntimeError") in (message)
-        assert ("Traceback") in (message)
+        assert ("Traceback") not in (message)
+        assert ("RuntimeError") not in (message)
         assert (result.get("details")) == ({"query": "Brainstormideas".replace("Brainstormideas", "Brainstorm ideas")})
+        assert any(r.exc_info is not None and "Brainstorming execution failed" in r.message for r in caplog.records)
 
     def test_run_subagent_tool_with_no_query_in_kwargs(self):
         ctx = MagicMock()
