@@ -112,12 +112,18 @@ def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
     def _wait() -> None:
         import time
 
-        from plugin.mcp import _shared_tunnel
+        import plugin.mcp
+        from plugin.mcp.tunnel_state import TunnelStatus
 
         deadline = time.time() + 1.2
         while time.time() < deadline:
-            tunnel = _shared_tunnel
-            if tunnel is None or not getattr(tunnel, "is_running", False) or getattr(tunnel, "_public_url", None):
+            tunnel = plugin.mcp._shared_tunnel
+            if tunnel is None:
+                break
+            if getattr(tunnel, "_public_url", None):
+                break
+            status = getattr(tunnel, "status", None)
+            if not getattr(tunnel, "is_running", False) and status not in (TunnelStatus.STARTING, TunnelStatus.RECONNECTING):
                 break
             time.sleep(0.1)
 
