@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1229,4 +1230,63 @@ class TestListenerQueue:
         finally:
             hold.set()
             server.server_close()
+
+
+def test_flatten_config_json_rejects_api_key() -> None:
+    """_flatten_config_json raises ConfigError if api_key is present in config JSON."""
+    from compute_service.config import ConfigError, _flatten_config_json
+
+    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
+        _flatten_config_json({"api_key": "secret"})
+
+    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
+        _flatten_config_json({"auth": {"api_key": "secret"}})
+
+
+def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:
+    """When a worker handler returns non-dict, run_worker_stdio_loop formats an error dict."""
+    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop, write_pickle_frame
+
+    stdin_buf = io.BytesIO()
+    stdout_buf = io.BytesIO()
+
+    # Write a valid request into stdin_buf
+    write_pickle_frame(stdin_buf, {"id": "1", "cmd": "test"})
+    stdin_buf.seek(0)
+
+    class MockStdin:
+        buffer = stdin_buf
+
+    class MockStdout:
+        buffer = stdout_buf
+
+    monkeypatch.setattr("sys.stdin", MockStdin())
+    monkeypatch.setattr("sys.stdout", MockStdout())
+
+    def bad_handler(req: dict) -> Any:
+        del req
+        return "not a dict"
+
+    rc = run_worker_stdio_loop(bad_handler)
+    assert rc == 0
+
+    stdout_buf.seek(0)
+    ready_frame = read_pickle_frame(stdout_buf)
+    assert ready_frame is not None
+    assert ready_frame.get("status") == "ready"
+
+    res_frame = read_pickle_frame(stdout_buf)
+    assert isinstance(res_frame, dict)
+    assert res_frame.get("status") == "error"
+    assert res_frame.get("error") == "Handler returned non-dict"
+
+
+def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
+    """ocr_path_is_allowed checks prefix allowlist even if file does not exist yet."""
+    from compute_service.config import ocr_path_is_allowed
+
+    missing = tmp_path / "does_not_exist.png"
+    assert ocr_path_is_allowed(str(missing), (str(tmp_path),)) is True
+    assert ocr_path_is_allowed(str(missing), ("/other/dir",)) is False
+
 

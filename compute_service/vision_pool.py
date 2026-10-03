@@ -20,7 +20,7 @@ from typing import Any
 
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool
+from compute_service.worker_base import BaseProcessPool, remaining_sec
 
 log = logging.getLogger("compute_service.vision")
 
@@ -32,7 +32,7 @@ class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
     def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
-        cfg = settings if isinstance(settings, ComputeSettings) else ComputeSettings()
+        cfg = settings or ComputeSettings()
         eff_num_workers = cfg.ocr_workers if num_workers is None else num_workers
         eff_timeout = cfg.ocr_timeout_sec if default_timeout_sec is None else default_timeout_sec
         eff_max_tasks = cfg.ocr_max_tasks if max_tasks is None else max_tasks
@@ -74,12 +74,12 @@ class VisionProcessPool(BaseProcessPool):
         # VISION_POOL_BUSY means that wait expired, not that the pool was busy
         # at the moment the request arrived.
         deadline = time.monotonic() + eff_timeout
-        worker = self.lease_any(timeout_sec=max(0.01, deadline - time.monotonic()))
+        worker = self.lease_any(timeout_sec=remaining_sec(deadline))
         if worker is None:
             return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
 
         try:
-            res = worker.execute(payload, timeout_sec=max(0.01, deadline - time.monotonic()))
+            res = worker.execute(payload, timeout_sec=remaining_sec(deadline))
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             return res

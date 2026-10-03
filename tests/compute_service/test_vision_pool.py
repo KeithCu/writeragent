@@ -438,3 +438,34 @@ def test_vision_worker_empty_bytes_not_missing_source() -> None:
     assert res.get("code") != "MISSING_IMAGE_SOURCE"
 
 
+def test_vision_pool_execute_accepts_bytearray() -> None:
+    """image_b64 may be passed as a bytearray and should be converted to bytes."""
+    from unittest.mock import MagicMock
+
+    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1))
+    try:
+        mock_worker = MagicMock()
+        mock_worker.defer_release.return_value = False
+        mock_worker.tasks_executed = 0
+        payload_received = None
+
+        def fake_exec(payload, timeout_sec):
+            nonlocal payload_received
+            payload_received = payload
+            return {"status": "ok"}
+
+        mock_worker.execute.side_effect = fake_exec
+        with pool._cond:
+            pool._idle = {mock_worker}
+
+        data = bytearray(b"dummy image bytes")
+        res = pool.execute(helper="test", image_b64=data, req_id="bytearray-test")
+        assert res.get("status") == "ok"
+        assert payload_received is not None
+        assert payload_received["image_bytes"] == b"dummy image bytes"
+        assert isinstance(payload_received["image_bytes"], bytes)
+    finally:
+        pool.shutdown()
+
+
+

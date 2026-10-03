@@ -23,8 +23,7 @@ from http.server import HTTPServer
 from typing import Any, Callable
 
 # Ensure repo root is on sys.path to resolve plugin.* / compute_service imports
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
@@ -277,6 +276,8 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     ``/v1/session/reset`` so config/auth startup does not pull WriterAgent
     ``plugin.framework.config``.
     """
+    # Lazy-initialized on first execute/reset request if not injected via execute_fn/reset_fn
+    # (avoids heavy imports during server startup).
     run_execute = execute_fn
     run_reset = reset_fn
 

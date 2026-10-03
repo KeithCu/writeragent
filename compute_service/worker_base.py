@@ -53,6 +53,8 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
                 res = {"status": "error", "error": "Request must be a dict"}
             else:
                 res = handler(req)
+                if not isinstance(res, dict):
+                    res = {"status": "error", "error": "Handler returned non-dict"}
         except Exception as exc:
             res = {"status": "error", "error": f"Invalid IPC frame or unhandled error: {exc}"}
 
@@ -62,6 +64,15 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             break
 
     return 0
+
+
+def remaining_sec(deadline: float, *, floor: float = 0.01) -> float:
+    """Return remaining seconds until *deadline*, bounded below by *floor*."""
+    return max(floor, deadline - time.monotonic())
+
+
+# Back-compat alias within compute_service
+_remaining_sec = remaining_sec
 
 
 class _DrainState(enum.Enum):
@@ -202,9 +213,6 @@ class BaseProcessWorker:
             log.error("Failed to spawn %s #%d: %s%s", self.worker_name, self.worker_id, exc, extra)
             self.kill()
 
-    def _spawn(self) -> None:
-        """Back-compat alias for :meth:`respawn`."""
-        self.respawn()
 
     def is_alive(self) -> bool:
         return self.process is not None and self.process.poll() is None
@@ -292,19 +300,21 @@ class BaseProcessWorker:
         client gave up keeps the process. A call that never returns is killed
         so the slot can respawn.
         """
+        # Snapshot process and its stdout while self.lock is still held by run_task,
+        # preventing race conditions with concurrent respawn() or kill().
+        proc = self.process
+        stdout = proc.stdout if proc is not None else None
         with self._drain_lock:
             self._drain_state = _DrainState.DRAINING
             self._release_cb = None
         threading.Thread(
             target=self._drain_late_response,
-            args=(timeout_sec,),
+            args=(proc, stdout, timeout_sec),
             name=f"{self.worker_name}-drain-{self.worker_id}",
             daemon=True,
         ).start()
 
-    def _drain_late_response(self, timeout_sec: float) -> None:
-        proc = self.process
-        stdout = proc.stdout if proc is not None else None
+    def _drain_late_response(self, proc: subprocess.Popen[bytes] | None, stdout: Any, timeout_sec: float) -> None:
         try:
             resp: Any = None
             if stdout is not None and self.is_alive():
@@ -484,9 +494,6 @@ class BaseProcessPool:
                     return None
                 self._cond.wait(remaining)
 
-    def lease_worker(self, timeout_sec: float) -> BaseProcessWorker | None:
-        """Back-compat alias for :meth:`lease_any`."""
-        return self.lease_any(timeout_sec)
 
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
         """Predicate to determine if worker should be recycled on release."""
@@ -515,7 +522,9 @@ class BaseProcessPool:
             worker.respawn()
         with self._cond:
             if self._is_shutdown:
-                # Recycle may have started a child after shutdown()'s kill loop.
+                # If shutdown() ran concurrently and cleared self.workers / killed children
+                # while respawn() above started a new child process, killing it here ensures no
+                # orphaned subprocess survives, and the worker is discarded (not re-added to _idle).
                 worker.kill()
             else:
                 self._idle.add(worker)

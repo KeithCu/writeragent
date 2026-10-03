@@ -59,10 +59,8 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
         resolved = os.path.realpath(os.path.expanduser(file_path.strip()))
     except (OSError, ValueError, TypeError):
         return False
-    if not os.path.isfile(resolved):
-        # Allowlist check still applies for missing files so we do not leak existence
-        # via a different error before prefix match. Prefix-only:
-        pass
+    # Allowlist check still applies for missing files so we do not leak existence
+    # via a different error before prefix match. Prefix-only:
     for raw in prefixes:
         try:
             base = os.path.realpath(os.path.expanduser(raw))
@@ -268,6 +266,8 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
         elif "level" in logging_cfg:
             out["log_level"] = logging_cfg["level"]
 
+    # Top-level configuration fields (and supported aliases). Keep this tuple
+    # in sync with ComputeSettings dataclass fields when new options are added.
     for key in (
         "host",
         "port",

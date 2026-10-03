@@ -25,8 +25,7 @@ os.environ["WRITERAGENT_IS_WORKER"] = "1"
 os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
 
 # Ensure repo root is on sys.path
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 

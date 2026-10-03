@@ -24,7 +24,7 @@ from typing import Any
 
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, WIRE_PICKLE, decode_worker_result
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, remaining_sec
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
@@ -33,8 +33,8 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "formula_worker.py")
 
 
-def _remaining_sec(deadline: float, *, floor: float = 0.01) -> float:
-    return max(floor, deadline - time.monotonic())
+# Retain alias for existing references within module
+_remaining_sec = remaining_sec
 
 
 class FormulaProcessPool(BaseProcessPool):
@@ -43,7 +43,7 @@ class FormulaProcessPool(BaseProcessPool):
     shared_kernel_ttl_sec: float
 
     def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, shared_kernel_ttl_sec: float | None = None, idle_worker_ttl_sec: float | None = None) -> None:
-        cfg = settings if isinstance(settings, ComputeSettings) else ComputeSettings()
+        cfg = settings or ComputeSettings()
         eff_num_workers = cfg.workers if num_workers is None else num_workers
         eff_timeout = cfg.default_timeout_sec if default_timeout_sec is None else default_timeout_sec
         eff_max_tasks = cfg.worker_max_tasks if max_tasks is None else max_tasks
@@ -287,8 +287,13 @@ class FormulaProcessPool(BaseProcessPool):
             self.release_worker(leased)
 
     @staticmethod
-    def _build_execute_payload(*, code: str, data: Any, data_json: bytes | None, session_id: str | None, mode: str, timeout_sec: int, init_script: str | None, req_id: str | None, wire: str) -> dict[str, Any]:
-        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "timeout_sec": timeout_sec, "init_script": init_script, "wire": wire if wire in (WIRE_JSON_FORWARD, WIRE_PICKLE) else WIRE_JSON_FORWARD}
+    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", timeout_sec: int = 30, init_script: str | None = None, req_id: str | None = None, wire: str = WIRE_JSON_FORWARD) -> dict[str, Any]:
+        if wire not in (WIRE_JSON_FORWARD, WIRE_PICKLE):
+            log.warning("Unknown wire format %r; defaulting to %s", wire, WIRE_JSON_FORWARD)
+            eff_wire = WIRE_JSON_FORWARD
+        else:
+            eff_wire = wire
+        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "timeout_sec": timeout_sec, "init_script": init_script, "wire": eff_wire}
         if payload["wire"] == WIRE_JSON_FORWARD:
             blob = data_json
             if blob is None and data is not None:

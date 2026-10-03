@@ -28,6 +28,8 @@ from tests.compute_service.conftest import get_free_port
 def cleanup_formula_pool():
     yield
     shutdown_formula_pool()
+    os.environ.pop("WRITERAGENT_IS_WORKER", None)
+    os.environ.pop("WRITERAGENT_COMPUTE_WORKER", None)
 
 
 class TestFormulaPoolSupervisor:
@@ -906,6 +908,75 @@ class TestFormulaPoolSupervisor:
         assert not pool._reaper_stop_event.is_set()
         pool.shutdown()
         assert pool._reaper_stop_event.is_set()
+
+    def test_defer_release_drained_state(self) -> None:
+        """When drain completes before release, defer_release transitions DRAINED -> IDLE and returns False."""
+        from compute_service.worker_base import _DrainState
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            worker = pool.lease_any(2)
+            assert worker is not None
+            with worker._drain_lock:
+                worker._drain_state = _DrainState.DRAINED
+            cb_called = False
+
+            def cb() -> None:
+                nonlocal cb_called
+                cb_called = True
+
+            deferred = worker.defer_release(cb)
+            assert deferred is False
+            assert cb_called is False
+            with worker._drain_lock:
+                assert worker._drain_state == _DrainState.IDLE
+            pool.release_worker(worker)
+        finally:
+            pool.shutdown()
+
+    def test_evict_idle_workers_skips_dead_worker(self) -> None:
+        """_evict_idle_workers must skip dead workers already in _idle via continue."""
+        pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0.01)
+        try:
+            worker = pool.lease_any(2)
+            assert worker is not None
+            worker.kill()
+            with pool._cond:
+                pool._idle.add(worker)
+                pool._worker_last_active[worker] = time.monotonic() - 100.0
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert worker in pool._idle
+        finally:
+            pool.shutdown()
+
+    def test_build_execute_payload_warns_on_unknown_wire(self, caplog) -> None:
+        """Unknown wire format logs a warning and defaults to WIRE_JSON_FORWARD."""
+        from compute_service.json_forward import WIRE_JSON_FORWARD
+
+        with caplog.at_level(logging.WARNING):
+            payload = FormulaProcessPool._build_execute_payload(
+                code="result = 1",
+                data=None,
+                data_json=None,
+                session_id=None,
+                mode="isolated",
+                timeout_sec=5,
+                init_script=None,
+                req_id="test-wire",
+                wire="bogus_wire",
+            )
+        assert payload["wire"] == WIRE_JSON_FORWARD
+        assert "Unknown wire format 'bogus_wire'" in caplog.text
+
+    def test_remaining_sec_helper(self) -> None:
+        from compute_service.worker_base import remaining_sec
+
+        future = time.monotonic() + 10.0
+        assert remaining_sec(future) > 0.0
+        past = time.monotonic() - 10.0
+        assert remaining_sec(past, floor=0.05) == 0.05
+
 
 
 class TestFormulaHttpEndpoint:
