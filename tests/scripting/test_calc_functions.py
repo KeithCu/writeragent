@@ -831,3 +831,108 @@ def test_yield_stubs_stay_nan():
     assert math.isnan(calc.yielddisc(1, 2, 95, 100))
     assert math.isnan(calc.yieldmat(1, 2, 0, 0.05, 95))
 
+
+def test_sort_by_col_uses_row_key_and_keeps_shape():
+    data = [[3, 1, 2], [6, 5, 4]]
+    # sort_index 1 is the first row [3, 1, 2]: columns reorder to 1, 2, 0.
+    assert calc.sort(data, 1, 1, True) == [[1, 2, 3], [5, 4, 6]]
+    # sort_index 2 is the second row [6, 5, 4].
+    assert calc.sort(data, 2, 1, True) == [[2, 1, 3], [4, 5, 6]]
+    assert calc.sort(data, 1, -1, True) == [[3, 2, 1], [6, 4, 5]]
+    # Row sort (by_col false) still reorders rows and keeps the 2-d shape.
+    rows = [[3, 9], [1, 8], [2, 7]]
+    assert calc.sort(rows, 1, 1, False) == [[1, 8], [2, 7], [3, 9]]
+
+
+def test_sumproduct_unequal_shape_is_nan():
+    assert math.isnan(calc.sumproduct([1.0, 2.0], [3.0, 4.0, 5.0]))
+    assert math.isnan(calc.sumproduct([[1.0, 2.0, 3.0]], [[1.0], [2.0], [3.0]]))
+    assert calc.sumproduct([[1.0, 2.0], [3.0, 4.0]], [[1.0, 1.0], [1.0, 1.0]]) == 10.0
+
+
+def test_sortby_secondary_keys_and_short_key():
+    rows = [[1], [2], [3], [4]]
+    by1 = [2, 1, 2, 1]
+    by2 = [20, 20, 10, 10]
+    # Ascending by1, then by2 breaks the ties the other way from a single-key sort.
+    assert calc.sortby(rows, by1, 1, by2, 1) == [[4], [2], [3], [1]]
+    # Omitted sort_order: the next array is by_array2, not a direction.
+    assert calc.sortby(rows, by1, by2) == [[4], [2], [3], [1]]
+    assert calc.sortby([3, 1, 2], [2, 1, 3]) == [1, 3, 2]
+    assert calc.sortby([1, 2, 3], [1, 2, 3], -1) == [3, 2, 1]
+    assert math.isnan(calc.sortby([[1], [2], [3]], [10, 20]))
+    assert math.isnan(calc.sortby([3, 1, 2], [2, 1]))
+    assert math.isnan(calc.sortby([3, 1], [1, 2, 3]))
+    assert math.isnan(calc.sortby([[1], [2], [3]], [3, 1, 2], 1, [1, 0]))
+
+
+def test_quartile_rejects_bad_quart():
+    data = [1.0, 2.0, 3.0, 4.0]
+    assert math.isnan(calc.quartile(data, 5))
+    assert math.isnan(calc.quartile(data, -1))
+    assert math.isnan(calc.quartile(data, "x"))
+    assert calc.quartile(data, 0) == 1.0
+    assert calc.quartile(data, 4) == 4.0
+    assert calc.quartile(data, 2) == 2.5
+    # Excel truncates a non-integer quart before the 0..4 check.
+    assert calc.quartile(data, 1.9) == calc.quartile(data, 1)
+
+
+def test_regex_invalid_pattern_is_nan():
+    assert math.isnan(calc.regex("abc", "["))
+    assert math.isnan(calc.regex("ab", "(a)", r"\2"))
+    assert calc.regex("abc", "b") == "b"
+
+
+def test_n_s_text_cells_return_nan():
+    assert math.isnan(calc.npv("bad", [100.0, 200.0]))
+    assert math.isnan(calc.npv(-1, [100.0, 200.0]))
+    assert abs(calc.npv(0.1, 100.0, 200.0) - (100.0 / 1.1 + 200.0 / 1.21)) < 1e-9
+    assert math.isnan(calc.pmt("x", 12, 1000))
+    assert math.isnan(calc.pv("x", 12, -100))
+    assert math.isnan(calc.odd("x"))
+    assert calc.odd(2) == 3.0
+    assert calc.odd(-2) == -3.0
+    assert math.isnan(calc.rank(1, [1, "a", 3]))
+    assert calc.rank(2, [1, 2, 3]) == 2.0
+    assert calc.rank(1, [1, "", 2]) == 2.0
+    assert math.isnan(calc.small([1, "a", 3], 1))
+    assert math.isnan(calc.small([1.0, 5.0, 3.0], "k"))
+    assert calc.small([1.0, 5.0, 3.0], 1) == 1.0
+    assert math.isnan(calc.rsq([1.0, "a"], [1.0, 2.0]))
+    assert abs(calc.rsq([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) - 1.0) < 1e-9
+    assert math.isnan(calc.slope([1.0, "a"], [1.0, 2.0]))
+    assert abs(calc.slope([2.0, 4.0, 6.0], [1.0, 2.0, 3.0]) - 2.0) < 1e-9
+    assert math.isnan(calc.steyx([1.0, "a", 3.0], [1.0, 2.0, 3.0]))
+    assert abs(calc.steyx([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])) < 1e-9
+
+
+def test_sumifs_unpaired_criteria_is_nan():
+    assert math.isnan(calc.sumifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]))
+    assert math.isnan(calc.sumifs([1.0, 2.0], [1.0, 2.0], ">0", [1.0, 2.0]))
+    assert calc.sumifs([1.0, 2.0], [1.0, 2.0], ">1") == 2.0
+
+
+def test_networkdays_intl_invalid_weekend_is_nan():
+    assert math.isnan(calc.networkdays_intl(46181, 46185, 8))
+    assert math.isnan(calc.networkdays_intl(46181, 46185, 0))
+    assert math.isnan(calc.networkdays_intl(46181, 46185, 18))
+    assert calc.networkdays_intl(46181, 46185, 1) == 5.0
+    assert calc.networkdays_intl(46181, 46185, 17) == 5.0
+    assert calc.networkdays_intl(46181, 46185, "0000011") == 5.0
+
+
+def test_rept_negative_count_is_nan():
+    assert math.isnan(calc.rept("ab", -1))
+    assert math.isnan(calc.rept("ab", -1.2))
+    assert calc.rept("ab", -0.1) == ""
+    assert calc.rept("ab", 0) == ""
+    assert calc.rept("ab", 3) == "ababab"
+
+
+def test_odd_price_zero_frequency_is_nan():
+    assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, 0.06, 100, 0))
+    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 0))
+    assert not math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, 0.06, 100, 2))
+    assert not math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 2))
+
