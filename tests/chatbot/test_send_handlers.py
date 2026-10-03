@@ -1347,7 +1347,7 @@ def test_thinking_chunk_reaches_append_as_thinking():
 
 
 def _collecting_drain(kinds):
-    def _drain(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+    def _drain(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
         while not q.empty():
             item = q.get()
             kinds.append(item[0])
