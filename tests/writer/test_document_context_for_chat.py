@@ -83,6 +83,68 @@ def test_get_document_context_hints_math_ole(mock_doc_type, mock_char_count, moc
     assert "OLE" in out
 
 
+@patch("plugin.doc.text_helpers._read_writer_text_slice")
+@patch("plugin.doc.text_helpers._writer_char_count", return_value=8)
+@patch("plugin.doc.doc_type.get_document_type")
+def test_get_document_context_fitting_doc_is_one_slice(mock_doc_type, mock_char_count, mock_read_slice):
+    """A document longer than half the budget but still within it is one slice.
+
+    The old half-budget split overlapped the head and tail and repeated the middle.
+    """
+    from plugin.doc.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    body = "abcdefgh"
+    mock_read_slice.side_effect = lambda _model, start, length: body[start : start + length]
+    model = MagicMock()
+
+    ctx = get_document_context_for_chat(model, max_context=10, include_end=True, include_selection=False)
+
+    mock_read_slice.assert_called_once_with(model, 0, 8)
+    assert body in ctx
+    assert ctx.count("def") == 1
+    assert "middle of document omitted" not in ctx
+
+
+@patch("plugin.doc.text_helpers._read_writer_text_slice")
+@patch("plugin.doc.text_helpers._writer_char_count", return_value=10)
+@patch("plugin.doc.doc_type.get_document_type")
+def test_get_document_context_exact_budget_is_one_slice(mock_doc_type, mock_char_count, mock_read_slice):
+    from plugin.doc.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    mock_read_slice.return_value = "0123456789"
+    model = MagicMock()
+
+    ctx = get_document_context_for_chat(model, max_context=10, include_end=True, include_selection=False)
+
+    mock_read_slice.assert_called_once_with(model, 0, 10)
+    assert "middle of document omitted" not in ctx
+    assert "0123456789" in ctx
+
+
+@patch("plugin.doc.text_helpers._read_writer_text_slice")
+@patch("plugin.doc.text_helpers._writer_char_count", return_value=16)
+@patch("plugin.doc.doc_type.get_document_type")
+def test_get_document_context_splits_only_past_budget(mock_doc_type, mock_char_count, mock_read_slice):
+    from plugin.doc.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    body = "0123456789abcdef"
+    mock_read_slice.side_effect = lambda _model, start, length: body[start : start + length]
+    model = MagicMock()
+
+    ctx = get_document_context_for_chat(model, max_context=10, include_end=True, include_selection=False)
+
+    assert mock_read_slice.call_count == 2
+    assert mock_read_slice.call_args_list[0][0][1:] == (0, 5)
+    assert mock_read_slice.call_args_list[1][0][1:] == (11, 5)
+    assert "01234" in ctx
+    assert "bcdef" in ctx
+    assert "56789a" not in ctx
+    assert "middle of document omitted" in ctx
+
+
 def test_chat_document_context_max_chars_default():
     assert CHAT_DOCUMENT_CONTEXT_MAX_CHARS == 8000
 

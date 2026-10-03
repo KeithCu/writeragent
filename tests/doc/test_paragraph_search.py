@@ -66,3 +66,80 @@ def test_search_paragraph_texts_still_exported():
     matches, total = search_paragraph_texts("foo", ["foo bar", "baz"])
     assert total == 1
     assert matches[0]["paragraph_index"] == 0
+
+
+class _TextObj:
+    def compareRegionStarts(self, a, b):
+        if a < b:
+            return 1
+        if a > b:
+            return -1
+        return 0
+
+
+class _Para:
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.Paragraph"
+
+    def getStart(self):
+        return self.start
+
+    def getEnd(self):
+        return self.end
+
+
+class _Table:
+    """SwXTextTable stand-in: enumeration element, not an XTextRange."""
+
+    def __init__(self, anchor_at):
+        self.anchor_at = anchor_at
+        self.start_calls = 0
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.TextTable"
+
+    def getStart(self):
+        self.start_calls += 1
+        raise AttributeError("getStart")
+
+    def getEnd(self):
+        raise AttributeError("getEnd")
+
+    def getAnchor(self):
+        return _Para(self.anchor_at, self.anchor_at)
+
+
+def test_get_paragraph_ranges_keeps_tables_for_enumeration_index():
+    table = _Table(15)
+    elements = [_Para(0, 10), table, _Para(20, 30)]
+    assert get_paragraph_ranges(_Doc(elements)) == elements
+
+
+def test_find_paragraph_after_table_keeps_enumeration_index():
+    table = _Table(15)
+    elements = [_Para(0, 10), table, _Para(20, 30)]
+    match = _Para(24, 24)
+    assert find_paragraph_for_range(match, elements, _TextObj()) == 2
+    assert table.start_calls == 0
+
+
+def test_find_table_anchor_maps_to_table_slot():
+    table = _Table(15)
+    elements = [_Para(0, 10), table, _Para(20, 30)]
+    match = _Para(15, 15)
+    assert find_paragraph_for_range(match, elements, _TextObj()) == 1
+    assert table.start_calls == 0
+
+
+def test_find_picks_matching_table_when_two_share_a_gap():
+    first = _Table(12)
+    second = _Table(18)
+    elements = [_Para(0, 10), first, second, _Para(30, 40)]
+    match = _Para(18, 18)
+    assert find_paragraph_for_range(match, elements, _TextObj()) == 2
+    assert first.start_calls == 0
+    assert second.start_calls == 0
