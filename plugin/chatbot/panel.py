@@ -1418,6 +1418,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.i18n import _
 
+        if not self.send_control or not self.send_control.getModel():
+            return
+
         if getattr(self, "_approval_event", None) is not None and self.send_control and self.send_control.getModel():
             if self.send_control.getModel().Label == _("Accept"):
                 self._finish_inline_web_approval(True)
@@ -1814,7 +1817,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         return
                     self._do_send_extracted_peer(query_text, already_appended=already_appended)
                 finally:
-                    self._send_cancellation = None
+                    if not getattr(self, "_panel_teardown", False):
+                        self._send_cancellation = None
         except Exception as e:
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("Extracted peer send unhandled exception [doc: %s]", doc_type_for_log)
@@ -1828,12 +1832,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if self._terminal_status == "Error":
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
-                    # Extracted send only uses Ready or Error (unlike _do_send, which
-                    # may leave ""). Always set Ready here so ty does not treat a
-                    # nonempty-string check as a redundant condition.
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
                     self._sync_has_text_from_query()
-                    self._set_status(_("Ready"))
+                    # Ty: _terminal_status defaults to "Ready", which is unconditionally true.
+                    # _run_send_drain may leave it "" to keep the label as-is, but extracted
+                    # peer ignores those paths. Avoid the redundant if-check.
+                    self._set_status(_(self._terminal_status))
                     self._flush_sticky_restart()
             from plugin.chatbot.tool_loop_actions import drop_turn
 
