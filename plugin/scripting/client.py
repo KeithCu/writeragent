@@ -39,6 +39,7 @@ def _run_trusted_action(
     *,
     allow_heartbeat: bool = False,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
     headers: bool | None = None,
     header_row: int | None = None,
 ) -> dict[str, Any]:
@@ -60,6 +61,7 @@ def _run_trusted_action(
         error_label=error_label,
         allow_heartbeat=allow_heartbeat,
         heartbeat_fn=heartbeat_fn,
+        stop_checker=stop_checker,
         headers=headers,
         header_row=header_row,
     )
@@ -231,6 +233,7 @@ def run_vision(
     image: Any = None,
     *,
     context: dict[str, Any] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv."""
     timeout_sec = _resolve_vision_timeout_sec(ctx, spec)
@@ -251,6 +254,7 @@ def run_vision(
         error_code="VISION_ERROR",
         error_label="Vision",
         additional_data={"image": image},
+        stop_checker=stop_checker,
     )
 
 

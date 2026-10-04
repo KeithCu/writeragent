@@ -158,8 +158,9 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
     spec: dict[str, Any] = {"helper": name, "params": params_out}
+    stop_checker = getattr(ctx, "stop_checker", None)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
-    return run_vision(ctx, spec, png_bytes, context=context)
+    return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
 
 
 def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True) -> dict[str, Any]:
@@ -216,6 +217,20 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
+
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if stop_checker and stop_checker():
+            failed = dict(result)
+            failed["status"] = "error"
+            failed["code"] = "STOPPED"
+            failed["message"] = "Vision processing stopped."
+            failed["images_processed"] = len(results)
+            failed["image_names"] = list(target_names[: len(results)])
+            failed["failed_image"] = image_name
+            failed["inserted"] = bool(insert_into_document and results)
+            failed["partial"] = bool(results)
+            return failed
+
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
             def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:

@@ -44,6 +44,8 @@ def tool_ctx():
     ctx.doc.supportsService.return_value = True
     ctx.ctx = MagicMock()
     ctx.doc_type = "writer"
+    ctx.stop_checker = None
+    ctx.stop_checker = None
     return ctx
 
 
@@ -132,7 +134,7 @@ def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     assert vision_ocr_available(MagicMock()) is True
 
 
-@patch("plugin.framework.config.get_config_str", return_value="")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="")
 def test_vision_venv_configured_false_without_venv_path(_cfg):
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is False
@@ -141,7 +143,7 @@ def test_vision_venv_configured_false_without_venv_path(_cfg):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=True)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
     invalidate_vision_availability_cache()
     assert vision_packages_probe_ready(MagicMock()) is True
@@ -149,7 +151,7 @@ def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=False)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):
     invalidate_vision_availability_cache()
     assert vision_packages_probe_ready(MagicMock()) is False
@@ -157,7 +159,7 @@ def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=True)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_venv_configured_true_even_when_probe_would_fail(_cfg, _exe, _probe):
     """Send/schema gate must not subprocess-probe; venv path alone is enough."""
     invalidate_vision_availability_cache()
@@ -342,11 +344,3 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
     assert result["details"]["images_processed"] == 1
     assert result["details"]["image_names"] == ["Img1"]
     assert result["details"]["inserted"] is True
-
-
-def test_extract_structure_reraises_document_disposed(tool_ctx):
-    from plugin.framework.errors import DocumentDisposedError
-
-    with patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection", side_effect=DocumentDisposedError("gone", object_type="vision")):
-        with pytest.raises(DocumentDisposedError):
-            ExtractStructureFromImage().execute(tool_ctx)

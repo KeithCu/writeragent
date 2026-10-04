@@ -63,6 +63,7 @@ def run_trusted_worker_action(
     allow_heartbeat: bool = False,
     heartbeat_grace_sec: int | None = None,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
     error_code: str = "TRUSTED_ACTION_ERROR",
     error_label: str = "Trusted action",
     headers: bool | None = None,
@@ -101,5 +102,6 @@ def run_trusted_worker_action(
         allow_heartbeat=allow_heartbeat,
         heartbeat_grace_sec=heartbeat_grace_sec if heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S,
         on_heartbeat=_on_heartbeat if allow_heartbeat else None,
+        stop_checker=stop_checker,
     )
     return parse_worker_dict_result(response, error_code=error_code, error_label=error_label)

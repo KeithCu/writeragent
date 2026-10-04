@@ -223,6 +223,9 @@ class ImageGenerate(ToolWriterImageBase):
 
         msg = _run_on_main(_insert_or_replace, timeout=mt_timeout)
 
+        if stop_checker and stop_checker():
+            return self._tool_error("Cancelled", code="CANCELLED")
+
         if provider in ("endpoint", "openrouter"):
             image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
             if image_model_used:
