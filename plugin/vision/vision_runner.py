@@ -158,8 +158,9 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
     spec: dict[str, Any] = {"helper": name, "params": params_out}
+    stop_checker = getattr(ctx, "stop_checker", None)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
-    return run_vision(ctx, spec, png_bytes, context=context)
+    return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
 
 
 def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, stop_checker: Any = None) -> dict[str, Any]:
@@ -183,6 +184,8 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         # wasted the selection. Reject here.
         raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
 
+    if stop_checker is None:
+        stop_checker = getattr(ctx, "stop_checker", None)
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     explicit_name = str(params_dict.get("image_name") or "").strip()
 

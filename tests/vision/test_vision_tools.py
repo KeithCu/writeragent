@@ -44,6 +44,8 @@ def tool_ctx():
     ctx.doc.supportsService.return_value = True
     ctx.ctx = MagicMock()
     ctx.doc_type = "writer"
+    ctx.stop_checker = None
+    ctx.stop_checker = None
     return ctx
 
 
