@@ -1807,6 +1807,28 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             started.mode = str(sidebar_mode or "")
             started.model = model
 
+        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
+        # What was wrong: `_do_send_via_agent_backend` sat in this try. The except
+        # only logged, then execution fell through to `_do_send_chat_with_tools`,
+        # so one Send started a second builtin turn. The handler documents no
+        # builtin fallback. Show the error and end the send here.
+        # It also checks the external agent before routing to built-in sub-agents.
+        try:
+            from plugin.framework.config import get_config
+            from plugin.acp.registry import normalize_backend_id
+
+            agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
+            if agent_backend_id and agent_backend_id != "builtin":
+                log.info("_do_send: using agent backend %s" % agent_backend_id)
+                self._do_send_via_agent_backend(query_text, model, doc_type_label)
+                return
+        except Exception as exc:
+            log.exception("_do_send: agent backend check failed")
+            self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
+            self._terminal_status = "Error"
+            self._set_status(_("Error"))
+            return
+
         if sidebar_mode == CHAT_MODE_LIBRARIAN:
             log.info("_do_send: using librarian onboarding agent")
             self._run_librarian(query_text, model)
@@ -1846,27 +1868,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._ppt_master_topic = query_text
             log.info("_do_send: using PPT-Master sub-agent")
             self._run_ppt_master(query_text, model)
-            return
-
-        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
-        # What was wrong: `_do_send_via_agent_backend` sat in this try. The except
-        # only logged, then execution fell through to `_do_send_chat_with_tools`,
-        # so one Send started a second builtin turn. The handler documents no
-        # builtin fallback. Show the error and end the send here.
-        try:
-            from plugin.framework.config import get_config
-            from plugin.acp.registry import normalize_backend_id
-
-            agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
-            if agent_backend_id and agent_backend_id != "builtin":
-                log.info("_do_send: using agent backend %s" % agent_backend_id)
-                self._do_send_via_agent_backend(query_text, model, doc_type_label)
-                return
-        except Exception as exc:
-            log.exception("_do_send: agent backend check failed")
-            self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
-            self._terminal_status = "Error"
-            self._set_status(_("Error"))
             return
 
         # Regular Chat with Tools or Streams
