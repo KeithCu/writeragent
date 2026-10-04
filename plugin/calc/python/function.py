@@ -1446,7 +1446,6 @@ def clear_in_memory_spill_state(*, lifecycle_key: str = "") -> None:
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
     cancel_pending_spill_timers(lifecycle_key)
     if lifecycle_key:
-        cancel_pending_spill_timers(lifecycle_key)
         # Sheet listeners are keyed by lifecycle id, not the file URL, so an
         # unload that only matched doc_url left the dispatcher registered.
         for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
