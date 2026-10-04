@@ -9,7 +9,7 @@ from typing import Any
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
+from tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
 
 
 @native_test
@@ -72,7 +72,7 @@ def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
 
     from plugin.writer.html_export import _copy_xtext_into_doc, _open_hidden_writer
     from plugin.writer.specialized.tables import TableGetCells, TableList
-    from plugin.tests.testing_utils import TestingFactory
+    from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
@@ -121,7 +121,7 @@ def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
 
     from plugin.writer.html_export import _copy_xtext_into_doc, _open_hidden_writer
     from plugin.writer.specialized.tables import TableGetCells, TableList
-    from plugin.tests.testing_utils import TestingFactory
+    from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
@@ -266,7 +266,7 @@ def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> No
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
     from plugin.main import get_services
-    from plugin.tests.testing_utils import TestingFactory
+    from tests.testing_utils import TestingFactory
     from plugin.writer.content import GetDocumentContent
     from plugin.writer.specialized.indexes import IndexesCreate
 
@@ -339,7 +339,7 @@ def _assert_semantic_ruby(html: str) -> None:
 def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -> None:
     """Full XHTML used to concatenate 漢字+かんじ; the agent must see <ruby>/<rt>."""
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
-    from plugin.tests.testing_utils import TestingFactory
+    from tests.testing_utils import TestingFactory
     from plugin.writer.content import GetDocumentContent
 
     _seed_ruby_paragraph(doc)
@@ -356,7 +356,7 @@ def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -
 def test_range_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
     """Range copy used to drop RubyText; reading must still appear in <rt>."""
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
-    from plugin.tests.testing_utils import TestingFactory
+    from tests.testing_utils import TestingFactory
     from plugin.writer.content import GetDocumentContent
 
     _seed_ruby_paragraph(doc)
@@ -409,3 +409,35 @@ def test_search_sees_ruby_base_not_reading_uno(ctx: Any, doc: Any) -> None:
     assert "漢字" in found_base.getString()
     assert "かんじ" not in found_base.getString()
     assert find_first_range(doc, "かんじ") is None
+
+@native_test
+@with_native_doc("writer")
+def test_export_table_cell_selection_uno(ctx: Any, doc: Any) -> None:
+    """A selection inside a table cell must export correctly instead of returning empty."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.framework.tool import ToolContext
+    from plugin.main import get_services
+    from plugin.writer.content import GetDocumentContent
+
+    text = doc.getText()
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), table, False)
+
+    cell = table.getCellByName("A1")
+    cell.setString("Hello Table Selection")
+
+    cursor = cell.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.goRight(6, False)
+    cursor.goRight(5, True) # select "Table"
+
+    doc.getCurrentController().select(cursor)
+
+    tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+    result = GetDocumentContent().execute(tool_ctx, scope="selection", max_chars=5000)
+
+    assert result.get("status") == "ok", result
+    content = result.get("content") or ""
+
+    assert "Table" in content, content

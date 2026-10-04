@@ -2215,8 +2215,8 @@ def test_log_level_cli_arg() -> None:
         assert settings.log_level == "WARNING"
 
 
-def test_accept_time_direct_socket_attribute() -> None:
-    """_DeadlineRequestHandler must read _accept_time directly from the socket connection."""
+def test_accept_time_tracked_on_server() -> None:
+    """_DeadlineRequestHandler must read accept time from the server's tracking dictionary."""
     from compute_service.server import WSGIDualStackServer
 
     server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
@@ -2224,9 +2224,9 @@ def test_accept_time_direct_socket_attribute() -> None:
         handler_cls = server.srv.RequestHandlerClass
         handler = handler_cls.__new__(handler_cls)
         mock_conn = MagicMock()
-        mock_conn._accept_time = 12345.678
         handler.connection = mock_conn
         handler.server = server.srv
+        handler.server._accept_times[id(mock_conn)] = 12345.678
         handler.client_address = ("127.0.0.1", 54321)
         handler.request_version = "HTTP/1.1"
         handler.command = "GET"
@@ -2242,5 +2242,71 @@ def test_accept_time_direct_socket_attribute() -> None:
         server.server_close()
 
 
+def test_real_socket_queue_timeout() -> None:
+    """A blocked worker thread must cause a subsequent request with a short timeout to fail with QUEUE_TIMEOUT."""
+    from compute_service.server import WSGIDualStackServer, create_wsgi_app
+    from compute_service.config import ComputeSettings
+    import threading
+    import urllib.request
+    import urllib.error
+    import json
+    import time
+
+    settings = ComputeSettings(
+        log_level="DEBUG"
+    )
+
+    block_event = threading.Event()
+
+    def fake_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("code") == "block":
+            block_event.wait()
+            return {"status": "ok"}
+        return {"status": "ok"}
+
+    app = create_wsgi_app(settings, execute_fn=fake_execute)
+    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+
+    # Delay processing of the second request to ensure it hits the queue timeout
+    original_process_request = server.srv.process_request
+    req_count = 0
+
+    def intercept(request: Any, client_address: Any) -> None:
+        nonlocal req_count
+        req_count += 1
+        if req_count > 1:
+            time.sleep(1.0)
+        original_process_request(request, client_address)
+
+    server.srv.process_request = intercept # type: ignore
+
+    server.set_app(app)
+
+    port = server.srv.server_port
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+
+    try:
+        req1 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "block", "timeout_ms": 5000}', headers={"Content-Type": "application/json"})
+        t1 = threading.Thread(target=lambda: urllib.request.urlopen(req1))
+        t1.start()
+
+        # Give the first request time to reach the worker
+        time.sleep(0.5)
+
+        req2 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "test", "timeout_ms": 100}', headers={"Content-Type": "application/json"})
+
+        try:
+            urllib.request.urlopen(req2)
+            assert False, "Expected 503 QUEUE_TIMEOUT, but request succeeded."
+        except urllib.error.HTTPError as e:
+            assert e.code == 503
+            resp = json.loads(e.read().decode("utf-8"))
+            assert resp.get("code") == "QUEUE_TIMEOUT"
+    finally:
+        block_event.set()
+        t1.join(timeout=2.0)
+        server.shutdown()
+        server.server_close()
 
 

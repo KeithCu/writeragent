@@ -126,7 +126,7 @@ def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
             rng = safe_call(sel.getByIndex, "Get selection by index", 0)
         if not rng or not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
             return None
-        text = safe_call(model.getText, "Get document text")
+        text = safe_call(rng.getText, "Get range text")
         return text, safe_call(rng.getStart, "Get range start"), safe_call(rng.getEnd, "Get range end")
     except UnoObjectError:
         return None

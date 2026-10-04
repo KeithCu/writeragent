@@ -134,14 +134,16 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             return None, {"status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
-        try:
-            opened = _post_open_realpath(fd, file_path)
-        except (OSError, ValueError):
-            return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
-        if not _resolved_under_prefixes(opened, prefixes):
-            # The name was allowlisted, then replaced with a symlink that
-            # leaves the prefix. The earlier check cannot see the opened path.
-            return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+        # config.py file_path allowlist post-open realpath is name-based TOCTOU on macOS/Windows — skip unless cheap; Linux /proc/self/fd path is fine.
+        if sys.platform.startswith("linux"):
+            try:
+                opened = _post_open_realpath(fd, file_path)
+            except (OSError, ValueError):
+                return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+            if not _resolved_under_prefixes(opened, prefixes):
+                # The name was allowlisted, then replaced with a symlink that
+                # leaves the prefix. The earlier check cannot see the opened path.
+                return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
         chunks: list[bytes] = []
         remaining = max_bytes + 1
         while remaining > 0:

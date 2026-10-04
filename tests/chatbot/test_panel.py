@@ -164,6 +164,12 @@ class TestSendDispose:
         assert (listener.ctx) is None
         assert (listener.panel) is None
 
+    def test_disposing_stops_speech(self) -> None:
+        listener = _make_send_listener()
+        with patch("plugin.audio.tts_service.stop_speech") as mock_stop_speech:
+            listener.disposing(None)
+            mock_stop_speech.assert_called_once()
+
     def test_disposing_stops_the_microphone_and_leaves_stop_rec(self) -> None:
         listener = _make_send_listener()
         listener.audio_recorder = MagicMock()
@@ -713,6 +719,38 @@ class TestQueryKeyListenerDispose:
 
 
 class TestTtsStopInteraction:
+    def test_stop_line_is_not_spoken(self) -> None:
+        listener = _make_send_listener()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, False, False, False, True),
+            tool_loop=MagicMock(),
+            audio=AudioRecorderState(status="idle"),
+        )
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+        listener.sidebar_state.tool_loop.messages = [{"role": "assistant", "content": _STOP_LINE}]
+        with (
+            patch("plugin.audio.tts_service.speak_text_async") as speak,
+            patch("plugin.audio.tts_service.is_speaking", return_value=False),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+        ):
+            # simulate send completed event handling inside drain
+            listener._terminal_status = "Ready"
+            listener._send_cancellation = None
+            listener._panel_teardown = False
+            listener._sync_has_text_from_query = MagicMock()
+            listener.dispatch = MagicMock()
+
+            # The exact block for TTS in processEventsToIdle
+            from plugin.chatbot.panel import SendEvent, SendEventKind
+            listener.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+            listener._run_send_drain() # Wait, _run_send_drain doesn't do the TTS directly.
+
+            # Actually, the TTS is triggered by resolving the block inside _run_send_drain.
+            # We can mock session_for_turn to return the mock tool_loop.
+            with patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.sidebar_state.tool_loop):
+                listener._run_send_drain()
+        speak.assert_not_called()
+
     def test_stop_button_stops_speech_when_speaking(self) -> None:
         send_listener = MagicMock()
         send_listener._approval_event = None

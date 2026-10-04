@@ -89,6 +89,8 @@ def test_resolve_tts_voice():
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "echo") == "am_adam"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "af_bella") == "af_bella"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "am_adam") == "am_adam"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "if_sara") == "if_sara"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "pf_dora") == "pf_dora"
     assert _resolve_tts_voice("openai/tts-1", "nova") == "nova"
     assert _resolve_tts_voice("openai/tts-1", "alloy") == "alloy"
 
@@ -1079,6 +1081,28 @@ def test_resolve_piper_model_file_reports_os_speech_fallback(tmp_path, monkeypat
     assert messages[-1] == "Couldn't download Thorsten; using OS speech"
 
 
+def test_corrupt_download_does_not_leave_broken_file(tmp_path, monkeypatch):
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+    import urllib.error
+    import os
+
+    _kokoro_cache(tmp_path, monkeypatch)
+
+    def mock_urlretrieve_fail(url, filename, *args, **kwargs):
+        # Simulate a crash/failure during download leaving a partial file at the temporary path
+        with open(filename, "wb") as f:
+            f.write(b"partial")
+        raise urllib.error.URLError("offline")
+
+    with patch("plugin.audio.tts_service.os.makedirs"), \
+         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
+         patch("urllib.request.urlretrieve", side_effect=mock_urlretrieve_fail):
+        model_path, voices_path = _resolve_kokoro_model_files(on_status=lambda x: None)
+
+    assert not os.path.exists(model_path)
+    assert not os.path.exists(voices_path)
+    assert model_path.endswith("kokoro-v1.0.onnx")
+
 def test_resolve_kokoro_model_files_reports_download_failure(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_kokoro_model_files
     import urllib.error
@@ -1242,7 +1266,7 @@ def test_resolve_kokoro_model_files_downloads_missing_sibling_beside_probe_hit(t
 
     assert model_path == str(pipecat / "kokoro-v1.0.onnx")
     assert voices_path == str(pipecat / "voices-v1.0.bin")
-    assert downloaded == [str(pipecat / "voices-v1.0.bin")]
+    assert downloaded == [str(pipecat / "voices-v1.0.bin.tmp")]
     assert not (root / "kokoro").exists()
 
 

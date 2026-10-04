@@ -589,19 +589,31 @@ def _workbook_session_key(doc: Any) -> str:
     from plugin.framework.thread_guard import _unwrap_uno
 
     raw_doc = _unwrap_uno(doc)
+
     url = ""
     try:
         url = (getattr(raw_doc, "getURL", lambda: "")() or "").strip()
     except Exception:
         pass
-    if url:
-        return url
+
+    existing = None
     try:
         existing = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-        if existing:
-            return str(existing)
     except Exception:
         pass
+
+    if url:
+        if existing:
+            try:
+                # Remove the property so next Save As continues to follow URL
+                from plugin.doc.udprops import remove_document_property
+                remove_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
+            except Exception:
+                pass
+        return url
+
+    if existing:
+        return str(existing)
     new_id = f"unsaved:{uuid.uuid4()}"
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)

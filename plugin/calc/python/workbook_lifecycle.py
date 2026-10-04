@@ -253,6 +253,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                     log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
             except Exception:
                 log.debug("python_workbook_lifecycle: reset on unload raised", exc_info=True)
+
     def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str, *, reset_sessions: bool) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:

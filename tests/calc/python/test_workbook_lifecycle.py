@@ -218,8 +218,12 @@ def test_note_during_teardown_resets_late_session():
     assert not worker.is_alive()
     assert seen[0] == "calc:wb-1"
     assert "calc:file:///saved.ods" in seen
+    assert listener._teardown_done is True
+
 
 def test_unload_resets_worker_when_busy():
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-busy", doc_url="")
 
