@@ -99,6 +99,9 @@ def setup_mock_panel():
 
     session = MockSession()
     panel = FakePanel(ctx, session)
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    begin_send_turn(panel, "chat")
     return panel, session
 
 _MIRRORED_CONTROL_ATTRS = (
@@ -178,6 +181,35 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
     assert len(seen["pending_tools"]) == 1
     assert seen["pending_tools"][0]["id"] == "call_abc"
     assert not any(seen["has_mirrors"].values())
+
+
+@patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
+@patch("plugin.chatbot.tool_loop.get_config")
+def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_loop):
+    from plugin.chatbot.tool_loop import note_stop_partial
+
+    panel, session = setup_mock_panel()
+    note_stop_partial(panel, {"content": "kept tokens", "tool_calls": None})
+
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
+        on_stopped()
+
+    mock_drain_loop.side_effect = mock_drain_impl
+    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    assert session.messages[-2]["role"] == "assistant"
+    assert session.messages[-2]["content"] == "kept tokens"
+    assert session.messages[-1]["role"] == "assistant"
+    assert "[Stopped by user]" in session.messages[-1]["content"]
+
+
+def test_handle_stream_error_persists_banner():
+    panel, session = setup_mock_panel()
+    with patch("plugin.scripting.audio_recorder_service.try_native_audio_stt_fallback", return_value=False), \
+         patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False), \
+         patch("plugin.scripting.audio_recorder_service.clear_pending_audio_wav"):
+        result = panel._handle_stream_error(Exception("boom"))
+    assert result is None
+    assert session.messages[-1]["content"] == "[API error: boom]"
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
@@ -275,6 +307,9 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
         
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
+        # The drain is still inside this send, so the turn is alive and the
+        # worker can enqueue. After _start returns, abort drops a late put.
+        results.append(q.get(timeout=2))
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -289,12 +324,10 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     panel._set_status.assert_called_with("Running: apply_document_content")
     panel._append_response.assert_called_with("[Running tool: apply_document_content...]\n")
 
-    # Ensure tool execution was synchronous for this tool and was called
+    # The tool runs on a worker so the drain can keep pumping. The result
+    # was taken while that drain was still inside the send.
+    queued_item = results[1]
     execute_tool_mock.assert_called_once()
-
-    # The synchronous tool execution pushes 'tool_done' to the queue
-    assert not captured_q.empty()
-    queued_item = captured_q.get()
 
     assert queued_item[0] == StreamQueueKind.TOOL_DONE
     assert queued_item[1] == "call_abc"
@@ -374,7 +407,10 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
         on_stream_done((StreamQueueKind.STREAM_DONE, {"content": None, "tool_calls": tool_calls}))
         item = q.get()
         assert item == (StreamQueueKind.NEXT_TOOL,)
-        
+
+        # Kickoff already spawned the first worker. The stop must not spawn another.
+        panel._spawn_llm_worker.reset_mock()
+        panel._spawn_final_stream.reset_mock()
         panel.stop_requested = True
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
@@ -386,13 +422,12 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
 
-    assert results[0] is False
+    assert results[0] is True
 
-    # Verify execute tool was NOT called because StopRequested skips the pending tools
+    # Stop skips the pending tool and does not start another model round.
     execute_tool_mock.assert_not_called()
-
-    # Verify that it spawned worker (or final stream), which would then emit the stopped sentinel
-    panel._spawn_llm_worker.assert_called()
+    panel._spawn_llm_worker.assert_not_called()
+    panel._spawn_final_stream.assert_not_called()
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
@@ -415,6 +450,9 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
         q.get()
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
+        # Malformed calls still run on a worker. Take TOOL_DONE before
+        # _start_tool_calling_async returns and abort drops later puts.
+        results.append(q.get(timeout=2))
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -431,12 +469,9 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
 
     assert results[0] is False
 
-    # Verify execute tool was called with fallbacks
+    tool_done_item = results[1]
     assert executed_args['name'] == 'unknown'
     assert executed_args['args'] == {}
-
-    # Check the queue for tool_done and verify fallback values
-    tool_done_item = captured_q.get()
     assert tool_done_item[0] == StreamQueueKind.TOOL_DONE
     assert tool_done_item[1] == ""  # Missing ID fallback
     assert tool_done_item[2] == "unknown" # Missing name fallback
@@ -531,7 +566,6 @@ def test_refresh_active_tools_for_session():
     sys.modules["plugin.main"] = fake_main
     try:
         panel, session = setup_mock_panel()
-        panel._active_model = MagicMock()
         panel.cached_doc_type = "writer"
         panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
         session.active_specialized_domain = "tables"
@@ -979,3 +1013,87 @@ def test_delegate_requires_document_lock_read_only_domains():
     assert gw.requires_document_lock('{"domain": "web_research"}') is False
     assert gw.requires_document_lock({"domain": "footnotes"}) is True
     assert gw.requires_document_lock({}) is True
+
+
+def _run_captured_llm_worker(spawn):
+    """Spawn on the send thread, then run the body after the panel field moves."""
+    import queue
+
+    from plugin.chatbot.tool_loop_actions import current_turn
+    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+
+    panel, _session = setup_mock_panel()
+    turn = current_turn(panel)
+    q = queue.Queue()
+    turn.queue = q
+    old = SendCancellation()
+    new = SendCancellation()
+    panel._send_cancellation = old
+    panel._stop_requested_fallback = False
+    calls = []
+    bound = {}
+
+    def resolve():
+        scope = panel._send_cancellation
+        calls.append(scope)
+        checker = bind_send_stop_checker(scope, lambda: panel._stop_requested_fallback)
+        bound["checker"] = checker
+        return checker
+
+    panel.resolve_stop_checker = resolve
+    client = MagicMock()
+    client._stopped = False
+    seen = {}
+
+    def during_stream(*_args, **kwargs):
+        seen["checker"] = kwargs["stop_checker"]
+        old.cancel()
+        panel._send_cancellation = new
+        panel._stop_requested_fallback = False
+        client._stopped = False
+
+        def boom():
+            calls.append(panel._send_cancellation)
+            raise AssertionError("resolve_stop_checker inside worker")
+
+        panel.resolve_stop_checker = boom
+        return {"content": "should-not-finish", "tool_calls": []}
+
+    client.stream_request_with_tools.side_effect = during_stream
+    client.stream_chat_response.side_effect = during_stream
+    started = []
+
+    def capture(func, *_args, **_kwargs):
+        started.append(func)
+        return MagicMock()
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture),
+        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+    ):
+        spawn(panel, q, client)
+        assert calls == [old]
+        assert len(started) == 1
+        started[0]()
+
+    assert calls == [old]
+    assert seen["checker"] is bound["checker"]
+    assert seen["checker"]() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False
+    item = q.get(timeout=1)
+    assert item[0] == StreamQueueKind.STOPPED
+    assert q.empty()
+
+
+def test_llm_worker_keeps_spawn_scope_after_next_send():
+    def spawn(panel, q, client):
+        ToolCallingMixin._spawn_llm_worker(panel, q, client, 100, [], 0)
+
+    _run_captured_llm_worker(spawn)
+
+
+def test_final_stream_keeps_spawn_scope_after_next_send():
+    def spawn(panel, q, client):
+        ToolCallingMixin._spawn_final_stream(panel, q, client, 100)
+
+    _run_captured_llm_worker(spawn)
