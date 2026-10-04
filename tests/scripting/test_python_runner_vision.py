@@ -269,7 +269,7 @@ def test_execute_and_insert_vision_multi_image_host_loop(mock_pairs, mock_orches
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
         "plugin.scripting.client.run_vision"
     ) as mock_run_vision:
         mock_resolve.return_value = b"png"
@@ -312,7 +312,7 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
         "plugin.scripting.client.run_vision"
     ) as mock_run_vision:
         mock_resolve.return_value = b"png"
@@ -323,7 +323,7 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
             "context": {"image_name": "OnlyImg"}
         }
 
-        with patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert:
+        with patch("plugin.vision.vision_egress.insert_vision_result"):
             outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
