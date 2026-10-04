@@ -1140,6 +1140,8 @@ class SendHandlersMixin:
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""
         try:
+            if not as_bool(get_config("mcp.mcp_enabled")):
+                return None
             from plugin.mcp.server import mcp_endpoint_url
 
             port = get_config_int_safe("mcp.mcp_port")

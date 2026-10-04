@@ -28,7 +28,8 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
             return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         st = data_root_status(ctx.ctx)
@@ -37,7 +38,7 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         path = kwargs.get("project_path")
         if not path:
             return self._tool_error("project_path is required.", code="MISSING_PATH")
-        return export_project_to_impress(ctx.ctx, ctx.doc, path)
+        return export_project_to_impress(ctx.ctx, ctx.doc, path, stop_checker=ctx.stop_checker)
 
 
 class ValidatePptMasterProject(ToolDrawPptMasterBase):
@@ -47,7 +48,8 @@ class ValidatePptMasterProject(ToolDrawPptMasterBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"project_path": {"type": "string", "description": "Path to ppt-master project directory."}}, "required": ["project_path"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
             return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")
@@ -63,7 +65,8 @@ class ApplyPptMasterTemplateFill(ToolDrawPptMasterBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"fill_plan_path": {"type": "string", "description": "Path to fill_plan.json."}}, "required": ["fill_plan_path"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
             return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         plan_path = kwargs.get("fill_plan_path")
@@ -79,7 +82,8 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"project_path": {"type": "string", "description": "Path to ppt-master enhancement project."}}, "required": ["project_path"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
             return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")

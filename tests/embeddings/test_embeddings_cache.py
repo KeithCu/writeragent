@@ -297,7 +297,7 @@ def test_file_index_state_and_diff(tmp_path):
     finally:
         conn.close()
 
-    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, 'file:///a.odt', [chunk])
+    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, "file:///a.odt", [chunk])
     assert len(to_index) == 1
     assert to_delete == [
         {

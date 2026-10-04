@@ -85,10 +85,18 @@ class DrawBridge:
     def get_active_page(self) -> Any | None:
         if self.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
             try:
-                from plugin.calc.bridge import CalcBridge
-                sheet = CalcBridge(self.doc).get_active_sheet()
-                if sheet is not None and hasattr(sheet, "getDrawPage"):
-                    return sheet.getDrawPage()
+                controller = self.doc.getCurrentController()
+                sheet = None
+                if controller is not None:
+                    if hasattr(controller, "ActiveSheet"):
+                        sheet = controller.ActiveSheet
+                    if sheet is None and hasattr(controller, "getActiveSheet"):
+                        sheet = controller.getActiveSheet()
+                if sheet is not None:
+                    if hasattr(sheet, "getDrawPage"):
+                        return sheet.getDrawPage()
+                    if hasattr(sheet, "DrawPage"):
+                        return sheet.DrawPage
             except Exception:
                 pass
         controller = self.doc.getCurrentController()
