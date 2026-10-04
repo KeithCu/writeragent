@@ -38,7 +38,7 @@ from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
-from plugin.scripting.editor_host import calc_cell_session_needs_flush, get_active_session, last_calc_cell_address, launch_monaco_editor, monaco_editor_available, queue_save_then_load, set_active_session
+from plugin.scripting.editor_host import get_active_session, launch_monaco_editor, monaco_editor_available, set_active_session
 from plugin.framework.config import get_config
 from plugin.scripting.editor_ipc import exception_traceback, failure_message
 
@@ -358,13 +358,9 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         load_msg["doc_url"] = document_scripts_identity(doc)
     except Exception:
         log.debug("python_editor: doc_url for session target failed", exc_info=True)
-    if calc_cell_session_needs_flush():
-        choice = confirm_unsaved_cell_edit(ctx, last_calc_cell_address())
-        if choice == "cancel":
-            return
-        if choice == "save":
-            queue_save_then_load(load_msg, on_save, on_closed)
-            return
+    # Unsaved calc-cell, Run Script, init-script, and LaTeX buffers are
+    # confirmed or flushed inside launch_monaco_editor before this load
+    # replaces the window. A calc-only check here dropped the other modes.
     launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save, on_closed=on_closed)
 
 

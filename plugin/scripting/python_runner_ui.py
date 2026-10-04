@@ -84,13 +84,17 @@ def start_native_script_run(
     code: str,
     *,
     on_complete: Any,
+    data_range: str | None = None,
 ) -> None:
-    """Run a native-dialog script without blocking the UNO event thread.
+    """Run a script without blocking the UNO event thread.
 
     What was wrong: the Run button called ``execute_and_insert_result`` on the
     dialog dispatch thread. Subprocess spawn and the venv wait froze the
-    native XDL dialog until the script finished.
-    How: Monaco already runs over async IPC; this listener did not.
+    native XDL dialog until the script finished. Monaco Run did the same
+    inside the editor save handler.
+    How: the native listener and Monaco Run both call this. ``data_range`` is
+    the Monaco data-binding text; the native dialog leaves it empty and uses
+    the current selection.
     Why this works: document prep and result insert stay on the main thread
     (``execute_on_main_thread``). Only the venv IPC wait runs in the
     background. ``on_complete`` is posted back to the main thread.
@@ -113,7 +117,9 @@ def start_native_script_run(
     def _native_script_run_worker() -> None:
         prepared: dict[str, Any] | None = None
         try:
-            prepared = execute_on_main_thread(_prepare_rps_execution, ctx, doc, code)
+            prepared = execute_on_main_thread(
+                _prepare_rps_execution, ctx, doc, code, data_range=data_range
+            )
             if not isinstance(prepared, dict):
                 _deliver({"ok": False, "message": _("Script execution failed.")})
                 return

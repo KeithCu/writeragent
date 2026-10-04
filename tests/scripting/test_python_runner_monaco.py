@@ -90,6 +90,57 @@ def test_run_python_dialog_no_msgbox_when_monaco_succeeds():
     mock_report.assert_not_called()
 
 
+def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
+    """A dirty cell plus Cancel must not open the native script dialog."""
+    from plugin.scripting import editor_host as launch_mod
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    pe = launch_mod._PERSISTENT_EDITOR
+    launch_mod.set_active_session(None)
+    pe.sessions.clear()
+    pe.focused_id = None
+    pe._proc = None
+    pe.run_script_doc = None
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    state = launch_mod.EditorSessionState(
+        "sid-cell",
+        "calc_cell",
+        {"cell_address": "C3"},
+        on_save=MagicMock(),
+    )
+    state.dirty = True
+    pe.register_session(state)
+    try:
+        with patch.object(pr, "get_ctx", return_value=ctx):
+            with patch.object(pr, "get_desktop") as mock_desktop:
+                mock_desktop.return_value.getCurrentComponent.return_value = doc
+                with patch.object(pr, "is_calc", return_value=False):
+                    with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                        with patch(
+                            "plugin.scripting.document_scripts.resolve_run_script_selection",
+                            return_value=("Demo", "print(1)", {}),
+                        ):
+                            with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="cancel") as confirm:
+                                with patch.object(pr, "show_python_input_dialog") as mock_native:
+                                    pr.run_python_dialog()
+        confirm.assert_called_once()
+        assert "C3" in confirm.call_args.args[1]
+        mock_native.assert_not_called()
+        assert pe.focused() is state
+        assert state.dirty is True
+    finally:
+        launch_mod.set_active_session(None)
+        pe.sessions.clear()
+        pe.focused_id = None
+        pe._proc = None
+        pe.run_script_doc = None
+        if "send" in pe.__dict__:
+            del pe.send
+
+
 def test_run_python_dialog_msgbox_when_monaco_and_native_fail():
     ctx = MagicMock()
     doc = MagicMock()
@@ -237,6 +288,22 @@ def test_run_python_monaco_writer_skips_calc_selection_import():
     mock_sel.assert_not_called()
 
 
+def _complete_monaco_run(result, outcome):
+    """Start a deferred Monaco Run and return the frame delivered to the host."""
+    from plugin.scripting.editor_host import DeferredEditorResult
+
+    assert isinstance(result, DeferredEditorResult)
+    delivered: list[dict] = []
+
+    def _side(*_args, **kwargs):
+        kwargs["on_complete"](outcome)
+
+    with patch("plugin.scripting.python_runner.start_native_script_run", side_effect=_side) as mock_run:
+        result.start(delivered.append)
+    assert delivered
+    return delivered[0], mock_run
+
+
 def test_run_python_monaco_on_save_persists_and_executes():
     ctx = MagicMock()
     doc = MagicMock()
@@ -250,7 +317,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
 
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
-            with patch.object(pr, "execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}):
+            with patch.object(pr, "execute_and_insert_result") as mock_execute:
                 with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Prime Numbers": "print(1)"}):
                         ok = pr._run_python_monaco(
@@ -275,12 +342,26 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         enriched = enrich_monaco_load_message(load)
                         assert enriched["ui"]["script_label"]
 
-                        response = captured["on_save"]("result = 2", False, None, "run")
+                        response = captured["on_save"]("result = 2", False, "A1:B2", "run")
                         mock_save.assert_called_with("Prime Numbers", "result = 2")
-                        assert response == {"type": "saved", "ok": True, "status_ok_text": "done"}
+                        mock_execute.assert_not_called()
+                        busy = captured["on_save"]("result = 9", False, None, "run")
+                        assert busy["type"] == "error"
+                        assert "already running" in busy["message"]
+                        # The refused Run must not write the library or start another venv.
+                        mock_save.assert_called_once_with("Prime Numbers", "result = 2")
 
                         save_response = captured["on_save"]("result = 3", False, None, "save")
                         assert save_response == {"type": "saved", "ok": True, "status_ok_text": "Script saved."}
+                        mock_save.assert_called_with("Prime Numbers", "result = 3")
+
+                        payload, mock_run = _complete_monaco_run(
+                            response, {"ok": True, "status_ok_text": "done"}
+                        )
+                        assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
+                        assert mock_run.call_args.args[2] == "result = 2"
+                        assert mock_run.call_args.kwargs["data_range"] == "A1:B2"
+                        mock_execute.assert_not_called()
 
 
 def test_run_python_monaco_on_save_does_not_upsert_unknown_user_name():
@@ -387,7 +468,7 @@ def test_run_python_monaco_on_save_builtin_still_runs():
 
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
-            with patch.object(pr, "execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}) as mock_run:
+            with patch.object(pr, "execute_and_insert_result") as mock_execute:
                 with patch.object(pr, "get_config_str", return_value="[Vision] extract_text"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
                         with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
@@ -401,8 +482,11 @@ def test_run_python_monaco_on_save_builtin_still_runs():
                             response = captured["on_save"]("print(1)", False, None, "run")
 
     mock_save.assert_not_called()
+    mock_execute.assert_not_called()
+    payload, mock_run = _complete_monaco_run(response, {"ok": True, "status_ok_text": "done"})
+    assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
     mock_run.assert_called_once()
-    assert response == {"type": "saved", "ok": True, "status_ok_text": "done"}
+    assert mock_run.call_args.kwargs["data_range"] is None
 
 
 def test_execute_and_insert_result_returns_error_on_failure():
