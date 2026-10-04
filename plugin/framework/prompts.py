@@ -559,7 +559,9 @@ CALC_WORKFLOW = """WORKFLOW:
 
 
 # Parked from Calc chat/MCP domain lists. Compute in Calc chat is =PY() on write_formula_range.
-CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python"})
+# python/sql is the same kind of parked domain: direct_flat and find_tools still list it
+# (for_discovery skips this set); the sidebar delegate enum does not.
+CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python", "python/sql"})
 
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
@@ -812,7 +814,7 @@ WORKFLOW:
 
 IMPRESS TEXT FILLS:
 1. Prefer list_placeholders(page=N) before set_placeholder_text.
-2. If count=0 or set_placeholder_text returns available=[], call set_slide_layout or delegate_to_specialized_draw_toolset(domain="slide_layouts", task="set layout 'text' on page N") then list_placeholders again.
+2. If count=0 or set_placeholder_text returns available=[], delegate_to_specialized_draw_toolset(domain="slide_layouts", task="set layout 'text' on page N") then list_placeholders again.
 3. If roles are missing but indices exist, set_placeholder_text(index=i, text=…).
 4. page on these tools is 0-based.
 
@@ -930,17 +932,6 @@ def get_core_directives_for_type(doc_type: str | None) -> str:
     return WRITER_CORE_DIRECTIVES
 
 
-def get_core_directives(model: Any) -> str:
-    """Return the application-specific core directives dynamically based on document type."""
-    from plugin.doc.doc_type import is_calc, is_draw
-
-    if is_calc(model):
-        return get_core_directives_for_type("calc")
-    if is_draw(model):
-        return get_core_directives_for_type("draw")
-    return get_core_directives_for_type("writer")
-
-
 def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
@@ -978,7 +969,8 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     all three (e.g. MCP ``find_tools`` with no document open).
 
     ``for_discovery`` is set by MCP ``find_tools``: it keeps the domains whose exclusion only
-    shapes a chat prompt, so discovery covers everything the flat tool list exposes.
+    shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
+    no-document merge uses the same flag as the per-app branches.
     """
     if agent_label == "Calc":
         from plugin.calc.base import ToolCalcSpecialBase
@@ -999,7 +991,12 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
 
         seen: dict[str, str] = {}
         for base, label in ((ToolWriterSpecialBase, "Writer"), (ToolCalcSpecialBase, "Calc"), (ToolDrawSpecialBase, "Draw")):
-            for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx):
+            # What was wrong: find_tools with no document asked for discovery, but
+            # this merge left for_discovery false. How: the per-app branches forwarded
+            # the flag and this loop did not, so CALC_HIDDEN_SPECIALIZED_DOMAINS still
+            # applied. python is also on Writer and Draw, which hid the gap. Why:
+            # pass the same flag so a Calc-only hidden domain stays discoverable.
+            for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx, for_discovery=for_discovery):
                 dom = entry["domain"]
                 desc = entry["description"]
                 if dom not in seen or len(desc) > len(seen[dom]):
@@ -1147,6 +1144,53 @@ def _fill_chat_role_template(template: str, delegation: str, core_directives: st
     return base.replace("{core_directives}", core_directives)
 
 
+_PROFILE_DATA_OPEN = "<<<profile>>>"
+_PROFILE_DATA_CLOSE = "<<<</profile>>>"
+
+
+def _neutralize_profile_fence(body: str) -> str:
+    """Break a fence marker that appears inside profile text.
+
+    What was wrong: USER.md or additional instructions could contain
+    ``<<</profile>>>`` and end the data block early. How: the body was
+    wrapped without scanning. The rest was then ordinary system-prompt
+    text, and ``upsert_memory`` can persist that string. Why: insert a
+    space after ``<<<`` so the markers no longer match the wrapper.
+    """
+    # The closer is four left brackets (``<<<`` + ``</profile>>>``). A space
+    # after ``<<<`` stops it matching the wrapper.
+    return body.replace(_PROFILE_DATA_CLOSE, "<<< </profile>>>").replace(_PROFILE_DATA_OPEN, "<<< profile>>>")
+
+
+def _profile_data_block(heading: str, body: str) -> str:
+    """Wrap profile text so the model does not treat it as tool instructions."""
+    safe = _neutralize_profile_fence(body)
+    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
+
+
+def _append_additional_instructions(base: str, additional_instructions: str) -> str:
+    text = str(additional_instructions or "").strip()
+    if not text:
+        return base
+    return base + _profile_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text)
+
+
+def _assemble_chat_prompt(label: str, delegation: str, ctx: Any) -> str:
+    """Writer / Calc / Draw role template, delegation, and response format.
+
+    Vision, peer, memory, and humanizer stay with the document caller.
+    """
+    _ensure_venv_import_policy_strings()
+    if label == "calc":
+        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
+    elif label == "draw":
+        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
+        base = _apply_draw_get_image_tool_line(base)
+    else:
+        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
+    return base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
+
+
 def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "", ctx: Any = None) -> str:
     """Ambient chat prompt keyed by doc-type label — no document model / get_document_type.
 
@@ -1157,27 +1201,24 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     ``ctx=None`` (no vision / peer / memory injection).
     """
     label = (kind or "writer").strip().lower()
-    _ensure_venv_import_policy_strings()
     if label == "calc":
         from plugin.calc.base import ToolCalcSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc", ctx=ctx)
-        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
+        asm = "calc"
     elif label in ("draw", "impress"):
         from plugin.draw.base import ToolDrawSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw", ctx=ctx)
-        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
-        base = _apply_draw_get_image_tool_line(base)
+        asm = "draw"
     else:
         from plugin.writer.specialized_base import ToolWriterSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
-        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
+        asm = "writer"
 
-    base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
-    if additional_instructions and str(additional_instructions).strip():
-        base += "\n\n" + str(additional_instructions).strip()
+    base = _assemble_chat_prompt(asm, delegation, ctx)
+    base = _append_additional_instructions(base, additional_instructions)
     short_answers = tts_short_answers_prompt_suffix()
     if short_answers:
         base += "\n\n" + short_answers
@@ -1206,19 +1247,14 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     Callers must pass the document that is being chatted about."""
     from plugin.doc.doc_type import is_calc, is_draw
 
-    _ensure_venv_import_policy_strings()
     delegation = get_specialized_delegation_for_model(model, ctx=ctx)
-
     if is_calc(model):
-        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
+        asm = "calc"
     elif is_draw(model):
-        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
-        # Drop the get_image TOOLS bullet when the selected model cannot see PNGs.
-        base = _apply_draw_get_image_tool_line(base)
+        asm = "draw"
     else:
-        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
-
-    base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
+        asm = "writer"
+    base = _assemble_chat_prompt(asm, delegation, ctx)
 
     vision_directive = get_vision_core_directive(model, ctx)
     if vision_directive:
@@ -1235,11 +1271,12 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
             store = MemoryStore(ctx)
             user_mem = store.read("user")
             if user_mem:
-                base += "\n\n[USER PROFILE / MEMORY]\n" + _cap_injected_prompt_blob(user_mem) + "\n"
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).debug(f"Failed to read user memory for prompt: {e}")
+                base += _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
+        except Exception:
+            # What was wrong: a broken USER.md dropped the profile with only a
+            # debug line. How: this except used logger.debug. Why: log like the
+            # peer-block failure (exception + traceback) and still build the prompt.
+            logging.getLogger(__name__).exception("Failed to read user memory for prompt")
 
         # Humanizer skill (minimal addition, re-uses the exact same injection pattern as memory above).
         # When enabled, the model receives the rules as ambient context for any prose it generates
@@ -1256,13 +1293,12 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
                 hguidance = hstore.get_humanizer_guidance()
                 if hguidance:
                     base += "\n\n[HUMANIZER GUIDANCE — apply when generating or revising prose]\n" + _cap_injected_prompt_blob(hguidance) + "\n"
-        except Exception as e:
-            import logging
+        except Exception:
+            # Same as the memory except above: a broken skill store must not
+            # swallow the guidance at debug, and must not abort the prompt.
+            logging.getLogger(__name__).exception("Failed to inject humanizer guidance")
 
-            logging.getLogger(__name__).debug(f"Failed to inject humanizer guidance: {e}")
-
-    if additional_instructions and str(additional_instructions).strip():
-        base += "\n\n" + str(additional_instructions).strip()
+    base = _append_additional_instructions(base, additional_instructions)
 
     # After custom instructions so those stay intact and the reminder is last.
     short_answers = tts_short_answers_prompt_suffix()

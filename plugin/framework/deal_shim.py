@@ -11,8 +11,14 @@ See docs/framework/formal-verification.md §8.1 E for string contract convention
 
 ``DEAL_MAX_*`` are finite ``@deal.pre`` domains, not production limits (release
 OXTs strip ``@deal.*``; LibreOffice uses this shim as a no-op). Pytest /
-``make test`` bind the wide, product-faithful table (ZZZ, Calc max row,
-CELL_REF=256). CrossHair binds the short table only when
+``make test`` bind the wide table (ZZZ, Calc max row, CELL_REF=256).
+Ingest boundaries (LLM JSON, user config, IPC / MCP codecs, calc ranges,
+envelope detectors, ``host_unpack_data``, and the same class of external
+input) are total on that pytest profile: a value that is merely large,
+oddly shaped, or a real error object must not raise ``PreContractError``.
+The body returns false or a structured error. Internal algorithms that
+really have a fixed bound keep ``@deal.pre``. CrossHair binds the short
+table only when
 ``WRITERAGENT_CROSSHAIR=1`` at import, which check-all, cover-all (including
 process-pool workers), and ``scripts/crosshair_stream.py run`` set before
 spawning CrossHair. Do not sniff ``sys.modules["crosshair"]`` or

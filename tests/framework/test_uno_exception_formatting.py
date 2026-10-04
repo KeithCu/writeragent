@@ -10,14 +10,14 @@
 
 from plugin.framework.errors import (
     ToolExecutionError,
-    _resolve_exception_message,
+    resolve_exception_message,
     format_error_payload,
 )
 
 
 def test_resolve_exception_message_standard_python():
     e = ValueError("something went wrong")
-    assert _resolve_exception_message(e) == "something went wrong"
+    assert resolve_exception_message(e) == "something went wrong"
 
 
 def test_resolve_exception_message_uno_style():
@@ -28,7 +28,7 @@ def test_resolve_exception_message_uno_style():
             return ""
 
     uno_err = ElementExistException("ElementExistException: Chart_0 already exists")
-    assert _resolve_exception_message(uno_err) == "ElementExistException: Chart_0 already exists"
+    assert resolve_exception_message(uno_err) == "ElementExistException: Chart_0 already exists"
 
     # ToolExecutionError wrapping empty str() exception
     wrapper = ToolExecutionError(uno_err)
@@ -44,7 +44,7 @@ def test_resolve_exception_message_completely_blank():
             return ""
 
     blank = BlankException()
-    assert _resolve_exception_message(blank) == "BlankException"
+    assert resolve_exception_message(blank) == "BlankException"
 
     payload = format_error_payload(blank)
     assert payload["status"] == "error"

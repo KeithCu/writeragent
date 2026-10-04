@@ -93,30 +93,32 @@ def register_common_handlers() -> None:
     register_action_handler("scripting", "edit_python_cell", _edit_python_cell)
 
     def _reset_python_session() -> None:
+        from plugin.framework.worker_pool import run_in_background
         from plugin.scripting.session_manager import reset_workbook_python_session
 
-        reset_workbook_python_session(get_ctx())
+        ctx = get_ctx()
+        run_in_background(lambda: reset_workbook_python_session(ctx), name="reset-python-session")
 
     register_action_handler("scripting", "reset_python_session", _reset_python_session)
 
-    def _notebook_run_all() -> None:
+    def _notebook_run_all(frame: Any | None = None) -> None:
         from plugin.notebook.notebook_runner import run_all_from_menu
 
-        run_all_from_menu(get_ctx())
+        run_all_from_menu(get_ctx(), frame)
 
     register_action_handler("notebook", "run_all", _notebook_run_all)
 
-    def _notebook_run_from_here() -> None:
+    def _notebook_run_from_here(frame: Any | None = None) -> None:
         from plugin.notebook.notebook_runner import run_from_here_from_menu
 
-        run_from_here_from_menu(get_ctx())
+        run_from_here_from_menu(get_ctx(), frame)
 
     register_action_handler("notebook", "run_from_here", _notebook_run_from_here)
 
-    def _notebook_stop() -> None:
+    def _notebook_stop(frame: Any | None = None) -> None:
         from plugin.notebook.notebook_runner import stop_from_menu
 
-        stop_from_menu(get_ctx())
+        stop_from_menu(get_ctx(), frame)
 
     register_action_handler("notebook", "stop", _notebook_stop)
 

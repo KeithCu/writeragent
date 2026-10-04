@@ -151,8 +151,9 @@ class TestErrorHandling:
 
         err = http.client.RemoteDisconnected("Remote end closed connection")
         msg = format_error_message(err)
-        assert ("HTTP Error" in msg or "Remote" in msg)
-        assert ("Connection Error") not in (msg)
+        # No HTTP status. "HTTP Error" alone used to pass for "HTTP Error 0: ".
+        assert "Remote end closed connection" in msg
+        assert "HTTP Error 0" not in msg
 
     def test_format_error_message_111_substring_is_not_connection_refused(self):
         import errno
@@ -164,6 +165,18 @@ class TestErrorHandling:
         assert "Connection Refused" not in format_error_message(missed)
         refused = OSError(errno.ECONNREFUSED, "connect")
         assert "Connection Refused" in format_error_message(refused)
+
+    def test_format_error_message_urlerror_timeout_is_request_timeout(self):
+        import socket
+        import urllib.error
+
+        from plugin.framework.errors import format_error_message
+
+        wrapped = urllib.error.URLError(socket.timeout("timed out"))
+        assert "Request Timed Out" in format_error_message(wrapped)
+        assert "Connection Error" not in format_error_message(wrapped)
+        text = urllib.error.URLError("The read operation timed out")
+        assert "Request Timed Out" in format_error_message(text)
 
     def test_format_error_message_filesystem_and_python_timeout_are_not_http(self):
         from plugin.framework.errors import format_error_message
@@ -239,7 +252,7 @@ class TestErrorHandling:
 
         # Test DocumentDisposedError with custom field object_type
         disp_exc = DocumentDisposedError("Object disposed", object_type="TextRange", details={"line": 42})
-        assert (disp_exc.code) == ("DISPOSED_OBJECT")
+        assert (disp_exc.code) == ("DOCUMENT_DISPOSED")
         assert (disp_exc.object_type) == ("TextRange")
         assert (disp_exc.details) == ({"line": 42})
 
@@ -294,6 +307,24 @@ class TestSafeJsonLoads:
         corrupted_json = '{"content": "\nabla \times \x0crac{1}{c}"}'
         repaired = safe_json_loads(corrupted_json)
         assert (repaired) == ({'content': '\\nabla \\times \\frac{1}{c}'})
+
+    def test_long_runtime_message_does_not_raise_precontract(self):
+        """Provider and UNO text longer than the msgid bound must still construct.
+
+        What was wrong: WriterAgentException passed that text through i18n._(),
+        whose deal pre rejects strings longer than DEAL_MAX_MSGID.
+        """
+        from plugin.framework.deal_shim import DEAL_MAX_MSGID
+        from plugin.framework.errors import NetworkError, make_tool_error
+
+        text = "provider body " + ("x" * (DEAL_MAX_MSGID + 50))
+        err = NetworkError(text)
+        assert err.message == text
+        assert isinstance(err, WriterAgentException)
+        payload = make_tool_error(text, code="TOOL_EXECUTION_ERROR")
+        assert payload["status"] == "error"
+        assert payload["message"] == text
+        assert payload["code"] == "TOOL_EXECUTION_ERROR"
 
 class TestAsyncStreamErrorHandling:
 

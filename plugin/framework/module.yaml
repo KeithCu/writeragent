@@ -6,7 +6,9 @@ requires: []
 config:
   log_level:
     type: string
-    default: DEBUG
+    # Release default. Source checkouts with plugin/tests get DEBUG via
+    # config_schema._resolve_default (and get_config_schema overlays that).
+    default: WARN
     widget: select
     label: Log Level
     internal: true

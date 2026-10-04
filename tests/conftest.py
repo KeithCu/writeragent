@@ -1,9 +1,13 @@
 import os
+import sys
+
+# Ensure this worktree root takes precedence over editable installs in .venv
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
 # Layer A thread guard defaults on in non-release bundles; keep headless pytest stable.
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
-
-import sys
 import time
 import types
 from unittest.mock import MagicMock, patch
