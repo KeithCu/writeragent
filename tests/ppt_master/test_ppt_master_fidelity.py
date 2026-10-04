@@ -103,7 +103,7 @@ def test_evaluate_slide_fidelity_closes_source_doc_after_read(monkeypatch, tmp_p
     monkeypatch.setattr(fidelity, "structural_metrics_pptx", mock_metrics)
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
 
-    result = fidelity.evaluate_slide_fidelity(
+    fidelity.evaluate_slide_fidelity(
         None,
         project_dir=tmp_path,
         slide_label="test.svg",

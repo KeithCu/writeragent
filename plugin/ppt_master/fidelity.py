@@ -322,15 +322,6 @@ def evaluate_slide_fidelity(
     else:
         result.structural = StructuralMetrics(odf_shape_counts=count_odf_shape_types(page))
     result.artifacts["imported_odp"] = str(odp_path)
-    try:
-        doc.close(True)
-    except Exception as exc:
-        log.debug("close impress doc: %s", exc)
-    if source_doc is not None:
-        try:
-            source_doc.close(True)
-        except Exception as exc:
-            log.debug("close source pptx doc: %s", exc)
 
     if skip_visual:
         if result.structural and source_page is not None:
@@ -342,6 +333,15 @@ def evaluate_slide_fidelity(
                 )
         else:
             result.passed = page.getCount() > 0
+        try:
+            doc.close(True)
+        except Exception as exc:
+            log.debug("close impress doc: %s", exc)
+        if source_doc is not None:
+            try:
+                source_doc.close(True)
+            except Exception as exc:
+                log.debug("close source pptx doc: %s", exc)
         return result
 
     imp_pdf_dir = slide_dir / "imp_pdf"
@@ -382,6 +382,17 @@ def evaluate_slide_fidelity(
         result.errors.append(
             f"text shapes {result.structural.odf_text_shapes} < pptx text shapes {result.structural.svg_text_elements}"
         )
+
+    try:
+        doc.close(True)
+    except Exception as exc:
+        log.debug("close impress doc: %s", exc)
+    if source_doc is not None:
+        try:
+            source_doc.close(True)
+        except Exception as exc:
+            log.debug("close source pptx doc: %s", exc)
+
     return result
 
 
