@@ -354,8 +354,6 @@ def _incremental_refresh(
             )
             deleted += len(to_delete)
 
-            if chunks:
-                sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
         if to_index:
             phase = "embed" if build_vectors else "index"
             result = _ingest_rows(

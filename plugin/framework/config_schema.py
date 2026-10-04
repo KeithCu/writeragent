@@ -415,6 +415,9 @@ class WriterAgentConfig:
     # Persists multiple user-saved Python scripts (name -> code)
     saved_python_scripts: Dict[str, str] = dataclasses.field(default_factory=lambda: dict(_DEFAULT_PYTHON_SCRIPTS))
 
+    # Track changes review mode ("off", "record", "wait")
+    doc_agent_edit_review_mode: str = "off"
+
     # Store arbitrary module.yaml config entries
     _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
