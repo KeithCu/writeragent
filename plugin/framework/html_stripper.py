@@ -38,9 +38,10 @@ _deal_strip_html_ok = ascii_bounded if _HTML_CROSSHAIR else str_bounded
 # Drop the body until the matching close tag, not only the tag bytes.
 _DISCARD_ELEMENTS = frozenset({"script", "style"})
 # Tags the stripper removes. Anything else inside ``<…>`` is prose: a generic
-# (``List<String>``), an autolink (``<https://example.com>``), or an email
-# (``<user@example.com>``). ``b`` / ``i`` / ``script`` stay in this set so
-# formatting and script-body removal are unchanged.
+# (``List<String>``), an autolink (``<https://example.com>``), an email
+# (``<user@example.com>``), or a known name glued to a non-delimiter
+# (``<a@b.com>``, ``<b, c>``, ``<em@x>``). ``b`` / ``i`` / ``script`` stay in
+# this set so formatting and script-body removal are unchanged.
 _HTML_ELEMENTS = frozenset({
     "a", "abbr", "acronym", "address", "area", "article", "aside", "audio",
     "b", "base", "bdi", "bdo", "big", "blockquote", "body", "br", "button",
@@ -85,37 +86,50 @@ def _split_incomplete_entity(text: str) -> tuple[str, str]:
     return text[: matched.start()], matched.group(0)
 
 
-def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
-    """Return ``(lower_name, is_close, is_empty)`` for a tag buffer without ``>``.
+def _tag_name_body(buf: str) -> tuple[str, bool, str]:
+    """Return ``(lower_name, is_close, rest)`` for a tag buffer without ``>``.
 
-    ``buf`` is everything after ``<`` was seen and before an unquoted ``>``.
+    ``rest`` starts at the first character after the element name. A leading
+    ``/`` and the whitespace after it are the close marker (``</ em>``), not
+    part of the name. ``!`` / ``?`` are declarations, not element names.
     """
     inner = buf[1:] if buf.startswith("<") else buf
     if not inner:
-        return "", False, False
+        return "", False, ""
     is_close = False
     if inner[0] == "/":
         is_close = True
         inner = inner[1:].lstrip()
     elif inner[0] in "!?":
-        return "", False, False
+        return "", False, ""
     name: list[str] = []
     for char in inner:
         if char.isalnum() or char in "-:":
             name.append(char.lower())
         else:
             break
+    return "".join(name), is_close, inner[len(name):]
+
+
+def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
+    """Return ``(lower_name, is_close, is_empty)`` for a tag buffer without ``>``.
+
+    ``buf`` is everything after ``<`` was seen and before an unquoted ``>``.
+    """
+    inner = buf[1:] if buf.startswith("<") else buf
+    if not inner or inner[0] in "!?":
+        return "", False, False
+    name, is_close, rest = _tag_name_body(buf)
     # ``<script/>`` and ``<script />`` have no element body to discard.
     # What was wrong: any buffer ending in ``/`` was empty, so an unquoted
     # attribute such as ``<script src=https://cdn.example.com/>`` kept the
     # script body. The slash closes the tag only when it is its own token.
-    rest = inner[len(name):]
     stripped = rest.rstrip()
     is_empty = False
     if not is_close and stripped.endswith("/"):
         before = stripped[:-1]
         is_empty = (not before) or before[-1].isspace()
-    return "".join(name), is_close, is_empty
+    return name, is_close, is_empty
 
 
 def _is_real_html_tag(buf: str) -> bool:
@@ -124,8 +138,19 @@ def _is_real_html_tag(buf: str) -> bool:
     What was wrong: the second character being a letter was enough, so
     ``<String>``, ``<https://example.com>``, and ``<user@example.com>`` were
     tags. The stream stripper and the committed paint both deleted them.
-    A real tag names a known element, starts with ``!`` or ``?`` (comment,
-    doctype, processing instruction), or is self-closing (``<br/>``).
+    The name check still stopped there. ``_html_tag_name`` takes the leading
+    name run and stops at the first other character, and this function
+    returned true whenever that name was in ``_HTML_ELEMENTS``. ``<a@b.com>``
+    (name ``a``, next ``@``), ``<b, c>`` (next ``,``), and ``<em@x>`` (next
+    ``@``) were deleted with the brackets.
+
+    A completed buffer is a real tag when it names a known element and the
+    next character is a delimiter: end of the buffer (``<b>``, ``</em>``) or
+    whitespace (``<a href="x">``, ``<b >``). A self-closing slash that is its
+    own token (``<br/>``, ``<a/>``) is the empty-element path below, which
+    also keeps ``<widget/>``. A non-space character glued to the name is
+    prose; the brackets stay. ``!`` / ``?`` still start a comment, doctype,
+    or processing instruction.
     """
     inner = buf[1:] if buf.startswith("<") else buf
     if not inner:
@@ -133,9 +158,14 @@ def _is_real_html_tag(buf: str) -> bool:
     if inner[0] in "!?":
         return True
     name, _is_close, is_empty = _html_tag_name(buf)
+    # Unknown names such as ``<widget/>`` are still tags when the slash is
+    # its own token. Require the element set only for the other shapes.
     if is_empty:
         return True
-    return name in _HTML_ELEMENTS
+    if name not in _HTML_ELEMENTS:
+        return False
+    _name, _close, rest = _tag_name_body(buf)
+    return (not rest) or rest[0].isspace()
 
 
 class StreamingHTMLStripper:
@@ -145,7 +175,7 @@ class StreamingHTMLStripper:
     the text with HTML tags stripped. It handles cases where a tag definition
     is split across chunk boundaries, and distinguishes between HTML tags and
     math comparisons (e.g. "3 < 5"). Angle-bracket prose (``<String>``, URLs,
-    emails) is kept.
+    emails, and an element name glued to ``@`` or ``,``) is kept.
     """
 
     in_tag: bool

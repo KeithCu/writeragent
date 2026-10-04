@@ -184,12 +184,63 @@ def test_generic_and_autolink_tokens_are_not_stripped():
         assert streamed + stripper.finalize() == want
 
 
+def test_element_named_prose_tokens_are_not_stripped():
+    """A known element name glued to a non-delimiter is prose.
+
+    What was wrong: the name run stopped at ``@`` or ``,``, then any name in
+    ``_HTML_ELEMENTS`` was deleted. ``<a@b.com>``, ``<b, c>``, and ``<em@x>``
+    disappeared. ``<user@example.com>`` already stayed, because ``user`` is
+    not an element name. Whole-string and 3-character streaming must agree.
+    Real tags in the same string are still removed.
+    """
+    samples = (
+        "<a@b.com>",
+        "Mail <a@b.com> today",
+        "<b, c>",
+        "See <b, c> now",
+        "<em@x>",
+        "Keep <em@x> please",
+        "<A@b.com>",
+        "<B, c>",
+        "<EM@x>",
+        "<user@example.com>",
+        "Mail <a@b.com> then <b>bold</b> and <em@x>",
+        "See <b, c> plus <i>italic</i>.",
+        '<a href="https://example.com">link</a> <a@b.com>',
+        "<b >spaced</b> <b, c>",
+        "<em>real</em> <em@x>",
+        "<a/> <a@b.com>",
+        "<br/> <em@x>",
+        "<script>alert(1)</script><em@x>",
+    )
+    expected = {
+        "Mail <a@b.com> then <b>bold</b> and <em@x>": "Mail <a@b.com> then bold and <em@x>",
+        "See <b, c> plus <i>italic</i>.": "See <b, c> plus italic.",
+        '<a href="https://example.com">link</a> <a@b.com>': "link <a@b.com>",
+        "<b >spaced</b> <b, c>": "spaced <b, c>",
+        "<em>real</em> <em@x>": "real <em@x>",
+        "<a/> <a@b.com>": " <a@b.com>",
+        "<br/> <em@x>": " <em@x>",
+        "<script>alert(1)</script><em@x>": "<em@x>",
+    }
+    for sample in samples:
+        want = expected.get(sample, sample)
+        assert strip_html_tags(sample) == want
+        stripper = StreamingHTMLStripper()
+        streamed = "".join(stripper.feed(sample[i : i + 3]) for i in range(0, len(sample), 3))
+        assert streamed + stripper.finalize() == want
+
+
 def test_formatting_and_script_tags_are_still_stripped():
     assert strip_html_tags("<b>bold</b>") == "bold"
     assert strip_html_tags("<i>italic</i>") == "italic"
+    assert strip_html_tags("<em>z</em>") == "z"
+    assert strip_html_tags("<b >x</b>") == "x"
+    assert strip_html_tags('<a href="https://example.com">link</a>') == "link"
     assert strip_html_tags("<script>alert(1)</script>ok") == "ok"
     assert strip_html_tags("<!-- secret -->ok") == "ok"
     assert strip_html_tags("<br/>next") == "next"
+    assert strip_html_tags("<a/>next") == "next"
     assert strip_html_tags("a<widget/>b") == "ab"
     assert strip_html_tags('<notatag alt="a>b">keep') == '<notatag alt="a>b">keep'
 
