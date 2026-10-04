@@ -229,9 +229,9 @@ def insert_image_payload_for_doc(
 
 def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a viz helper result (image nested under ``image`` key)."""
-    stop_checker = getattr(ctx, "stop_checker", None)
-    if callable(stop_checker) and stop_checker() is True:
-        return 0
+    # AI/DEV INVARIANT: Do NOT add stop_checker checks before inserting into doc.
+    # Once the viz helper has finished and produced plot image(s), let them be
+    # inserted into the document rather than aborting at egress.
 
     if result.get("status") == "error":
         code = str(result.get("code") or "VIZ_ERROR")
