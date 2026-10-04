@@ -85,14 +85,14 @@ def test_analyze_data_auto_plot_inserts_chart(
 @patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.calc.analysis_runner.run_trusted_analysis")
-def test_analyze_data_auto_plot_marshals_viz_read(
+def test_analyze_data_auto_plot_does_not_marshal_viz_read(
     mock_run_analysis,
     mock_main_thread,
     mock_auto_plot,
     mock_insert,
     calc_ctx,
 ):
-    """Regression: auto_plot viz data reads must run via execute_on_main_thread, not on the worker."""
+    """Regression: auto_plot viz data reads must NOT run via execute_on_main_thread."""
     inside_marshal = {"flag": False}
 
     def mock_execute_on_main(fn, *args, **kwargs):
@@ -106,7 +106,7 @@ def test_analyze_data_auto_plot_marshals_viz_read(
     mock_run_analysis.return_value = {"status": "ok", "helper": "run_regression", "metrics": {}}
 
     def _auto_plot_side_effect(*_args, **_kwargs):
-        assert inside_marshal["flag"], "run_auto_plot_after_analysis must run inside execute_on_main_thread"
+        assert not inside_marshal["flag"], "run_auto_plot_after_analysis must NOT run inside execute_on_main_thread"
         return {
             "status": "ok",
             "helper": "plot_data",
@@ -128,4 +128,3 @@ def test_analyze_data_auto_plot_marshals_viz_read(
     assert result["status"] == "ok"
     assert result.get("image_inserted") is True
     mock_auto_plot.assert_called_once()
-    assert mock_main_thread.call_count >= 2

@@ -72,11 +72,8 @@ class PlotDataTool(ToolBaseDummy):
         from plugin.scripting.viz import run_trusted_viz, extract_image_payload
         from plugin.scripting.payload_codec import write_image_payload_to_temp
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
-
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "VIZ_ERROR"))
         except Exception as exc:
