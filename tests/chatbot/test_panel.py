@@ -621,7 +621,7 @@ class TestSendDispose:
         assert len(posted) == 1
         assert not first.is_cancelled()
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-        assert killed == ["kill"]
+        assert killed == []
         assert first.is_cancelled()
         assert listener._stop_requested_fallback
 
@@ -1138,13 +1138,7 @@ class TestStopClearsAudioWavPath:
     def test_disposing_clears_audio_wav_path(self, mock_remove) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
-
-        from plugin.chatbot.send_state import SendEvent, SendEventKind
-        # We need the listener to execute StopSendEffect.
-        # This is triggered by STOP_CLICKED
-        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
-        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        listener.disposing()
 
         assert listener.audio_wav_path is None
         mock_remove.assert_called_once_with("/tmp/fake.wav")

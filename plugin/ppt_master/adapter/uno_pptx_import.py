@@ -147,7 +147,11 @@ def _import_slides_from_source(
     *,
     slide_indices: list[int] | None = None,
     clear_existing: bool = True,
+    stop_checker: Any = None,
 ) -> dict[str, Any]:
+    if callable(stop_checker) and stop_checker():
+        return {"status": "error", "code": "USER_STOPPED", "message": "Import cancelled by user"}
+
     source_pages = source_doc.getDrawPages()
     source_count = int(source_pages.getCount())
     if source_count < 1:
@@ -164,6 +168,8 @@ def _import_slides_from_source(
     pages = bridge.get_pages()
     results: list[dict[str, Any]] = []
     for out_index, src_index in enumerate(indices):
+        if callable(stop_checker) and stop_checker():
+            return {"status": "error", "code": "USER_STOPPED", "message": "Import cancelled by user"}
         source_page = source_pages.getByIndex(src_index)
         # What was wrong: the target slide was cleared before the copy, so a
         # copy that returned no shapes had already destroyed user content.
@@ -207,8 +213,11 @@ def import_pptx_to_doc(
     *,
     clear_existing: bool = True,
     save_mirror_odp: Path | None = None,
+    stop_checker: Any = None,
 ) -> dict[str, Any]:
     """Load PPTX hidden, copy all slides into *target_doc*, optionally write mirror ODP."""
+    if callable(stop_checker) and stop_checker():
+        return {"status": "error", "code": "USER_STOPPED", "message": "Import cancelled by user"}
     pptx_path = Path(pptx_path).expanduser().resolve()
     source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
     if source_doc is None:
@@ -218,7 +227,7 @@ def import_pptx_to_doc(
             save_mirror_odp = Path(save_mirror_odp).expanduser().resolve()
             save_mirror_odp.parent.mkdir(parents=True, exist_ok=True)
             source_doc.storeToURL(save_mirror_odp.as_uri(), ())
-        result = _import_slides_from_source(ctx, target_doc, source_doc, clear_existing=clear_existing)
+        result = _import_slides_from_source(ctx, target_doc, source_doc, clear_existing=clear_existing, stop_checker=stop_checker)
         if result.get("status") == "ok":
             result["pptx_path"] = str(pptx_path)
             if save_mirror_odp is not None:

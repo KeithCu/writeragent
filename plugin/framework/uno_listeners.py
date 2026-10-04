@@ -296,7 +296,7 @@ def _catch_and_log(func: Any) -> Any:
     failure = _listener_failure_value(func)
 
     @functools.wraps(func)
-    def wrapper(self: Any, ev: Any, *args: Any, **kwargs: Any) -> Any:
+    def wrapper(self: Any, ev: Any = None, *args: Any, **kwargs: Any) -> Any:
         try:
             return func(self, ev, *args, **kwargs)
         except ListenerBoundary as boundary:

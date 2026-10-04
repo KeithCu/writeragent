@@ -2020,7 +2020,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
-    def disposing(self, Source: Any) -> None:
+    def disposing(self, Source: Any = None) -> None:
         try:
             from plugin.audio.tts_service import stop_speech
             stop_speech()
@@ -2057,6 +2057,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._kill_inflight_stt()
         self._release_open_microphone()
         self.exit_hands_free_record()
+        self.clear_pending_audio_wav()
         try:
             from plugin.doc.peer_message import drop_listener_queue
 

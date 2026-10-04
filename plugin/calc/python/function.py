@@ -527,43 +527,47 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
 
 
 def _spill_registry_doc_key(doc: Any) -> str:
-    """File URL for a saved workbook; lifecycle id when ``getURL()`` is empty.
+    """Key the spill registry and LOADED_DOCUMENTS by RuntimeUID, not URL.
 
-    Bugfix: every unsaved book reports ``getURL() == ""``. Keying
-    ``SPILL_REGISTRY`` and ``LOADED_DOCUMENTS`` on ``""`` mixed their spill
-    cells, made the second book skip load, and let save write every untitled
-    row into whichever book was saving. ``sheet_modify._doc_identity`` and
-    ``formula_locator_cache.document_cache_key`` already use
-    ``workbook_lifecycle._lifecycle_key`` (RuntimeUID) for that reason.
-    Saved books keep the file URL so existing registry keys stay stable.
-    ``""`` is never returned as a shared key when a lifecycle id exists.
+    Migrate existing URL keys when the uid is read.
     """
-    url = ""
-    try:
-        url = getattr(doc, "getURL", lambda: "")() or ""
-    except Exception:
-        url = ""
-    if url:
-        return str(url)
     if doc is None:
         return ""
+    uid = ""
+    try:
+        if hasattr(doc, "getPropertyValue"):
+            val = doc.getPropertyValue("RuntimeUID")
+            if val:
+                uid = str(val)
+    except Exception:
+        uid = ""
+
+    url = ""
+    try:
+        url_raw = getattr(doc, "getURL", lambda: "")()
+        url = str(url_raw) if isinstance(url_raw, str) else ""
+    except Exception:
+        url = ""
+
+    if uid:
+        key = uid
+        if url and url != key:
+            if url in LOADED_DOCUMENTS:
+                LOADED_DOCUMENTS.discard(url)
+                LOADED_DOCUMENTS.add(key)
+            with _SPILL_REGISTRY_LOCK:
+                for k in list(SPILL_REGISTRY.keys()):
+                    if k[0] == url:
+                        SPILL_REGISTRY[(key, k[1], k[2], k[3])] = SPILL_REGISTRY.pop(k)
+        return key
+
+    if url:
+        return url
+
     try:
         from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-        key = str(_lifecycle_key(doc) or "")
-        try:
-            url = getattr(doc, "getURL", lambda: "")() or ""
-            if key and url and url != key:
-                if url in LOADED_DOCUMENTS:
-                    LOADED_DOCUMENTS.discard(url)
-                    LOADED_DOCUMENTS.add(key)
-                with _SPILL_REGISTRY_LOCK:
-                    for k in list(SPILL_REGISTRY.keys()):
-                        if k[0] == url:
-                            SPILL_REGISTRY[(key, k[1], k[2], k[3])] = SPILL_REGISTRY.pop(k)
-        except Exception:
-            pass
-        return key
+        return str(_lifecycle_key(doc) or "")
     except Exception:
         log.debug("spill registry identity failed", exc_info=True)
         return ""

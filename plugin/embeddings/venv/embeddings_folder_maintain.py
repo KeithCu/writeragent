@@ -151,6 +151,8 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
         rows = [chunk_to_index_row(chunk) for chunk in chunks]
         hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "cold"})
         if not rows:
+            # Empty files still record paragraph/chunk state so subsequent incremental scans know they are up to date.
+            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
         result = _ingest_rows(listing_root, embedding_model, rows, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
