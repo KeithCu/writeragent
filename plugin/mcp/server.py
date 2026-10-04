@@ -408,13 +408,22 @@ class HttpServer:
             if self._running:
                 log.exception("HTTP server error")
         finally:
-            # stop() clears _running before shutdown(), so this only fires
-            # when the accept loop dies on its own and would otherwise leave
-            # keepalive threads running.
+            # stop() sets _running False before shutdown() and server_close().
+            # What was wrong: when serve_forever returned on its own, this
+            # finally cleared _running and stopped SSE keepalives but left
+            # the listen socket open. stop() then returned immediately, so
+            # server_close() never ran and the port stayed bound.
+            # Call server_close() only on that unexpected exit. The normal
+            # stop() path has already closed the listener, so this branch
+            # does not run and does not close it a second time.
             unexpected = self._running
             self._running = False
             if unexpected:
-                stop_sse_keepalives(self._server)
+                try:
+                    if self._server is not None:
+                        self._server.server_close()
+                finally:
+                    stop_sse_keepalives(self._server)
 
     def is_running(self) -> bool:
         return self._running
