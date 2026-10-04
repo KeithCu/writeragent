@@ -35,6 +35,18 @@ def test_notebook_session_id_untitled_uses_property():
         sid = notebook_session_id(ctx, doc)
     assert sid == "notebook:uuid-1"
 
+def test_notebook_session_id_save_as_follows_url():
+    ctx = MagicMock()
+    doc = _writer_doc("file:///tmp/new.odt")
+    with (
+        patch("plugin.scripting.session_manager.is_writer", return_value=True),
+        patch("plugin.scripting.session_manager.get_document_property", return_value="uuid-1"),
+        patch("plugin.doc.udprops.remove_document_property") as rm,
+    ):
+        sid = notebook_session_id(ctx, doc)
+    assert sid == "notebook:file:///tmp/new.odt"
+    rm.assert_called_once()
+
 
 def test_notebook_session_id_non_writer_returns_none():
     ctx = MagicMock()
