@@ -66,6 +66,51 @@ def test_get_mcp_url_returns_none_when_disabled():
     assert url is None
 
 
+def test_agent_backend_prompt_omits_mcp_when_server_stopped():
+    panel = DummyChatbotPanel()
+    panel._get_mcp_url = lambda: "http://localhost:18765/mcp"  # type: ignore
+    adapter = MagicMock()
+    adapter.is_available.return_value = True
+
+    def fake_drain(q, run_agent, *args, **kwargs):
+        run_agent()
+
+    panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
+    with (
+        patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()),
+        patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
+        patch("plugin.mcp.is_mcp_server_running", return_value=False),
+    ):
+        panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
+
+    adapter.send.assert_called_once()
+    system_prompt = adapter.send.call_args.kwargs["system_prompt"]
+    assert "[MCP SERVER AVAILABLE]" not in system_prompt
+
+
+def test_agent_backend_prompt_includes_mcp_when_server_running():
+    panel = DummyChatbotPanel()
+    panel._get_mcp_url = lambda: "http://localhost:18765/mcp"  # type: ignore
+    adapter = MagicMock()
+    adapter.is_available.return_value = True
+
+    def fake_drain(q, run_agent, *args, **kwargs):
+        run_agent()
+
+    panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
+    with (
+        patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()),
+        patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
+        patch("plugin.mcp.is_mcp_server_running", return_value=True),
+    ):
+        panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
+
+    adapter.send.assert_called_once()
+    system_prompt = adapter.send.call_args.kwargs["system_prompt"]
+    assert "[MCP SERVER AVAILABLE]" in system_prompt
+
+
+
 def test_run_web_research_stores_raw_answer_and_rerenders():
     panel = DummyChatbotPanel()
     panel.rerender_rich_text_session = MagicMock()

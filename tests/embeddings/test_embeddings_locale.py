@@ -189,3 +189,17 @@ def test_locale_runs_for_plain_passage(monkeypatch: pytest.MonkeyPatch) -> None:
     assert runs[0].locale_bcp47 == "fr-FR"
     assert runs[0].char_start == 0
     assert runs[0].char_end == len("Bonjour.")
+
+
+def test_extract_odf_paragraph_runs_returns_none_on_corrupt_file(tmp_path: Path) -> None:
+    bad = tmp_path / "corrupt.odt"
+    bad.write_bytes(b"not a valid zip file")
+    assert loc_mod.extract_odf_paragraph_runs(str(bad)) is None
+
+
+def test_extract_odf_paragraph_runs_returns_none_on_missing_content_xml(tmp_path: Path) -> None:
+    nocontent = tmp_path / "nocontent.odt"
+    with zipfile.ZipFile(nocontent, "w") as zf:
+        zf.writestr("styles.xml", b"<xml/>")
+    assert loc_mod.extract_odf_paragraph_runs(str(nocontent)) is None
+

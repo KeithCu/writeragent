@@ -472,3 +472,24 @@ def test_hide_calc_only_controls_calls_set_visible():
         ctrl._hide_calc_only_controls()
     assert set(hidden) == set(_CALC_ONLY_IDS)
 
+
+def test_calc_document_refreshes_calc_panel_and_returns_none_for_writer_frame():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._calc_panel = True
+    ctrl.frame = MagicMock()
+    writer_model = MagicMock()
+    ctrl.frame.getController.return_value.getModel.return_value = writer_model
+    ctrl.ctx = MagicMock()
+
+    with (
+        patch("plugin.librepy.python_sidebar.is_calc", return_value=False),
+        patch("plugin.librepy.python_sidebar.get_calc_document_from_ctx") as mock_ctx_doc,
+    ):
+        doc = ctrl._calc_document()
+        assert doc is None
+        assert ctrl._calc_panel is False
+        mock_ctx_doc.assert_not_called()
+
+

@@ -1598,7 +1598,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             self._set_status(_(self._terminal_status))
                         try:
                             from plugin.framework.config import get_config_bool_safe
-                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status == "Ready":
+                            # What was wrong: checking an alive turn failed because the tool loop finally
+                            # had already run abort_turn(self), marking the turn not alive.
+                            # Why this change: speak from session_for_turn(self) (valid until drop_turn)
+                            # whenever TTS is enabled and terminal status is not Stopped.
+                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
                                 from plugin.chatbot.tool_loop_actions import session_for_turn
 
                                 spoken = session_for_turn(self)

@@ -74,7 +74,7 @@ def _normalize_path(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
 
 
-def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]]:
+def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]] | None:
     """Read locale-tagged runs per paragraph from Writer ODF on disk."""
     from plugin.embeddings.embeddings_locale import extract_odf_paragraph_runs
 
@@ -84,9 +84,12 @@ def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextR
     return extract_odf_paragraph_runs(path)
 
 
-def extract_writer_paragraphs(path: str) -> list[str]:
+def extract_writer_paragraphs(path: str) -> list[str] | None:
     """Read body paragraph text from a Writer .odt/.ott (zip) or .fodt (flat XML)."""
-    return [passage for passage, _runs in extract_writer_paragraph_runs(path) if passage.strip()]
+    runs = extract_writer_paragraph_runs(path)
+    if runs is None:
+        return None
+    return [passage for passage, _runs in runs if passage.strip()]
 
 
 def _extract_foreign_passages(path: str, ext: str) -> list[str] | None:
@@ -139,7 +142,7 @@ def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleText
 
         with temporary_converted_odf(path) as converted:
             if converted is None:
-                return []
+                return None
             return extract_odf_paragraph_runs(str(converted))
     return []
 

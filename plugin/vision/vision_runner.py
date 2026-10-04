@@ -247,7 +247,10 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
                 insert_vision_result(ctx, doc, res, params=per_insert)
 
-            execute_on_main_thread(_insert)
+            # What was wrong: execute_on_main_thread defaulted to binding to the send cancellation
+            # scope, which aborted this document mutation if Stop was clicked during/after OCR.
+            # Why this change: once bytes are in hand, marshal the insert unscoped (bound_scope=None).
+            execute_on_main_thread(_insert, bound_scope=None)
         results.append(result)
 
     full_parts = [str(r.get("full_text") or "") for r in results]

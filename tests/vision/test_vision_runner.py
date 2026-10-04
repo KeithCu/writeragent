@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -341,7 +342,7 @@ def test_ocr_rpc_runs_outside_main_thread_marshal():
     depth = {"n": 0}
     seen: dict[str, int | None] = {"ocr": None, "export": None, "insert": None}
 
-    def fake_exec(fn, *args, **kwargs):
+    def fake_exec(fn, *args, bound_scope=None, **kwargs):
         depth["n"] += 1
         try:
             return fn(*args, **kwargs)
@@ -374,3 +375,27 @@ def test_ocr_rpc_runs_outside_main_thread_marshal():
     assert seen["ocr"] == 0
     assert seen["export"] == 1
     assert seen["insert"] == 1
+
+
+def test_vision_insert_marshaled_with_unscoped_scope():
+    scopes_used: list[Any] = []
+
+    def fake_exec(fn, *args, bound_scope=None, **kwargs):
+        scopes_used.append(bound_scope)
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec),
+        patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "text"}),
+        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_egress.insert_vision_result"),
+    ):
+        ctx = MagicMock()
+        ctx.stop_checker = None
+        result = run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_structure")
+
+    assert result["status"] == "ok"
+    assert None in scopes_used
+

@@ -792,3 +792,27 @@ class TestStartupWait:
         conn.send_request.assert_not_called()
 
 
+class TestEnsureSessionMcp:
+    def test_ensure_session_omits_mcp_when_disabled(self):
+        backend = HermesBackend()
+        backend._conn = MagicMock()
+        backend._conn.send_request.return_value = {"sessionId": "s-123"}
+        with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: "false" if k == "mcp.mcp_enabled" else d):
+            backend._ensure_session(mcp_url="http://localhost:8765/mcp")
+        backend._conn.send_request.assert_called_once()
+        params = backend._conn.send_request.call_args[0][1]
+        assert params["mcpServers"] == []
+
+    def test_ensure_session_attaches_mcp_when_enabled(self):
+        backend = HermesBackend()
+        backend._conn = MagicMock()
+        backend._conn.send_request.return_value = {"sessionId": "s-123"}
+        with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: "true" if k == "mcp.mcp_enabled" else d):
+            backend._ensure_session(mcp_url="http://localhost:8765/mcp")
+        backend._conn.send_request.assert_called_once()
+        params = backend._conn.send_request.call_args[0][1]
+        assert len(params["mcpServers"]) == 1
+        assert params["mcpServers"][0]["url"] == "http://localhost:8765/mcp"
+
+
+

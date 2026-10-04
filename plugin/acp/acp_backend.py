@@ -376,8 +376,13 @@ class ACPBackend(AgentBackend):
             return
 
         # mcp_servers is required by the ACP schema
+        # What was wrong: mcp_url was attached to session/new even when mcp.mcp_enabled was False.
+        # Why this change: gate attaching mcp_servers on as_bool(get_config("mcp.mcp_enabled")).
+        from plugin.framework.config import get_config
+        from plugin.framework.config_schema import as_bool
+
         mcp_servers = []
-        if mcp_url:
+        if mcp_url and as_bool(get_config("mcp.mcp_enabled")):
             mcp_servers.append({"url": mcp_url, "name": "writeragent", "type": "http", "headers": []})
 
         params = {"cwd": os.getcwd(), "mcpServers": mcp_servers}
