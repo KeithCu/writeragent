@@ -32,6 +32,7 @@ def search_paragraph_texts(
     case_sensitive: bool = False,
     max_results: int = 20,
     context_paragraphs: int = 1,
+    stop_checker: Any = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Search *para_texts* for *pattern*; return (matches up to max_results, total_count)."""
     if not pattern:
@@ -50,6 +51,8 @@ def search_paragraph_texts(
     total_count = 0
 
     for i, ptext in enumerate(para_texts):
+        if stop_checker and stop_checker():
+            break
         if not ptext:
             continue
 
