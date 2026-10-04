@@ -1209,7 +1209,7 @@ def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixtu
     pr = _make_proofreader()
 
     with patch.object(pr, "_active_grammar_provider", return_value="languagetool"):
-        res = pr.doProofreading("test-doc", "Some text.", mock_locale_fixture, 0, 10, ())
+        pr.doProofreading("test-doc", "Some text.", mock_locale_fixture, 0, 10, ())
 
     mock_queue_fixture.enqueue.assert_called_once()
     item = mock_queue_fixture.enqueue.call_args[0][0]
