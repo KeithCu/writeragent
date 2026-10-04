@@ -302,6 +302,9 @@ def test_manage_tracked_changes_accept():
     def mock_dispatch(*args, **kwargs): count_val[0] = 0
     dispatcher.executeDispatch.side_effect = mock_dispatch
 
+    # Mock redlines.getCount() before and after
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
+
     res = tool.execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
     ctx.doc.getCurrentController().select.assert_called_with(span_cursor)
@@ -327,6 +330,9 @@ def test_manage_tracked_changes_reject():
     ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
     def mock_dispatch(*args, **kwargs): count_val[0] = 0
     dispatcher.executeDispatch.side_effect = mock_dispatch
+
+    # Mock redlines.getCount() before and after
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
 
     res = tool.execute(ctx, action="reject", index=0)
     assert res["status"] == "ok"
