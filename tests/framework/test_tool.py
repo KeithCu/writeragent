@@ -1402,3 +1402,113 @@ def test_execute_bypass_thread_guard_allows_background_thread() -> None:
     assert out == {"status": "ok"}
     assert calls == ["execute"]
 
+
+def _guard_probe_registry():
+    """Sync tool whose execute/execute_safe record which runner ran."""
+    calls: list[str] = []
+    seen: list[dict] = []
+
+    class DummyTool:
+        name = "dummy_sync"
+        description = "x"
+        parameters = {"type": "object", "properties": {"note": {"type": "string"}}}
+        uno_services = None
+        doc_types = None
+
+        def get_parameters(self, doc_type=None):
+            return self.parameters
+
+        def get_description(self, doc_type=None):
+            return self.description
+
+        def validate(self, *, doc_type=None, **kwargs):
+            return True, None
+
+        def is_async(self):
+            return False
+
+        def execute(self, ctx, **kwargs):
+            calls.append("execute")
+            seen.append(dict(kwargs))
+            return {"status": "ok", "note": kwargs.get("note")}
+
+        def execute_safe(self, ctx, **kwargs):
+            calls.append("execute_safe")
+            seen.append(dict(kwargs))
+            return {"status": "ok", "note": kwargs.get("note")}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(DummyTool())  # type: ignore[arg-type]
+    ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
+    return reg, ctx, calls, seen
+
+
+def test_execute_explicit_bypass_with_spread_params_still_skips_guard() -> None:
+    """tools_lo passes the keyword and then **params. That must still bypass."""
+    reg, ctx, calls, seen = _guard_probe_registry()
+    marshalled: list[str] = []
+
+    def fake_marshal(fn):
+        marshalled.append("marshal")
+        return fn()
+
+    params = {"note": "keep"}
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        # Same shape as tools_lo: keyword, then **params. A dict literal
+        # spread is a different bytecode path and is not this contract.
+        out = reg.execute("dummy_sync", ctx, bypass_thread_guard=True, **params)
+
+    assert out == {"status": "ok", "note": "keep"}
+    assert calls == ["execute"]
+    assert seen == [{"note": "keep"}]
+    assert marshalled == []
+
+
+@pytest.mark.parametrize("bypass", [True, 1, "yes"])
+def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
+    """A **dict must not skip execute_safe, even when the value is truthy.
+
+    What was wrong: the keyword-only parameter bound JSON true before
+    without_unknown_kwargs ran, so the sync tool ran on the worker.
+    """
+    reg, ctx, calls, seen = _guard_probe_registry()
+    marshalled: list[str] = []
+    box: dict = {}
+
+    def fake_marshal(fn):
+        marshalled.append("marshal")
+        return fn()
+
+    args = {"bypass_thread_guard": bypass, "note": "keep"}
+
+    def bg():
+        box["out"] = reg.execute("dummy_sync", ctx, **args)
+
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        worker = threading.Thread(target=bg, name="tool-sync-probe")
+        worker.start()
+        worker.join()
+
+    assert marshalled == ["marshal"]
+    assert calls == ["execute_safe"]
+    assert seen == [{"note": "keep"}]
+    assert box["out"] == {"status": "ok", "note": "keep"}
+
+
+def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
+    """A dict literal spread is not an explicit bypass_thread_guard keyword."""
+    reg, ctx, calls, seen = _guard_probe_registry()
+    marshalled: list[str] = []
+
+    def fake_marshal(fn):
+        marshalled.append("marshal")
+        return fn()
+
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        out = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": True, "note": "keep"})
+
+    assert marshalled == ["marshal"]
+    assert calls == ["execute_safe"]
+    assert seen == [{"note": "keep"}]
+    assert out == {"status": "ok", "note": "keep"}
+
