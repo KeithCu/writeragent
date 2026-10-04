@@ -1092,6 +1092,7 @@ class UpsertChart(ToolBaseDummy):
             except Exception as e:
                 log.debug("Failed direct chart_doc model update: %s", e)
 
+        import time
         _process_events(ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
 
@@ -1127,6 +1128,7 @@ class UpsertChart(ToolBaseDummy):
             chart_doc.setDiagram(chart_doc.createInstance(service))
             _apply_chart_styling(chart_doc, **kwargs)
 
+        import time
         _process_events(ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
 
