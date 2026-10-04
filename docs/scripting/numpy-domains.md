@@ -113,6 +113,8 @@ flowchart TD
 
 **Data handoff:** Reuse [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) and [`payload_codec`](../../plugin/scripting/payload_codec.py) split-grid. For LLM/sub-agent paths, pass **`data_range`** (late binding) rather than full grids in chat context — see [Analysis Sub-Agent — Data Handoff](../calc/analysis-sub-agent.md#data-handoff--context-limits-out-of-band-data).
 
+**Sheet layout flags:** `headers` and `header_row` sit on the spec next to `helper`, not inside `params`. The host client copies them onto the trusted-action packet, and the worker puts them back on the spec before `parse_trusted_spec`. Dropping them defaulted `headers` to true, so `headers=false` from `forecast_data` / `optimize_data` read the first data row as column names.
+
 **Visualization note:** Phase A uses the venv worker and `__wa_payload__: "image"` envelope for raw matplotlib (no trusted module required). **Phases B–C shipped:** Run Python Script image egress and trusted Viz helpers (`viz.py`, `[Viz]` templates, `plot_data`, analysis auto-plot).
 
 ### New Domain Proposals
@@ -162,7 +164,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 | Figure → bytes | [`venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
 | Wire format | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `is_image_payload()`; shared temp-file helper |
 | Calc `=PYTHON()` | [`python_function.py`](../../plugin/calc/python/function.py), [`python_image_egress.py`](../../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to formula cell on its owning sheet |
-| Chat / LLM | [`venv_python.py`](../../plugin/calc/python/venv.py) | **Calc:** auto-insert on active sheet + `image_path`. **Writer/Draw:** `image_path` → `image_insert` |
+| Chat / LLM | [`venv.py`](../../plugin/calc/python/venv.py) | **Calc:** auto-insert on the tool document (`ctx.doc`), not the front window, plus `image_path`. **Writer/Draw:** `image_path` → `image_insert` |
 | Writer notebook | [`notebook_runner.py`](../../plugin/notebook/notebook_runner.py) | Inline image insert (SVG + PNG) on notebook cell run |
 | LLM prompts | [`import_policy.py`](../../plugin/scripting/import_policy.py) | App-specific `format_matplotlib_plot_hint()` (Calc / Writer / Draw); not in global import policy |
 | LLM sandbox | [`sandbox.py`](../../plugin/scripting/sandbox.py) | `matplotlib`, `seaborn` whitelisted |
@@ -177,7 +179,7 @@ plt.plot([1, 2, 3])
 ```
 
 ```text
-# Calc chat — one step (plot inserts on active sheet; image_path still returned)
+# Calc chat — one step (plot inserts on the tool document, not whichever window is in front; image_path still returned)
 run_venv_python_script(code="… plt.plot(…) …")
 
 # Writer / Draw chat — two steps
@@ -188,6 +190,8 @@ run_venv_python_script(code="… plt.plot(…) …")
 **Native LO charts** ([`charts.py`](../../plugin/calc/charts.py) — `UpsertChart`, `ListCharts`, …) are a **separate** UNO chart path, not matplotlib. The LLM can already create native Calc/Writer charts from structured data; Viz helpers complement that with statistical plotting (seaborn, heatmaps, distribution plots).
 
 **Known limitations:** No UNO e2e test for full `=PYTHON()` plot insertion (geometry unit-tested with mocks). Multiple open figures are merged into one vertical stack (PNG). Optional polish (anchor/z-order, replace-existing-chart, UNO e2e): [Monaco Phase 3](monaco-editor-dev-plan.md#phase-3--broader-surfaces).
+
+Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot` (or `WriterAgentPlot_N`) anchored at the target cell. User images and other shapes at that cell are left alone; a plot from before the name prefix gets a new sibling instead of being guessed. A missing document, sheet, draw page, or formula cell raises `ImageEgressError`. Chat tools set `image_inserted` false. On the main thread, `=PY()` returns that error instead of "Image inserted" (an off-main recalc still posts the insert and returns before the draw page is touched). The temp PNG/SVG is removed after `GraphicURL` returns.
 
 #### Phase B — Run Python Script + Writer image egress (shipped)
 
@@ -245,6 +249,8 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 **Seasonality:** The period is inferred from the date frequency (daily 7, business-day 5, weekly 52, monthly 12, quarterly 4), and only when the series covers at least two full cycles. Otherwise `model="auto"` stays trend-only and adds a flag. An explicit `seasonal_periods` (or `period` on decompose / anomaly) still wins. Row count alone used to pick 12 whenever there were 24 or more rows, so a daily sheet was fit as a 12-day season. Duplicate timestamps are averaged before the fit. Weekday-only series forecast on business days.
 
+**Holt-Winters intervals:** 95% bands are the 2.5 and 97.5 percentiles of `HoltWintersResults.simulate` paths. That results object has `forecast` / `predict` / `simulate` and no `get_prediction` (`get_prediction` is on ETS and statespace results). Calling `get_prediction` used to raise, get swallowed, and the sheet said intervals were unavailable with no `lower`/`upper`. If simulation cannot build a band, the result keeps the point forecast and sets `metrics.interval_note` (`available: false`) instead of inventing bounds.
+
 **Phase 2 (deferred):**
 
 | Helper | Purpose |
@@ -257,9 +263,11 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 **Run Python Script:** **Forecast Helpers →** `[Forecast] forecast_time_series`, `[Forecast] decompose_time_series`, `[Forecast] anomaly_detection_time_series`.
 
-**Output:** Predictions / decomposition / anomaly tables (analysis egress pattern). `forecast_data` with `auto_plot=true` (or chart keywords in `task_hint`) inserts a confidence-band chart via extended `time_series_plot`.
+**Output:** Predictions / decomposition / anomaly tables (analysis egress pattern). `forecast_data` `output_range` uses the same sheet-qualified anchor as `analyze_data` (`Report.B2`, `'Q1.Sales'!B2`, `'O''Brien'.A1`): the report is written on that sheet. `forecast_data` with `auto_plot=true` (or chart keywords in `task_hint`) inserts a confidence-band chart via extended `time_series_plot`.
 
 **Sub-agent:** [`forecast_data`](../../plugin/calc/forecast.py) in `domain="analysis"` — same delegation as EDA/regression (`optimize_data` precedent); supports `auto_plot` for band charts ([`forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py)).
+
+**Threading:** `forecast_data` and `optimize_data` are async. Sheet reads and result or chart writes run on the LibreOffice main thread. Venv forecast, optimize, and auto-plot viz IPC stay on the worker. Auto-plot history is a `calc_range` envelope from `_resolve_python_data`; [`merge_forecast_plot_data`](../../plugin/calc/forecast_auto_plot.py) materializes that envelope before building the band table. `calc_tool_context` is imported from [`analysis_runner`](../../plugin/calc/analysis_runner.py).
 
 **Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable (`forecast_time_series` with `model="auto"` or `"moving_average"`).
 
@@ -365,7 +373,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 - Plot historical `date`/`value_col` as solid line.
 - Plot forecast segment as dashed line.
 - `ax.fill_between(dates, lower, upper, alpha=0.2)` when intervals exist.
-- Do not invent bands when model omitted intervals (Phase 0 Holt-Winters path may lack CIs).
+- Do not invent bands when the model omitted intervals. Holt-Winters bands are simulation percentiles; if `simulate` fails, the table has no `lower`/`upper` and `metrics.interval_note` says why.
 
 **Files:**
 
@@ -619,11 +627,17 @@ Results are inserted as compact tables and usable from scripts.
 
 **Run Python Script:** **Optimize Helpers →** `[Optimize] portfolio`, `[Optimize] linear_program`.
 
+**Sheet output:** `optimize_data` `output_range` uses the same sheet-qualified anchor as `analyze_data` (`Report.B2`, `'Q1.Sales'!B2`). The parsed sheet is written through the shared Calc tabular egress.
+
 **Tie-in:** Stochastic optimization with existing `monte_carlo` helper.
 
 **Sub-agent:** Extend `domain="analysis"`.
 
 **Packages:** `scipy` (required).
+
+**`linear_programming` layout:** Each row is a variable (`c` is that variable's objective coefficient). Each `a*` column is one `<=` constraint. `b` is one bound per constraint column. The template default `a_cols: ["a1"]` is a single constraint; repeat that same bound on every variable row. If `b` cannot be aligned to the constraint columns, the helper returns `SHAPE_MISMATCH` and does not replace `b` with zeros.
+
+**Quant returns:** `efficient_frontier` reads the sheet as a returns grid, the same contract as `portfolio_tearsheet` and `optimize_portfolio`. PyPortfolioOpt's `mean_historical_return` and `CovarianceShrinkage` default `returns_data=False` (prices, then percent-change). The helper passes `returns_data=True` so a returns sheet does not come back `status: ok` with a corner portfolio.
 
 ---
 

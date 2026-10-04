@@ -23,7 +23,7 @@ def writer_ctx():
 
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.calc.symbolic_math.execute_on_main_thread")
 @patch("plugin.scripting.symbolic.run_trusted_symbolic")
 def test_symbolic_math_happy_path(mock_run, mock_main_thread, mock_insert, writer_ctx):
     mock_run.return_value = {
@@ -48,6 +48,11 @@ def test_symbolic_math_requires_helper(writer_ctx):
     assert result["status"] == "error"
 
 
+def test_symbolic_math_uno_services():
+    tool = SymbolicMathTool()
+    assert tool.uno_services == ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+
+
 def test_symbolic_math_in_python_domain():
     from plugin.main import get_tools
 
@@ -58,3 +63,40 @@ def test_symbolic_math_in_python_domain():
     names = {t.name for t in registry.get_tools(doc=doc, active_domain="python", exclude_tiers=())}
     assert "symbolic_math" in names
     assert "run_venv_python_script" in names
+
+@patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
+@patch("plugin.calc.symbolic_math.execute_on_main_thread")
+@patch("plugin.scripting.symbolic.run_trusted_symbolic")
+def test_symbolic_math_keeps_ipc_off_main_thread(mock_run, mock_main_thread, mock_insert, writer_ctx):
+    inside = {"flag": False}
+
+    def exec_main(fn, *args, **kwargs):
+        inside["flag"] = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            inside["flag"] = False
+
+    def run(*_args, **_kwargs):
+        assert not inside["flag"], "symbolic IPC must not run inside execute_on_main_thread"
+        return {"status": "ok", "helper": "symbolic_simplify", "latex": "x", "text": "x"}
+
+    def write(*_args, **_kwargs):
+        assert inside["flag"], "doc write must run on the main thread"
+
+    mock_main_thread.side_effect = exec_main
+    mock_run.side_effect = run
+    mock_insert.side_effect = write
+
+    from plugin.calc.symbolic_math import SymbolicMathTool
+    tool = SymbolicMathTool()
+    result = tool.execute(
+        writer_ctx,
+        helper="symbolic_simplify",
+        params={"expression": "x"},
+    )
+
+    assert result["status"] == "ok"
+    mock_run.assert_called_once()
+    mock_insert.assert_called_once()
+    mock_main_thread.assert_called_once()

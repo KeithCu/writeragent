@@ -81,10 +81,11 @@ def new_session_id() -> str:
 
 
 def _deal_ipc_dict_ok_pytest(msg: object) -> bool:
-    return type(msg) is dict and len(msg) <= DEAL_MAX_CMD_ARGS and all(
-        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) and (v is None or not isinstance(v, str) or str_bounded(v, DEAL_MAX_TOKEN))
-        for k, v in msg.items()
-    )
+    # Editor IPC carries script source, doc URLs, and stderr. The old pre
+    # capped every string at DEAL_MAX_TOKEN (64) and the dict at 32 keys, so
+    # stamp_session raised PreContractError before it copied the message.
+    # A dict of any size is in domain; the body reads the keys it knows.
+    return isinstance(msg, dict)
 
 
 def _deal_ipc_dict_ok_crosshair(msg: object, allow_nested: bool = True) -> bool:
@@ -204,6 +205,49 @@ def _deal_exc_ok_crosshair(exc: object) -> bool:
 _deal_exc_ok = _deal_exc_ok_crosshair if UNDER_CROSSHAIR else _deal_exc_ok_pytest
 
 
+def _deal_optional_exc_ok_pytest(exc: object) -> bool:
+    # The body formats a real exception and also accepts None.
+    return exc is None or isinstance(exc, BaseException)
+
+
+def _deal_optional_exc_ok_crosshair(exc: object) -> bool:
+    # Symbolic format_exception is not a CrossHair domain.
+    return exc is None
+
+
+# Import-time only. Do not branch inside @deal.pre (CrossHair explores both arms).
+_deal_optional_exc_ok = _deal_optional_exc_ok_crosshair if UNDER_CROSSHAIR else _deal_optional_exc_ok_pytest
+
+
+def _deal_failure_detail_ok_pytest(detail: object = None, exc: object = None) -> bool:
+    # Probe stderr and tracebacks are longer than DEAL_MAX_SOURCE. The length
+    # cap raised PreContractError on the same path as the exc-is-None bug.
+    # The body strips a string and formats a real exception.
+    return (detail is None or isinstance(detail, str)) and _deal_optional_exc_ok(exc)
+
+
+def _deal_failure_detail_ok_crosshair(detail: object = None, exc: object = None) -> bool:
+    return (detail is None or str_bounded(detail, DEAL_MAX_SOURCE)) and exc is None
+
+
+_deal_failure_detail_ok = (
+    _deal_failure_detail_ok_crosshair if UNDER_CROSSHAIR else _deal_failure_detail_ok_pytest
+)
+
+
+def _deal_failure_message_ok_pytest(summary: object, detail: object = None, exc: object = None) -> bool:
+    return isinstance(summary, str) and _deal_failure_detail_ok_pytest(detail, exc)
+
+
+def _deal_failure_message_ok_crosshair(summary: object, detail: object = None, exc: object = None) -> bool:
+    return str_bounded(summary, DEAL_MAX_SOURCE) and _deal_failure_detail_ok_crosshair(detail, exc)
+
+
+_deal_failure_message_ok = (
+    _deal_failure_message_ok_crosshair if UNDER_CROSSHAIR else _deal_failure_message_ok_pytest
+)
+
+
 @deal.pre(lambda exc: _deal_exc_ok(exc))
 def exception_traceback(exc: BaseException) -> str:
     """Full traceback string for *exc*."""
@@ -211,10 +255,15 @@ def exception_traceback(exc: BaseException) -> str:
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
-@deal.pre(
-    lambda detail=None, exc=None: (detail is None or str_bounded(detail, DEAL_MAX_SOURCE))
-    and exc is None
-)
+# What was wrong: the precondition required ``exc is None`` under deal, while
+# the body appends ``exception_traceback(exc)`` whenever ``exc`` is set.
+# How it happened: that domain is the CrossHair profile (no symbolic
+# ``format_exception``) and was left on the pytest profile too.
+# Why this change: ``probe_webview_import`` calls ``failure_detail(exc=e)`` on
+# timeout or ``OSError``. Under deal that raised ``PreContractError`` instead
+# of returning the diagnostic. CrossHair still sees only ``exc is None``.
+# The no-deal runtime is the same body.
+@deal.pre(lambda detail=None, exc=None: _deal_failure_detail_ok(detail, exc))
 @deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
@@ -228,11 +277,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
     return "\n\n".join(chunks)
 
 
-@deal.pre(
-    lambda summary, detail=None, exc=None: str_bounded(summary, DEAL_MAX_SOURCE)
-    and (detail is None or str_bounded(detail, DEAL_MAX_SOURCE))
-    and exc is None
-)
+@deal.pre(lambda summary, detail=None, exc=None: _deal_failure_message_ok(summary, detail, exc))
 @deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""

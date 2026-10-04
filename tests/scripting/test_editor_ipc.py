@@ -105,23 +105,29 @@ def test_failure_message_empty_summary():
     assert failure_message("", detail="", exc=None) == ""
 
 
-def test_failure_detail_rejects_exc_when_deal_present():
-    """exc is None in the pre so CrossHair cannot format_exception a symbolic error."""
-    import deal
-    from tests.harness.strip_bundle import deal_pre_present
+def test_failure_detail_formats_exception_under_deal():
+    """The body formats exc. Deal must allow that call; CrossHair still forces exc is None."""
+    from plugin.framework.deal_shim import UNDER_CROSSHAIR
 
-    if not deal_pre_present(failure_detail):
-        pytest.skip("@deal.pre stripped in release bundle")
     try:
         raise RuntimeError("boom")
     except RuntimeError as e:
-        with pytest.raises(deal.PreContractError):
-            failure_detail(detail="stderr line", exc=e)
-        with pytest.raises(deal.PreContractError):
-            failure_message("Summary", detail=None, exc=e)
+        if UNDER_CROSSHAIR:
+            import deal
+
+            with pytest.raises(deal.PreContractError):
+                failure_detail(detail="stderr line", exc=e)
+            return
+        detail = failure_detail(detail="stderr line", exc=e)
+        msg = failure_message("Summary", detail=None, exc=e)
         tb = exception_traceback(e)
-        assert "RuntimeError: boom" in tb
+    assert "stderr line" in detail
+    assert "RuntimeError: boom" in detail
+    assert detail == f"stderr line\n\n{tb.rstrip()}"
+    assert msg.startswith("Summary\n\n")
+    assert "RuntimeError: boom" in msg
     assert failure_detail(detail="stderr line", exc=None) == "stderr line"
+    assert "ValueError: boom" in failure_detail(exc=ValueError("boom"))
 
 
 def test_stamp_session_always_sends_id_mode_and_target():
@@ -140,6 +146,18 @@ def test_target_from_load_aliases_cell_and_script():
     t = target_from_load({"cell_address": "Sheet1.A1", "selected_script_name": "demo", "mode": "calc_cell"})
     assert t["cell_address"] == "Sheet1.A1"
     assert t["script_name"] == "demo"
+
+
+def test_stamp_session_and_failure_detail_accept_long_text():
+    """Script source and probe stderr are longer than the old deal caps."""
+    from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
+
+    code = "x" * (DEAL_MAX_TOKEN + 50)
+    msg = stamp_session({"type": "save", "code": code}, session_id="abc", mode="run_script")
+    assert msg["code"] == code
+    detail = failure_detail(detail="e" * (DEAL_MAX_SOURCE + 1))
+    assert detail.startswith("e" * 20)
+    assert len(detail) == DEAL_MAX_SOURCE + 1
 
 
 def test_target_identity_key_same_cell_matches():

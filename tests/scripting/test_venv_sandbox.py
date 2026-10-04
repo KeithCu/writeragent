@@ -15,7 +15,68 @@ import pytest
 
 from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
-from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
+from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
+
+
+def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
+    """Stop during a wa.* call must not be a RuntimeError the script can swallow."""
+    from plugin.scripting.ipc import UserStopped
+
+    def boom() -> None:
+        raise UserStopped("Stopped by user.")
+
+    code = "try:\n    boom()\n    result = 'kept going'\nexcept Exception:\n    result = 'caught'\n"
+    out = run_sandboxed_code(code, bindings={"boom": boom}, timeout_sec=5)
+    assert out["status"] == "error"
+    assert out["code"] == "USER_STOPPED"
+    assert "Stopped by user" in out["message"]
+    assert out.get("result") != "caught"
+
+
+def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force local_python_executor.timeout onto its ThreadPoolExecutor path."""
+    import signal
+
+    real_signal = signal.signal
+
+    def _signal(signum, handler):
+        if signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", _signal)
+
+
+def test_timeout_fallback_keeps_sandbox_session_context(monkeypatch: pytest.MonkeyPatch):
+    """Windows / non-main timeout thread must still see the workbook session."""
+    from plugin.scripting.venv.venv_sandbox import current_sandbox_session_id, sandbox_execute_active
+
+    _refuse_sigalrm(monkeypatch)
+    seen: dict[str, object] = {}
+
+    def probe() -> int:
+        seen["sid"] = current_sandbox_session_id()
+        seen["active"] = sandbox_execute_active()
+        return 1
+
+    isolated = run_sandboxed_code("result = probe()", bindings={"probe": probe}, timeout_sec=8)
+    assert isolated["status"] == "ok", isolated
+    assert seen["sid"] is None
+    assert seen["active"] is True
+
+    sid = "calc:file:///timeout-fallback-workbook"
+    try:
+        shared = run_sandboxed_code(
+            "result = probe()",
+            bindings={"probe": probe},
+            session_id=sid,
+            timeout_sec=8,
+        )
+        assert shared["status"] == "ok", shared
+        assert seen["sid"] == sid
+        assert seen["active"] is True
+    finally:
+        reset_sandbox_session(sid)
 
 
 def test_run_sandboxed_code_injects_bindings():
@@ -53,6 +114,76 @@ def test_pandas_timestamp_round_trips_as_iso():
     buf.seek(0)
     unpacked = read_pickle_frame(buf, require_dict=True)
     assert host_unpack_data(unpacked["result"]) == "2026-08-13T14:30:00"
+
+
+def test_serialize_nested_dataframe_and_figure():
+    """Nested containers must take the custom serialize path, not child_pack."""
+    pd = pytest.importorskip("pandas")
+    matplotlib = pytest.importorskip("matplotlib")
+    # pyplot's default backend is Qt here and aborts without a display.
+    matplotlib.use("Agg", force=True)
+    from matplotlib.figure import Figure
+
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df1 = pd.DataFrame({"a": [1]})
+    df2 = pd.DataFrame({"b": [2]})
+    sheets = serialize_result({"sheets": [df1, df2]})
+    assert is_dataframe_payload(sheets["sheets"][0])
+    assert is_dataframe_payload(sheets["sheets"][1])
+    assert sheets["sheets"][0]["columns"] == ["a"]
+
+    fig = Figure()
+    fig.add_subplot(111).plot([1, 2])
+    wrapped = serialize_result([{"stats": df1, "plot": fig}])
+    assert is_dataframe_payload(wrapped[0]["stats"])
+    assert wrapped[0]["plot"]["__wa_payload__"] == "image"
+
+
+def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatch):
+    """A shared executor must not treat a previous cell's scoped_dir as the host folder."""
+    seen: list[str | None] = []
+
+    def _fake_run_sql(sql, con=None, files=None, scoped_dir=None, **kwargs):
+        del sql, con, files, kwargs
+        seen.append(scoped_dir)
+        return 1
+
+    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.run_sql", _fake_run_sql)
+    sid = "calc:scoped-dir-leak"
+    host = str(tmp_path)
+    try:
+        first = run_sandboxed_code(
+            "scoped_dir = '/tmp/not-the-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            bindings={"scoped_dir": host},
+            session_id=sid,
+            timeout_sec=10,
+        )
+        assert first["status"] == "ok", first
+        assert seen == [host]
+
+        second = run_sandboxed_code(
+            "result = run_sql('select 1', files=['a.csv'])",
+            session_id=sid,
+            timeout_sec=10,
+        )
+        assert second["status"] == "ok", second
+        assert seen == [host, None]
+
+        leaked = run_sandboxed_code("result = scoped_dir", session_id=sid, timeout_sec=10)
+        assert leaked["status"] == "error", leaked
+
+        other = str(tmp_path / "other")
+        rebound = run_sandboxed_code(
+            "scoped_dir = '/tmp/still-not-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            bindings={"scoped_dir": other},
+            session_id=sid,
+            timeout_sec=10,
+        )
+        assert rebound["status"] == "ok", rebound
+        assert seen[-1] == other
+    finally:
+        reset_sandbox_session(sid)
 
 
 def test_unknown_result_type_stays_in_the_child():

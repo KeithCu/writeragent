@@ -12,11 +12,25 @@ from __future__ import annotations
 import datetime as dt
 import builtins
 import math
+import operator
 from typing import Any
 
 import numpy as np
 
-from .coerce import is_missing_value
+from .calc_functions_util import (
+    _bessel_iv_jv,
+    _bessel_kn_yn,
+    _collect_a_values,
+    _criteria_numbers,
+    _extract_numeric_array,
+    _int_bitwise,
+    _int_shift,
+    _npf_result,
+    _simple_accrual,
+    _to_float_a,
+    match_criteria,
+)
+from .coerce import header_label, is_missing_value
 
 
 __all__ = [
@@ -86,8 +100,25 @@ __all__ = [
 
 
 def _coup_days_in_period(frequency: Any, basis: Any) -> float:
-    f = int(float(frequency))
-    b = int(float(basis))
+    # int(float(inf)) and int(float(1e309)) raise OverflowError. That used to
+    # run before the f<=0 guard, so a non-finite frequency never reached it.
+    # Callers catch Exception, but the guard has to stay reachable.
+    try:
+        freq = float(frequency)
+    except (TypeError, ValueError, OverflowError):
+        return float("nan")
+    if not math.isfinite(freq) or freq <= 0:
+        return float("nan")
+    try:
+        f = int(freq)
+        b = int(float(basis))
+    except (TypeError, ValueError, OverflowError):
+        return float("nan")
+    # Zero used to divide by zero. A negative frequency made days_in_period
+    # negative, so _get_coupon_dates walked prev_ord upward and never returned.
+    # Truncation (frequency 0.4) is still non-positive after int().
+    if f <= 0:
+        return float("nan")
     if b in (0, 2, 4):
         return 360.0 / f
     if b == 3:
@@ -112,29 +143,45 @@ def _days_between(d1: float, d2: float, basis: int) -> float:
 
 def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any]:
     """Shared helper for D* functions."""
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     db_arr = np.asarray(db, dtype=object)
     if db_arr.ndim != 2:
         return []
-    headers = [str(h).upper() for h in db_arr[0]]
+    headers = [header_label(h).upper() for h in db_arr[0]]
 
     f_idx = -1
-    if field is not None and field != "":
+    # int/float is a 1-based column index. Numeric text such as "2024" is a
+    # header name. int(float("2024"))-1 used to select a column past the grid,
+    # so DSUM of that field returned 0.
+    if isinstance(field, str) or isinstance(field, bool):
+        f_name = header_label(field).upper()
+        if f_name in headers:
+            f_idx = headers.index(f_name)
+    elif isinstance(field, (int, float)):
         try:
-            f_idx = int(float(field)) - 1
-        except (ValueError, TypeError):
-            f_name = str(field).upper()
-            if f_name in headers:
-                f_idx = headers.index(f_name)
+            f_idx = int(field) - 1
+        except (ValueError, TypeError, OverflowError):
+            f_idx = -1
+    elif field is not None and field != "":
+        # numpy scalars are not int/float subclasses. Prefer a matching header
+        # name so a numeric-looking label is not consumed as an index.
+        f_name = header_label(field).upper()
+        if f_name in headers:
+            f_idx = headers.index(f_name)
+        else:
+            try:
+                f_idx = int(float(field)) - 1
+            except (ValueError, TypeError, OverflowError):
+                f_idx = -1
 
     if f_idx < 0 or f_idx >= db_arr.shape[1]:
         return []
 
-    crit_arr = np.asarray(criteria)
+    # Text headers beside numbers must stay object. The default asarray upcasts
+    # that block to a string dtype, so a numeric criterion 1 becomes "1".
+    crit_arr = np.asarray(criteria, dtype=object)
     if crit_arr.ndim != 2:
         return []
-    crit_headers = [str(h).upper() for h in crit_arr[0]]
+    crit_headers = [header_label(h).upper() for h in crit_arr[0]]
 
     matching_vals = []
     for r_idx in range(1, db_arr.shape[0]):
@@ -169,18 +216,30 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
     return matching_vals
 
 
+def _complex_coeff(n: float) -> str:
+    """Integer-valued floats must not stringify with a trailing '.0'.
+
+    str(5.0) is '5.0'. Calc COMPLEX(5, 2) is '5+2i', and COMPLEX(5, 0) is '5'.
+    """
+    if math.isfinite(n) and n.is_integer():
+        return str(int(n))
+    return str(n)
+
+
 def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
     """Convert Python complex to Calc string."""
     if not isinstance(c, builtins.complex):
         return str(c)
     real = c.real
     imag = c.imag
+    # imag == 0 used to return str(real), so COMPLEX(5, 0) was "5.0".
+    # Calc omits a zero imaginary part: COMPLEX(5, 0) is "5".
     if imag == 0:
-        return str(real)
+        return _complex_coeff(real)
 
     res = ""
     if real != 0:
-        res += str(real)
+        res += _complex_coeff(real)
         if imag > 0:
             res += "+"
 
@@ -189,7 +248,7 @@ def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
     elif imag == -1:
         res += "-" + suffix
     else:
-        res += str(imag) + suffix
+        res += _complex_coeff(imag) + suffix
     return res
 
 
@@ -206,6 +265,10 @@ def _get_coupon_dates(settlement: Any, maturity: Any, frequency: Any, basis: Any
 
     # Approx based on frequency days
     days_in_period = _coup_days_in_period(frequency, basis)
+    # Non-positive (including the NaN from a bad frequency) must not enter the
+    # walk: subtracting a negative step increases prev_ord forever.
+    if not math.isfinite(days_in_period) or days_in_period <= 0:
+        raise ValueError("non-positive coupon frequency")
 
     # walk backwards from maturity
     curr_ord = float(mat_ord)
@@ -229,18 +292,6 @@ def _to_complex(val: Any) -> builtins.complex:
         raise TypeError("Invalid complex string")
 
 
-def _to_float_a(val: Any) -> float:
-    """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
-    if is_missing_value(val):
-        return 0.0
-    if isinstance(val, bool):
-        return 1.0 if val else 0.0
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return 0.0
-
-
 def _year_frac(d1: float, d2: float, basis: int) -> float:
     # duration and intrate used this; accrint used yearfrac.
     from plugin.scripting.venv.calc_functions_t_z import yearfrac
@@ -249,31 +300,11 @@ def _year_frac(d1: float, d2: float, basis: int) -> float:
 
 
 def accrint(issue: Any, first_interest: Any, settlement: Any, rate: Any, par: Any, frequency: Any, basis: Any = 0, calc_method: Any = True) -> float:
-    from plugin.scripting.venv.calc_functions_t_z import yearfrac
-
-    try:
-        r = float(rate)
-        p = float(par)
-        yf = yearfrac(issue, settlement, basis)
-        if math.isnan(yf):
-            return float("nan")
-        return float(p * r * yf)
-    except Exception:
-        return float("nan")
+    return _simple_accrual(issue, settlement, rate, par, basis)
 
 
 def accrintm(issue: Any, settlement: Any, rate: Any, par: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_t_z import yearfrac
-
-    try:
-        r = float(rate)
-        p = float(par)
-        yf = yearfrac(issue, settlement, basis)
-        if math.isnan(yf):
-            return float("nan")
-        return float(p * r * yf)
-    except Exception:
-        return float("nan")
+    return _simple_accrual(issue, settlement, rate, par, basis)
 
 
 def acot(x: Any) -> float:
@@ -295,9 +326,18 @@ def acoth(x: Any) -> float:
 
 
 def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = None) -> str:
-    r = int(float(row))
-    c = int(float(col))
-    abs_n = int(float(abs_num))
+    # int(float()) raises ValueError for text/NaN and OverflowError for inf.
+    # Those used to escape the helper; Excel ADDRESS returns #VALUE!.
+    try:
+        r = int(float(row))
+        c = int(float(col))
+        abs_n = int(float(abs_num))
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
+    # Excel ADDRESS rejects a row or column below 1 with #VALUE!. int() of 0
+    # or a negative used to build "$A$0" or an empty column letter.
+    if r < 1 or c < 1:
+        return "#VALUE!"
     is_a1 = bool(a1)
 
     if is_a1:
@@ -323,42 +363,64 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
 
 
 def aggregate(function_num: Any, options: Any, *args: Any) -> float:
+    # Excel/Calc option codes (Microsoft AGGREGATE): ignore errors on 2, 3, 6, 7
+    # and hidden rows on 1, 3, 5, 7. The old sets were swapped, so NaNs were
+    # stripped for hidden-row options and kept for the error-ignore options.
+    # Hidden rows need sheet visibility this helper does not have, so 1/3/5/7
+    # only differ here by whether they also ignore errors (3 and 7).
+    # dtype=float on a whole argument raised ValueError for any text cell and
+    # the broad except turned that into NaN for the call. Text is ignored per
+    # cell (numeric aggregates); COUNTA still counts it.
     try:
         fn = int(float(function_num))
         opt = int(float(options))
-        vals: list[float] = []
+        numeric: list[float] = []
+        n_text = 0
         for arg in args:
-            vals.extend(np.asarray(arg, dtype=float).ravel().tolist())
+            for x in np.asarray(arg, dtype=object).ravel():
+                if isinstance(x, str):
+                    if is_missing_value(x):
+                        # Blank strings are ignored. Error tokens stay NaN unless
+                        # the option below strips them.
+                        if x.strip() != "":
+                            numeric.append(float("nan"))
+                        continue
+                    n_text += 1
+                    continue
+                try:
+                    numeric.append(float(x))
+                except (ValueError, TypeError, OverflowError):
+                    continue
 
-        arr = np.array(vals, dtype=float)
-        # Handle ignore options
-        if opt in (4, 5, 6, 7):
-            # Ignore hidden rows (cannot do here), assume same as 0,1,2,3 for now
-            pass
-
-        # Strip NaNs if options ignore errors (1, 3, 5, 7)
-        if opt in (1, 3, 5, 7):
+        arr = np.asarray(numeric, dtype=float)
+        if opt in (2, 3, 6, 7):
             arr = arr[~np.isnan(arr)]
 
         # Simplified implementations for most common
         if fn == 1:
-            return float(np.mean(arr))
+            # Empty after dropping text/errors is #DIV/0! in Calc; avoid the
+            # RuntimeWarning from np.mean([]).
+            return float(np.mean(arr)) if arr.size else float("nan")
         if fn == 2:
             return float(np.sum(~np.isnan(arr)))
         if fn == 3:
-            return float(len(arr))
+            return float(len(arr) + n_text)
         if fn == 4:
             return float(np.nanmax(arr))
         if fn == 5:
             return float(np.nanmin(arr))
         if fn == 6:
-            return float(np.prod(arr))
+            # np.prod([]) is 1. Calc AGGREGATE PRODUCT is 0 when ignore-errors
+            # or text leaves no numbers (AGGREGATE(6,6,NA(),NA()) is 0).
+            return float(np.prod(arr)) if arr.size else 0.0
         if fn == 7:
             return float(np.std(arr, ddof=1))
         if fn == 8:
             return float(np.std(arr, ddof=0))
         if fn == 9:
-            return float(np.sum(arr))
+            # np.sum([]) is already 0. That matches Calc AGGREGATE SUM after an
+            # ignore-errors option strips every value.
+            return float(np.sum(arr)) if arr.size else 0.0
         if fn == 10:
             return float(np.var(arr, ddof=1))
         if fn == 11:
@@ -448,51 +510,37 @@ def asc(text: Any) -> str:
         return "#VALUE!"
 
 
-def avedev(r: Any) -> float:
-    arr = np.asarray(r, dtype=float).ravel()
-    arr = arr[~np.isnan(arr)]
+def avedev(*args: Any) -> float:
+    # Excel/Calc AVEDEV ignores text and logicals.
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size:
         return float("nan")
     return float(np.mean(np.abs(arr - np.mean(arr))))
 
 
-def averagea(r: Any) -> float:
-    vals = []
-    for x in np.asarray(r).ravel():
-        if is_missing_value(x):
-            vals.append(0.0)
-        else:
-            try:
-                vals.append(float(x))
-            except (ValueError, TypeError):
-                vals.append(0.0)
-    if not vals:
+def averagea(*args: Any) -> float:
+    # Blank, None, and whitespace stay in the denominator as 0, same as text.
+    # Calc AVERAGEA(10,"",20) is 10. Skipping those values made this 15 and
+    # failed the spreadsheet-import translate test. _collect_a_values maps
+    # missing cells through _to_float_a, which returns 0 for them.
+    vals = _collect_a_values(*args)
+    if not vals.size:
         return float("nan")
     return float(np.mean(vals))
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
-    r_flat = np.asarray(r).ravel()
-    ar_flat = np.asarray(ar).ravel() if ar is not None else r_flat
-    vals = []
-    for i in range(min(len(r_flat), len(ar_flat))):
-        if match_criteria(r_flat[i], crit):
-            try:
-                val = float(ar_flat[i])
-                if not np.isnan(val):
-                    vals.append(val)
-            except (ValueError, TypeError):
-                pass
+    vals = _criteria_numbers(r, crit, ar)
     if not vals:
         return float("nan")
     return float(np.mean(vals))
 
 
-def averageifs(ar: Any, *args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
+def averageifs(ar: Any, *args: Any) -> float | str:
+    # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
+    # and raised IndexError.
+    if len(args) % 2 != 0:
+        return "#VALUE!"
     ar_flat = np.asarray(ar).ravel()
     cond_ranges = []
     criteria = []
@@ -533,8 +581,10 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         n = int(float(number))
         r = int(float(radix))
         m = int(float(min_length))
+        # Literal "NaN" is not a Calc error token, so bad BASE input showed up as
+        # text. Excel/Calc BASE returns #NUM! for a bad number, radix, or length.
         if n < 0 or r < 2 or r > 36 or m < 0:
-            return "NaN"
+            return "#NUM!"
         if n == 0:
             return "0".zfill(m)
         digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -544,18 +594,14 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
             n //= r
         return res.zfill(m)
     except Exception:
-        return "NaN"
+        return "#NUM!"
 
 
 def besseli(x: Any, n: Any) -> float:
     try:
         import scipy.special  # type: ignore[import-untyped]
 
-        v1 = float(x)
-        v2 = int(float(n))
-        if v2 < 0:
-            return float("nan")
-        return float(scipy.special.iv(v2, v1))
+        return _bessel_iv_jv(scipy.special.iv, x, n)
     except Exception:
         return float("nan")
 
@@ -564,11 +610,7 @@ def besselj(x: Any, n: Any) -> float:
     try:
         import scipy.special
 
-        v1 = float(x)
-        v2 = int(float(n))
-        if v2 < 0:
-            return float("nan")
-        return float(scipy.special.jv(v2, v1))
+        return _bessel_iv_jv(scipy.special.jv, x, n)
     except Exception:
         return float("nan")
 
@@ -577,11 +619,7 @@ def besselk(x: Any, n: Any) -> float:
     try:
         from scipy.special import kn
 
-        xv = float(x)
-        nv = int(float(n))
-        if xv <= 0:
-            return float("nan")
-        return float(kn(nv, xv))
+        return _bessel_kn_yn(kn, x, n)
     except Exception:
         return float("nan")
 
@@ -590,11 +628,7 @@ def bessely(x: Any, n: Any) -> float:
     try:
         from scipy.special import yn
 
-        xv = float(x)
-        nv = int(float(n))
-        if xv <= 0:
-            return float("nan")
-        return float(yn(nv, xv))
+        return _bessel_kn_yn(yn, x, n)
     except Exception:
         return float("nan")
 
@@ -661,53 +695,35 @@ def binomdist(*args: Any) -> float:
 
 
 def bitand(n1: Any, n2: Any) -> float:
-    try:
-        return float(int(float(n1)) & int(float(n2)))
-    except (ValueError, TypeError):
-        return float("nan")
+    return _int_bitwise(operator.and_, n1, n2)
 
 
 def bitlshift(number: Any, shift: Any) -> float:
-    try:
-        n = int(float(number))
-        s = int(float(shift))
-        if s < 0:
-            return float(n >> abs(s))
-        return float(n << s)
-    except (ValueError, TypeError):
-        return float("nan")
+    return _int_shift(number, shift, left=True)
 
 
 def bitor(n1: Any, n2: Any) -> float:
-    try:
-        return float(int(float(n1)) | int(float(n2)))
-    except (ValueError, TypeError):
-        return float("nan")
+    return _int_bitwise(operator.or_, n1, n2)
 
 
 def bitrshift(number: Any, shift: Any) -> float:
-    try:
-        n = int(float(number))
-        s = int(float(shift))
-        if s < 0:
-            return float(n << abs(s))
-        return float(n >> s)
-    except (ValueError, TypeError):
-        return float("nan")
+    return _int_shift(number, shift, left=False)
 
 
 def bitxor(n1: Any, n2: Any) -> float:
-    try:
-        return float(int(float(n1)) ^ int(float(n2)))
-    except (ValueError, TypeError):
-        return float("nan")
+    return _int_bitwise(operator.xor, n1, n2)
 
 
 def char(n: Any) -> str:
+    # Bad input used to return "" (and inf escaped as OverflowError). chr() also
+    # accepts code points above 255; Excel/Calc CHAR returns #VALUE! for those.
     try:
-        return chr(int(float(n)))
-    except (ValueError, TypeError):
-        return ""
+        code = int(float(n))
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
+    if code < 0 or code > 255:
+        return "#VALUE!"
+    return chr(code)
 
 
 def chidist(x: Any, df: Any) -> float:
@@ -733,7 +749,8 @@ def choose(index: Any, *args: Any) -> Any:
         idx = int(float(index))
         if 1 <= idx <= len(args):
             return args[idx - 1]
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         pass
     return None
 
@@ -745,7 +762,9 @@ def clean(text: Any) -> str | float:
         if isinstance(text, float) and math.isnan(text):
             return float("nan")
         s = str(text)
-        return "".join(c for c in s if ord(c) >= 32)
+        # Excel CLEAN removes C0 controls (ord < 32) and DEL (U+007F). The
+        # ord < 32 filter left chr(127) in the result.
+        return "".join(c for c in s if ord(c) >= 32 and ord(c) != 127)
     except (ValueError, TypeError):
         return float("nan")
 
@@ -761,7 +780,8 @@ def code(s: Any) -> float:
 def combin(n: Any, k: Any) -> float:
     try:
         return float(math.comb(int(float(n)), int(float(k))))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
@@ -772,7 +792,8 @@ def combina(n: Any, k: Any) -> float:
         if ni == 0 and ki == 0:
             return 1.0
         return float(math.comb(ni + ki - 1, ki))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
@@ -815,8 +836,6 @@ def coth(x: Any) -> float:
 
 
 def countif(r: Any, crit: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     r_flat = np.asarray(r).ravel()
     cnt = 0
     for val in r_flat:
@@ -825,9 +844,11 @@ def countif(r: Any, crit: Any) -> float:
     return float(cnt)
 
 
-def countifs(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
+def countifs(*args: Any) -> float | str:
+    # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
+    # and raised IndexError.
+    if len(args) % 2 != 0:
+        return "#VALUE!"
     cond_ranges = []
     criteria = []
     for i in range(0, len(args), 2):
@@ -956,31 +977,15 @@ def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, t
         p = float(pv)
         s = int(float(start_period))
         e = int(float(end_period))
-        t = int(float(type_val))
-
-        if r == 0:
-            pmt_amt = -p / n
-        else:
-            factor = (1 + r) ** n
-            if t == 1:
-                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
-            else:
-                pmt_amt = -(p * factor) * r / (factor - 1)
-
-        tot_i = 0.0
-        rem_p = p
-        for i in range(1, e + 1):
-            if t == 1 and i == 1:
-                ipmt = 0.0
-            else:
-                ipmt = rem_p * r
-            ppmt = pmt_amt - (-ipmt)
-            if s <= i <= e:
-                tot_i += -ipmt
-            rem_p -= -ppmt
-        return float(tot_i)
-    except Exception:
+        t = 1 if int(float(type_val)) == 1 else 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
+    if r < 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
+        return float("nan")
+    if r == 0:
+        return 0.0
+    pers = np.arange(s, e + 1)
+    return _npf_result("ipmt", r, pers, n, p, 0, t)
 
 
 def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
@@ -990,29 +995,13 @@ def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, 
         p = float(pv)
         s = int(float(start_period))
         e = int(float(end_period))
-        t = int(float(type_val))
-
-        if r == 0:
-            pmt_amt = -p / n
-        else:
-            factor = (1 + r) ** n
-            if t == 1:
-                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
-            else:
-                pmt_amt = -(p * factor) * r / (factor - 1)
-
-        tot_p = 0.0
-        rem_p = p
-        for i in range(1, e + 1):
-            if t == 1 and i == 1:
-                ipmt = 0.0
-            else:
-                ipmt = rem_p * r
-            ppmt = pmt_amt - (-ipmt)
-            if s <= i <= e:
-                tot_p += ppmt
-            rem_p -= -ppmt
-
-        return float(tot_p)
-    except Exception:
+        t = 1 if int(float(type_val)) == 1 else 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
+    if r < 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
+        return float("nan")
+    if r == 0:
+        return float(-p * (e - s + 1) / n)
+    pers = np.arange(s, e + 1)
+    return _npf_result("ppmt", r, pers, n, p, 0, t)
+

@@ -79,7 +79,7 @@ To guarantee complete frame assembly over asynchronous UNIX pipe crossings, `Pyt
 - **Write frame:** `pickle.dumps(request, protocol=5)` → 4-byte big-endian length (`struct.pack("!I", N)`) → `N` raw bytes on the pipe.
 - **Read frame:** read exactly 4 bytes → `_read_exact(N)` with `select` + blocking read → `pickle.loads(payload)`.
 
-Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`; set `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, `PYTHONDONTWRITEBYTECODE=1`; on timeout/crash, kill the worker **process tree** (POSIX `setsid` + `killpg`; Windows `taskkill /F /T /PID`) so joblib/loky grandchildren do not outlive the worker. Host read timeouts are **not** retried (that would double the wait); a dead worker is recycled once on the next IPC turn.
+Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`; force `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`, and `PYTHONDONTWRITEBYTECODE=1` even when the parent environment already set those keys. The worker is started with `start_new_session` (a new process group without a fork-unsafe `preexec_fn`). On timeout/crash, kill the worker **process tree** (POSIX `killpg`, including when the direct child has already exited; Windows `taskkill /F /T /PID`) so joblib/loky grandchildren do not outlive the worker. Host `llm_request` frames are dispatched only when `caller` is `ppt_master_venv`. Host read timeouts are **not** retried (that would double the wait); a dead worker is recycled once on the next IPC turn.
 
 ### Request / response fields
 
@@ -103,7 +103,7 @@ Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`
 
 ### Venv ↔ LibreOffice tool RPC
 
-**Current (production):** data-in/data-out for `=PY()` (tool RPC disabled during recalc). **Run Python Script…** / chat `run_venv_python_script` can also send `tool_call` frames on the same Pickle5 pipe; the host dispatches via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) → `ToolRegistry.execute()` and replies until the code-result frame. Optional proxy kwargs that are `None` are omitted so tool defaults apply.
+**Current (production):** data-in/data-out for `=PY()` (tool RPC disabled during recalc). **Run Python Script…** / chat `run_venv_python_script` can also send `tool_call` frames on the same Pickle5 pipe; the host dispatches via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) → `ToolRegistry.execute()` and replies until the code-result frame. Optional proxy kwargs that are `None` are omitted so tool defaults apply. Chat pins `ctx.doc` for that execute (`doc:…`, host-only). `wa.draw` / `wa.shape` bind to that document. The pin is not the worker `session_id`, so Isolated mode still starts a fresh kernel. Run Python Script and PPT-Master keep using their `rps:` / `ppt_master:` ids when no pin is set.
 
 **Wire:** worker writes `{"type": "tool_call", "id", "tool", "args"}`; host replies `{"status", "id", "result"|"message"}`. No extra frame type. Domain allowlists (`python_tool_domain`) stay on the host. Sketch / usage: [core §7 — tool RPC](../enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc).
 
@@ -281,6 +281,7 @@ After unpack, `=PY()` exposes a `CalcRange` (see [data shapes](../calc/py-data-s
 | `np.ndarray` with `np.nan` | `float('nan')` preserved (Calc error on `=PY()` egress) |
 | `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
 | Large numeric array (≥ 100 cells) | `split_grid` on wire; host unpack → nested lists (NaN preserved) |
+| Large string or object ndarray (≥ 100 cells) | `tolist()` then the same strings map as a Python list (not `astype(float64)`) |
 
 Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN](../calc/py-data-shapes.md#empty-cells-vs-nan). Host unpack preserves buffer NaN as `float('nan')`; `to_calc_compatible` maps `None` → `""` and leaves NaN as a double for Calc.
 
@@ -416,7 +417,7 @@ Calc UNO range
   → finalize_python_return / write_formula_range
 ```
 
-Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`) without NumPy. A numeric list stays a list when NumPy is absent; a `split_grid` envelope still needs NumPy in the child.
+Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`) without NumPy. A numeric list stays a list when NumPy is absent; a `split_grid` envelope still needs NumPy in the child. Numeric and mixed-string child unpack both require the float buffer's length to equal `nrows * ncols` before reshape. A short or long mixed buffer raises `ValueError` instead of becoming a different-sized 1D list.
 
 | Stage | Module | What happens | Large dense numeric `data` (shipped path) |
 |-------|--------|--------------|-------------------------------------------|

@@ -18,7 +18,21 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+
+
+def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
+    # User scripts are longer than DEAL_MAX_SOURCE. The cap raised
+    # PreContractError before ast.parse could return None. run_name is
+    # our helper token. CrossHair keeps the short source.
+    return isinstance(code, str) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
+
+
+def _deal_user_code_ok_crosshair(code: object, run_name: object = "") -> bool:
+    return str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
+
+
+_deal_user_code_ok = _deal_user_code_ok_crosshair if UNDER_CROSSHAIR else _deal_user_code_ok_pytest
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -131,10 +145,7 @@ def _literal_value(node: ast.AST) -> Any:
     return None
 
 
-@deal.pre(
-    lambda code, run_name="": str_bounded(code, DEAL_MAX_SOURCE)
-    and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-)
+@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the ``params`` dict from ``run_name({"helper": ..., "params": {...}}, ...)`` when literal."""
@@ -190,10 +201,7 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     return {"helper": helper, "params": params}
 
 
-@deal.pre(
-    lambda code, run_name="": str_bounded(code, DEAL_MAX_SOURCE)
-    and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-)
+@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
@@ -668,8 +676,33 @@ def run_trusted_calc_data_helper(
     if not dr and data is None:
         raise ToolExecutionError("Provide data_range or data", code=error_code)
 
-    tool_ctx = calc_tool_context(uno_ctx, doc)
-    py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+    def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
+        # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
+        tool_ctx = calc_tool_context(uno_ctx, doc)
+        py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+        context: dict[str, Any] = {}
+        try:
+            bridge = CalcBridge(doc)
+            context["sheet_name"] = bridge.get_active_sheet().getName()
+        except Exception:
+            pass
+        if task_hint:
+            context["task_hint"] = str(task_hint)
+        if dr:
+            context["range_a1"] = dr
+        return py_data, err, context
+
+    # What was wrong: forecast_data / optimize_data wrapped this whole helper in
+    # execute_on_main_thread, so the venv IPC ran on the UI thread and froze Calc.
+    # How: sheet reads and client_run shared one function with no thread split.
+    # Why: hop only the UNO read to the main thread; client_run stays on the caller.
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
+
+    if on_main_thread():
+        py_data, err, context = _read_sheet()
+    else:
+        py_data, err, context = execute_on_main_thread(_read_sheet)
     if err:
         raise ToolExecutionError(err, code=error_code)
     if py_data is None:
@@ -678,17 +711,6 @@ def run_trusted_calc_data_helper(
     spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
     if isinstance(params, dict) and params:
         spec["params"] = params
-
-    context: dict[str, Any] = {}
-    try:
-        bridge = CalcBridge(doc)
-        context["sheet_name"] = bridge.get_active_sheet().getName()
-    except Exception:
-        pass
-    if task_hint:
-        context["task_hint"] = str(task_hint)
-    if dr:
-        context["range_a1"] = dr
 
     return client_run(uno_ctx, spec, py_data, context=context or None)
 

@@ -63,8 +63,12 @@ def run_trusted_worker_action(
     allow_heartbeat: bool = False,
     heartbeat_grace_sec: int | None = None,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
     error_code: str = "TRUSTED_ACTION_ERROR",
     error_label: str = "Trusted action",
+    headers: bool | None = None,
+    header_row: int | None = None,
+    cancellation_scope: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action in the warm venv worker without user code strings."""
     payload: dict[str, Any] = {
@@ -76,6 +80,12 @@ def run_trusted_worker_action(
     }
     if additional_data:
         payload.update(additional_data)
+    # Spec fields, not helper params. Omitting them made the worker default
+    # headers=True after the client had already stripped them off the spec.
+    if headers is not None:
+        payload["headers"] = bool(headers)
+    if header_row is not None:
+        payload["header_row"] = int(header_row)
 
     def _on_heartbeat(hb: dict[str, Any]) -> None:
         if heartbeat_fn:
@@ -93,5 +103,7 @@ def run_trusted_worker_action(
         allow_heartbeat=allow_heartbeat,
         heartbeat_grace_sec=heartbeat_grace_sec if heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S,
         on_heartbeat=_on_heartbeat if allow_heartbeat else None,
+        stop_checker=stop_checker,
+        cancellation_scope=cancellation_scope,
     )
     return parse_worker_dict_result(response, error_code=error_code, error_label=error_label)

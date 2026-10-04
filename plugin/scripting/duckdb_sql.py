@@ -97,6 +97,19 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
+def _deal_sql_code_ok_pytest(code: object) -> bool:
+    # User SQL is longer than DEAL_MAX_SOURCE. The cap raised
+    # PreContractError before the header parser returned None.
+    return isinstance(code, str)
+
+
+def _deal_sql_code_ok_crosshair(code: object) -> bool:
+    return str_bounded(code, DEAL_MAX_SOURCE)
+
+
+_deal_sql_code_ok = _deal_sql_code_ok_crosshair if UNDER_CROSSHAIR else _deal_sql_code_ok_pytest
+
+
 @deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
 def get_sql_script_templates() -> dict[str, str]:
     """Return built-in SQL helper templates for the Run Python Script picker."""
@@ -106,7 +119,7 @@ def get_sql_script_templates() -> dict[str, str]:
 SqlScriptMeta = HelperScriptMeta
 
 
-@deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE))
+@deal.pre(lambda code: _deal_sql_code_ok(code))
 @deal.post(lambda result: result is None or isinstance(result, SqlScriptMeta))
 def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
     """Parse machine header from SQL script template."""
@@ -121,7 +134,14 @@ _DEAL_SQL_RESULT_KEYS = 4 if UNDER_CROSSHAIR else 32
 _DEAL_SQL_RESULT_STR = 8 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 
 
-def _deal_sql_result_value_ok(value: object) -> bool:
+def _deal_sql_result_value_ok_pytest(value: object) -> bool:
+    # A SQL error string is longer than a token. The cap raised
+    # PreContractError instead of is_sql_result returning a bool.
+    # ``value`` is unused. CrossHair keeps the short dict.
+    return True
+
+
+def _deal_sql_result_value_ok_crosshair(value: object) -> bool:
     if not isinstance(value, dict):
         return True
     if len(value) > _DEAL_SQL_RESULT_KEYS:
@@ -132,6 +152,11 @@ def _deal_sql_result_value_ok(value: object) -> bool:
         if isinstance(v, str) and not str_bounded(v, _DEAL_SQL_RESULT_STR):
             return False
     return True
+
+
+_deal_sql_result_value_ok = (
+    _deal_sql_result_value_ok_crosshair if UNDER_CROSSHAIR else _deal_sql_result_value_ok_pytest
+)
 
 
 @deal.pre(lambda value: _deal_sql_result_value_ok(value))

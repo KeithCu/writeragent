@@ -147,10 +147,17 @@ def insert_forecast_result_into_calc(
     uno_ctx: Any,
     result: dict[str, Any],
     *,
+    sheet_name: str | None = None,
     start_col: int | None = None,
     start_row: int | None = None,
 ) -> int:
-    """Write formatted forecast output starting at *start_col*/*start_row* (or selection). Returns row count."""
+    """Write formatted forecast output at *sheet_name*/*start_col*/*start_row* (or the selection).
+
+    *sheet_name* is the prefix from ``parse_output_anchor``. The shared
+    tabular writer qualifies the anchor so ``CalcBridge.resolve`` opens
+    that sheet. A missing name stays on the active sheet (Run Python Script
+    selection, or an unqualified ``output_range``).
+    """
     from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
     grid = format_forecast_for_calc(result)
@@ -158,6 +165,7 @@ def insert_forecast_result_into_calc(
         doc,
         uno_ctx,
         grid,
+        sheet_name=sheet_name,
         start_col=start_col,
         start_row=start_row,
     )

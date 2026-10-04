@@ -32,7 +32,13 @@ if TYPE_CHECKING:
 
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox, set_control_text, show_approval_dialog
+from plugin.chatbot.dialogs import (
+    load_writeragent_dialog_detail,
+    msgbox,
+    set_control_enabled,
+    set_control_text,
+    show_approval_dialog,
+)
 from plugin.chatbot.dialogs import show_new_script_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.document_scripts import (
@@ -70,6 +76,74 @@ def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: s
         except Exception:
             log.exception("Could not update the script dialog status")
     msgbox(ctx, _("Error"), text)
+
+
+def start_native_script_run(
+    ctx: Any,
+    doc: Any,
+    code: str,
+    *,
+    on_complete: Any,
+    data_range: str | None = None,
+) -> None:
+    """Run a script without blocking the UNO event thread.
+
+    What was wrong: the Run button called ``execute_and_insert_result`` on the
+    dialog dispatch thread. Subprocess spawn and the venv wait froze the
+    native XDL dialog until the script finished. Monaco Run did the same
+    inside the editor save handler.
+    How: the native listener and Monaco Run both call this. ``data_range`` is
+    the Monaco data-binding text; the native dialog leaves it empty and uses
+    the current selection.
+    Why this works: document prep and result insert stay on the main thread
+    (``execute_on_main_thread``). Only the venv IPC wait runs in the
+    background. ``on_complete`` is posted back to the main thread.
+    """
+    from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
+    from plugin.scripting.editor_ipc import exception_traceback
+    from plugin.scripting.helper_domain import rps_error_outcome
+    from plugin.scripting.python_runner import (
+        _finish_rps_execution,
+        _prepare_rps_execution,
+        _run_prepared_rps,
+    )
+
+    def _deliver(outcome: dict[str, Any]) -> None:
+        def _apply() -> None:
+            on_complete(outcome)
+
+        post_to_main_thread(_apply)
+
+    def _native_script_run_worker() -> None:
+        prepared: dict[str, Any] | None = None
+        try:
+            prepared = execute_on_main_thread(
+                _prepare_rps_execution, ctx, doc, code, data_range=data_range
+            )
+            if not isinstance(prepared, dict):
+                _deliver({"ok": False, "message": _("Script execution failed.")})
+                return
+            early = prepared.get("early_outcome")
+            if early is not None:
+                _deliver(early)
+                return
+            try:
+                response = _run_prepared_rps(prepared)
+            except Exception as exc:
+                log.exception("native script run failed")
+                t0 = prepared.get("t0") if isinstance(prepared, dict) else None
+                if isinstance(t0, (int, float)):
+                    _deliver(rps_error_outcome(str(exc), t0=float(t0), traceback=exception_traceback(exc)))
+                else:
+                    _deliver({"ok": False, "message": str(exc), "traceback": exception_traceback(exc)})
+                return
+            outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
+            _deliver(outcome)
+        except Exception as exc:
+            log.exception("native script run failed")
+            _deliver({"ok": False, "message": str(exc)})
+
+    run_in_background(_native_script_run_worker, name="native-run-python-script")
 
 
 def native_run_script_modeless_enabled(ctx: Any) -> bool:
@@ -236,8 +310,9 @@ class NativePythonScriptDialog:
                 return False
             self._dlg = dlg
 
-            # Trigger background pre-warming of the venv subprocess for the native fallback case as well
-            run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=True)
+            # Finite pre-warm. The shared daemon pool is for this. dedicated=True
+            # is for servers, pipe drains, and jobs another thread joins.
+            run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
 
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
@@ -319,6 +394,8 @@ class NativePythonScriptDialog:
                     return _("No document is open to save scripts.")
                 err = save_document_script(self._doc, real_name, t)
                 if err:
+                    if real_name in get_user_scripts():
+                        return _("Cannot save to My Scripts: a script named '%s' already exists.") % real_name
                     save_user_script(real_name, t)
                     return _("%s Saved to My Scripts instead.") % err
                 return _("Script '%s' saved to this document.") % real_name
@@ -352,16 +429,33 @@ class NativePythonScriptDialog:
 
         class _RunListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
+                btn_run = None
                 try:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
                     lbl = dlg.getControl("InstructionLbl")
                     owner._save_current_script(t)
-                    from plugin.scripting.python_runner import execute_and_insert_result
+                    btn_run = dlg.getControl("BtnRun")
+                    # Disable Run for the duration of the venv wait so a second
+                    # click does not start another script against the same dialog.
+                    set_control_enabled(btn_run, False)
+                    set_control_text(lbl, _("Running..."))
 
-                    outcome = execute_and_insert_result(ctx, doc, t)
-                    _report_run_outcome(ctx, lbl, outcome)
+                    def _on_complete(outcome: dict[str, Any]) -> None:
+                        try:
+                            _report_run_outcome(ctx, lbl, outcome)
+                            # Errors skip the status label inside _report_run_outcome
+                            # (message box only). Clear "Running..." or the button
+                            # looks idle while the label still says the script is running.
+                            if not outcome.get("ok"):
+                                set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
+                        finally:
+                            set_control_enabled(btn_run, True)
+
+                    start_native_script_run(ctx, doc, t, on_complete=_on_complete)
                 except Exception as e:
+                    if btn_run is not None:
+                        set_control_enabled(btn_run, True)
                     log.exception("Run failed in dialog")
                     msgbox(ctx, _("Error"), str(e))
 
@@ -597,7 +691,11 @@ def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> N
         "Script executed successfully, but returned no result and produced no output."
     )):
         msgbox(ctx, _("Success"), status_text)
-    elif outcome.get("stdout") and outcome.get("result") is None:
+    elif outcome.get("stdout"):
+        # What was wrong: stdout was shown only when result is None, so a
+        # script that returned a value and also printed never opened Output.
+        # How: the condition required result is None. The result is inserted
+        # into the document; printed text still belongs in this box.
         msgbox(ctx, _("Output"), outcome.get("stdout"))
     if lbl is not None:
         set_control_text(lbl, status_text)

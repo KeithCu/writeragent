@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.librepy.settings import (
     _DownloadVecPackListener,
     _extract_field,
@@ -162,6 +164,7 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
     fake_dlg = MagicMock()
     probe_displays: list[str] = []
     titles: list[str] = []
+    order: list[str] = []
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
@@ -170,18 +173,66 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
         def run_modal_probe(self, probe_fn, *, title=None):
             if title is not None:
                 titles.append(title)
+            # The real dialog runs probe_fn on a worker. This stand-in calls it
+            # here so a direct sys.path mutation in the probe is visible.
             probe_fn(probe_displays.append, lambda _status: None)
             return True
+
+    def fake_download(_on_display, _on_status, **kwargs):
+        order.append("download")
+        assert kwargs.get("bind_host") is False
+        return True
+
+    def fake_execute(fn, *args, **kwargs):
+        order.append("hop")
+        fn(*args, **kwargs)
+
+    def fake_ensure():
+        order.append("ensure")
+
+    def fake_invalidate():
+        order.append("invalidate")
 
     listener = _DownloadVecPackListener(fake_ctx, fake_dlg)
     with (
         patch("plugin.librepy.settings.VenvProbeProgressDialog", _FakeProgress),
-        patch("plugin.scripting.native_binaries.run_vec_pack_download", return_value=True) as mock_download,
+        patch("plugin.scripting.native_binaries.run_vec_pack_download", side_effect=fake_download),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_execute),
+        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path", side_effect=fake_ensure),
+        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=fake_invalidate),
     ):
         listener.on_action_performed(None)
 
-    mock_download.assert_called_once()
     assert titles and "Cython" in titles[0]
+    assert order == ["download", "hop", "ensure", "invalidate"]
+
+
+def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
+    order: list[str] = []
+
+    class _FakeProgress:
+        def __init__(self, ctx, parent_dlg=None):
+            pass
+
+        def run_modal_probe(self, probe_fn, *, title=None):
+            probe_fn(lambda _text: None, lambda _status: None)
+
+    def fake_download(_on_display, _on_status, **kwargs):
+        order.append("download")
+        assert kwargs.get("bind_host") is False
+        return False
+
+    listener = _DownloadVecPackListener(MagicMock(), MagicMock())
+    with (
+        patch("plugin.librepy.settings.VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.native_binaries.run_vec_pack_download", side_effect=fake_download),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=AssertionError("hop")),
+        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path", side_effect=AssertionError("ensure")),
+        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=AssertionError("invalidate")),
+    ):
+        listener.on_action_performed(None)
+
+    assert order == ["download"]
 
 
 def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
@@ -208,6 +259,88 @@ def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
 
     mock_ensure.assert_called_once()
     mock_status.assert_called_once_with(reload=True)
+
+
+def test_open_librepy_settings_disposes_when_chrome_raises() -> None:
+    from plugin.librepy.settings import open_librepy_settings
+
+    dlg = MagicMock()
+    with (
+        patch("plugin.librepy.settings.init_logging"),
+        patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.librepy.settings._configure_librepy_settings_chrome", side_effect=RuntimeError("chrome")),
+    ):
+        with pytest.raises(RuntimeError, match="chrome"):
+            open_librepy_settings(MagicMock())
+
+    dlg.execute.assert_not_called()
+    dlg.dispose.assert_called_once()
+
+
+def test_open_librepy_settings_disposes_when_populate_raises() -> None:
+    from plugin.librepy.settings import open_librepy_settings
+
+    dlg = MagicMock()
+    ctrl = MagicMock()
+
+    def get_opt(_dlg, name):
+        if name == "scripting__python_venv_path":
+            return ctrl
+        return None
+
+    with (
+        patch("plugin.librepy.settings.init_logging"),
+        patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
+        patch(
+            "plugin.librepy.settings._scripting_field_specs",
+            return_value=[{"name": "scripting__python_venv_path", "type": "string", "value": "x"}],
+        ),
+        patch("plugin.librepy.settings.get_optional", side_effect=get_opt),
+        patch("plugin.librepy.settings._populate_field", side_effect=RuntimeError("populate")),
+        patch("plugin.librepy.settings.translate_dialog"),
+    ):
+        with pytest.raises(RuntimeError, match="populate"):
+            open_librepy_settings(MagicMock())
+
+    dlg.execute.assert_not_called()
+    dlg.dispose.assert_called_once()
+
+
+def test_open_librepy_settings_dispose_error_keeps_populate_error() -> None:
+    from plugin.librepy.settings import open_librepy_settings
+
+    dlg = MagicMock()
+    dlg.dispose.side_effect = RuntimeError("dispose failed")
+
+    with (
+        patch("plugin.librepy.settings.init_logging"),
+        patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.librepy.settings._configure_librepy_settings_chrome", side_effect=RuntimeError("chrome")),
+    ):
+        with pytest.raises(RuntimeError, match="^chrome$"):
+            open_librepy_settings(MagicMock())
+
+    dlg.dispose.assert_called_once()
+
+
+def test_open_librepy_settings_disposes_after_cancel() -> None:
+    from plugin.librepy.settings import open_librepy_settings
+
+    dlg = MagicMock()
+    dlg.execute.return_value = 0
+    with (
+        patch("plugin.librepy.settings.init_logging"),
+        patch("plugin.librepy.settings.load_writeragent_dialog_detail", return_value=(dlg, "")),
+        patch("plugin.librepy.settings._configure_librepy_settings_chrome"),
+        patch("plugin.librepy.settings._scripting_field_specs", return_value=[]),
+        patch("plugin.librepy.settings.get_optional", return_value=None),
+        patch("plugin.librepy.settings.translate_dialog"),
+    ):
+        open_librepy_settings(MagicMock())
+
+    dlg.execute.assert_called_once()
+    dlg.dispose.assert_called_once()
 
 
 def test_open_librepy_settings_msgbox_on_null_dialog() -> None:

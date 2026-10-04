@@ -11,6 +11,8 @@ import logging
 import os
 import pickle
 import subprocess
+import sys
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -79,6 +81,12 @@ def test_pack_unpack_pickle_payload():
 
     assert payload is not None
     assert unpack_pickle_frame(payload) == {"type": "worker_event", "event": {"phase": "start"}}
+
+
+def test_truncated_pickle_payload_is_value_error():
+    """A length-valid truncated pickle is EOFError from load(); callers catch ValueError."""
+    with pytest.raises(ValueError, match="Ran out of input"):
+        unpack_pickle_frame(b"\x80\x04")
 
 
 def test_truncated_pickle_frame_returns_none():
@@ -176,13 +184,30 @@ def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
     def fake_set_blocking(fd: int, blocking: bool) -> None:
         seen.append((fd, blocking))
 
+    monkeypatch.setattr(ipc.os, "get_blocking", lambda fd: True)
     monkeypatch.setattr(ipc.os, "set_blocking", fake_set_blocking)
     monkeypatch.setattr(ipc.os, "read", lambda fd, n: b"rest")
     stream = MagicMock()
     stream.fileno.return_value = 7
     assert ipc._unread_pipe_bytes(stream) == b"rest"
-    assert seen == [(7, False)]
+    assert seen == [(7, False), (7, True)]
     stream.read.assert_not_called()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX peek sets the pipe non-blocking")
+def test_bad_length_prefix_restores_blocking_mode():
+    """A garbage length must not leave the pipe non-blocking for the next read."""
+    import struct
+
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, struct.pack("!I", 50_000_000) + b"LEFTOVER")
+    try:
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            with pytest.raises(IpcFrameError, match="stdout_rest=b'LEFTOVER'"):
+                read_pickle_frame(reader)
+            assert os.get_blocking(read_fd) is True
+    finally:
+        os.close(write_fd)
 
 
 def test_json_line_roundtrip():
@@ -327,17 +352,182 @@ def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
     assert len(armed) == 1
 
 
+def test_json_line_burst_returns_each_line():
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b'{"a": 1}\n{"b": 2}\n')
+    os.close(write_fd)
+    with os.fdopen(read_fd, "r", encoding="utf-8") as reader:
+        assert read_json_line(reader, timeout_sec=1.0) == {"a": 1}
+        assert read_json_line(reader, timeout_sec=1.0) == {"b": 2}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX readline must not block after select")
+def test_json_line_partial_line_times_out_and_resumes():
+    """select-then-readline used to wait for a newline after the deadline."""
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b'{"status": "partial"')
+    try:
+        with os.fdopen(read_fd, "r", encoding="utf-8") as reader:
+            started = time.monotonic()
+            with pytest.raises(subprocess.TimeoutExpired):
+                read_json_line(reader, timeout_sec=0.2)
+            assert time.monotonic() - started < 1.0
+            assert os.get_blocking(read_fd) is True
+            os.write(write_fd, b"}\n")
+            assert read_json_line(reader, timeout_sec=1.0) == {"status": "partial"}
+    finally:
+        os.close(write_fd)
+
+
+def test_exchange_tool_call_user_stopped_is_not_a_normal_error(monkeypatch):
+    from plugin.scripting import ipc
+
+    written: dict[str, object] = {}
+
+    def _write(stream, message, **kwargs):
+        written["message"] = message
+
+    def _read(stream, **kwargs):
+        message = written["message"]
+        assert isinstance(message, dict)
+        return {
+            "status": "error",
+            "id": message["id"],
+            "code": "USER_STOPPED",
+            "message": "Stopped by user.",
+        }
+
+    monkeypatch.setattr(ipc, "write_pickle_frame", _write)
+    monkeypatch.setattr(ipc, "read_pickle_frame", _read)
+    with pytest.raises(ipc.UserStopped, match="Stopped by user") as raised:
+        ipc.exchange_tool_call("apply_document_content", {})
+    assert not isinstance(raised.value, Exception)
+
+
+def test_exchange_tool_call_plain_error_stays_runtime_error(monkeypatch):
+    from plugin.scripting import ipc
+
+    written: dict[str, object] = {}
+
+    def _write(stream, message, **kwargs):
+        written["message"] = message
+
+    def _read(stream, **kwargs):
+        message = written["message"]
+        assert isinstance(message, dict)
+        return {"status": "error", "id": message["id"], "message": "boom"}
+
+    monkeypatch.setattr(ipc, "write_pickle_frame", _write)
+    monkeypatch.setattr(ipc, "read_pickle_frame", _read)
+    with pytest.raises(RuntimeError, match="boom"):
+        ipc.exchange_tool_call("apply_document_content", {})
+
+
 def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
     from plugin.scripting import ipc
 
+    drained: list[object] = []
     monkeypatch.setattr(ipc, "write_pickle_frame", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         ipc,
         "read_pickle_frame",
         lambda *args, **kwargs: {"status": "ok", "id": "other", "result": {"n": 1}},
     )
+    monkeypatch.setattr(ipc, "_drain_queued_pipe_bytes", lambda stream, **kwargs: drained.append(stream))
     with pytest.raises(RuntimeError, match="does not match"):
         ipc.exchange_tool_call("get_named_python_script", {})
+    assert len(drained) == 1
+
+
+def test_drain_queued_pipe_bytes_returns_when_idle():
+    """An open pipe with nothing queued must not block until the deadline."""
+    from plugin.scripting import ipc
+
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "rb")
+    try:
+        os.write(write_fd, b"xyz")
+        assert stream.read(1) == b"x"
+        started = time.monotonic()
+        ipc._drain_queued_pipe_bytes(stream, timeout_sec=0.5)
+        assert time.monotonic() - started < 0.4
+        started = time.monotonic()
+        ipc._drain_queued_pipe_bytes(stream, timeout_sec=0.5)
+        assert time.monotonic() - started < 0.3
+    finally:
+        os.close(write_fd)
+        stream.close()
+
+
+def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
+    """A foreign frame plus bytes already in the stdin buffer must not desync the next call.
+
+    What was wrong: read_pickle_frame fills BufferedReader ahead. Raising on
+    the id check left that tail for the next exchange_tool_call.
+    """
+    import threading
+
+    from plugin.scripting import ipc
+
+    in_r, in_w = os.pipe()
+    out_r, out_w = os.pipe()
+    stdin_buf = os.fdopen(in_r, "rb")
+    stdout_buf = os.fdopen(out_w, "wb", buffering=0)
+    stdout_reader = os.fdopen(out_r, "rb", buffering=0)
+
+    class _PipeEnd:
+        def __init__(self, buffer: object) -> None:
+            self.buffer = buffer
+
+    monkeypatch.setattr(sys, "stdin", _PipeEnd(stdin_buf))
+    monkeypatch.setattr(sys, "stdout", _PipeEnd(stdout_buf))
+    os.write(
+        in_w,
+        pack_pickle_frame({"status": "ok", "id": "stale", "result": {"n": 0}})
+        + pack_pickle_frame({"status": "ok", "id": "tail", "result": {"n": 9}}),
+    )
+    worker: threading.Thread | None = None
+    try:
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="does not match"):
+            ipc.exchange_tool_call("list_named_python_scripts", {})
+        assert time.monotonic() - started < 1.0
+
+        holder: dict[str, object] = {}
+
+        def _second() -> None:
+            try:
+                holder["result"] = ipc.exchange_tool_call("list_named_python_scripts", {})
+            except BaseException as exc:
+                holder["error"] = exc
+
+        worker = threading.Thread(target=_second, daemon=True)
+        worker.start()
+        first_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        second_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        assert isinstance(first_req, dict) and isinstance(second_req, dict)
+        assert first_req.get("id") != second_req.get("id")
+        os.write(
+            in_w,
+            pack_pickle_frame(
+                {"status": "ok", "id": second_req["id"], "result": {"n": 1}}
+            ),
+        )
+        worker.join(2.0)
+        assert holder.get("error") is None
+        assert holder.get("result") == {"n": 1}
+    finally:
+        try:
+            os.close(in_w)
+        except OSError:
+            pass
+        for closer in (stdin_buf, stdout_buf, stdout_reader):
+            try:
+                closer.close()
+            except OSError:
+                pass
+        if worker is not None:
+            worker.join(1.0)
 
 
 def test_json_line_timeout_falls_back_when_fileno_not_int():

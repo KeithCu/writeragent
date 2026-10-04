@@ -27,6 +27,50 @@ def _clear_sessions():
     clear_all_sandbox_sessions()
 
 
+def test_clearing_calc_init_script_does_not_wipe_the_other_workbook():
+    """INIT clear follows the edited document, not whichever file was focused."""
+    from plugin.scripting import session_manager
+
+    class _UrlDoc(_DocWithUserDefinedProperties):
+        def __init__(self, props, url: str):
+            super().__init__(props)
+            self._url = url
+
+        def getURL(self):
+            return self._url
+
+    doc_a = _UrlDoc(_UserDefinedProperties(), "file:///a.ods")
+    doc_b = _UrlDoc(_UserDefinedProperties(), "file:///b.ods")
+    session_manager.clear_active_calc_session()
+    try:
+        assert set_calc_init_script(doc_b, "B = 2") is None
+        session_manager.record_active_calc_session("calc:file:///b.ods")
+        assert set_calc_init_script(doc_a, "") is None
+        session_manager.clear_active_calc_session("calc:file:///a.ods")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "B = 2"
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_clearing_calc_init_script_clears_cached_init():
+    """Removing the workbook init must drop it from the off-main cache."""
+    from plugin.scripting import session_manager
+
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    session_manager.clear_active_calc_session()
+    try:
+        assert set_calc_init_script(doc, "A = 1") is None
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+        assert set_calc_init_script(doc, "") is None
+        assert get_calc_init_script(doc) == ""
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_get_set_calc_init_script_roundtrip():
     from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP, set_document_scripts
     import json
@@ -179,6 +223,37 @@ def test_init_visible_in_shared_kernel():
     )
     assert r["status"] == "ok"
     assert r["result"] == 15
+
+
+def test_isolated_init_mutation_does_not_leak():
+    """A cell that mutates an init list must not change the next isolated cell."""
+    init_sid = "calc:wb-iso-mut:init"
+    init_code = "items = []"
+    h = init_script_hash(init_code)
+    kwargs = {"session_id": None, "init_script": init_code, "init_session_id": init_sid, "init_script_hash": h}
+    first = run_sandboxed_code("items.append(1)\nresult = len(items)", **kwargs)
+    assert first["status"] == "ok", first.get("message")
+    assert first["result"] == 1
+    second = run_sandboxed_code("items.append(1)\nresult = len(items)", **kwargs)
+    assert second["status"] == "ok", second.get("message")
+    assert second["result"] == 1
+
+
+def test_reset_non_calc_session_drops_init_companion():
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    init_sid = "online-wb:init"
+    run_sandboxed_code(
+        "result = MAGIC",
+        session_id="online-wb",
+        init_script="MAGIC = 1",
+        init_session_id=init_sid,
+        init_script_hash="h",
+    )
+    assert init_sid in vs._SESSION_EXECUTORS
+    assert reset_sandbox_session("online-wb")["status"] == "ok"
+    assert init_sid not in vs._SESSION_EXECUTORS
+    assert "online-wb" not in vs._SESSION_EXECUTORS
 
 
 def test_isolated_cells_do_not_share_cell_assignments():

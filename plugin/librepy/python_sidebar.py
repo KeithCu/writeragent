@@ -135,22 +135,32 @@ class _PanelResizeListener(BaseWindowListener):
     """Repositions Python sidebar controls when the panel root is resized."""
 
     _c: dict[str, Any]
+    _on_dispose: Any
     _in_relayout: bool
     _root_window: Any
 
-    def __init__(self, controls: dict[str, Any]) -> None:
+    def __init__(self, controls: dict[str, Any], on_dispose: Any = None) -> None:
         self._c = controls
+        self._on_dispose = on_dispose
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
         self._in_relayout = False
         self._root_window = None
 
     def disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
-        if self._root_window and hasattr(self._root_window, "removeWindowListener"):
-            try:
-                self._root_window.removeWindowListener(self)
-            except Exception:
-                pass
+        # What was wrong: PythonPanelElement.disposing never ran. The element
+        # is XUIElement only, not XComponent, so LibreOffice's dispose query
+        # fails and deck close leaked the controller's listeners.
+        # How: VCL does call this window listener when the root window goes.
+        # Why: run controller cleanup from here. Do not removeWindowListener;
+        # this listener is already disposing (same as the chat panel listener).
+        callback = self._on_dispose
+        self._on_dispose = None
         self._root_window = None
+        if callable(callback):
+            try:
+                callback()
+            except Exception:
+                log.exception("python sidebar window dispose callback failed")
 
     def relayout_now(self, win: Any) -> None:
         if not win or self._in_relayout:
@@ -339,25 +349,44 @@ class PythonSidebarController:
                 log.debug("sidebar diagnostics listener add failed", exc_info=True)
 
     def disposing(self) -> None:
+        # What was wrong: only PythonPanelElement.disposing called this, and
+        # LibreOffice never does. The element is XUIElement, not XComponent,
+        # so the sidebar dispose query fails. Deck close leaked the diagnostics
+        # listener and the Calc activation listener, which then ran against a
+        # dead frame.
+        # How: the root window listener's on_dispose calls this method. An
+        # explicit element.disposing still does too.
+        # Why: drop the window listener while the root is still held, then
+        # drop the other listeners. Clear on_dispose first so the window
+        # hook cannot re-enter.
         rl = getattr(self, "resize_listener", None)
         if rl is not None:
-            try:
-                rl.disposing(None)
-            except Exception:
-                log.debug("sidebar resize listener remove failed", exc_info=True)
             self.resize_listener = None
+            rl._on_dispose = None
+            root = getattr(rl, "_root_window", None)
+            rl._root_window = None
+            if root is not None and hasattr(root, "removeWindowListener"):
+                try:
+                    root.removeWindowListener(rl)
+                except Exception:
+                    log.debug("sidebar resize listener remove failed", exc_info=True)
         try:
             self._store.remove_listener(self._on_diag)
         except Exception:
             log.debug("sidebar diagnostics listener remove failed", exc_info=True)
-        # Remove activation listener if it was added
-        if getattr(self, "_activation_listener", None) is not None and self.frame is not None:
+        activation = getattr(self, "_activation_listener", None)
+        self._activation_listener = None
+        if activation is not None and self.frame is not None:
             try:
                 controller = self.frame.getController()
                 if controller is not None:
-                    controller.removeActivationEventListener(self._activation_listener)
+                    controller.removeActivationEventListener(activation)
             except Exception:
                 log.debug("sidebar activation listener remove failed", exc_info=True)
+
+    def _release_on_window_dispose(self) -> None:
+        """Deck close never calls PythonPanelElement.disposing (not an XComponent)."""
+        self.disposing()
 
     def _ctrl(self, name: str) -> Any:
         return get_optional_control(self.root, name)
@@ -367,7 +396,7 @@ class PythonSidebarController:
         try:
             ids = _CONTROL_IDS if self._calc_panel else tuple(cid for cid in _CONTROL_IDS if cid not in _CALC_ONLY_IDS)
             controls = {cid: self._ctrl(cid) for cid in ids}
-            listener = _PanelResizeListener(controls)
+            listener = _PanelResizeListener(controls, on_dispose=self._release_on_window_dispose)
             listener._root_window = self.root
             if self.root is not None and hasattr(self.root, "addWindowListener"):
                 self.root.addWindowListener(listener)
@@ -472,6 +501,7 @@ class PythonSidebarController:
         return get_calc_document_from_ctx(self.ctx)
 
     def refresh(self) -> None:
+        self._calc_panel = self._frame_is_calc()
         if not self._calc_panel:
             set_control_text(self._ctrl("status"), format_runtime_status(self.ctx, None))
             return

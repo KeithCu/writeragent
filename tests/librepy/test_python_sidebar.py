@@ -369,6 +369,92 @@ def test_sidebar_xcu_registers_writer():
         assert "com.sun.star.text.TextDocument" in text
 
 
+def test_resize_listener_disposing_runs_callback_once_without_removing():
+    calls: list[str] = []
+    listener = _PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
+    root = MagicMock()
+    listener._root_window = root
+
+    listener.disposing(root)
+
+    assert calls == ["dispose"]
+    root.removeWindowListener.assert_not_called()
+    assert listener._root_window is None
+    listener.disposing(root)
+    assert calls == ["dispose"]
+
+
+def test_resize_listener_disposing_logs_callback_failure():
+    def boom() -> None:
+        raise RuntimeError("deck")
+
+    listener = _PanelResizeListener({}, on_dispose=boom)
+    listener.disposing(None)
+
+
+def test_window_dispose_hook_cleans_controller_once():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._calc_panel = False
+    ctrl._store = MagicMock()
+    ctrl._on_diag = object()
+    activation = object()
+    ctrl._activation_listener = activation
+    ctrl.frame = MagicMock()
+    root = MagicMock()
+    root.getPosSize.return_value = SimpleNamespace(Width=0, Height=0)
+    ctrl.root = root
+    ctrl._ctrl = lambda _name: None  # type: ignore[method-assign]
+
+    ctrl._attach_resize_listener()
+    listener = ctrl.resize_listener
+    assert listener is not None
+    assert listener._on_dispose == ctrl._release_on_window_dispose
+    root.addWindowListener.assert_called_once_with(listener)
+
+    listener.disposing(root)
+
+    ctrl._store.remove_listener.assert_called_once_with(ctrl._on_diag)
+    ctrl.frame.getController.return_value.removeActivationEventListener.assert_called_once_with(activation)
+    root.removeWindowListener.assert_not_called()
+    assert ctrl.resize_listener is None
+    assert ctrl._activation_listener is None
+
+    listener.disposing(root)
+    assert ctrl._store.remove_listener.call_count == 1
+    assert ctrl.frame.getController.return_value.removeActivationEventListener.call_count == 1
+
+
+def test_explicit_disposing_detaches_live_window_listener():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._store = MagicMock()
+    ctrl._on_diag = object()
+    activation = object()
+    ctrl._activation_listener = activation
+    ctrl.frame = MagicMock()
+    root = MagicMock()
+    listener = _PanelResizeListener({}, on_dispose=ctrl._release_on_window_dispose)
+    listener._root_window = root
+    ctrl.resize_listener = listener
+
+    ctrl.disposing()
+
+    root.removeWindowListener.assert_called_once_with(listener)
+    assert listener._on_dispose is None
+    assert listener._root_window is None
+    assert ctrl.resize_listener is None
+    assert ctrl._activation_listener is None
+    ctrl._store.remove_listener.assert_called_once_with(ctrl._on_diag)
+    ctrl.frame.getController.return_value.removeActivationEventListener.assert_called_once_with(activation)
+
+    ctrl.disposing()
+    assert root.removeWindowListener.call_count == 1
+    assert ctrl.frame.getController.call_count == 1
+
+
 def test_hide_calc_only_controls_calls_set_visible():
     from plugin.librepy.python_sidebar import PythonSidebarController
 

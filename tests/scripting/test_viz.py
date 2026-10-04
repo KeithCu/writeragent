@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from plugin.scripting.viz import get_viz_script_templates, parse_viz_script_header, run_viz
 
@@ -123,6 +124,40 @@ def test_insert_image_payload_writer_uses_product_display_name():
     assert ins.call_args.kwargs["description"] == "LibrePy plot"
 
 
+def test_insert_image_payload_calc_passes_target_doc():
+    """Calc egress must insert on the script document, not the front window."""
+    ctx = MagicMock()
+    doc = MagicMock(name="target")
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
+    with (
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
+    ):
+        from plugin.scripting.viz import insert_image_payload_for_doc
+
+        insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
+    insert.assert_called_once_with(ctx, payload, doc=doc)
+
+
+def test_insert_image_payload_calc_surfaces_egress_failure():
+    ctx = MagicMock()
+    doc = MagicMock(name="target")
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
+    from plugin.calc.python.image_egress import ImageEgressError
+
+    with (
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch(
+            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            side_effect=ImageEgressError("target sheet has no DrawPage; image was not inserted"),
+        ),
+        pytest.raises(ImageEgressError),
+    ):
+        from plugin.scripting.viz import insert_image_payload_for_doc
+
+        insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
+
+
 # --- Viz Run Python Script templates (from test_viz_templates.py) ---
 
 def test_get_viz_script_templates_include_run_call():
@@ -141,3 +176,58 @@ def test_viz_template_body_includes_helper_params():
 def test_parse_viz_script_header_rejects_unknown_helper():
     code = "# writeragent:viz helper=not_a_helper params={}\n"
     assert parse_viz_script_header(code) is None
+
+
+def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
+    inside = {"flag": False}
+
+    def exec_main(fn, *args, **kwargs):
+        inside["flag"] = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            inside["flag"] = False
+
+    def client(_ctx, spec, _data, context=None):
+        del context
+        assert not inside["flag"], "client_run_viz must stay off the UNO hop"
+        assert spec["helper"] == "time_series_plot"
+        return {"status": "ok", "helper": "time_series_plot"}
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=exec_main) as mock_main,
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.scripting.viz.calc_tool_context", return_value=MagicMock()),
+        patch("plugin.scripting.viz._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
+        patch("plugin.scripting.viz.client_run_viz", side_effect=client) as mock_client,
+        patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+    ):
+        mock_bridge.return_value.get_active_sheet.return_value.getName.return_value = "Sheet1"
+        from plugin.scripting.viz import run_trusted_viz
+
+        result = run_trusted_viz(
+            MagicMock(),
+            MagicMock(),
+            helper="time_series_plot",
+            data=[["date", "Value"], ["2024-01-01", 1.0]],
+        )
+
+    assert result["status"] == "ok"
+    mock_main.assert_called_once()
+    mock_client.assert_called_once()
+
+
+def test_insert_viz_result_into_doc() -> None:
+    from plugin.scripting.viz import insert_viz_result_into_doc
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
+    result = {"status": "ok", "image": payload}
+
+    with patch("plugin.scripting.viz.insert_image_payload_for_doc") as mock_insert:
+        res = insert_viz_result_into_doc(ctx, doc, result)
+        assert res == 1
+        mock_insert.assert_called_once_with(ctx, doc, payload, title="Plot")

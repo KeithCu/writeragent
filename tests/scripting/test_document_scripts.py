@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -36,6 +38,7 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.scripting.domain_registry import (
     ANALYSIS_SCRIPT_DISPLAY_PREFIX,
+    DOC_SCRIPT_DISPLAY_PREFIX,
     SCRIPT_ORIGIN_ANALYSIS,
     SCRIPT_ORIGIN_VISION,
     VISION_SCRIPT_DISPLAY_PREFIX,
@@ -58,6 +61,15 @@ def test_untitled_save_is_not_a_stale_document_script_write():
     assert document_scripts_write_is_stale(doc, "file:///tmp/other.ods") is True
 
 
+def _calc_component_enum(*models):
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True] * len(models) + [False]
+    enum.nextElement.side_effect = list(models)
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    return comps
+
+
 def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
     writer = MagicMock()
     desktop = MagicMock()
@@ -70,6 +82,51 @@ def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
     ):
         assert get_calc_document_from_ctx(MagicMock()) is None
     desktop.getComponents.assert_not_called()
+
+
+def test_get_calc_document_from_ctx_returns_only_enumerated_workbook():
+    calc = MagicMock()
+    calc.getURL.return_value = "file:///only.ods"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = _calc_component_enum(calc)
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model is calc),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is calc
+
+
+def test_get_calc_document_from_ctx_ambiguous_enumeration_returns_none():
+    first = MagicMock()
+    first.getURL.return_value = "file:///a.ods"
+    second = MagicMock()
+    second.getURL.return_value = "file:///b.ods"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = _calc_component_enum(first, second)
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model in (first, second)),
+        patch("plugin.scripting.session_manager.get_cached_calc_session_id", return_value=None),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is None
+
+
+def test_get_calc_document_from_ctx_enumeration_uses_cached_session():
+    first = MagicMock()
+    first.getURL.return_value = "file:///a.ods"
+    second = MagicMock()
+    second.getURL.return_value = "file:///b.ods"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = _calc_component_enum(first, second)
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model in (first, second)),
+        patch("plugin.scripting.session_manager.get_cached_calc_session_id", return_value="calc:file:///b.ods"),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is second
 
 
 def test_get_document_scripts_empty():
@@ -140,6 +197,39 @@ def test_delete_document_script():
     doc = _DocWithUserDefinedProperties(props)
     attach_document_script(doc, "A", "code")
     assert delete_document_script(doc, "A") is None
+    assert get_document_scripts(doc) == {}
+
+
+def test_delete_document_script_rejects_workbook_init():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    assert set_document_scripts(doc, {"INIT": "result = 1", "Init": "other", "Hello": "y = 1"}) is None
+    err = delete_document_script(doc, "INIT")
+    assert err is not None and "INIT" in err
+    err_init = delete_document_script(doc, "Init")
+    assert err_init is not None and "Init" in err_init
+    stored = get_document_scripts(doc)
+    assert stored["INIT"] == "result = 1"
+    assert stored["Init"] == "other"
+    assert stored["Hello"] == "y = 1"
+
+
+def test_missing_property_bag_is_not_a_successful_save():
+    """No UserDefinedProperties bag used to return None without storing anything."""
+
+    class _DocProps:
+        UserDefinedProperties = None
+
+    class _Doc:
+        def getDocumentProperties(self):
+            return _DocProps()
+
+        def isReadonly(self):
+            return False
+
+    doc = _Doc()
+    err = set_document_scripts(doc, {"A": "x"})
+    assert err is not None
     assert get_document_scripts(doc) == {}
 
 
@@ -240,7 +330,7 @@ def test_build_scripts_list_message_sections():
     assert msg["document_stale"] is False
     sections = {s["id"]: s["scripts"] for s in msg["sections"]}
     assert sections["user"] == {"Prime": "result = 2"}
-    assert sections["document"] == {"Regional": "result = 3"}
+    assert sections["document"] == {"[Doc] Regional": "result = 3"}
     section_ids = [s["id"] for s in msg["sections"]]
     assert section_ids[0] == "user"
     assert section_ids[1] == "document"
@@ -509,6 +599,74 @@ def test_handle_editor_script_message_save_document_script_updates_config():
         assert "Saved script 'DocReport' to this document" in sent[-1]["status_ok_text"]
 
 
+def test_doc_save_fallback_sends_success_with_migration_note_only():
+    """A document save error that lands in My Scripts is one success string."""
+    ctx = MagicMock()
+    doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.save_document_script",
+        return_value="Document is read-only.",
+    ):
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "DocReport", "code": "y = 2", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+    mock_set.assert_any_call("saved_python_scripts", {"DocReport": "y = 2"})
+    msg = sent[-1]
+    assert msg["type"] == "scripts_list"
+    assert "status_error_text" not in msg
+    assert "Saved script 'DocReport' to My Scripts." in msg["status_ok_text"]
+    assert "Document is read-only." in msg["status_ok_text"]
+
+
+def test_doc_save_fallback_does_not_overwrite_my_scripts():
+    """A document save error must not replace an existing My Scripts entry."""
+    ctx = MagicMock()
+    doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
+    sent: list = []
+    store = {"DocReport": "keep-me"}
+
+    def _get_config(key: str):
+        if key == "saved_python_scripts":
+            return dict(store)
+        return {}
+
+    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.save_document_script",
+        return_value="Document is read-only.",
+    ):
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "DocReport", "code": "y = 2", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+    written = [call.args for call in mock_set.call_args_list if call.args and call.args[0] == "saved_python_scripts"]
+    assert written == []
+    msg = sent[-1]
+    assert "status_ok_text" not in msg
+    assert "already exists" in msg["status_error_text"]
+    assert "Document is read-only." in msg["status_error_text"]
+    assert store["DocReport"] == "keep-me"
+
+
 def test_handle_editor_script_message_copy_updates_config_when_allowed():
     ctx = MagicMock()
     sent: list = []
@@ -570,6 +728,90 @@ def test_handle_editor_script_message_attach_requires_doc():
     assert sent[-1]["status_error_text"]
 
 
+def test_attach_script_stores_display_name_as_property_key():
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        assert handle_editor_script_message(
+            "attach_script",
+            {"name": "[Doc] Regional", "code": "doc-code", "overwrite": False},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+    stored = get_document_scripts(doc)
+    assert stored["Regional"] == "doc-code"
+    assert "[Doc] Regional" not in stored
+    assert "Attached script 'Regional'" in sent[-1]["status_ok_text"]
+
+
+def test_handle_editor_script_message_disposed_document_returns_list_error():
+    """Closing the document mid-save must not raise out of the picker handler."""
+    from plugin.framework.errors import DocumentDisposedError
+
+    ctx = MagicMock()
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.save_document_script",
+        side_effect=DocumentDisposedError("gone"),
+    ):
+        assert (
+            handle_editor_script_message(
+                "save_script",
+                {"name": "A", "code": "x = 1", "origin": "document"},
+                ctx=ctx,
+                session_doc=MagicMock(),
+                session_doc_url="",
+                send=sent.append,
+            )
+            is True
+        )
+    assert sent[-1]["type"] == "scripts_list"
+    assert "closed" in sent[-1]["status_error_text"].lower()
+
+
+def test_request_scripts_disposed_active_document_still_answers():
+    from plugin.framework.errors import DocumentDisposedError
+
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.get_active_document_for_scripts",
+        side_effect=DocumentDisposedError("gone"),
+    ):
+        assert (
+            handle_editor_script_message(
+                "request_scripts",
+                {},
+                ctx=MagicMock(),
+                session_doc=None,
+                session_doc_url=None,
+                send=sent.append,
+            )
+            is True
+        )
+    assert sent[-1]["type"] == "scripts_list"
+    assert sent[-1]["document_available"] is False
+    assert "closed" in sent[-1]["status_error_text"].lower()
+
+
 def test_builtin_origin_delete_does_not_touch_user_scripts():
     sent: list[dict] = []
     with patch("plugin.scripting.document_scripts.delete_user_script") as mock_del:
@@ -622,6 +864,69 @@ def test_script_picker_message_types():
     assert "save" not in SCRIPT_PICKER_MESSAGE_TYPES
 
 
+def test_document_script_reopen_after_select_and_save_uses_display_key():
+    """List, selection, and save share the [Doc] key so a same-named user script is not overwritten."""
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
+    attach_document_script(doc, "Regional", "doc-code")
+    config: dict[str, object] = {
+        "saved_python_scripts": {"Regional": "user-code"},
+        "last_python_script_name_writer": "",
+    }
+
+    def _get_config(key: str):
+        return config.get(key)
+
+    def _get_config_str(key: str) -> str:
+        value = config.get(key)
+        return value if isinstance(value, str) else ""
+
+    def _set_config(key: str, value: object) -> None:
+        config[key] = value
+
+    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
+        "plugin.framework.config.get_config_str", side_effect=_get_config_str
+    ), patch("plugin.framework.config.set_config", side_effect=_set_config), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        listed = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        sections = {section["id"]: section["scripts"] for section in listed["sections"]}
+        assert sections["user"]["Regional"] == "user-code"
+        assert sections["document"]["[Doc] Regional"] == "doc-code"
+        assert "Regional" not in sections["document"]
+
+        sent: list[dict] = []
+        assert handle_editor_script_message(
+            "select_script",
+            {"name": "[Doc] Regional"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/test.odt",
+            send=sent.append,
+        )
+        reopened = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        assert reopened["selected_script_name"] == "[Doc] Regional"
+        re_sections = {section["id"]: section["scripts"] for section in reopened["sections"]}
+        assert re_sections["document"][reopened["selected_script_name"]] == "doc-code"
+
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "[Doc] Regional", "code": "doc-new", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/test.odt",
+            send=sent.append,
+        )
+    stored = get_document_scripts(doc)
+    assert stored["Regional"] == "doc-new"
+    assert "[Doc] Regional" not in stored
+    assert config["saved_python_scripts"] == {"Regional": "user-code"}
+    assert config["last_python_script_name_writer"] == "[Doc] Regional"
+
+
 def test_set_calc_init_script_logs_when_session_cache_fails(caplog) -> None:
     import logging
 
@@ -636,15 +941,102 @@ def test_set_calc_init_script_logs_when_session_cache_fails(caplog) -> None:
         ),
         caplog.at_level(logging.ERROR, logger="plugin.scripting.document_scripts"),
     ):
-        ds.set_calc_init_script(MagicMock(), "x = 1")
+        result = ds.set_calc_init_script(MagicMock(), "x = 1")
+    assert result is not None
+    assert "shared-kernel cache did not update" in result
     assert "failed to refresh the shared-kernel init cache" in caplog.text
+
+
+def test_set_calc_init_script_keeps_persist_error_when_cache_refresh_fails() -> None:
+    """A failed property write stays the error even if the cache refresh also raises."""
+    from plugin.scripting import document_scripts as ds
+
+    with (
+        patch.object(ds, "get_document_scripts", return_value={}),
+        patch.object(ds, "set_document_scripts", return_value="read-only"),
+        patch(
+            "plugin.scripting.session_manager.record_active_calc_session",
+            side_effect=RuntimeError("cache"),
+        ),
+    ):
+        result = ds.set_calc_init_script(MagicMock(), "x = 1")
+    assert result == "read-only"
 
 
 def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
     """GHA 34679494812: leftover_open=3 create_native_doc uid=41 then 30s hang."""
-    from pathlib import Path
-
     src = Path(__file__).with_name("test_document_scripts_uno.py").read_text(encoding="utf-8")
     assert "skip_windows_leftover_hidden_load" in src
     assert "document scripts Hidden _blank reopen" in src
     assert "34679494812" in src
+
+
+def test_monaco_overwrite_check_uses_document_display_key():
+    """New/Save As types a storage name; This Document list keys are [Doc] labels.
+
+    Probing the raw name missed the row, so the overwrite confirm never ran
+    and save_document_script replaced the existing script.
+    """
+    js_path = (
+        Path(__file__).resolve().parents[2]
+        / "plugin/contrib/scripting/assets/editor/scripts_manager.js"
+    )
+    js = js_path.read_text(encoding="utf-8")
+    key_fn = re.search(
+        r"function documentScriptListKey\(name\) \{\n"
+        r"    var prefix = \"([^\"]*)\";\n"
+        r"    return name\.indexOf\(prefix\) === 0 \? name : prefix \+ name;\n"
+        r"  \}",
+        js,
+    )
+    exists_fn = re.search(
+        r"function scriptExistsInSection\(sectionId, name\) \{\n"
+        r"    var lookup = sectionId === \"document\" \? documentScriptListKey\(name\) : name;\n"
+        r"    for \(var s = 0; s < scriptSections\.length; s\+\+\) \{\n"
+        r"      if \(scriptSections\[s\]\.id === sectionId\) \{\n"
+        r"        var scripts = scriptSections\[s\]\.scripts \|\| \{\};\n"
+        r"        return scripts\[lookup\] !== undefined;\n"
+        r"      \}\n"
+        r"    \}\n"
+        r"    return false;\n"
+        r"  \}",
+        js,
+    )
+    assert key_fn is not None
+    assert exists_fn is not None
+    prefix = key_fn.group(1)
+    assert prefix == DOC_SCRIPT_DISPLAY_PREFIX
+
+    def list_key(name: str) -> str:
+        return name if name.startswith(prefix) else prefix + name
+
+    def exists_in_section(sections: list[dict], section_id: str, name: str) -> bool:
+        lookup = list_key(name) if section_id == "document" else name
+        for section in sections:
+            if section["id"] == section_id:
+                return lookup in (section.get("scripts") or {})
+        return False
+
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
+    attach_document_script(doc, "Regional", "result = 3")
+    with patch("plugin.framework.config.get_config", return_value={"Regional": "user-code"}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+    sections = msg["sections"]
+    by_id = {section["id"]: section["scripts"] for section in sections}
+    # The raw storage name is not a list key. The picker must still find it.
+    assert "Regional" not in by_id["document"]
+    assert by_id["document"][document_script_display_name("Regional")] == "result = 3"
+    assert exists_in_section(sections, "document", "Regional")
+    assert exists_in_section(sections, "document", document_script_display_name("Regional"))
+    assert not exists_in_section(sections, "document", "Other")
+    # My Scripts keeps the raw name, including when it matches a document script.
+    assert exists_in_section(sections, "user", "Regional")
+    assert not exists_in_section(sections, "user", document_script_display_name("Regional"))

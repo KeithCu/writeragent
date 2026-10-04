@@ -104,6 +104,7 @@ HELPER_NAMES = frozenset(
         "fisher",
         "fisherinv",
         "fixed",
+        "fmt",
         "forecast",
         "frequency",
         "fv",
