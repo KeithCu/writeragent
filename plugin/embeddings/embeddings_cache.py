@@ -234,6 +234,8 @@ def mark_file_indexed(
 def diff_chunk_rows(
     db_path: Path,
     chunks: list[Any],
+    *,
+    doc_url: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
     from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
@@ -245,7 +247,7 @@ def diff_chunk_rows(
         return to_index, []
     conn = _open_index_db(db_path)
     try:
-        return diff_chunk_rows_in_db(conn, chunks)
+        return diff_chunk_rows_in_db(conn, chunks, doc_url=doc_url)
     finally:
         conn.close()
 

@@ -95,4 +95,4 @@ def test_extract_calc_rows_missing_pandas(tmp_path: Path):
         return real_import(name, *args, **kwargs)
 
     with patch("builtins.__import__", side_effect=_fake_import):
-        assert embeddings_odf_extract.extract_calc_rows(str(ods)) == []
+        assert embeddings_odf_extract.extract_calc_rows(str(ods)) is None

@@ -193,7 +193,7 @@ def _ingest_rows(
         conn.close()
 
 
-def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any]]:
+def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any] | None]:
     """Return native passage count and embed chunk rows for one file."""
     return indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
 
@@ -219,6 +219,8 @@ def _cold_build(
     for index, entry in enumerate(files):
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"})
         paragraph_count, chunks = _extract_file_chunks(entry)
+        if chunks is None:
+            continue
         rows = [chunk_to_index_row(chunk) for chunk in chunks]
         hb.force(
             {
@@ -298,7 +300,9 @@ def _incremental_refresh(
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
         paragraph_count, chunks = _extract_file_chunks(entry)
-        to_index, to_delete = diff_chunk_rows(db_path, chunks)
+        if chunks is None:
+            continue
+        to_index, to_delete = diff_chunk_rows(db_path, chunks, doc_url=entry.url)
         hb.force(
             {
                 "phase": "extract",
