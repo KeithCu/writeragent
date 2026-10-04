@@ -784,8 +784,9 @@ class MCPProtocolHandler:
 
         tool = self.tool_registry.get(tool_name)
         is_long_running = getattr(tool, "long_running", False) if tool else False
+        is_async = getattr(tool, "is_async", lambda: False)() if tool else False
 
-        initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
+        initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running, "is_async": is_async})
 
         # State machine runner
         events_to_process = [initial_event]
@@ -806,7 +807,7 @@ class MCPProtocolHandler:
 
                 elif isinstance(effect, ExecuteToolEffect):
                     try:
-                        if effect.is_long_running:
+                        if effect.is_long_running or effect.is_async:
                             res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url)
                         else:
                             res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url)

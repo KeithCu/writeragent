@@ -463,6 +463,7 @@ def test_handle_mcp_tools_call_parameter():
     tool_mock = MagicMock()
     tool_mock.name = "dummy_tool"
     tool_mock.long_running = False
+    tool_mock.is_async = lambda: False
     mcp_protocol.tool_registry = MagicMock()
     mcp_protocol.tool_registry.get.return_value = tool_mock
 

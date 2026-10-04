@@ -407,3 +407,35 @@ def test_http_server_stop_ends_sse_keepalive():
             client.close()
         if srv is not None:
             srv.stop()
+
+def test_is_async_uses_long_running_path():
+    """Tools with is_async() returning True should run on the worker thread via _execute_long_running,
+    even if long_running is False, to avoid freezing the VCL main thread."""
+    from unittest.mock import patch
+
+    class _AsyncProbe(ToolBase):
+        name = "async_probe"
+        description = "probe"
+        parameters = {"type": "object", "properties": {}}
+        is_mutation = False
+        long_running = False
+        requires_document = False
+
+        def is_async(self) -> bool:
+            return True
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    tool = _AsyncProbe()
+    handler = _handler(None, tool)
+
+    with patch.object(handler, "_execute_long_running", return_value={"status": "ok", "from_long_running": True}) as mock_long:
+        with patch.object(handler, "_execute_with_backpressure") as mock_backpressure:
+            result = handler._mcp_tools_call({"name": "async_probe", "arguments": {}})
+
+            mock_long.assert_called_once_with("async_probe", {}, document_url=None)
+            mock_backpressure.assert_not_called()
+
+            payload = _payload(result)
+            assert payload.get("from_long_running") is True
