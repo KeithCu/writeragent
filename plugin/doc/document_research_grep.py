@@ -34,11 +34,16 @@ DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
 _DRAW_GREP_SHAPE_CAP = 200
 
 
+from plugin.doc.document_research import _USE_DEFAULT
+
 def resolve_grep_candidates(
     ctx: Any,
     active_model: Any,
     *,
     file_subset: str | None = None,
+    exclude_path: Any = _USE_DEFAULT,
+    open_paths: Any = _USE_DEFAULT,
+    listing_root: Any = _USE_DEFAULT,
 ) -> tuple[list[FileEntry], bool, str | None]:
     """Return (candidates, truncated_files, error_message).
 
@@ -65,7 +70,16 @@ def resolve_grep_candidates(
             pass
         return [entry], False, None
 
-    listing = list_nearby_files(ctx, active_model, filter=raw, file_kind="documents", max_entries=100)
+    listing = list_nearby_files(
+        ctx,
+        active_model,
+        filter=raw,
+        file_kind="documents",
+        max_entries=100,
+        exclude_path=exclude_path,
+        open_paths=open_paths,
+        listing_root=listing_root,
+    )
     if listing.get("status") != "ok":
         return [], False, listing.get("message", "Could not list nearby files")
 

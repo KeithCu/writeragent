@@ -477,6 +477,8 @@ def _entries_from_open_only(
     return entries, truncated
 
 
+_USE_DEFAULT = object()
+
 def list_nearby_files(
     ctx: Any,
     active_model: Any,
@@ -484,6 +486,9 @@ def list_nearby_files(
     filter: str | None = None,
     file_kind: FileKind = "documents",
     max_entries: int = _DEFAULT_MAX_ENTRIES,
+    exclude_path: Any = _USE_DEFAULT,
+    open_paths: Any = _USE_DEFAULT,
+    listing_root: Any = _USE_DEFAULT,
 ) -> dict[str, Any]:
     """List nearby files for the outer document_research agent.
 
@@ -493,11 +498,15 @@ def list_nearby_files(
     Returns a dict with ``files``, ``truncated``, and optional ``listing_root``.
     """
     extensions = _extensions_for_file_kind(file_kind)
-    active_path = get_document_path(active_model)
-    exclude_path = _normalize_path(active_path) if active_path else None
-    open_paths = _collect_open_file_urls(ctx, exclude_path=exclude_path, extensions=extensions)
+    if exclude_path is _USE_DEFAULT and active_model is not None:
+        active_path = get_document_path(active_model)
+        exclude_path = _normalize_path(active_path) if active_path else None
 
-    listing_root = resolve_listing_directory(ctx, active_model)
+    if open_paths is _USE_DEFAULT:
+        open_paths = _collect_open_file_urls(ctx, exclude_path=exclude_path, extensions=extensions)
+
+    if listing_root is _USE_DEFAULT:
+        listing_root = resolve_listing_directory(ctx, active_model)
     if listing_root:
         try:
             files, truncated = _scan_directory(

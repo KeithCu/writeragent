@@ -99,8 +99,23 @@ class SearchNearbyFiles(ToolBase):
         from plugin.framework.config import get_config
         import pathlib
 
-        def _resolve_context() -> dict[str, Any]:
-            folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
+        def _resolve_uno_context() -> tuple[str | None, str | None, dict[str, str]]:
+            from plugin.doc.document_research import resolve_listing_directory, get_document_path, _normalize_path, _collect_open_file_urls, _extensions_for_file_kind
+            listing_root = resolve_listing_directory(ctx.ctx, ctx.doc)
+            active_path = get_document_path(ctx.doc)
+            exclude_path = _normalize_path(active_path) if active_path else None
+            exts = _extensions_for_file_kind("documents")
+            open_paths = _collect_open_file_urls(ctx.ctx, exclude_path=exclude_path, extensions=exts)
+            return listing_root, exclude_path, open_paths
+
+        def _resolve_context(
+            resolved_listing_root: str | None,
+            exclude_path: str | None,
+            open_paths: dict[str, str]
+        ) -> dict[str, Any]:
+            folder_key, db_path, meta_path, listing_root = resolve_index_context(
+                ctx.ctx, ctx.doc, listing_root=resolved_listing_root
+            )
             if folder_key is None or db_path is None or meta_path is None:
                 return {"error": listing_root or "No folder context"}
 
@@ -130,6 +145,9 @@ class SearchNearbyFiles(ToolBase):
                     ctx.ctx,
                     ctx.doc,
                     file_subset=str(file_subset),
+                    exclude_path=exclude_path,
+                    open_paths=open_paths,
+                    listing_root=resolved_listing_root,
                 )
                 if err:
                     return {"error": err}
@@ -159,9 +177,11 @@ class SearchNearbyFiles(ToolBase):
         from plugin.framework.thread_guard import on_main_thread
 
         if on_main_thread():
-            context_result = _resolve_context()
+            resolved_listing_root, exclude_path, open_paths = _resolve_uno_context()
         else:
-            context_result = execute_on_main_thread(_resolve_context)
+            resolved_listing_root, exclude_path, open_paths = execute_on_main_thread(_resolve_uno_context)
+
+        context_result = _resolve_context(resolved_listing_root, exclude_path, open_paths)
 
         if "error" in context_result:
             return {"status": "error", "message": context_result["error"]}
