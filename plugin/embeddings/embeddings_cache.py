@@ -421,6 +421,12 @@ def clear_folder_cache(listing_root: str) -> None:
     _remove_path(base / "zvec")
     _remove_path(base / "lancedb")
 
+    try:
+        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+        zvec_clear_cache(str(base / "zvec"))
+    except ImportError:
+        pass
+
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
     """On first access after upgrade, drop stale v1/v2 stores."""
