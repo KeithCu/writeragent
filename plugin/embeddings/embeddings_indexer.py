@@ -53,6 +53,8 @@ def _resolve_search_mode(ctx: Any) -> str:
     return "hybrid"
 
 
+_failed_indexing_folders: dict[str, str] = {}
+
 def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
     try:
         model = get_embedding_model()
@@ -63,10 +65,15 @@ def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
             mode="auto",
             search_mode=_resolve_search_mode(ctx),
         )
-    except Exception:
+        _failed_indexing_folders.pop(folder_key, None)
+    except Exception as e:
         log.exception("Background corpus index failed for folder %s", folder_key)
+        _failed_indexing_folders[folder_key] = str(e)
     finally:
         _clear_enqueue(folder_key)
+
+def get_failed_indexing_message(folder_key: str) -> str | None:
+    return _failed_indexing_folders.get(folder_key)
 
 
 def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
