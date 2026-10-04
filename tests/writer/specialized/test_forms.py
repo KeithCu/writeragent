@@ -189,3 +189,20 @@ def test_form_generate_ok_when_fields_succeed(monkeypatch):
 
     assert res == {"status": "ok", "message": "Form generation completed and inserted."}
     assert inserted == ["Hello ", " tail"]
+
+def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
+    from plugin.writer.specialized.forms import FormGenerate
+    tool = FormGenerate()
+    assert tool.is_async() is True
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+
+    ctx = MagicMock()
+    from unittest.mock import patch
+
+    with patch("plugin.framework.config.get_api_config"), \
+         patch("plugin.framework.client.llm_client.LlmClient"):
+        res = tool.execute(ctx, description="test form")
+
+        assert res["status"] == "error"
+        assert "FormGenerate LLM call must not run on the UI thread" in res["message"]
