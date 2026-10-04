@@ -603,7 +603,7 @@ def _run_deep_web_research(
     elif agent_params.max_steps > 0:
         deep_params.max_steps_override = max(agent_params.max_steps + 1, int(agent_params.max_steps * 1.5))
 
-    def worker_factory() -> tuple[Any, Any]:
+    def worker_factory() -> tuple[Any, Any, Any]:
         # One LlmClient owns one HTTP connection and is not safe on two threads.
         # The deep pool (default concurrency 2) used to share the parent client,
         # so sub-query sockets raced the planning request. Build a client on the
@@ -633,7 +633,7 @@ def _run_deep_web_research(
                 stop_checker=agent_params.stop_checker,
             )
 
-        return run_sub_agent, worker_llm_chat
+        return run_sub_agent, worker_llm_chat, worker_client.stop
 
     def _parent_runner_not_for_pool(sub_query: str, research_goal: str, sub_history: str | None) -> str:
         del sub_query, research_goal, sub_history
@@ -819,20 +819,12 @@ class WebResearchTool(ToolBase):
             val = get_config("chatbot.web_research_browser")
             if isinstance(val, str):
                 browser_type = val
-        except Exception:
+        except (ValueError, TypeError):
             pass
 
-        cdp_enabled = (browser_type in ["chrome", "firefox"])
+        cdp_enabled = (browser_type in ["chrome", "firefox", "chromium"])
         cdp_url = None
         cdp_held = False
-        if cdp_enabled:
-            try:
-                cdp_url = _begin_shared_cdp(ctx.ctx, browser_type)
-                cdp_held = True
-                log.info("CDP web research enabled (%s). Local debug WS URL: %s", browser_type, cdp_url)
-            except Exception as e:
-                log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
-                cdp_enabled = False
 
         stop_checker = getattr(ctx, "stop_checker", None)
         cancel_scope = getattr(ctx, "send_cancellation", None)
@@ -847,25 +839,33 @@ class WebResearchTool(ToolBase):
         except (ValueError, TypeError):
             pass
 
-        agent_params = WebAgentRunParams(
-            smol_model=smol_model,
-            max_steps=max_steps,
-            cache_path=cache_path,
-            cache_max_mb=cache_max_mb,
-            cache_max_age_days=cache_max_age_days,
-            cdp_enabled=cdp_enabled,
-            cdp_url=cdp_url,
-            stop_checker=stop_checker,
-            status_callback=status_callback,
-            append_thinking_callback=append_thinking_callback,
-            approval_callback=approval_callback,
-            chat_append_callback=chat_append_callback,
-            prompt_for_web_research=prompt_for_web_research,
-            outer_query=query_str,
-            cancellation_scope=cancel_scope,
-        )
-
         try:
+            if cdp_enabled:
+                try:
+                    cdp_url = _begin_shared_cdp(ctx.ctx, browser_type)
+                    cdp_held = True
+                    log.info("CDP web research enabled (%s). Local debug WS URL: %s", browser_type, cdp_url)
+                except Exception as e:
+                    log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
+                    cdp_enabled = False
+
+            agent_params = WebAgentRunParams(
+                smol_model=smol_model,
+                max_steps=max_steps,
+                cache_path=cache_path,
+                cache_max_mb=cache_max_mb,
+                cache_max_age_days=cache_max_age_days,
+                cdp_enabled=cdp_enabled,
+                cdp_url=cdp_url,
+                stop_checker=stop_checker,
+                status_callback=status_callback,
+                append_thinking_callback=append_thinking_callback,
+                approval_callback=approval_callback,
+                chat_append_callback=chat_append_callback,
+                prompt_for_web_research=prompt_for_web_research,
+                outer_query=query_str,
+                cancellation_scope=cancel_scope,
+            )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(
                     ctx,
