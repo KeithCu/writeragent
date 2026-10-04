@@ -93,12 +93,12 @@ def extract_calc_rows(path: str) -> list[str] | None:
     """Read indexable row text from a Calc .ods/.ots/.fods (one passage per non-empty row). Returns None on failure."""
     try:
         import pandas as pd
-    except ImportError:
+    except ImportError as exc:
         log.debug("pandas not installed — ODS extract skipped for %s", path, exc_info=True)
         return None
     try:
         sheets = pd.read_excel(path, engine="odf", sheet_name=None, header=None)
-    except ImportError:
+    except ImportError as exc:
         log.debug("odfpy not installed — ODS extract skipped for %s", path, exc_info=True)
         return None
     except Exception:

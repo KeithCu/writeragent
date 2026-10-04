@@ -67,12 +67,12 @@ def extract_spreadsheet_rows(path: str) -> list[str] | None:
         return []
     try:
         import pandas as pd
-    except ImportError:
+    except ImportError as exc:
         log.debug("pandas not installed — spreadsheet extract skipped for %s", path, exc_info=True)
         return None
     try:
         sheets = pd.read_excel(path, engine=engine, sheet_name=None, header=None)
-    except ImportError:
+    except ImportError as exc:
         log.debug("%s engine not installed — spreadsheet extract skipped for %s", engine, path, exc_info=True)
         return None
     except Exception:

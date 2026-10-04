@@ -111,7 +111,6 @@ def test_execute_code_does_not_pump_idle():
         assert out == worker_result
         pump.assert_called_once()
         assert pump.call_args.kwargs.get("pump_idle") is False
-        assert callable(pump.call_args.kwargs.get("stop_checker"))
         run_venv.assert_not_called()
 
         # Call the mapped function to test inner logic
@@ -122,15 +121,11 @@ def test_execute_code_does_not_pump_idle():
         assert kwargs.get("python_tool_domain") == ""
         assert kwargs.get("session_id") == "notebook:test"
         assert kwargs.get("script_session_id") == "doc:test"
+        assert callable(kwargs.get("stop_checker"))
         release.assert_called_once_with("doc:test")
 
 def test_execute_code_stop_returns_interrupted_without_venv():
-    """``BlockingWaitStopped`` is another thread setting the flag.
-
-    The hamburger cannot do that: it runs on the UI thread that is inside
-    this wait, and the wait does not pump VCL.
-    """
-    from plugin.framework.async_stream import BlockingWaitStopped
+    """When stop_checker is true during exception handling in _run, we return stopped."""
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -138,20 +133,18 @@ def test_execute_code_stop_returns_interrupted_without_venv():
         patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
         patch(
             "plugin.notebook.notebook_runner.run_blocking_in_thread",
-            side_effect=BlockingWaitStopped("stopped"),
+            side_effect=lambda ctx, func, **kw: func(),
         ) as pump,
-        patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
-        patch("plugin.notebook.notebook_runner.run_in_background") as bg,
-        patch("plugin.notebook.notebook_runner.reset_python_session") as reset,
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", side_effect=Exception("stalled")) as run_venv,
+        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
         patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
         patch("plugin.notebook.notebook_runner.release_script_document"),
         patch("plugin.framework.worker_pool.run_in_background", lambda f, **kwargs: f()),
     ):
         out = execute_code(ctx, doc, "x = 1")
-        bg.assert_called_once_with(reset, ctx, "notebook:test", name="notebook_reset_on_stop")
     assert out["status"] == "stopped"
     assert pump.call_args.kwargs.get("pump_idle") is False
-    run_venv.assert_not_called()
+    run_venv.assert_called_once()
 
 
 def test_run_cell_updates_registry_and_execution_count():
