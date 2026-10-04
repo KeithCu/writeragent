@@ -240,7 +240,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 res = reset_python_session(self._ctx, sid)
                 if isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY":
                     # Fall back to doing it in the background if the worker is busy to avoid deadlocks.
-                    def do_retry(retry_sid=sid):
+                    def do_retry(retry_sid: str = sid):
                         import time
                         time.sleep(0.5)
                         try:
