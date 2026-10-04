@@ -116,6 +116,15 @@ class DeleteSlide(ToolBase):
         pages = bridge.get_pages()
         if page_idx < 0 or page_idx >= pages.getCount():
             return self._tool_error("Page index %s out of range." % page_idx)
+        # What was wrong: the last page was removed whenever its index was in
+        # range, so a one-page Draw or Impress document lost its only slide.
+        # How it happened: DeleteSlide checked the index and then always called
+        # bridge.delete_slide. SlideCommandEngine._delete_slide already refuses
+        # that case before it touches the document.
+        # Why this fixes it: return the same error and skip the removal when
+        # one page remains.
+        if pages.getCount() <= 1:
+            return self._tool_error("Cannot delete the only slide")
         bridge.delete_slide(page_idx)
 
         return {"status": "ok", "message": "Slide deleted", "active_page_index": bridge.get_active_page_index()}
