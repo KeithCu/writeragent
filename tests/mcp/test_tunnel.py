@@ -699,6 +699,10 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         assert mgr._process is procs[1]
         procs[0].terminate.assert_called_once()
         # post_stop for the provider being left, not cloudflare (which has none).
+        import time
+        t0 = time.monotonic()
+        while len(reset_cmds) < 4 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
         assert reset_cmds == [
             ["tailscale", "funnel", "reset"],
             ["tailscale", "serve", "reset"],
@@ -755,18 +759,34 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
 
         # Provider switch: no process object, but the effect's provider is tailscale.
         assert mgr.start(18765, "cloudflare") is True
+
+        # post_stop runs in the background, so wait a bit
+        import time
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 2 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
         assert reset_cmds == tailscale_reset + tailscale_reset
         mgr.stop()
         assert reset_cmds == tailscale_reset + tailscale_reset
 
         # Disable while reconnecting.
         assert mgr.start(18765, "tailscale") is True
+        # wait for pre_start to finish
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 3 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+
         exits[-1](1)
         assert mgr._process is None
         assert mgr.is_reconnecting is True
         if mgr._reconnect_timer is not None:
             mgr._reconnect_timer.cancel()
         mgr.stop()
+
+        # wait for post_stop
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 4 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
         assert reset_cmds == tailscale_reset + tailscale_reset + tailscale_reset + tailscale_reset
 
         # Idle stop was already STOPPED. Another stop must not reset again.

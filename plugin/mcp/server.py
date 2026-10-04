@@ -289,6 +289,13 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
     def _read_body(self) -> Any:
         content_length = int(self.headers.get("Content-Length", 0))
+        if content_length < 0:
+            from plugin.framework.errors import AgentParsingError, format_error_payload
+
+            log.warning("Invalid negative Content-Length: %s", content_length)
+            err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
+            self._send_json(400, format_error_payload(err))
+            return None
         if content_length == 0:
             return {}
         raw = self.rfile.read(content_length).decode("utf-8")
