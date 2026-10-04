@@ -26,6 +26,7 @@ from plugin.framework.config import (
 )
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model
 from plugin.framework.i18n import _
+from plugin.framework.url_utils import normalize_endpoint_url
 
 from typing import Any, cast
 
@@ -149,6 +150,39 @@ def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
     return field_specs
 
 
+def endpoint_for_api_key_write(
+    typed_key: str,
+    saved_endpoint: str,
+    target_endpoint: str,
+    saved_key: str,
+    target_key: str,
+) -> str | None:
+    """Normalized endpoint to store *typed_key* under, or None for no write.
+
+    What was wrong: Settings OK stored the API key field under the URL in
+    the endpoint box. Typing a new URL leaves the previous host's key in
+    that field (the box is not rewritten on each keystroke, so a key the
+    user just pasted is not wiped). OK then saved that secret under the
+    new host.
+    How: the compare was only against the key already stored for the URL
+    being saved. The previous host's key differs from the new host's key,
+    so it was written there.
+    Why: a value that still equals the key stored for the endpoint on disk
+    belongs to that endpoint. Return None and leave both slots alone. A
+    different value was typed for the URL this OK saves, including a key
+    pasted and then a one-character URL correction. An unchanged key for
+    the same endpoint is not a write.
+    """
+    saved_norm = normalize_endpoint_url(saved_endpoint or "")
+    target_norm = normalize_endpoint_url(target_endpoint or "")
+    typed = str(typed_key)
+    if target_norm != saved_norm and typed == str(saved_key or ""):
+        return None
+    if typed == str(target_key or ""):
+        return None
+    return target_norm
+
+
 def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc.
 
@@ -168,7 +202,6 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
     from plugin.chatbot.settings_fields import stored_select_value
     from plugin.framework.client.model_fetcher import _sanitize_stored_model_value
-    from plugin.framework.url_utils import normalize_endpoint_url
 
     field_specs = get_settings_field_specs(ctx)
     field_specs_by_name = {f["name"]: f for f in field_specs}
@@ -181,13 +214,17 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     text_model_lru: str | None = None
     image_model_lru: str | None = None
 
+    # The key field was filled for this endpoint. A newly typed URL does not
+    # rebind the field, so the compare below can tell a stale secret from a
+    # key the user typed for the URL being saved.
+    saved_endpoint = get_current_endpoint()
     if "endpoint" in result:
         pending["endpoint"] = result["endpoint"]
         # Same normalizer validate() applies, so the API-key slot matches the
         # URL this batch will store. Do not write the endpoint early.
         current_endpoint = endpoint_from_selector_text(str(result["endpoint"] or ""))
     else:
-        current_endpoint = get_current_endpoint()
+        current_endpoint = saved_endpoint
 
     for key, val in result.items():
         if key in ("endpoint", "api_key") or key not in field_specs_by_name:
@@ -277,19 +314,20 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             ordinary_lru.append((key, val, save_key))
 
     if "api_key" in result:
-        # Same dict set_api_key_for_endpoint would pass to set_config.
-        # An unchanged key, including empty when nothing is stored, is not
-        # a write: rebuilding the map on every OK rewrote api_keys_by_endpoint
-        # even when the field still held the saved secret.
+        # One slot, not a copy of the whole map. set_configs merges that slot
+        # into the map it reads under the config lock. Copying the map here
+        # and replacing it in the batch dropped a key another writer stored
+        # for a different endpoint between this read and that write.
         typed_key = str(result["api_key"])
-        if typed_key != str(get_api_key_for_endpoint(current_endpoint) or ""):
-            data = get_config("api_keys_by_endpoint")
-            if not isinstance(data, dict):
-                data = {}
-            else:
-                data = dict(data)
-            data[normalize_endpoint_url(current_endpoint or "")] = typed_key
-            pending["api_keys_by_endpoint"] = data
+        slot = endpoint_for_api_key_write(
+            typed_key,
+            saved_endpoint,
+            current_endpoint,
+            str(get_api_key_for_endpoint(saved_endpoint) or ""),
+            str(get_api_key_for_endpoint(current_endpoint) or ""),
+        )
+        if slot is not None:
+            pending["api_keys_by_endpoint"] = {slot: typed_key}
 
     from plugin.chatbot.settings_fields import changed_config_values
 
