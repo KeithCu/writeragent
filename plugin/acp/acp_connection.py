@@ -129,6 +129,10 @@ class ACPConnection:
             self._stderr_drain = None
         if proc is None:
             return
+
+        # terminate() is fast. wait() can sit for the full timeout, which
+        # froze the UI thread. Signal the child here so a second stop still
+        # sees one terminate, and only the wait/kill runs off this thread.
         try:
             if proc.stdin:
                 proc.stdin.close()
@@ -136,12 +140,19 @@ class ACPConnection:
             pass
         try:
             proc.terminate()
-            proc.wait(timeout=3)
         except Exception:
+            pass
+
+        def _wait_then_kill() -> None:
             try:
-                proc.kill()
+                proc.wait(timeout=3)
             except Exception:
-                pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+        run_in_background(_wait_then_kill, name="acp-stop", dedicated=True)
 
     @property
     def is_alive(self) -> bool:
