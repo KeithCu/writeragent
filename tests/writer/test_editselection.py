@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.editselection import do_extend_selection, do_edit_selection
@@ -92,9 +91,10 @@ def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client,
         # apply_chunk does not consult stop_checker, so a broken checker does not block the write.
         apply_chunk_fn("new chunk")
 
+@patch("plugin.writer.editselection.msgbox")
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
-def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_stream_completion):
+def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_stream_completion, mock_msgbox):
     set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
@@ -116,6 +116,11 @@ def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_st
         do_extend_selection(ctx, model, MagicMock())
 
         apply_chunk_fn = mock_stream_completion.call_args.args[5]
+        on_done_fn = mock_stream_completion.call_args.args[6]
 
-        with pytest.raises(RuntimeError, match="streamed append: chunk apply failed"):
-            apply_chunk_fn("new chunk")
+        # In-hand chunk does not crash or raise inside apply_chunk
+        apply_chunk_fn("new chunk")
+        on_done_fn()
+        mock_msgbox.assert_called_once()
+        assert "Failed" in mock_msgbox.call_args.args[2]
+

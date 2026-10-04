@@ -210,6 +210,10 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
     results: list[dict[str, Any]] = []
     for image_name in target_names:
         if stop_checker is not None and stop_checker():
+            if results:
+                # Prior images were already inserted into the document. Break loop
+                # and return completed results so the tool result matches what landed.
+                break
             return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
 
         per_params = dict(params_dict)

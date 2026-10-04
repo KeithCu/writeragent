@@ -1133,7 +1133,19 @@ class TestHandsFreeRecord:
 
 
 
-class TestStopClearsAudioWavPath:
+class TestStopPreservesAudioWavPath:
+    def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
+        listener = _make_send_listener()
+        listener.audio_wav_path = "/tmp/fake.wav"
+        from plugin.chatbot.send_state import SendEvent, SendEventKind
+        # We need the listener to execute StopSendEffect.
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+
+        # Audio path is preserved so it can be transcribed into the query box.
+        assert listener.audio_wav_path == "/tmp/fake.wav"
+
     @patch("os.remove")
     def test_disposing_clears_audio_wav_path(self, mock_remove) -> None:
         listener = _make_send_listener()

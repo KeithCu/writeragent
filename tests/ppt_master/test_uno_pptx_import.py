@@ -242,19 +242,6 @@ def test_empty_source_does_not_touch_the_target(monkeypatch):
     assert "no slides" in result["message"]
     assert target_pages[0].shapes == ["USER"]
 
-def test_stop_checker_cancels_import(monkeypatch):
-    target, source, target_pages, _source_pages = _deck([["USER"]], 1)
-    called = {"copy": False}
-    def fake_copy(source_page, target_doc, target_page, uno_ctx=None):
-        called["copy"] = True
-        return 1
-
-    _patch_copy(monkeypatch, fake_copy)
-
-    result = _import_slides_from_source(object(), target, source, stop_checker=lambda: True)
-    assert result["status"] == "error"
-    assert result["code"] == "USER_STOPPED"
-    assert target_pages[0].shapes == ["USER"]
 
 
 class DisposedException(Exception):

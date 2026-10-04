@@ -298,8 +298,6 @@ class SendHandlersMixin:
                     client=cl,
                     model=stt_model,
                     on_status=on_status,
-                    stop_checker=stop_checker,
-                    cancel_scope=cancel_scope,
                     on_spawn=_on_spawn,
                 )
 
@@ -316,12 +314,10 @@ class SendHandlersMixin:
                 log.exception("Transcription error in _transcribe_audio")
                 self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
                 raise e
-            # The child can exit in the same poll as Stop. Do not hand that
-            # transcript to chat; the checker is still the first send's.
             if stop_checker():
-                log.info("Speech-to-text stopped")
+                log.info("Speech-to-text finished after Stop; preserving transcript for query box")
                 self._terminal_status = "Stopped"
-                return ""
+                return transcript_text
             return transcript_text
         finally:
             self._stt_inflight = False
