@@ -1159,7 +1159,10 @@ class PythonWorkerManager:
             if frame_type == FRAME_HEARTBEAT:
                 payload = data.get("payload")
                 if on_heartbeat is not None and isinstance(payload, dict):
-                    on_heartbeat(payload)
+                    try:
+                        on_heartbeat(payload)
+                    except Exception:
+                        log.exception("Heartbeat callback failed (ignoring)")
                 deadline_holder[0] = time.monotonic() + grace_sec
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
