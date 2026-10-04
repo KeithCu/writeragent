@@ -1480,11 +1480,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if scope is not None:
                     scope.cancel()
 
-                # Clear audio path so an aborted send doesn't attach this recording to the next one
-                self.clear_pending_audio_wav()
+                # AI/DEV INVARIANT: Do NOT clear audio_wav_path or kill in-flight STT here.
+                # If Stop is clicked while recording or transcribing, we want speech-to-text to finish
+                # and populate the query box so the user's spoken words are preserved and not discarded.
 
                 self._stop_requested_fallback = True
-                self._kill_inflight_stt()
                 from plugin.doc.peer_message import drop_listener_queue
 
                 drop_listener_queue(self)
