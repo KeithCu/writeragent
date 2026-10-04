@@ -485,10 +485,16 @@ class TunnelManager:
                 # stop() again and would wipe Funnel on every save.
                 leaving_live_session = proc is not None or previous_status != TunnelStatus.STOPPED
                 if post_stop and leaving_live_session:
-                    try:
-                        post_stop()
-                    except Exception:
-                        log.exception("Tunnel post_stop failed for %s", provider)
+                    from plugin.framework.worker_pool import run_in_background
+
+                    def _safe_post_stop() -> None:
+                        try:
+                            assert post_stop is not None
+                            post_stop()
+                        except Exception:
+                            log.exception("Tunnel post_stop failed for %s", provider)
+
+                    run_in_background(_safe_post_stop, name="tunnel-post-stop", dedicated=True)
 
             elif isinstance(effect, StartProcessEffect):
                 provider = effect.provider
