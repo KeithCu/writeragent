@@ -202,9 +202,12 @@ def enumerate_impress_designs(ctx: Any) -> list[dict[str, str]]:
     """Walk PathSettings template dirs for ``.otp`` files. Stable id = stem lowercased."""
     designs: list[dict[str, str]] = []
     seen_paths: set[str] = set()
+    limit = 1000
     for directory in _iter_template_directories(ctx):
         for root, _unused_dirs, files in os.walk(directory):
             for filename in files:
+                if len(seen_paths) >= limit:
+                    return designs
                 if _should_skip_filename(filename):
                     continue
                 if not filename.lower().endswith(_OTP_EXT):
@@ -450,12 +453,25 @@ def _extract_otp_picture(otp_path: str, dest_dir: str, index: int = 0) -> str | 
     import zipfile
 
     member = members[index]
+    limit = 2 * 1024 * 1024
+    chunk_size = 64 * 1024
     try:
         with zipfile.ZipFile(otp_path, "r") as zf:
+            info = zf.getinfo(member)
+            if info.file_size > limit:
+                return None
             base = os.path.basename(member) or "chrome.bin"
             out = os.path.join(dest_dir, base)
-            with zf.open(member) as src, open(out, "wb") as dst:
-                dst.write(src.read())
+            with zf.open(info, "r") as src, open(out, "wb") as dst:
+                written = 0
+                while written <= limit:
+                    piece = src.read(chunk_size)
+                    if not piece:
+                        break
+                    if written + len(piece) > limit:
+                        return None
+                    dst.write(piece)
+                    written += len(piece)
             return out
     except Exception:
         log.debug("extract_otp_picture failed path=%s index=%s", otp_path, index, exc_info=True)

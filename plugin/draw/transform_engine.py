@@ -42,7 +42,10 @@ def _set_shape_text(shape: Any, text: str) -> None:
             xtext = shape.getText()
             xtext.setString(text)
             return
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             pass
     if hasattr(shape, "setString"):
         shape.setString(text)
@@ -109,7 +112,10 @@ def _cursor_string(obj: Any) -> str | None:
     if callable(getter):
         try:
             val = getter()
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             return None
         if isinstance(val, str):
             return val
@@ -126,7 +132,10 @@ def _shape_text_string(shape: Any) -> str | None:
     if callable(getter):
         try:
             text = getter()
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             text = None
         found = _cursor_string(text)
         if found is not None:
@@ -196,11 +205,17 @@ def _set_text_prop(cursor: Any, name: str, value: Any) -> bool:
         try:
             setter(name, value)
             return True
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             log.debug("cursor setPropertyValue %s failed", name, exc_info=True)
     try:
         setattr(cursor, name, value)
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         log.debug("cursor attribute %s failed", name, exc_info=True)
         return False
     return True
@@ -258,6 +273,9 @@ class SlideCommandEngine:
                 self.bridge.set_current_page_index(self.current_slide)
                 return {"status": "ok", "current_slide": self.current_slide, "applied": self.applied, "warnings": self.warnings}
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             log.exception("SlideCommandEngine.apply failed")
             return {"status": "error", "message": str(exc), "applied": self.applied, "warnings": self.warnings}
 
@@ -331,15 +349,21 @@ class SlideCommandEngine:
                     self.current_slide = i
                     self.applied.append("JumpToSlideByName:%s" % name)
                     return i
-            except Exception:
+            except Exception as e:
+                from plugin.framework.errors import is_disposed_exception
+                if is_disposed_exception(e):
+                    raise
                 pass
         return None
 
     def _insert_master(self, master_index: int | None = None, master_name: str | None = None) -> None:
-        _unused, new_idx = self.bridge.insert_slide_from_master(master_index=master_index, master_name=master_name, after_index=self.current_slide, switch=True)
-        self.current_slide = new_idx
-        self.pages = self.bridge.get_pages()
-        self.applied.append("InsertMasterSlide:%d" % new_idx)
+        try:
+            _unused, new_idx = self.bridge.insert_slide_from_master(master_index=master_index, master_name=master_name, after_index=self.current_slide, switch=True)
+            self.current_slide = new_idx
+            self.pages = self.bridge.get_pages()
+            self.applied.append("InsertMasterSlide:%d" % new_idx)
+        except ValueError as e:
+            self.warnings.append(f"InsertMasterSlide: {e}")
 
     def _delete_slide(self, val: Any) -> None:
         idx = _parse_slide_index(val, self.current_slide, self._page_count())
@@ -401,6 +425,9 @@ class SlideCommandEngine:
                 xtext = shape.getText()
                 cursor = xtext.createTextCursor()
             except Exception as exc:
+                from plugin.framework.errors import is_disposed_exception
+                if is_disposed_exception(exc):
+                    raise
                 self.warnings.append("EditTextObject.%d: no text: %s" % (shape_index, exc))
                 return
         for sub in subcmds:
@@ -504,10 +531,16 @@ class SlideCommandEngine:
             if cursor is not None and shape is not None:
                 try:
                     controller.select(shape)
-                except Exception:
+                except Exception as e:
+                    from plugin.framework.errors import is_disposed_exception
+                    if is_disposed_exception(e):
+                        raise
                     pass
             dispatcher.executeDispatch(frame, uno_name, "", 0, props)
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             self.warnings.append("UnoCommand %s failed: %s" % (uno_name, exc))
 
     def _dispatch_uno_named(self, name: str, arguments: dict[str, Any]) -> None:
@@ -519,6 +552,9 @@ class SlideCommandEngine:
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
             dispatcher.executeDispatch(frame, name, "", 0, props)
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             self.warnings.append("UnoCommand %s failed: %s" % (name, exc))
 
     def _uno_props_from_dict(self, arguments: dict[str, Any]) -> tuple[Any, ...]:

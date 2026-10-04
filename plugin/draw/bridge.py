@@ -222,8 +222,11 @@ class DrawBridge:
             requested = int(after_index) + 1
         except (TypeError, ValueError):
             requested = count
-        new_page, landed = self._insert_page_at(requested, switch=False, count=count)
         master = self._resolve_master(master_index=master_index, master_name=master_name)
+        if master is None and (master_index is not None or master_name is not None):
+            raise ValueError(f"Master page not found: index={master_index} name={master_name}")
+
+        new_page, landed = self._insert_page_at(requested, switch=False, count=count)
         if master is not None:
             try:
                 new_page.MasterPage = master
