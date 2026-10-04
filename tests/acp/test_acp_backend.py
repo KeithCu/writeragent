@@ -280,10 +280,8 @@ class TestACPConnectionUnblock:
     """ACPConnection unblocks pending JSON-RPC requests when reader loop terminates."""
 
     def test_reader_loop_termination_unblocks_pending_requests(self):
-        import pytest
         from unittest.mock import MagicMock
         from plugin.acp.acp_connection import ACPConnection
-        from plugin.framework.errors import ToolExecutionError
 
         conn = ACPConnection(cmd_line=["test"])
         mock_proc = MagicMock()
