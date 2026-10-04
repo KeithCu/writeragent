@@ -318,3 +318,40 @@ def test_run_trusted_vision_rejects_oversized_image_before_rpc():
             run_trusted_vision(MagicMock(), MagicMock(), helper="extract_text")
     assert exc.value.code == "IMAGE_TOO_LARGE"
     rpc.assert_not_called()
+
+
+def test_ocr_rpc_runs_outside_main_thread_marshal():
+    depth = {"n": 0}
+    seen: dict[str, int | None] = {"ocr": None, "export": None, "insert": None}
+
+    def fake_exec(fn, *args, **kwargs):
+        depth["n"] += 1
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            depth["n"] -= 1
+
+    def fake_run_vision(*args, **kwargs):
+        seen["ocr"] = depth["n"]
+        return {"status": "ok", "helper": "extract_structure", "full_text": "hi", "html": "<p>hi</p>", "warnings": [], "metrics": {}}
+
+    def fake_export(*args, **kwargs):
+        seen["export"] = depth["n"]
+        return b"png"
+
+    def fake_insert(*args, **kwargs):
+        seen["insert"] = depth["n"]
+
+    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec), patch(
+        "plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision
+    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes", side_effect=fake_export), patch(
+        "plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})
+    ), patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]), patch(
+        "plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert
+    ):
+        result = run_and_insert_vision_for_selection(MagicMock(), MagicMock(), helper="extract_structure")
+
+    assert result["status"] == "ok"
+    assert seen["ocr"] == 0
+    assert seen["export"] == 1
+    assert seen["insert"] == 1

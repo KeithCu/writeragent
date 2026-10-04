@@ -39,7 +39,7 @@ class Undo(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        steps = kwargs.get("steps", 1)
+        steps = max(1, min(int(kwargs.get("steps", 1)), 10))
         try:
             um = _get_undo_manager(ctx.doc)
             undone = 0
@@ -67,7 +67,7 @@ class Redo(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        steps = kwargs.get("steps", 1)
+        steps = max(1, min(int(kwargs.get("steps", 1)), 10))
         try:
             um = _get_undo_manager(ctx.doc)
             redone = 0

@@ -567,14 +567,23 @@ class CellManipulator:
             key = formats.addNew("[HH]:MM:SS", locale)
         return int(key)
 
-    def _classify_write_cell(self, value: Any, formatter: Any, std_key: Any, *, elapsed_format_key: int | None = None) -> tuple[Any, str, dict[str, Any]]:
+    def _classify_write_cell(self, value: Any, formatter: Any, std_key: Any, *, elapsed_format_key: int | None = None, literal_text: bool = False) -> tuple[Any, str, dict[str, Any]]:
         """Classify one write input into data/formula/meta for the ISO write path.
 
         Returns ``(data_value, formula_or_empty, meta)`` where *meta* keys are:
         ``kind`` (formula|forced_text|temporal|number|text|empty),
         ``input_category``, ``detected_key``, ``restore_format`` (S29).
+
+        ``literal_text`` stores the characters as text: no live formula and no
+        ``float()`` (OCR ids such as ``000123``).
         """
         meta: dict[str, Any] = {"kind": "empty", "input_category": None, "detected_key": None, "restore_format": False}
+
+        if literal_text:
+            if value is None or value == "":
+                return "", "", meta
+            meta["kind"] = "forced_text"
+            return value if isinstance(value, str) else str(value), "", meta
 
         if value is None:
             return "", "", meta
@@ -714,7 +723,7 @@ class CellManipulator:
             applied += (r1 - r0 + 1) * (c1 - c0 + 1)
         return applied
 
-    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None) -> str | dict[str, Any]:
+    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None, *, literal_text: bool = False) -> str | dict[str, Any]:
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -732,6 +741,8 @@ class CellManipulator:
                 entered with ``setArrayFormula`` so the whole result shows.
             array: Optional override. ``True`` forces an array formula
                 (LET/XLOOKUP); ``False`` forces scalar ``setFormula``.
+            literal_text: When true, every non-empty value is stored with
+                ``setString`` (text). Skips formula detection and ``float()``.
 
         Returns:
             Summary string, or a dict with ``array_range`` / ``rows`` /
@@ -767,7 +778,7 @@ class CellManipulator:
             # used to return ok and show one value (nelson-mcp afc8cbd8 / #2631).
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
-            if isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
+            if not literal_text and isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
                 sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
                 return self._write_array_formula(sheet, formula_or_values, start, end)
 
@@ -805,7 +816,7 @@ class CellManipulator:
                 # Ordinary 1-D formulas now adjust relative A1 refs; =PY
                 # span-peeks DataRange (multi-row → verbatim). 2-D + one
                 # formula is refused. LO fill/series can be revisited later.
-                if isinstance(formula_or_values, str) and formula_or_values.startswith("=") and total_cells > 1:
+                if not literal_text and isinstance(formula_or_values, str) and formula_or_values.startswith("=") and total_cells > 1:
                     values = expand_single_formula(formula_or_values, num_rows, num_cols)
                 else:
                     values = [formula_or_values] * total_cells
@@ -817,21 +828,25 @@ class CellManipulator:
             # Lazy setup: one pass over values for ISO date/time vs PT duration candidates.
             needs_formatter = False
             needs_duration = False
-            for v in values:
-                if not isinstance(v, str) or v.startswith("=") or v.startswith("'"):
-                    continue
-                stripped = v.strip()
-                if not needs_formatter and match_iso_temporal(stripped):
-                    needs_formatter = True
-                if not needs_duration and match_iso_duration(stripped):
-                    needs_duration = True
-                if needs_formatter and needs_duration:
-                    break
+            # OCR grids must not be scanned as dates or numbers. literal_text
+            # commits with setString below.
+            if not literal_text:
+                for v in values:
+                    if not isinstance(v, str) or v.startswith("=") or v.startswith("'"):
+                        continue
+                    stripped = v.strip()
+                    if not needs_formatter and match_iso_temporal(stripped):
+                        needs_formatter = True
+                    if not needs_duration and match_iso_duration(stripped):
+                        needs_duration = True
+                    if needs_formatter and needs_duration:
+                        break
             formatter = self._make_number_formatter(doc) if needs_formatter else None
             elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
 
             data_array: list[list[Any]] = []
             formula_cells: list[tuple[int, int, str]] = []  # (col, row, formula)
+            literal_text_cells: list[tuple[int, int, str]] = []
             # Per-cell meta in row-major order matching values
             cell_metas: list[dict[str, Any]] = []
             counts = {"date": 0, "time": 0, "datetime": 0, "duration": 0, "text": 0, "formula": 0, "number": 0}
@@ -840,7 +855,12 @@ class CellManipulator:
             for row in range(start[1], end[1] + 1):
                 data_row: list[Any] = []
                 for col in range(start[0], end[0] + 1):
-                    data_val, formula, meta = self._classify_write_cell(values[cell_idx], formatter, std_key, elapsed_format_key=elapsed_format_key)
+                    data_val, formula, meta = self._classify_write_cell(values[cell_idx], formatter, std_key, elapsed_format_key=elapsed_format_key, literal_text=literal_text)
+                    if literal_text and meta["kind"] == "forced_text":
+                        # setDataArray/SetString parses a leading '=' as a formula
+                        # and float() would drop leading zeros. Commit text via setString.
+                        literal_text_cells.append((col, row, str(data_val)))
+                        data_val = ""
                     if formula:
                         formula_cells.append((col, row, formula))
                         counts["formula"] += 1
@@ -898,6 +918,9 @@ class CellManipulator:
 
             for col, row, formula in formula_cells:
                 sheet.getCellByPosition(col, row).setFormula(formula)
+
+            for col, row, text_value in literal_text_cells:
+                sheet.getCellByPosition(col, row).setString(text_value)
 
             format_warning = ""
             if any_temporal:

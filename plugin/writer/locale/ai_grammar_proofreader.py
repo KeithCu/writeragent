@@ -634,9 +634,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             emit_grammar_status("done", last_text, result=f"{issue_count} {iw}")
         return True
 
-    def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]]) -> None:
+    def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]], ident: str) -> None:
         """Enqueue uncached sentences for background processing."""
-        provider = getattr(self, "_provider", "")
+        provider = ident
         for sent_start, sent_end, sent_text in uncached_spans:
             seq = next_enqueue_seq()
             complete_sentence = looks_complete_sentence(sent_text)
@@ -681,6 +681,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             if not loc_key:
                 return a_res
+
+            ident = getattr(self, "_checker_identity", "harper")
 
             # 1. One BreakIterator + dialogue-merge pass for the whole paragraph.
             paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
@@ -768,7 +770,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
                     result_source = "harper_fast"
                 else:
-                    self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans)
+                    self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans, ident)
                     log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
                     result_source = "enqueue"
 
