@@ -171,3 +171,41 @@ def test_search_occurrence_out_of_range_uno(ctx, doc):
     assert res.get("code") == "OCCURRENCE_OUT_OF_RANGE", res
     assert "use 0..1" in res.get("message", ""), res
     assert doc.getText().getString() == before
+
+
+@native_test
+@with_native_doc("writer")
+def test_all_matches_caps_at_max_search_replacements_uno(ctx, doc):
+    """Verify that all_matches safely truncates replacing past _MAX_SEARCH_REPLACEMENTS."""
+    from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
+    # Create document with > _MAX_SEARCH_REPLACEMENTS matches
+    text_value = "foo bar baz " * (_MAX_SEARCH_REPLACEMENTS + 5)
+    _set_body(doc, text_value)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx, target="search", old_content="foo", content="BAR", all_matches=True
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == _MAX_SEARCH_REPLACEMENTS, res
+    assert "safety limit" in res.get("message", ""), res
+    assert "not fully updated" in res.get("message", ""), res
+
+
+@native_test
+@with_native_doc("writer")
+def test_all_matches_caps_at_max_search_replacements_uno(ctx, doc):
+    """Verify that all_matches safely truncates replacing past _MAX_SEARCH_REPLACEMENTS."""
+    from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
+    # Create document with > _MAX_SEARCH_REPLACEMENTS matches
+    text_value = "foo bar baz " * (_MAX_SEARCH_REPLACEMENTS + 5)
+    _set_body(doc, text_value)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx, target="search", old_content="foo", content="BAR", all_matches=True
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == _MAX_SEARCH_REPLACEMENTS, res
+    assert "safety limit" in res.get("message", ""), res
+    assert "not fully updated" in res.get("message", ""), res
