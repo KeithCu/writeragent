@@ -45,7 +45,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import format_error_payload, NetworkError
-from plugin.framework.queue_executor import llm_request_lane
+from plugin.framework.queue_executor import capture_send_stop, llm_request_lane
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 
@@ -523,9 +523,19 @@ class ToolCallingMixin:
         turn = current_turn(self)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if isinstance(turn, TurnController) else None
+        # Spawn-time scope. The body must not call resolve_stop_checker or
+        # read _send_cancellation: Stop clears the field and the next send replaces it.
+        bound_scope, stop_checker = capture_send_stop(self)
 
         def emit(item: Any) -> None:
             put_for_turn(self, turn, real_q, item)
+
+        def stopped_for_this_send() -> bool:
+            if bound_scope is not None and bound_scope.is_cancelled():
+                return True
+            if stop_checker():
+                return True
+            return bool(getattr(client, "_stopped", False))
 
         def run() -> None:
             session = bound_session
@@ -534,8 +544,9 @@ class ToolCallingMixin:
                 return
             try:
                 # B13: Stop before first SSE — do not acquire llm_request_lane.
-                stop_checker = self.resolve_stop_checker()
-                if stop_checker():
+                # The checker and scope were captured at spawn. Resolving here
+                # would bind the next send after Stop cleared the panel field.
+                if stopped_for_this_send():
                     if batched:
                         batched.flush()
                     emit((StreamQueueKind.STOPPED,))
@@ -575,8 +586,10 @@ class ToolCallingMixin:
                         status_callback=status_cb,
                     )
                 # Stop during pre-send host-gap wait returns finish_reason "stop"
-                # without raising; also honor client._stopped so that is not STREAM_DONE.
-                if self.stop_requested or getattr(client, "_stopped", False):
+                # without raising. The captured scope stays cancelled after the
+                # next send clears the panel field and calls clear_stop() on
+                # this shared client, so a live stop_requested read is wrong.
+                if stopped_for_this_send():
                     if batched: batched.flush()
                     note_stop_partial(self, response)
                     emit((StreamQueueKind.STOPPED,))
@@ -606,9 +619,19 @@ class ToolCallingMixin:
 
         turn = current_turn(self)
         bound_session = turn.session if isinstance(turn, TurnController) else None
+        # Same spawn-time capture as _spawn_llm_worker. The final-stream body
+        # must not resolve the panel field when it later starts.
+        bound_scope, stop_checker = capture_send_stop(self)
 
         def emit(item: Any) -> None:
             put_for_turn(self, turn, real_q, item)
+
+        def stopped_for_this_send() -> bool:
+            if bound_scope is not None and bound_scope.is_cancelled():
+                return True
+            if stop_checker():
+                return True
+            return bool(getattr(client, "_stopped", False))
 
         def run_final() -> None:
             session = bound_session
@@ -627,8 +650,7 @@ class ToolCallingMixin:
                 def append_t(t: str) -> None:
                     thinking_cb(t)
 
-                stop_checker = self.resolve_stop_checker()
-                if stop_checker():
+                if stopped_for_this_send():
                     if batched:
                         batched.flush()
                     emit((StreamQueueKind.STOPPED,))
@@ -664,7 +686,7 @@ class ToolCallingMixin:
                         stop_checker=stop_checker,
                         status_callback=status_cb,
                     )
-                if self.stop_requested or getattr(client, "_stopped", False):
+                if stopped_for_this_send():
                     if batched: batched.flush()
                     note_stop_partial(self, "".join(last_streamed))
                     emit((StreamQueueKind.STOPPED,))

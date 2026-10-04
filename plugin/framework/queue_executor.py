@@ -216,6 +216,27 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
     return lambda: False
 
 
+def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
+    """Scope and stop checker frozen on the send thread at worker spawn.
+
+    What was wrong: sub-agent and tool workers called ``resolve_stop_checker()``
+    and read ``host._send_cancellation`` inside the thread body. Stop's drain
+    clears that field, and the next send stores a new scope there. A worker
+    that had been spawned but had not entered its body yet bound the next
+    send, so the old Stop was missed and the old worker could cancel the new one.
+
+    Why: call this before ``run_in_background``. The checker is whatever
+    ``resolve_stop_checker`` returns now, which on the panel is
+    ``bind_send_stop_checker`` closed over this scope object. The worker
+    closes over both results and must not read the panel field again.
+    ``run_in_background`` already copies contextvars at submit;
+    ``get_current_send_cancellation`` stays that submit-time scope.
+    """
+    scope = getattr(host, "_send_cancellation", None)
+    checker = host.resolve_stop_checker()
+    return scope, checker
+
+
 @contextmanager
 def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancellation, None, None]:
     """Mark a chat/agent session as active and expose a :class:`SendCancellation` scope.
