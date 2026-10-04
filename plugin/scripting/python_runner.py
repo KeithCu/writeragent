@@ -305,7 +305,7 @@ def _prepare_rps_execution(
     if "run_vision" in code and script_uses_run_import(code, run_name="run_vision"):
         from plugin.framework.errors import ToolExecutionError
         from plugin.vision.vision_common import merge_vision_params
-        from plugin.vision.vision_runner import resolve_vision_image_bytes, run_and_insert_vision_for_selection, supports_vision_manual
+        from plugin.vision.vision_runner import resolve_vision_image_bytes, supports_vision_manual
 
         if not supports_vision_manual(doc):
             return _early({"ok": False, "message": _("Vision helpers require a Writer or Calc document.")})

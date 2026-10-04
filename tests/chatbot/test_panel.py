@@ -13,7 +13,6 @@ import sys
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import (
     ClearButtonListener,
     QueryKeyListener,
@@ -621,7 +620,10 @@ class TestSendDispose:
         assert len(posted) == 1
         assert not first.is_cancelled()
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-        assert killed == ["kill"]
+        # Why Stop does not kill inflight STT:
+        # If the user clicks Stop while talking or transcribing, Whisper finishes
+        # transcribing so the text lands in the query box rather than aborting.
+        assert killed == []
         assert first.is_cancelled()
         assert listener._stop_requested_fallback
 
@@ -1133,20 +1135,19 @@ class TestHandsFreeRecord:
 
 
 
-class TestStopClearsAudioWavPath:
-    def test_disposing_clears_audio_wav_path(self) -> None:
+class TestStopPreservesAudioWavPath:
+    def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
-        from plugin.chatbot.send_state import StopSendEffect
 
         from plugin.chatbot.send_state import SendEvent, SendEventKind
         # We need the listener to execute StopSendEffect.
-        # This is triggered by STOP_CLICKED
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
-        assert listener.audio_wav_path is None
+        # Audio path is preserved so it can be transcribed into the query box.
+        assert listener.audio_wav_path == "/tmp/fake.wav"
 
 class TestStoppedTTS:
     def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:

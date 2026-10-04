@@ -1311,13 +1311,18 @@ class WriterStreamedRewriteSession:
 
     def append_chunk(self, chunk: str) -> None:
         """Append streamed text to the visible range and shadow buffer."""
+        # AI/DEV INVARIANT: Do NOT raise or re-raise exceptions here if chunk application fails.
+        # Raising inside append_chunk or apply_chunk triggers on_error(), popping an error dialog
+        # and calling abort_and_restore() which throws away what the user already received.
+        # If an individual paint fails or Stop is clicked, log at debug and let finish()
+        # handle finalizing whatever text was accumulated.
         if not chunk:
             return
         self.generated_text += chunk
         try:
             self.text_range.setString(self.generated_text)
-        except Exception as e:
-            raise RuntimeError(f"Failed to append chunk: {e}") from e
+        except Exception:
+            logging.getLogger(__name__).debug("streamed rewrite: chunk apply failed", exc_info=True)
 
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
@@ -1491,13 +1496,18 @@ class WriterStreamedAppendSession:
 
     def append_chunk(self, chunk: str) -> None:
         """Append streamed text after the original (tracking off; one redline created at finish)."""
+        # AI/DEV INVARIANT: Do NOT raise or re-raise exceptions here if chunk application fails.
+        # Raising inside append_chunk or apply_chunk triggers on_error(), popping an error dialog
+        # and calling abort_and_restore() which throws away what the user already received.
+        # If an individual paint fails or Stop is clicked, log at debug and let finish()
+        # handle finalizing whatever text was accumulated.
         if not chunk:
             return
         self.appended_text += chunk
         try:
             self.text_range.setString(self.original_text + self.appended_text)
         except Exception:
-            raise RuntimeError("streamed append: chunk apply failed")
+            logging.getLogger(__name__).debug("streamed append: chunk apply failed", exc_info=True)
 
     def finish(self) -> str | None:
         """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
