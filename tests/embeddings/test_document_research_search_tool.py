@@ -123,31 +123,3 @@ def test_search_embeddings_backend_error_surfaced():
 
     assert result.get("status") == "error", f"Expected error status, got {result.get('status')}"
     assert "Backend timeout or failure" in result.get("message", "")
-
-def test_search_embeddings_passes_stop_checker():
-    tool = SearchEmbeddings()
-    ctx = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.services = MagicMock()
-    ctx.stop_checker = lambda: False
-    ctx.send_cancellation = object()
-
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
-            with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
-                    with patch(
-                        "plugin.embeddings.embeddings_cache.resolve_index_context",
-                        return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
-                    ):
-                        with patch("plugin.framework.config.get_config", return_value="sqlite"):
-                            with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                                with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
-                                    with patch("plugin.embeddings.embeddings_service.knn_search", return_value={"hits": []}) as rpc_mock:
-                                        result = tool.execute(ctx, query="budget figures")
-
-    assert result.get("status") == "ok"
-    rpc_mock.assert_called_once()
-    assert rpc_mock.call_args.kwargs["stop_checker"] is ctx.stop_checker
-    assert rpc_mock.call_args.kwargs["cancellation_scope"] is ctx.send_cancellation

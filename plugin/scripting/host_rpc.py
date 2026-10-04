@@ -322,7 +322,6 @@ def execute_tool(
     caller: str = "script",
     allowed_tools: frozenset[str] | None = None,
     script_session_id: str | None = None,
-    stop_checker: Callable[[], bool] | None = None,
 ) -> Any:
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
@@ -407,7 +406,6 @@ def execute_tool(
             doc_type=doc_type,
             services=registry._services,
             caller=caller,
-            stop_checker=stop_checker,
         )
 
         tool = registry.get(tool_name)
@@ -548,7 +546,6 @@ def handle_tool_call_frame(
             caller=caller,
             allowed_tools=allowed_tools,
             script_session_id=script_session_id,
-            stop_checker=stop_checker,
         )
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:

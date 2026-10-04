@@ -222,15 +222,6 @@ def _is_date_like_column_name(name: str) -> bool:
     return bool(re.search(r"(?:^|[_\s-]|\b)(?:date|time|timestamp|day|month|year|created|updated|expires|dob|start|end)(?:[_\s-]|\b|$)", cleaned) or "date" in cleaned or "time" in cleaned or "timestamp" in cleaned)
 
 
-
-def convert_to_datetime(series: Any, *, date_origin: str = "1899-12-30", errors: str = "coerce") -> Any:
-    """Convert Calc float/int serials or ISO strings to datetime, honoring NullDate epoch."""
-    import pandas as pd
-    series = pd.Series(series)
-    if str(series.dtype).startswith(("float", "int", "uint", "Int")):
-        return pd.to_timedelta(series, unit="D", errors=errors) + pd.to_datetime(date_origin)
-    return pd.to_datetime(series, errors=errors, format="mixed")
-
 def _coerce_column_types(
     df: Any,
     *,
@@ -273,12 +264,12 @@ def _coerce_column_types(
         series = out[col]
         if str(series.dtype).startswith(("float", "int", "uint", "Int")):
             try:
-                out[col] = convert_to_datetime(series, date_origin=date_origin, errors="coerce")
+                out[col] = pd.to_datetime(series, unit="D", origin=date_origin, errors="coerce")
             except Exception:
                 pass
         else:
             try:
-                out[col] = convert_to_datetime(series, date_origin=date_origin, errors="coerce")
+                out[col] = pd.to_datetime(series, errors="coerce", format="mixed")
             except Exception:
                 pass
 
@@ -331,7 +322,6 @@ def resolve_df(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
-    date_origin: str = "1899-12-30",
 ) -> CoerceResult:
     """Coerce *data* to a DataFrame without treating an existing frame's columns as a header row."""
     if isinstance(data, CoerceResult):
@@ -341,11 +331,11 @@ def resolve_df(
     # _normalize_input_grid inside coerce_to_dataframe.
     if type(data).__name__ == "CalcRange":
         hint = sheet_hint or getattr(data, "address", None)
-        return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint, date_origin=date_origin)
+        return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint)
     if hasattr(data, "columns") and hasattr(data, "index"):
         df = data.copy()
         return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
-    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
+    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
 
 
 def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:

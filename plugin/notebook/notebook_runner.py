@@ -1264,6 +1264,10 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 # LayoutIdle livelock is during execute, not this between-cell pump.
                 # Stop clicks are delivered here; check the flag before the next cell.
                 _pump_between_notebook_cells(ctx)
+                # The VCL pump may have processed a document close. Re-check disposal.
+                if is_document_disposed(doc):
+                    stopped = True
+                    break
             if is_document_disposed(doc):
                 stopped = True
                 break

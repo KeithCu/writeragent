@@ -22,12 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config import get_config_str
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, run_in_background, start_stderr_drain
-from plugin.scripting.native_binaries import (
-    _CONTRIB_BASE_URL,
-    _download_url_to_file,
-    ensure_downloaded_audio_on_path,
-    run_vec_pack_download,
-)
+from plugin.scripting.native_binaries import _CONTRIB_BASE_URL, _download_url_to_file, ensure_downloaded_audio_on_path, run_vec_pack_download
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -38,18 +33,13 @@ from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, 
 
 log = logging.getLogger(__name__)
 
-_AUDIO_RECORD_MAIN = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "venv", "audio_record_main.py"
-)
+_AUDIO_RECORD_MAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "audio_record_main.py")
 _RECORDING_READY_TIMEOUT_SEC = 30
 _RECORDING_STOP_TIMEOUT_SEC = 15
 # Live stderr drains keyed by id(proc) — avoids pipe deadlock during record.
 _recording_stderr_drains: dict[int, StderrTail] = {}
 
-_VENV_NOT_CONFIGURED = (
-    "Set the Python venv path in WriterAgent Settings → Python, then run "
-    "'uv pip install sounddevice' in that venv."
-)
+_VENV_NOT_CONFIGURED = "Set the Python venv path in WriterAgent Settings → Python, then run 'uv pip install sounddevice' in that venv."
 
 
 def is_audio_recording_configured(ctx: Any) -> bool:
@@ -67,11 +57,7 @@ def resolve_recording_python(ctx: Any) -> tuple[str | None, str]:
         return None, _VENV_NOT_CONFIGURED
     exe = resolve_venv_python(venv_dir)
     if not exe:
-        return (
-            None,
-            f"No python executable found under configured venv: {venv_dir!r} "
-            "(expected bin/python, Scripts/python.exe, or env-root python.exe).",
-        )
+        return (None, f"No python executable found under configured venv: {venv_dir!r} (expected bin/python, Scripts/python.exe, or env-root python.exe).")
     return exe, ""
 
 
@@ -84,18 +70,11 @@ def _build_recording_env() -> dict[str, str]:
 
 
 def _popen_kwargs() -> dict[str, Any]:
-    popen_kw: dict[str, Any] = {
-        "stdin": subprocess.PIPE,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "env": _build_recording_env(),
-        "text": True,
-        "bufsize": 1,
-    }
+    popen_kw: dict[str, Any] = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "env": _build_recording_env(), "text": True, "bufsize": 1}
     if sys.platform == "win32":
         popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
-        popen_kw["preexec_fn"] = os.setsid
+        popen_kw["start_new_session"] = True
     return popen_kw
 
 
@@ -103,12 +82,7 @@ def _silence_cli_args(config: SilenceDetectorConfig) -> list[str]:
     return [f"--silence-stop-ms={max(0, config.silence_stop_ms)}"]
 
 
-def spawn_recording_process(
-    exe: str,
-    output_path: str,
-    *,
-    silence_config: SilenceDetectorConfig | None = None,
-) -> subprocess.Popen[str]:
+def spawn_recording_process(exe: str, output_path: str, *, silence_config: SilenceDetectorConfig | None = None) -> subprocess.Popen[str]:
     """Start audio_record_main.py in the user venv."""
     cmd = [exe, _AUDIO_RECORD_MAIN, "--output", output_path]
     if silence_config is not None:
@@ -233,13 +207,7 @@ def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> 
         drain.join(timeout=1.0)
 
 
-def stop_recording_process(
-    proc: subprocess.Popen[str],
-    *,
-    timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
-    fallback_path: str | None = None,
-    handoff: RecordingStopHandoff | None = None,
-) -> str:
+def stop_recording_process(proc: subprocess.Popen[str], *, timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC, fallback_path: str | None = None, handoff: RecordingStopHandoff | None = None) -> str:
     """Send stop, then return the WAV path.
 
     When *handoff* is set the stdout monitor is the only reader (see
@@ -248,12 +216,7 @@ def stop_recording_process(
     second reader stole ``ok`` and manual Stop Rec never got a path.
     """
     if handoff is not None:
-        return _stop_recording_via_handoff(
-            proc,
-            handoff,
-            timeout_sec=timeout_sec,
-            fallback_path=fallback_path,
-        )
+        return _stop_recording_via_handoff(proc, handoff, timeout_sec=timeout_sec, fallback_path=fallback_path)
 
     if proc.poll() is not None:
         if proc.stdout is not None:
@@ -289,13 +252,7 @@ def stop_recording_process(
     return path
 
 
-def _stop_recording_via_handoff(
-    proc: subprocess.Popen[str],
-    handoff: RecordingStopHandoff,
-    *,
-    timeout_sec: float,
-    fallback_path: str | None,
-) -> str:
+def _stop_recording_via_handoff(proc: subprocess.Popen[str], handoff: RecordingStopHandoff, *, timeout_sec: float, fallback_path: str | None) -> str:
     """Write stop and wait for the monitor. Do not read stdout."""
 
     def _fallback() -> str | None:
@@ -349,14 +306,7 @@ def _stop_recording_via_handoff(
     return path
 
 
-def _dispatch_recording_stdout(
-    payload: dict[str, Any],
-    *,
-    handoff: RecordingStopHandoff | None,
-    on_auto_stopped: Callable[[str], None],
-    on_silence_progress: Callable[[int], None] | None,
-    on_error: Callable[[str], None] | None,
-) -> None:
+def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingStopHandoff | None, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None, on_error: Callable[[str], None] | None) -> None:
     """Handle one child IPC line. Stash ``ok`` before any callback that may stop.
 
     Callbacks run on this thread. ``note_ok`` / ``note_error`` must happen
@@ -389,14 +339,7 @@ def _dispatch_recording_stdout(
             on_error(message)
 
 
-def monitor_recording_stdout(
-    proc: subprocess.Popen[str],
-    *,
-    on_auto_stopped: Callable[[str], None],
-    on_silence_progress: Callable[[int], None] | None = None,
-    on_error: Callable[[str], None] | None = None,
-    handoff: RecordingStopHandoff | None = None,
-) -> BackgroundHandle:
+def monitor_recording_stdout(proc: subprocess.Popen[str], *, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None = None, on_error: Callable[[str], None] | None = None, handoff: RecordingStopHandoff | None = None) -> BackgroundHandle:
     """Sole stdout reader for venv recorder IPC.
 
     Pass the same *handoff* to ``stop_recording_process``. This thread consumes
@@ -422,13 +365,7 @@ def monitor_recording_stdout(
                 break
             if payload is None:
                 break
-            _dispatch_recording_stdout(
-                payload,
-                handoff=handoff,
-                on_auto_stopped=on_auto_stopped,
-                on_silence_progress=on_silence_progress,
-                on_error=on_error,
-            )
+            _dispatch_recording_stdout(payload, handoff=handoff, on_auto_stopped=on_auto_stopped, on_silence_progress=on_silence_progress, on_error=on_error)
 
     return run_in_background(_reader, name="audio-rec-stdout-monitor", daemon=True, dedicated=True)
 
@@ -457,6 +394,7 @@ def check_host_audio_supported() -> bool:
     ensure_downloaded_audio_on_path()
     try:
         import sounddevice as sd
+
         devices = sd.query_devices()
         return any(d.get("max_input_channels", 0) > 0 for d in devices)
     except Exception:
@@ -650,14 +588,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 host.session.messages.pop()
             host.session.add_user_message(combined)
             host._active_query_text = combined
-            host._spawn_llm_worker(
-                retry_q,
-                host._active_client,
-                host._active_max_tokens,
-                host._active_tools or [],
-                host._sm_state.round_num,
-                query_text=combined,
-            )
+            host._spawn_llm_worker(retry_q, host._active_client, host._active_max_tokens, host._active_tools or [], host._sm_state.round_num, query_text=combined)
             return True
         except Exception:
             log.exception("STT fallback after native-audio error failed")

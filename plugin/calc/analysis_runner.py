@@ -23,22 +23,8 @@ def calc_tool_context(uno_ctx: Any, doc: Any) -> ToolContext:
     """Minimal ToolContext-like object for range reads on the main thread."""
     from types import SimpleNamespace
 
-    ctx_obj = SimpleNamespace(ctx=uno_ctx, doc=doc, doc_type="calc" if is_calc(doc) else None, active_domain=None)
-
-    null_dt_str = "1899-12-30"
-    if doc is not None and is_calc(doc):
-        try:
-            settings = doc.getNumberFormatSettings()
-            if settings is not None:
-                nd = settings.getPropertyValue("NullDate")
-                if nd is not None:
-                    null_dt_str = f"{getattr(nd, 'Year', 1899):04d}-{getattr(nd, 'Month', 12):02d}-{getattr(nd, 'Day', 30):02d}"
-        except Exception:
-            pass
-    ctx_obj.date_origin = null_dt_str
-
     # SimpleNamespace is intentionally duck-typed as ToolContext for range helpers.
-    return cast("ToolContext", cast("object", ctx_obj))
+    return cast("ToolContext", cast("object", SimpleNamespace(ctx=uno_ctx, doc=doc, doc_type="calc" if is_calc(doc) else None, active_domain=None)))
 
 
 def calc_selection_to_a1(doc: Any) -> str | None:
