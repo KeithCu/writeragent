@@ -30,6 +30,11 @@ def test_provider_starters_structure():
         assert p["url"].startswith("http://") or p["url"].startswith("https://")
 
 
+def test_huggingface_starter_uses_router():
+    hf = next(p for p in PROVIDER_STARTERS if p.get("id") == "huggingface")
+    assert hf["url"] == "https://router.huggingface.co/v1"
+
+
 def test_openrouter_starter_has_free_model():
     """Ensure OpenRouter starter includes openrouter/free as its leading model."""
     op = next((p for p in PROVIDER_STARTERS if p.get("id") == "openrouter"), None)

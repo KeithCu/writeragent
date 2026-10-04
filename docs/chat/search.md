@@ -38,9 +38,9 @@ Exposed in [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.
 
 ### Prompt for web research (HITL)
 
-When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), a shallow run blocks on each internal `web_search` until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via `web_research` / delegate) and in dedicated **Web Research** sidebar mode. Deep research asks once, for the preview search, then runs sub-queries with no further approval: the sidebar has one approval slot, and a second prompt is treated as Stop.
+When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), a shallow run blocks on each internal `web_search` until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via `web_research` / delegate) and in dedicated **Web Research** sidebar mode. Deep research asks once. Reject returns `USER_STOPPED` and does not start the loop. Change uses the edited query for the preview, the research loop, and the cache write. Sub-queries do not ask again: the sidebar has one approval slot, and a second prompt is treated as Stop. If approval setup itself fails, the search does not run.
 
-`visit_webpage` records a URL when the fetch starts, inside the dedup wrapper. Marking it when the model requests the visit made that wrapper skip the first read. A failed deep-research synthesis is returned as notes and is not written to the research cache.
+`visit_webpage` records a URL only after the fetch returns non-empty page text. An error string (`Error…` / `Failed…`) or an empty extract does not count, so a later sub-query can retry that URL. Marking the URL when the model requests the visit made the dedup wrapper skip the first read. When Chrome or Firefox CDP is on, research runs in this process share one local browser. That browser is closed only after the last of those runs leaves, and only once that run's in-flight page reads have returned. A failed deep-research synthesis is returned as notes and is not written to the research cache.
 
 Before the Accept/Change/Reject wait, the sidebar response area shows a `Tool: web_search` line plus the search-engine preview sentence (`web_research_chat.web_search_engine_step_chat_text`). Reject leaves that line in the transcript; Change appends a second preview for the edited query.
 
@@ -100,9 +100,11 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 
 Completed `web_research` / delegate `web_research` reports can be cached in the shared SQLite `web_cache` table (`kind="research"`). Keys are normalized query word lists (fluff stripped, min token length 3). Shallow entries are stored as `{snowball_lang}|{word key}` (e.g. `english|elevator physics space`); legacy unprefixed keys still work. Deep research uses the same table with a `deep|` segment before the language (`deep|english|elevator physics space`).
 
+`web_cache_max_mb` of 0 disables that database. Page fetches, search results, and completed research reports all skip the read and the write, so a report already on disk is not served.
+
 **Instruction fluff** ([`research_cache_fluff.py`](../../plugin/chatbot/research_cache_fluff.py)): web-research prompt filler words are listed as standard `_('…')` calls in `translated_research_cache_fluff()` — same gettext path as the rest of the extension (`make extract-strings`, `make auto-translate`). At runtime `get_research_fluff_words()` tokenizes those translated strings for the active LO UI locale and unions grammar stop words from [`stop_words.py`](../../plugin/writer/locale/stop_words.py) for the document/Snowball language (generated from [stopwords-iso](https://github.com/stopwords-iso/stopwords-iso) via `python scripts/generate_stop_words.py`).
 
-**Lookup order:** exact key, then embedding match among same-language keys when local embeddings are configured and already warm, then fuzzy stem match among same-language keys. Exact, embedding, and fuzzy matches stay inside the same mode (shallow or `deep|`) and language. Shallow exact lookup tries the bare word key first, then the language-prefixed key. Deep lookup tries only the `deep|` key.
+**Lookup order:** exact key, then embedding match among same-language keys when local embeddings are configured and already warm, then fuzzy stem match among same-language keys. Exact, embedding, and fuzzy matches stay inside the same mode (shallow or `deep|`) and language. English shallow exact lookup tries the bare word key first, then the language-prefixed key. Other languages try only the prefixed key, so a legacy unprefixed English row is not a hit. Deep lookup tries only the `deep|` key.
 
 **Embedding match:** when the local embeddings venv is configured, WriterAgent opportunistically stores vectors for research cache keys in a companion SQLite table (`web_cache_embeddings`). The web research path does not wait for cold model startup or old-row migration:
 
@@ -114,8 +116,8 @@ Completed `web_research` / delegate `web_research` reports can be cached in the 
 
 **Fuzzy match** ([`plugin/chatbot/web_research_cache.py`](../../plugin/chatbot/web_research_cache.py)):
 
-- Stems use the same Snowball algorithms as writer full-text search ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py) `_ISO_TO_SNOWBALL`).
-- Language: document `CharLocale` → LibreOffice UI locale → `english`. Both UNO reads are marshalled to the main thread via `execute_on_main_thread` because `web_research` runs on an async worker.
+- Stems use the same Snowball algorithms as writer full-text search ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py) `_ISO_TO_SNOWBALL`). The cached pure-Python stemmer mutates cursor state inside `stemWord`; `stem_word` holds a lock around that call so concurrent research threads can share the cache.
+- Language: document `CharLocale` → LibreOffice UI locale → `english`. Both UNO reads are marshalled to the main thread via `execute_on_main_thread` because `web_research` runs on an async worker. A disposed document (`is_disposed_exception`, including `DocumentDisposedError` from the UNO thread guard) aborts that lookup instead of caching the run as `en_US` / `english`. Send cancellation and a main-thread timeout still use that fallback.
 - Similarity = `max(union Jaccard, overlap / min(|A|, |B|))` so repeat prompts with extra words still match.
 - Gates: similarity ≥ **Research Cache Fuzzy Match (%)** (default 60) and shared stem count ≥ **Min Stem Overlap** (default 8).
 

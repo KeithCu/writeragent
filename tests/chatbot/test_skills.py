@@ -90,4 +90,41 @@ Vary your sentences.
         assert ("Vary your sentences") in (got)
         assert ("name: humanizer") not in (got)
 
+    def test_write_replaces_atomically_and_cleans_temp(self):
+        store = SkillStore(self.ctx)
+        assert store.write_humanizer_guidance("hello") is True
+        self._track_skill_path(store)
+        path = store.get_humanizer_skill_path()
+        with open(path, encoding="utf-8") as handle:
+            assert handle.read() == "hello\n"
+        leftovers = [name for name in os.listdir(os.path.dirname(path)) if name.startswith(".skill-")]
+        assert leftovers == []
+
+    def test_write_oserror_returns_false_and_keeps_previous(self):
+        store = SkillStore(self.ctx)
+        assert store.write_humanizer_guidance("keep") is True
+        self._track_skill_path(store)
+        path = store.get_humanizer_skill_path()
+        with patch("plugin.chatbot.skills.os.replace", side_effect=OSError("disk")):
+            assert store.write_humanizer_guidance("new") is False
+        with open(path, encoding="utf-8") as handle:
+            assert handle.read() == "keep\n"
+        leftovers = [name for name in os.listdir(os.path.dirname(path)) if name.startswith(".skill-")]
+        assert leftovers == []
+
+    def test_write_makedirs_oserror_returns_false(self):
+        store = SkillStore(self.ctx)
+        with patch.object(store, "_humanizer_path", side_effect=OSError("nope")):
+            assert store.write_humanizer_guidance("x") is False
+
+    def test_front_matter_only_falls_back_to_default(self):
+        from plugin.chatbot.skills import HUMANIZER_GUIDANCE
+
+        store = SkillStore(self.ctx)
+        store.write_humanizer_guidance("---\nname: humanizer\n---\n")
+        self._track_skill_path(store)
+        got = store.get_humanizer_guidance()
+        assert got == HUMANIZER_GUIDANCE
+        assert "Vary sentence length" in got
+
 

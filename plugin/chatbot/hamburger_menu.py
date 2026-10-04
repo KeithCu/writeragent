@@ -188,6 +188,20 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         if chosen_id in item_actions:
             action_name = item_actions[chosen_id]
             log.info("Hamburger menu selected: %s", action_name)
-            invoke_action_handler(get_action_handler(action_name), frame)
+            handler = get_action_handler(action_name)
+            if handler is not None:
+                invoke_action_handler(handler, frame)
+            else:
+                # What was wrong: Toggle MCP Server and MCP Server Status are
+                # built here, then passed to get_action_handler. Nothing calls
+                # register_action_handler for mcp.toggle_server or
+                # mcp.server_status, so the handler was None and
+                # invoke_action_handler returned without doing anything.
+                # The toolbar reaches McpModule.on_action through
+                # _dispatch_command. Use that path when the registry has no
+                # handler. Registered items still get the sidebar frame.
+                from plugin.main import _dispatch_command
+
+                _dispatch_command(action_name)
     except Exception as e:
         log.exception("show_hamburger_menu failed: %s", e)

@@ -13,10 +13,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Hidden Writer HTML import and formatted insert/paste into the sidebar RichTextControl.
+"""Hidden Writer HTML import and direct copy into the sidebar RichTextControl.
 
-Pipeline: create_hidden_html_writer → append_rich_text (HTML filter) → direct portion copy
-into the control (preferred), then transferable / SystemClipboard / Ctrl+V fallbacks.
+``session.messages`` is the transcript. ``paint_message_items`` builds a fresh
+hidden Writer from that list and replaces the control with the paint. Clear,
+Stop, and a new chunk change the list, then the control is drawn again. The
+hidden doc is not spliced in place: copy and paste still read it, and a failed
+edit does not leave a partial copy.
+
+Pipeline: create_hidden_html_writer → render the message list → direct portion
+copy into the control, replacing what was there. A failed copy clears the
+control and writes the same list as plain text. There is no transferable,
+SystemClipboard, or Ctrl+V step.
 
 The direct-copy path walks Writer body enumeration (paragraphs and TextTables) and inserts
 via insertString on the form TextField model. RichTextControl is EditEngine — no table grid —
@@ -43,6 +51,8 @@ from plugin.chatbot.rich_text import (
     configure_hidden_writer_for_chat,
     _HTML_TAG_RE,
     append_rich_text,
+    contains_html_tag,
+    render_messages_to_hidden_doc,
     strip_legacy_ai_label,
 )
 from plugin.chatbot.rich_text_control import (
@@ -51,6 +61,7 @@ from plugin.chatbot.rich_text_control import (
     _insert_string_at_rich_cursor,
     _is_automatic_char_color,
     append_text_chunk,
+    clear_control,
     get_control_text_length,
     truncate_control_from,
     _scroll_rich_to_tail,
@@ -417,6 +428,82 @@ def iter_history_message_batches(items: Any, batch_chars: int = HISTORY_RENDER_B
         yield batch
 
 
+# Streamed tokens live here until the committed assistant message replaces the row.
+# Not a history write. add_assistant_message pops a trailing row with this key.
+OPEN_TRANSCRIPT = "_open_transcript"
+
+
+def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> bool:
+    """Record *text* on ``session.messages``. The control is painted afterwards.
+
+    User rows are already stored by the send path. Assistant tokens grow one
+    open row until the committed message replaces it. The stop line is a
+    separate message the turn writes when it closes, not a chunk matched by
+    text. Returns True when the list changed.
+    """
+    messages = getattr(session, "messages", None)
+    if not isinstance(messages, list):
+        return False
+    if role == "user":
+        # The send path stores the user row first. A second copy would paint
+        # the question twice. Image mode only had the widget line; record it
+        # so the paint has the question.
+        if messages and messages[-1].get("role") == "user":
+            return False
+        if not text or not str(text).strip():
+            return False
+        messages.append({"role": "user", "content": text})
+        return True
+    if not text or not str(text).strip():
+        return False
+    if messages and messages[-1].get(OPEN_TRANSCRIPT):
+        messages[-1]["content"] = (messages[-1].get("content") or "") + text
+        return True
+    messages.append({"role": "assistant", "content": text, OPEN_TRANSCRIPT: True})
+    return True
+
+
+def _visible_message_text(content: Any) -> str:
+    """Text the paint can import. A multimodal user row keeps its text parts."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                parts.append(part["text"])
+        return "\n".join(part for part in parts if part)
+    if content is None:
+        return ""
+    return str(content)
+
+
+def plain_transcript_text(session: Any, greeting: str = "") -> str:
+    """Plain sidebar text for ``session.messages``. The control is this string."""
+    from plugin.framework.i18n import _
+
+    text = greeting + "\n" if greeting else ""
+    messages = getattr(session, "messages", None)
+    if not isinstance(messages, list):
+        return text
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role", "")
+        content = _visible_message_text(msg.get("content", ""))
+        if role == "user":
+            text += "\nUser: %s\n" % content
+        elif role == "assistant":
+            if content:
+                text += "\n%s %s" % (_("Assistant:"), content)
+            elif msg.get("tool_calls"):
+                text += "\n%s [Thinking...]" % _("Assistant:")
+            text += "\n"
+    return text
+
+
 def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, str]]:
     """Build (role, content) pairs for session history display (skips system messages)."""
     items: list[tuple[str, str]] = []
@@ -426,13 +513,116 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
         role = msg.get("role", "")
         content = msg.get("content", "")
         if role == "user":
-            items.append(("user", content))
+            items.append(("user", _visible_message_text(content)))
         elif role == "assistant":
             if content:
-                items.append(("assistant", content))
+                items.append(("assistant", _visible_message_text(content)))
             elif msg.get("tool_calls"):
                 items.append(("assistant", "[Thinking...]"))
     return items
+
+
+def _hidden_doc_text(doc: Any) -> str:
+    try:
+        return doc.getText().getString() or ""
+    except Exception:
+        log.debug("paint: could not read hidden doc", exc_info=True)
+        return ""
+
+
+def _replace_control_with_plain(
+    control: Any,
+    items: Any,
+    ctx: Any,
+    style_window: Any,
+    *,
+    restore_focus: Any = None,
+) -> None:
+    """Wipe the control and write every row. The text is the message list."""
+    clear_control(control)
+    _plain_append_messages(
+        control,
+        items,
+        ctx,
+        style_window,
+        auto_scroll=True,
+        restore_focus=restore_focus,
+    )
+
+
+def paint_message_items(
+    ctx: Any,
+    control: Any,
+    items: Any,
+    style_window: Any = None,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
+) -> bool:
+    """Replace the control with a paint of *items*.
+
+    The hidden Writer is created empty and filled from the list. It is copied
+    only after every message has been rendered. A bad element does not leave
+    tags. A copy that fails halfway is wiped, and the control is written again
+    from the same list as plain text, so the partial copy does not remain.
+    """
+    if control is None:
+        return False
+    rows = [(role, content) for role, content in (items or [])]
+    if not rows:
+        clear_control(control)
+        return True
+    doc = None
+    try:
+        doc = create_hidden_html_writer(ctx)
+        if doc is None:
+            log.warning("paint_message_items: hidden Writer unavailable")
+            _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
+            return True
+        configure_hidden_writer_for_chat(doc)
+        render_messages_to_hidden_doc(doc, rows, style_window=style_window)
+        if contains_html_tag(_hidden_doc_text(doc)):
+            # render_messages_to_hidden_doc already reverts a bad element.
+            # If a tag is still in the body, do not copy that document.
+            log.warning("paint_message_items: hidden doc still has tags; plain paint")
+            _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
+            return True
+        from plugin.calc.navigation import render_calc_cell_refs
+
+        links: list[tuple[str, str]] = []
+        for _role, content in rows:
+            rendered = render_calc_cell_refs(content) if content else content
+            links.extend(extract_cell_links_from_html(rendered or ""))
+        # Replace, do not append. A previous splice is not part of this paint.
+        clear_control(control)
+        if _append_hidden_doc_to_control(
+            doc,
+            control,
+            ctx,
+            style_window=style_window,
+            auto_scroll=True,
+            cell_link_targets=links,
+            restore=restore,
+            restore_focus=restore_focus,
+        ):
+            if rows[-1][0] == "user":
+                with focus_preserved(ctx, restore):
+                    _ensure_trailing_line_break(control)
+            _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
+            return True
+        log.warning("paint_message_items: formatted copy failed; plain paint")
+        _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
+        return True
+    except Exception:
+        log.exception("paint_message_items failed")
+        _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
+        return True
+    finally:
+        if doc is not None:
+            try:
+                doc.close(True)
+            except Exception:
+                pass
 
 
 def _copy_formatted_from_hidden_doc_to_control(
@@ -443,6 +633,9 @@ def _copy_formatted_from_hidden_doc_to_control(
     style_window: Any = None,
     auto_scroll: bool = True,
     cell_link_targets: list[tuple[str, str]] | None = None,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
 ) -> tuple[bool, str | None]:
     """Copy formatted Writer body text into the sidebar RichText control (safe — no clipboard/frame paste).
 
@@ -546,7 +739,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             addr = pending_links.pop(0)[1]
                         elif not addr and portion_looks_like_cell_link(portion, txt):
                             addr = normalize_cell_address(txt.strip())
-                        if addr:
+                        if addr and isinstance(before_len, int) and isinstance(after_len, int):
                             register_cell_link_span(control, before_len, after_len, addr)
                         dest_cursor.gotoEnd(False)
                         inserted = True
@@ -566,10 +759,10 @@ def _copy_formatted_from_hidden_doc_to_control(
 
             if inserted and not element_skipped:
                 if auto_scroll:
-                    _scroll_rich_to_tail(control, ctx)
+                    _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
                 log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
                 log.info(
-                    "_copy_formatted_from_hidden_doc_to_control: ok control_len=%d role=%s",
+                    "_copy_formatted_from_hidden_doc_to_control: ok control_len=%s role=%s",
                     get_control_text_length(control),
                     role,
                 )
@@ -578,11 +771,11 @@ def _copy_formatted_from_hidden_doc_to_control(
             copy_failed_with_exception = True
 
     if ctx is not None:
-        with focus_preserved(ctx):
+        with focus_preserved(ctx, restore):
             _do_copy()
     else:
         _do_copy()
-    if inserted and not element_skipped:
+    if inserted and not element_skipped and not copy_failed_with_exception:
         return True, None
     reason = "element_skipped" if element_skipped else (
         "exception" if copy_failed_with_exception else "no_content_inserted"
@@ -604,29 +797,57 @@ def _plain_fallback_text(text: str) -> str:
     return strip_html_tags(text or "")
 
 
-def _rollback_rich_insert(control: Any, before: int) -> None:
+def _rollback_rich_insert(control: Any, before: int | None) -> None:
     """Undo a separator or partial copy that did not finish as a full insert.
 
     What was wrong: the separator (and any partial copy) stayed in the
     control when the formatted insert returned false, and cell-link spans
     recorded for that tail still resolved clicks into deleted text.
+    A length of None means the control length could not be read. Truncate
+    treats 0 as "delete from the start", so an unknown length must not roll
+    back.
     """
+    if before is None:
+        return
     truncate_control_from(control, before)
     drop_cell_link_spans_from(control, before)
 
 
-def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False) -> bool:
+def _plain_role_prefix(role: str) -> str:
+    """Same ``You:`` / ``Assistant:`` label ``append_rich_text`` writes on the formatted path."""
+    if role == "user":
+        return "You: "
+    return _("Assistant:") + " "
+
+
+def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
+    """Plain transcript rows with the formatted path's role label, color, and gap.
+
+    What was wrong: every row used the assistant color and had no prefix or
+    blank line, so a user turn and the next assistant turn ran together.
+    """
     wrote = False
-    for _role, content in batch:
+    theme = ChatTheme.resolve(style_window=style_window)
+    for role, content in batch:
         plain = _plain_fallback_text(content or "")
         if not plain.strip():
             continue
-        append_text_chunk(control, plain, auto_scroll=auto_scroll, style_window=style_window, ctx=ctx)
+        _ensure_message_separator(control)
+        color = theme.user_color if role == "user" else theme.assistant_color
+        append_text_chunk(
+            control,
+            _plain_role_prefix(role) + plain,
+            auto_scroll=auto_scroll,
+            style_window=style_window,
+            ctx=ctx,
+            char_color=color,
+            restore_focus=restore_focus,
+        )
         wrote = True
     return wrote
 
 
-def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window: Any = None, auto_scroll: bool = True, cell_link_targets: Any = None) -> bool:
+def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window: Any = None, auto_scroll: bool = True, cell_link_targets: Any = None, *, restore: Any = None, restore_focus: Any = None) -> bool:
     """Copy hidden Writer content into the sidebar control via direct copy."""
     ok, _unused = _copy_formatted_from_hidden_doc_to_control(
         doc,
@@ -636,6 +857,8 @@ def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window
         style_window=style_window,
         auto_scroll=auto_scroll,
         cell_link_targets=cell_link_targets,
+        restore=restore,
+        restore_focus=restore_focus,
     )
     return ok
 
@@ -649,6 +872,9 @@ def append_rich_messages_via_clipboard(
     items: Any,
     style_window: Any = None,
     batch_chars: int = HISTORY_RENDER_BATCH_CHARS,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
 ) -> None:
     """Render many chat messages with minimal UI updates (batched hidden Writer + direct copy)."""
     if not control or not items:
@@ -668,38 +894,51 @@ def append_rich_messages_via_clipboard(
                 # failure then skipped that history entirely. Later batches
                 # still render; this one is written as plain text.
                 log.warning("append_rich_messages_via_clipboard: hidden Writer unavailable")
-                if _plain_append_messages(control, batch, ctx, style_window):
+                if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
                 continue
             configure_hidden_writer_for_chat(doc)
             batch_links: list[tuple[str, str]] = []
+            html_ok = True
             for role, content in batch:
                 from plugin.calc.navigation import extract_cell_links_from_html, render_calc_cell_refs
 
                 rendered = render_calc_cell_refs(content) if content else content
                 batch_links.extend(extract_cell_links_from_html(rendered or ""))
-                append_rich_text(doc, content, role=role, style_window=style_window)
+                # False means the filter failed and the raw tags were not written.
+                # Copying the hidden doc would report success with only the prefix.
+                if append_rich_text(doc, content, role=role, style_window=style_window) is False:
+                    html_ok = False
+                    break
             log.debug(
                 "append_rich_messages_via_clipboard: hidden doc ready messages=%d total_chars=%d",
                 len(batch),
                 sum(len(c or "") for _unused, c in batch),
             )
-            if _append_hidden_doc_to_control(
+            if html_ok and _append_hidden_doc_to_control(
                 doc, control, ctx, style_window=style_window, auto_scroll=False, cell_link_targets=batch_links,
+                restore=restore, restore_focus=restore_focus,
             ):
                 inserted = True
                 any_inserted = True
-                _scroll_rich_to_tail(control, ctx)
+                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             else:
+                # What was wrong: one bad element failed the batch, the rollback
+                # removed it, and history has no second copy, so up to
+                # HISTORY_RENDER_BATCH_CHARS of messages disappeared.
                 log.warning(
                     "append_rich_messages_via_clipboard: batch insert into control failed messages=%d",
                     len(batch),
                 )
                 _rollback_rich_insert(control, before)
+                if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
+                    any_inserted = True
         except Exception:
             log.exception("append_rich_messages_via_clipboard batch failed")
             if not inserted:
                 _rollback_rich_insert(control, before)
+                if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
+                    any_inserted = True
         finally:
             if doc is not None:
                 try:
@@ -764,6 +1003,9 @@ def append_rich_text_via_clipboard(
     style_window: Any = None,
     auto_scroll: bool = True,
     on_after_insert: Any = None,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
 ) -> bool:
     """Import HTML in a hidden Writer doc and copy formatted content directly into the RichText control.
 
@@ -792,16 +1034,21 @@ def append_rich_text_via_clipboard(
         if doc is None:
             log.warning("append_rich_text_via_clipboard: hidden Writer unavailable")
             _rollback_rich_insert(control, before)
-            append_text_chunk(
-                control,
-                _plain_fallback_text(text),
-                auto_scroll=auto_scroll,
-                style_window=style_window,
-                ctx=ctx,
+            _plain_append_messages(
+                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
             )
             return True
         configure_hidden_writer_for_chat(doc)
-        append_rich_text(doc, text, role=role, style_window=style_window)
+        if append_rich_text(doc, text, role=role, style_window=style_window) is False:
+            # Filter failed. The hidden doc has the role prefix and not the body.
+            # Copying it would show the prefix alone, or the raw tags if they
+            # had been inserted. Roll back and write the stripped message.
+            log.warning("append_rich_text_via_clipboard: HTML import failed role=%s", role)
+            _rollback_rich_insert(control, before)
+            _plain_append_messages(
+                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
+            )
+            return True
         log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
         ok, direct_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
@@ -811,11 +1058,13 @@ def append_rich_text_via_clipboard(
             style_window=style_window,
             auto_scroll=auto_scroll,
             cell_link_targets=cell_link_targets,
+            restore=restore,
+            restore_focus=restore_focus,
         )
         if ok:
             inserted = True
             log.info(
-                "append_rich_text_via_clipboard: insert ok via=direct_copy control_len=%d role=%s",
+                "append_rich_text_via_clipboard: insert ok via=direct_copy control_len=%s role=%s",
                 get_control_text_length(control),
                 role,
             )
@@ -827,14 +1076,14 @@ def append_rich_text_via_clipboard(
             )
             _rollback_rich_insert(control, before)
         if inserted and role == "user":
-            with focus_preserved(ctx):
+            with focus_preserved(ctx, restore):
                 _ensure_trailing_line_break(control)
             if auto_scroll:
                 # Do not reveal_caret. That setFocus GetFocus-es the viewport,
                 # which switches EESelectionMode to Std while SelectAll is still
                 # covering the whole control (user-message flash). Agent stream
                 # never reveal_caret, so it does not flash.
-                _scroll_rich_to_tail(control, ctx)
+                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             if callable(on_after_insert):
                 try:
                     on_after_insert(get_control_text_length(control))

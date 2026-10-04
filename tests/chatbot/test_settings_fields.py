@@ -13,6 +13,33 @@ from plugin.chatbot.settings_fields import (
 )
 
 
+def test_default_settings_stay_unchanged_when_strict_coerce_sees_bounds() -> None:
+    """Untouched defaults must not become a Settings OK write.
+
+    A number equal to a stored out-of-range value is not unchanged: strict
+    coerce rejects it, so the key stays in the batch and set_configs raises.
+    """
+    from plugin.chatbot.settings_fields import changed_config_values
+
+    defaults = {
+        "temperature": -1.0,
+        "chat_max_tokens": 16384,
+        "request_timeout": 120,
+    }
+    pending = {
+        "temperature": "-1.0",
+        "chat_max_tokens": "16384",
+        "request_timeout": "120",
+    }
+    assert changed_config_values(pending, lambda key: defaults[key]) == {}
+    assert changed_config_values({"temperature": 1.0}, lambda key: 1.0) == {}
+    assert changed_config_values({"chat_max_tokens": 0}, lambda key: 0) == {}
+    assert changed_config_values({"request_timeout": 1}, lambda key: 1) == {}
+    assert changed_config_values({"temperature": 5.0}, lambda key: 5.0) == {"temperature": 5.0}
+    assert changed_config_values({"chat_max_tokens": -1}, lambda key: -1) == {"chat_max_tokens": -1}
+    assert changed_config_values({"request_timeout": 0}, lambda key: 0) == {"request_timeout": 0}
+
+
 def test_egret_layout_label_keeps_the_comma():
     """A flow-scalar comma used to end the label at 'slower'."""
     from plugin._manifest import MODULES
@@ -108,6 +135,54 @@ def test_apply_field_specs_result_maps_translated_label_to_value():
     assert mock_set.call_args_list[0].args[0] == {"scripting.python_session_mode": "shared"}
     assert mock_set.call_args_list[1].args[0] == {"scripting.python_session_mode": "shared"}
     assert mock_set.call_args_list[2].args[0] == {"scripting.python_session_mode": "shared"}
+
+
+def test_apply_field_specs_result_skips_unchanged_and_default_values():
+    """A caption that maps to the current id, and a value equal to the default, are not writes."""
+    from plugin.framework.config import _config_path, set_configs
+
+    path = _config_path()
+    assert path
+    specs = [{
+        "name": "scripting__python_session_mode",
+        "config_key": "scripting.python_session_mode",
+        "options": [
+            {"value": "isolated", "label": "Isolated (default)"},
+            {"value": "shared", "label": "Shared kernel"},
+        ],
+    }]
+
+    def _fake_gettext(text: str) -> str:
+        return {"Isolated (default)": "Geïsoleerd", "Shared kernel": "Gedeelde kernel"}.get(text, text)
+
+    seen: list[dict] = []
+
+    def _spy(values: dict) -> None:
+        seen.append(dict(values))
+        set_configs(values)
+
+    import os
+
+    before = open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
+    with (
+        patch("plugin.chatbot.settings_fields.set_configs", side_effect=_spy),
+        patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
+    ):
+        apply_field_specs_result(
+            MagicMock(),
+            {"scripting__python_session_mode": "Geïsoleerd"},
+            specs,
+        )
+        assert seen == []
+        after = open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
+        assert after == before
+
+        apply_field_specs_result(
+            MagicMock(),
+            {"scripting__python_session_mode": "Gedeelde kernel"},
+            specs,
+        )
+    assert seen == [{"scripting.python_session_mode": "shared"}]
 
 
 def test_apply_field_specs_result_skips_unknown_keys():

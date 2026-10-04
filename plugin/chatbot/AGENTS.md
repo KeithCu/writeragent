@@ -41,7 +41,10 @@ Topic docs: [docs/chat/sidebar-implementation.md](../../docs/chat/sidebar-implem
 ## Sharp edges
 
 - Resolve the document from the **frame only** (`frame.getController().getModel()` in `panel`).
-- For Stop / cancel, use **`resolve_stop_checker()`** — not a panel boolean alone.
+- Each open frame has one `FrameSession` (`plugin/framework/frame_session.py`), created when the sidebar factory receives the frame and destroyed when the frame closes. It owns that frame's listeners, focus pin, and sidebar. The panel is constructed with the session's document id. Clicks, stream restore, and focus restore close over that session. Do not use `getCurrentComponent()`, `get_active_document()`, or `panels[0]` when the action already has a frame.
+- For Stop / cancel, use **`resolve_stop_checker()`** — not a panel boolean alone. Workers capture it on the send thread at spawn with **`capture_send_stop`** (the scope object and that checker). Do not call `resolve_stop_checker()` or read `_send_cancellation` inside the worker body.
+- MCP `mcp:request` / `mcp:result` subscribe on `get_tools()._services.events`. `disposing` unsubscribes that saved bus (`_mcp_event_bus`). `grammar:status` stays on `global_event_bus`. Do not assume the two buses are the same object. After `_panel_teardown` or `ctx is None`, do not post MCP or audio UI.
+- Mode-UI wiring can fail. `_wireControls` must still hand `_wire_buttons` a `SidebarModeFlags`, never `None`. A `None` used to raise inside the Send/Stop `try`, and that `except` left Send and Stop unwired.
 - Load XDL with `DialogProvider` and the extension `base_url` (see `dialogs` module doc). Settings UI is in `dialog_views`.
 - Do **not** merge smol/librarian with the main chat FSM. Smol must use `WriterAgentSmolModel` → `LlmClient.request_with_tools` — no second HTTP client.
 - In tests, resolve tools with `plugin.main.get_tools().get("tool_name")`.

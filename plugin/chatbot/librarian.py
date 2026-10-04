@@ -188,7 +188,7 @@ TOOLS FOR COMPLETION:
 #Unused for now
 # Tip 7: In Writer, the sidebar mode dropdown includes Brainstorming. Choose Brainstorming to start a multi-turn design session: the agent asks one question at a time, can read the open document, search nearby files, and do web research, then discusses approaches with you. 
 
-    from plugin.framework.prompts import get_chat_response_format_instructions
+    from plugin.framework.prompts import _cap_injected_prompt_blob, get_chat_response_format_instructions
 
     instructions += (
         "\n\n"
@@ -196,7 +196,11 @@ TOOLS FOR COMPLETION:
         + "\nFormat reply_to_user answer with this style; that text is shown in the chat sidebar."
     )
     if user_mem and user_mem.strip():
-        instructions += "\n\n[USER PROFILE / MEMORY]\n" + user_mem.strip() + "\n"
+        # What was wrong: librarian appended raw USER.md while the main
+        # chat prompt caps the same file. How: a long profile crowded out
+        # the librarian instructions. Why: _cap_injected_prompt_blob uses
+        # CHAT_DOCUMENT_CONTEXT_MAX_CHARS, the same cap as the chat path.
+        instructions += "\n\n[USER PROFILE / MEMORY]\n" + _cap_injected_prompt_blob(user_mem) + "\n"
 
     from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool, interpret_sticky_final_answer
 

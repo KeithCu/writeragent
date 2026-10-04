@@ -343,6 +343,40 @@ def test_sanitize_drops_orphan_tool_and_dangling_tool_calls():
     assert asst["content"] == "hello"
 
 
+def test_sanitize_drops_null_or_blank_tool_call_id_even_with_a_name():
+    """A named call whose id is None or "" stayed paired when a tool row reused that id."""
+
+    def _pair(call_id):
+        return [
+            _msg("user", 4),
+            {
+                "role": "assistant",
+                "content": "kept text",
+                "tool_calls": [
+                    {
+                        "id": "good",
+                        "type": "function",
+                        "function": {"name": "read_cell_range", "arguments": "{}"},
+                    },
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": "read_cell_range", "arguments": "{}"},
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "good", "content": "ok"},
+            {"role": "tool", "tool_call_id": call_id, "content": "phantom"},
+        ]
+
+    for call_id in (None, ""):
+        cleaned = C.sanitize_tool_pairs(_pair(call_id))
+        asst = [m for m in cleaned if m.get("role") == "assistant"][0]
+        assert [tc.get("id") for tc in asst["tool_calls"]] == ["good"]
+        tools = [m for m in cleaned if m.get("role") == "tool"]
+        assert [m.get("tool_call_id") for m in tools] == ["good"]
+
+
 def test_sanitize_drops_empty_name_tool_call_and_matching_result():
     """Stream-split phantom (empty name/id) must not stay paired into the next round."""
     messages = [
@@ -476,7 +510,8 @@ def test_is_context_overflow_error_false(text):
 
 def test_should_retry_overflow_reasons_and_attempts():
     assert C.should_retry_overflow(0, "ok") is True
-    assert C.should_retry_overflow(1, "below_threshold") is True
+    # tokens_before == tokens_after should skip ratio check for below_threshold
+    assert C.should_retry_overflow(1, "below_threshold", 1000, 1000) is True
     assert C.should_retry_overflow(2, "ok") is True
     assert C.should_retry_overflow(3, "ok") is False
     for reason in ("nothing_to_compact", "no_window", "failed", "aborted", "disabled"):

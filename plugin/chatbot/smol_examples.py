@@ -166,7 +166,7 @@ Observation: {"status": "ok"}
 Action:
 {
   "name": "reply_to_user",
-  "arguments": {"answer": "<p>Writing plan execution completed. Sections 1 & 2 have been successfully drafted in the document.</p>", "writing_plan_finished": true, "plan_completed": true}
+  "arguments": {"answer": "<p>Writing plan execution completed. Sections 1 & 2 have been successfully drafted in the document.</p>", "writing_plan_finished": true}
 }
 Observation: {"status": "finished"}
 

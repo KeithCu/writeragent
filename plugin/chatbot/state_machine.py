@@ -118,8 +118,12 @@ class EffectInterpreter:
     def interpret(self, effect: SendHandlerEffect) -> None:
         # crosshair: off
         match effect:
-            case SendHandlerUIEffect("append", text, _, role):
-                self.handler._append_response(text, role=role)
+            case SendHandlerUIEffect("append", text, is_thinking, role):
+                # What was wrong: this match discarded is_thinking, so a
+                # web-research THINKING chunk (show_search_thinking on) was
+                # appended as a normal assistant row. StreamChunkEvent already
+                # carries the flag; pass it through.
+                self.handler._append_response(text, is_thinking=is_thinking, role=role)
             case SendHandlerUIEffect("status", text, _):
                 self.handler._set_status(text)
             case CompleteJobEffect(terminal_status=status):
@@ -203,7 +207,9 @@ def spawn_effects_for_start(
         effects.append(SendHandlerUIEffect("status", "Creating image..."))
         effects.append(SpawnDirectImageEffect(query_text, model))
     elif handler_type == "agent":
-        effects.append(SendHandlerUIEffect("append", query_text, role="user"))
+        # The user line is painted next to add_user_message, after the
+        # backend exists. Painting it here left a You: row on screen when
+        # the adapter was missing and history had no user turn.
         effects.append(SendHandlerUIEffect("append", "\n[Using external agent backend.]\n"))
         effects.append(SendHandlerUIEffect("append", "AI: "))
         effects.append(SendHandlerUIEffect("status", "Starting agent..."))
@@ -242,9 +248,9 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
 
     match event:
         case StopRequestedEvent():
+            # The stop line is a message the turn writes. Painting it here
+            # by handler type made agent Stop a special case.
             effects.append(SendHandlerUIEffect("status", "Stopped"))
-            if state.handler_type == "agent":
-                effects.append(SendHandlerUIEffect("append", "\n[Stopped by user]\n"))
             effects.append(CompleteJobEffect("Stopped"))
             return FsmTransition(dataclasses.replace(state, status="stopped"), effects)
 

@@ -1,4 +1,5 @@
 from plugin.chatbot.state_machine import (
+    EffectInterpreter,
     SendHandlerState,
     next_state,
     StartEvent,
@@ -60,16 +61,13 @@ class TestSendHandlerStateMachine:
         # Verify termination state
         assert new_state.status == "stopped"
 
-        # Verify proper effects
-        assert len(effects) == 3
+        # The stop line is a session message, not a paint effect.
+        assert len(effects) == 2
         assert isinstance(effects[0], SendHandlerUIEffect)
         assert effects[0].kind == "status"
         assert effects[0].text == "Stopped"
-        assert isinstance(effects[1], SendHandlerUIEffect)
-        assert effects[1].kind == "append"
-        assert effects[1].text == "\n[Stopped by user]\n"
-        assert isinstance(effects[2], CompleteJobEffect)
-        assert effects[2].terminal_status == "Stopped"
+        assert isinstance(effects[1], CompleteJobEffect)
+        assert effects[1].terminal_status == "Stopped"
 
     def test_stop_event_other_terminates(self):
         state = SendHandlerState(handler_type="web", status="running")
@@ -178,3 +176,19 @@ class TestSendHandlerHelpers:
         assert stop_effects_exclude_spawns([SendHandlerUIEffect("status", "Stopped"), CompleteJobEffect("Stopped")])
         assert not stop_effects_exclude_spawns([SpawnWebWorkerEffect("q", None)])
         assert stop_effects_exclude_spawns("not-a-list")
+
+
+class TestEffectInterpreterThinking:
+    def test_append_keeps_thinking_flag(self):
+        appended = []
+
+        class Host:
+            def _append_response(self, text, is_thinking=False, role="assistant"):
+                appended.append((text, is_thinking, role))
+
+            def _set_status(self, text):
+                return None
+
+        EffectInterpreter(Host()).interpret(SendHandlerUIEffect("append", "search step", is_thinking=True))
+        EffectInterpreter(Host()).interpret(SendHandlerUIEffect("append", "answer", is_thinking=False, role="assistant"))
+        assert appended == [("search step", True, "assistant"), ("answer", False, "assistant")]

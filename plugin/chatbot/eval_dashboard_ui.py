@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.config import get_config_str
 from plugin.framework.client.model_fetcher import get_text_model
-from plugin.framework.uno_context import get_active_document, get_extension_url
+from plugin.framework.errors import is_disposed_exception
+from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
-from plugin.chatbot.dialogs import set_control_text
+from plugin.chatbot.dialogs import load_writeragent_dialog, set_control_text
 
 log = logging.getLogger(__name__)
 
@@ -24,37 +25,121 @@ class EvalDashboard:
     """Evaluation dashboard dialog controller."""
 
     _ctx: Any
+    _closed: bool
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg: Any = None
+        self._closed = False
 
     def show(self) -> None:
-        smgr = self._ctx.getServiceManager()
-        base_url = get_extension_url()
-        dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", self._ctx)
-        self._dlg = dp.createDialog(base_url + "/Dialogs/EvalDialog.xdl")
+        # Translates at load. A missing dialog must not execute().
+        self._dlg = load_writeragent_dialog("EvalDialog", self._ctx)
+        self._closed = False
 
         try:
+            if not self._dlg:
+                return
             self._populate()
-            if self._dlg:
-                self._dlg.execute()
+            self._dlg.execute()
         finally:
+            # The catalog worker can still post after execute() returns.
+            self._closed = True
             if self._dlg:
                 self._dlg.dispose()
+                self._dlg = None
 
     def _populate(self) -> None:
         assert self._dlg is not None
         endpoint_ctrl = self._dlg.getControl("endpoint")
         set_control_text(endpoint_ctrl, get_config_str("endpoint"))
+        # What was wrong: the box was editable, but run_suite never read it.
+        # The suite uses the saved endpoint (get_api_config). A typed URL
+        # was ignored. The field only displays that saved URL.
+        _lock_endpoint_display(endpoint_ctrl)
 
         model_ctrl = self._dlg.getControl("models")
         current_model = str(get_text_model())
         current_endpoint = get_config_str("endpoint").strip()
-        populate_combobox_with_lru(self._ctx, model_ctrl, current_model, "model_lru", current_endpoint)
+        # Same freeze as Settings: fetch_available_models before execute()
+        # blocked the UI on a dead endpoint. LRU now; the worker fills the list.
+        populate_combobox_with_lru(
+            self._ctx, model_ctrl, current_model, "model_lru", current_endpoint,
+            skip_remote_fetch=True,
+        )
+        self._schedule_models_fetch(current_endpoint, current_model)
 
-        self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self._ctx, self._dlg))
+        self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self._ctx, self._dlg, self))
         self._dlg.getControl("btn_close").addActionListener(SimpleCloseListener(self._dlg))
+
+    def _apply_model_list(self, endpoint: str, current_model: str, models: Any) -> None:
+        """Paint the model combo from a list already in hand. No catalog GET."""
+        if self._closed or self._dlg is None:
+            return
+        try:
+            ctrl = self._dlg.getControl("models")
+        except Exception:
+            log.debug("Eval dashboard model combo unavailable", exc_info=True)
+            return
+        if ctrl is None:
+            return
+        populate_combobox_with_lru(
+            self._ctx, ctrl, current_model, "model_lru", endpoint,
+            remote_models=models if isinstance(models, list) else None,
+            skip_remote_fetch=not isinstance(models, list),
+        )
+
+    def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:
+        from plugin.framework.client.model_fetcher import (
+            cached_text_models,
+            endpoint_url_suitable_for_v1_models_fetch,
+            fetch_available_models,
+        )
+        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.worker_pool import run_in_background
+
+        if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
+            return
+
+        # What was wrong: open always called fetch_available_models, including
+        # when this process already held the list. That refetched a catalog
+        # already in memory. Apply the memo on this turn. A miss still fetches
+        # on the worker, then paints once.
+        cached = cached_text_models(endpoint)
+        if isinstance(cached, list):
+            self._apply_model_list(endpoint, current_model, cached)
+            return
+
+        def _fetch_eval_models() -> None:
+            models = fetch_available_models(endpoint)
+
+            def _apply() -> None:
+                self._apply_model_list(endpoint, current_model, models)
+
+            post_to_main_thread(_apply)
+
+        run_in_background(_fetch_eval_models, name="eval-models")
+
+
+def _lock_endpoint_display(ctrl: Any) -> None:
+    """Keep the endpoint field from accepting edits the suite will ignore."""
+    if ctrl is None or not hasattr(ctrl, "getModel"):
+        return
+    try:
+        model = ctrl.getModel()
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            return
+        log.debug("eval endpoint model unavailable", exc_info=True)
+        return
+    if model is None:
+        return
+    try:
+        model.ReadOnly = True
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            return
+        log.debug("eval endpoint readonly failed", exc_info=True)
 
 
 class EvalRunListener(BaseActionListener):
@@ -64,12 +149,21 @@ class EvalRunListener(BaseActionListener):
     dialog: Any
     is_running: bool
     _job: Any
+    _owner: EvalDashboard | None
 
-    def __init__(self, ctx: Any, dialog: Any) -> None:
+    def __init__(self, ctx: Any, dialog: Any, owner: EvalDashboard | None = None) -> None:
         self.ctx = ctx
         self.dialog = dialog
+        self._owner = owner
         self.is_running = False
         self._job = None
+
+    def _dialog_closed(self) -> bool:
+        """True after show() disposes the dialog, or when the dialog is gone."""
+        owner = self._owner
+        if owner is not None and owner._closed:
+            return True
+        return self.dialog is None
 
     def on_action_performed(self, rEvent: Any) -> None:
         if self.is_running:
@@ -140,6 +234,12 @@ class EvalRunListener(BaseActionListener):
         from plugin.framework.queue_executor import post_to_main_thread
 
         def _paint() -> None:
+            # What was wrong: Close returns from execute(), show() disposes
+            # the dialog, and this post still called getControl on it.
+            # Why: the suite worker outlives the dialog. A closed window
+            # has nothing to paint.
+            if self._dialog_closed():
+                return
             try:
                 area = self.dialog.getControl("log_area")
                 current = area.getText() if hasattr(area, "getText") else ""
@@ -147,20 +247,32 @@ class EvalRunListener(BaseActionListener):
                 from plugin.framework.uno_context import process_events_to_idle
 
                 process_events_to_idle(self.ctx)
-            except Exception:
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    log.debug("eval progress skipped; dialog disposed", exc_info=True)
+                    return
                 log.debug("eval progress paint failed", exc_info=True)
 
         post_to_main_thread(_paint)
 
     def _show_summary(self, model_name: str, summary: dict[str, Any]) -> None:
         try:
-            log_text = f"Benchmarks Complete for {model_name}!\n"
-            log_text += f"Passed: {summary['passed']}, Failed: {summary['failed']}\n"
-            log_text += f"Total Est. Cost: ${summary['total_cost']:.4f}\n\n Details:\n"
-            for res in cast("list[dict[str, Any]]", summary["results"]):
-                log_text += f"[{res['status']}] {res['name']} ({res.get('latency', 0):.1f}s)\n"
-            self.dialog.getControl("log_area").setText(log_text)
-            self.dialog.getControl("status").setText("Finished")
+            # Same close race as _after_test. is_running still clears so a
+            # later Run is not stuck after the dialog is already gone.
+            if self._dialog_closed():
+                return
+            try:
+                log_text = f"Benchmarks Complete for {model_name}!\n"
+                log_text += f"Passed: {summary['passed']}, Failed: {summary['failed']}\n"
+                log_text += f"Total Est. Cost: ${summary['total_cost']:.4f}\n\n Details:\n"
+                for res in cast("list[dict[str, Any]]", summary["results"]):
+                    log_text += f"[{res['status']}] {res['name']} ({res.get('latency', 0):.1f}s)\n"
+                self.dialog.getControl("log_area").setText(log_text)
+                self.dialog.getControl("status").setText("Finished")
+            except Exception as exc:
+                if not is_disposed_exception(exc):
+                    raise
+                log.debug("eval summary skipped; dialog disposed", exc_info=True)
         finally:
             self.is_running = False
 
@@ -168,11 +280,18 @@ class EvalRunListener(BaseActionListener):
         # What was wrong: a failure before the summary dict skipped the Finished
         # status. The action listener only cleared is_running, so the dialog
         # stayed on "Running...". The status line is set here either way.
+        # A close during the suite disposes the dialog before this post runs.
+        # Skip the paint; still clear is_running.
         try:
+            if self._dialog_closed():
+                return
             self.dialog.getControl("log_area").setText(f"Benchmark failed:\n{exc}\n")
             self.dialog.getControl("status").setText("Finished")
-        except Exception:
-            log.debug("eval failure status failed", exc_info=True)
+        except Exception as paint_exc:
+            if is_disposed_exception(paint_exc):
+                log.debug("eval failure skipped; dialog disposed", exc_info=True)
+            else:
+                log.debug("eval failure status failed", exc_info=True)
         finally:
             self.is_running = False
 

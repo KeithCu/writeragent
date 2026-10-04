@@ -22,7 +22,12 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from weakref import WeakSet
 
-from plugin.chatbot.panel import StopButtonListener, notify_stop_mouse_pressed
+from plugin.chatbot.panel import (
+    StopButtonListener,
+    notify_record_mouse_pressed,
+    notify_record_mouse_released,
+    notify_stop_mouse_pressed,
+)
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 
@@ -559,17 +564,52 @@ def _frames_match(left: Any, right: Any) -> bool:
 
     PyUNO hands out distinct wrappers; bare ``is`` misses after Packet P / E12
     reopen the Writer deck. ``uno_same`` is the product identity test.
+
+    What was wrong: ``handle_debug_sidebar_command`` runs on the URP thread.
+    ``uno_same`` is main-thread-only, the guard raised, and this ``except``
+    turned that into a miss. ``sidebar_panel`` then returned ``panels[0]``.
+    Why this change: off the main thread, identity is ``is`` only.
     """
     if left is None or right is None:
         return False
     if left is right:
         return True
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return False
     try:
         from plugin.framework.uno_context import uno_same
 
         return bool(uno_same(left, right))
     except Exception:
         return False
+
+
+def _listener_torn_down(listener: Any) -> bool:
+    """True when deck close already set ``_panel_teardown`` on the listener."""
+    try:
+        return bool(getattr(listener, "_panel_teardown", False))
+    except Exception:
+        return False
+
+
+def _panel_send_listener(panel: Any) -> Any:
+    if panel is None:
+        return None
+    listener = getattr(panel, "send_listener", None)
+    if listener is None or _listener_torn_down(listener):
+        return None
+    return listener
+
+
+def _prune_teardown_listeners() -> None:
+    """Drop closed decks from the strong adopt list so they can be collected."""
+    if not _LIVE_SEND_LISTENERS:
+        return
+    kept = [obj for obj in _LIVE_SEND_LISTENERS if not _listener_torn_down(obj)]
+    if len(kept) != len(_LIVE_SEND_LISTENERS):
+        _LIVE_SEND_LISTENERS[:] = kept
 
 
 def _current_frame() -> Any:
@@ -593,25 +633,42 @@ def _current_frame() -> Any:
         return None
 
 
-def sidebar_panel(frame: Any = None) -> Any:
-    """Return the live ``ChatPanelElement`` for *frame*, or the current doc's panel.
+def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
+    """Return the live ``ChatPanelElement`` for *uid* or *frame*.
 
     When *frame* is omitted and several decks are live, prefer the current
-    component. Returning ``panels[0]`` padded a leftover Calc ``ChatSession``
-    while URP Send clicked Writer (Packet K CI: n_messages=2, no summarizer).
+    component. A single live panel is still returned when nothing was named.
+
+    What was wrong: a frame miss (including ``uno_same`` raising off the URP
+    thread) fell through to ``panels[0]``, the same leftover-Calc pad as
+    Packet K. How: both the match branch and the single-panel branch returned
+    the first panel even when the caller had already named a frame. Why this
+    change: a named frame that does not match returns None. ``panels[0]`` is
+    only the no-frame, one-deck debug fallback.
     """
     _require_debug()
     panels = iter_live_chat_panels()
     if not panels:
         return None
-    target = frame if frame is not None else _current_frame()
+    token = str(uid or "").strip()
+    if token:
+        for panel in panels:
+            if str(getattr(panel, "_live_panel_uid", "") or "") == token:
+                return panel
+        return None
+    if frame is not None:
+        for panel in panels:
+            if _frames_match(_panel_frame(panel), frame):
+                return panel
+        return None
+    target = _current_frame()
     if target is not None:
         for panel in panels:
             if _frames_match(_panel_frame(panel), target):
                 return panel
     if len(panels) == 1:
         return panels[0]
-    return panels[0]
+    return None
 
 
 def desktop_from_ctx(ctx: Any) -> Any:
@@ -912,16 +969,24 @@ def chat_dialog_controls(ctx: Any, doc: Any) -> dict[str, Any] | None:
     return None
 
 
-def send_listener(frame: Any = None) -> Any:
+def send_listener(frame: Any = None, *, uid: str = "") -> Any:
     _require_debug()
-    panel = sidebar_panel(frame)
-    if panel is not None:
-        sl = getattr(panel, "send_listener", None)
-        if sl is not None:
-            # Do not steal a leftover slash-popup listener from another deck.
-            # Packet K inflate + URP Send must share this panel's ChatSession.
-            return sl
-    with_popup = [obj for obj in _LIVE_SEND_LISTENERS if getattr(obj, "slash_popup", None) is not None]
+    _prune_teardown_listeners()
+    panels = iter_live_chat_panels()
+    panel = sidebar_panel(frame, uid=uid)
+    sl = _panel_send_listener(panel)
+    if sl is not None:
+        # Do not steal a leftover slash-popup listener from another deck.
+        # Packet K inflate + URP Send must share this panel's ChatSession.
+        return sl
+    # A named frame or uid already picked a deck. Do not substitute another
+    # window's listener when that deck missed (uno_same off the URP thread
+    # used to fall through to panels[0] / the last adopted listener).
+    if frame is not None or panel is not None or uid or len(panels) > 1:
+        return None
+    with_popup = [
+        obj for obj in _LIVE_SEND_LISTENERS if getattr(obj, "slash_popup", None) is not None and not _listener_torn_down(obj)
+    ]
     if with_popup:
         return with_popup[-1]
     if _LIVE_SEND_LISTENERS:
@@ -947,9 +1012,11 @@ def _listener_for_current_doc() -> Any:
 
 def _listener_with_slash_popup(sl: Any) -> Any:
     """Prefer a SendButtonListener that already has the Ask-box controller."""
-    if sl is not None and getattr(sl, "slash_popup", None) is not None:
+    if sl is not None and not _listener_torn_down(sl) and getattr(sl, "slash_popup", None) is not None:
         return sl
     for obj in list(_LIVE_SEND_LISTENERS):
+        if _listener_torn_down(obj):
+            continue
         if getattr(obj, "slash_popup", None) is not None:
             return obj
     try:
@@ -957,9 +1024,11 @@ def _listener_with_slash_popup(sl: Any) -> Any:
     except Exception:
         panels = []
     for panel in panels:
-        cand = getattr(panel, "send_listener", None)
+        cand = _panel_send_listener(panel)
         if cand is not None and getattr(cand, "slash_popup", None) is not None:
             return cand
+    if _listener_torn_down(sl):
+        return None
     return sl
 
 
@@ -983,9 +1052,12 @@ def adopt_runtime_send_listeners() -> int:
                 continue
         except Exception:
             continue
+        if _listener_torn_down(obj):
+            continue
         if obj not in _LIVE_SEND_LISTENERS:
             _LIVE_SEND_LISTENERS.append(obj)
             found += 1
+    _prune_teardown_listeners()
     return found
 
 
@@ -1156,10 +1228,18 @@ def send_listener_for_uid(uid: str) -> Any:
         panel = get_live_panel(token)
     except Exception:
         panel = None
-    if panel is not None:
-        sl = getattr(panel, "send_listener", None)
-        if sl is not None:
-            return sl
+    sl = _panel_send_listener(panel)
+    if sl is not None:
+        return sl
+    # Debug WeakSet panels store the uid at register. Match that before
+    # get_runtime_uid, which is main-thread-only and raises on the URP thread.
+    sl = _panel_send_listener(sidebar_panel(uid=token))
+    if sl is not None:
+        return sl
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return None
     from plugin.framework.uno_context import get_runtime_uid
 
     for sl in iter_send_listeners():
@@ -1179,6 +1259,7 @@ def iter_send_listeners() -> list[Any]:
     """All live SendButtonListeners (panels first, then adopted OXT copies)."""
     _require_debug()
     adopt_runtime_send_listeners()
+    _prune_teardown_listeners()
     out: list[Any] = []
     seen: set[int] = set()
     try:
@@ -1186,7 +1267,7 @@ def iter_send_listeners() -> list[Any]:
     except Exception:
         panels = []
     for panel in panels:
-        sl = getattr(panel, "send_listener", None)
+        sl = _panel_send_listener(panel)
         if sl is None:
             continue
         ident = id(sl)
@@ -1195,6 +1276,8 @@ def iter_send_listeners() -> list[Any]:
         seen.add(ident)
         out.append(sl)
     for sl in list(_LIVE_SEND_LISTENERS):
+        if _listener_torn_down(sl):
+            continue
         ident = id(sl)
         if ident in seen:
             continue
@@ -1613,15 +1696,25 @@ def inflate_sidebar_history(*, ctx: Any = None) -> dict[str, Any]:
 
 
 def clear_sidebar_chat(*, listener: Any = None) -> None:
-    """New-chat: wipe session history and the visible transcript.
+    """New-chat: same path as the Clear button.
 
     Packet G canned-string asserts must not see leftover Packet E/F body
-    (``hello``, ``look up cats``, ``document_research``). Same path as Clear.
-    In-process listener uses ``session.clear``; URP clicks the Clear control.
+    (``hello``, ``look up cats``, ``document_research``). URP clicks the
+    Clear control. In-process, ``clear_listener.on_action_performed`` stops
+    speech, drops hands-free, releases the mic, and latches Stop when busy.
+
+    What was wrong: this called ``session.clear`` and ``clear_and_greeting("")``
+    while a drain could still paint the reply onto the wiped transcript.
+    Why this change: ``ClearButtonListener`` is the path that latches Stop first.
     """
     _require_debug()
     sl = listener if listener is not None else send_listener()
     if sl is not None:
+        clear_listener = getattr(sl, "clear_listener", None)
+        action = getattr(clear_listener, "on_action_performed", None)
+        if callable(action):
+            action(None)
+            return
         session = getattr(sl, "session", None)
         clearer = getattr(session, "clear", None) if session is not None else None
         if callable(clearer):
@@ -1721,13 +1814,42 @@ def approval_active(*, listener: Any = None) -> bool:
 
 
 def press_record(*, listener: Any = None) -> None:
+    """Short Record click. No-op unless the Send button label is Record.
+
+    What was wrong: this dispatched ``RECORD_CLICKED`` even when the label
+    was Send. The URP click already required the Record label. A real short
+    click is mouse press then release (``actionPerformed`` is swallowed when
+    that release already dispatched).
+    """
     _require_debug()
-    _send_event_or_urp(SendEventKind.RECORD_CLICKED, listener=listener)
+    sl = listener if listener is not None else send_listener()
+    if sl is not None:
+        notify_record_mouse_pressed(sl)
+        notify_record_mouse_released(sl)
+        return
+    _send_event_or_urp(SendEventKind.RECORD_CLICKED, listener=None)
 
 
 def press_stop_rec(*, listener: Any = None) -> None:
+    """Stop Rec click. Dispatches only when the label is Stop Rec.
+
+    Mouse press/release owns the Record hold. On a Stop Rec label those
+    notifies do not dispatch; ``actionPerformed`` does, and it refuses Send
+    and Record labels. The URP branch clicks only when the label matches.
+    """
     _require_debug()
-    _send_event_or_urp(SendEventKind.STOP_REC_CLICKED, listener=listener)
+    sl = listener if listener is not None else send_listener()
+    if sl is not None:
+        from plugin.framework.i18n import _
+
+        notify_record_mouse_pressed(sl)
+        notify_record_mouse_released(sl)
+        if _control_label(getattr(sl, "send_control", None)) == _("Stop Rec"):
+            action = getattr(sl, "on_action_performed", None)
+            if callable(action):
+                action(None)
+        return
+    _send_event_or_urp(SendEventKind.STOP_REC_CLICKED, listener=None)
 
 
 def press_send_clicked(*, listener: Any = None) -> None:

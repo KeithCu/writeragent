@@ -24,13 +24,16 @@ def _make_send_listener():
         send.queue_executor = MagicMock()
         send._record_assistant_start = False
         send._assistant_stream_start_len = None
-        send._plain_text_stripper = None
         send.session = MagicMock()
+        send.session.messages = []
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(send, "chat")
         return send
 
 
 class TestRichAppendResponse:
-    def test_record_assistant_start_sets_stream_start_len(self):
+    def test_chunk_updates_the_message_list_then_paints(self):
         send = _make_send_listener()
         send._record_assistant_start = True
         with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
@@ -38,10 +41,21 @@ class TestRichAppendResponse:
 
         assert send._assistant_stream_start_len == 500
         send.rich_text_widget.get_text_length.assert_called_once()
-        send.rich_text_widget.append_assistant_stream_chunk.assert_called_once_with(
-            "Report",
-            auto_scroll=True,
-        )
+        assert send.session.messages[-1]["content"] == "Report"
+        assert send.session.messages[-1]["_open_transcript"] is True
+        send.rich_text_widget.paint_session.assert_called_once_with(send.session)
+        send.rich_text_widget.append_assistant_stream_chunk.assert_not_called()
+
+    def test_second_chunk_grows_the_open_row(self):
+        send = _make_send_listener()
+        send.session.messages.append({"role": "assistant", "content": "Hello", "_open_transcript": True})
+        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+            send._append_response(" world", role="assistant")
+
+        assert send.session.messages == [
+            {"role": "assistant", "content": "Hello world", "_open_transcript": True},
+        ]
+        send.rich_text_widget.paint_session.assert_called_once_with(send.session)
 
     def test_main_thread_calls_widget_directly(self):
         send = _make_send_listener()
@@ -49,7 +63,8 @@ class TestRichAppendResponse:
             send._append_response("search step", role="assistant")
 
         send.queue_executor.post.assert_not_called()
-        send.rich_text_widget.append_assistant_stream_chunk.assert_called_once()
+        send.rich_text_widget.paint_session.assert_called_once()
+        send.rich_text_widget.append_assistant_stream_chunk.assert_not_called()
 
     def test_worker_thread_posts_to_queue_executor(self):
         send = _make_send_listener()
@@ -58,7 +73,9 @@ class TestRichAppendResponse:
             send._append_response("search step", role="assistant")
 
         send.queue_executor.post.assert_called_once()
+        send.rich_text_widget.paint_session.assert_not_called()
         send.rich_text_widget.append_assistant_stream_chunk.assert_not_called()
+        assert send.session.messages == []
 
     def test_web_research_final_answer_start_len_after_search_steps(self):
         """Final answer must re-mark stream start after search chunks, not after user message."""

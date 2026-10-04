@@ -35,9 +35,51 @@ class TestHamburgerMenu:
 
         with patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=mock_handler) as mock_get_handler:
             with patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True), patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False), patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False):
-                show_hamburger_menu(ctx, frame, button_ctrl)
+                with patch("plugin.main._dispatch_command") as dispatch:
+                    show_hamburger_menu(ctx, frame, button_ctrl)
                 mock_get_handler.assert_called_with("chatbot.extend_selection")
                 mock_handler.assert_called_once_with(frame)
+                dispatch.assert_not_called()
+
+    def test_unregistered_mcp_items_use_command_dispatch(self):
+        """Toggle MCP and MCP status have no register_action_handler.
+
+        get_action_handler returned None and invoke_action_handler returned
+        without calling anything. The toolbar reaches McpModule.on_action
+        through _dispatch_command. These items must use that path.
+        """
+        for action in ("mcp.toggle_server", "mcp.server_status"):
+            ctx = MagicMock()
+            smgr = MagicMock()
+            popup = MagicMock()
+            ctx.getServiceManager.return_value = smgr
+            smgr.createInstanceWithContext.return_value = popup
+            button_ctrl = MagicMock()
+            button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+            button_ctrl.getPeer.return_value = MagicMock()
+            frame = MagicMock()
+
+            def _choose(*_args, expected=action, menu=popup):
+                suffix = ":" + expected
+                for call in menu.setCommand.call_args_list:
+                    command = call.args[1]
+                    if isinstance(command, str) and command.endswith(suffix):
+                        return call.args[0]
+                raise AssertionError(expected)
+
+            popup.execute.side_effect = _choose
+            with (
+                patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=None) as get_handler,
+                patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+                patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+                patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+                patch("plugin.main._dispatch_command") as dispatch,
+                patch("plugin.librepy.sidebar_menus.invoke_action_handler") as invoke,
+            ):
+                show_hamburger_menu(ctx, frame, button_ctrl)
+            get_handler.assert_called_once_with(action)
+            dispatch.assert_called_once_with(action)
+            invoke.assert_not_called()
 
     def test_writer_hamburger_loads_jupyter_icon(self):
         ctx = MagicMock()
