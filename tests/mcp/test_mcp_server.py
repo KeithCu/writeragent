@@ -215,6 +215,150 @@ def test_handle_mcp_post_missing_content_length():
     assert response_data["error"].get("code") == -32600
     assert "Invalid JSON-RPC" in response_data["error"].get("message", "")
 
+def test_handle_mcp_post_negative_content_length():
+    """Test negative Content-Length header returns a 400 Bad Request error."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
+        headers = {"Content-Length": "-100"}
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        mock_handle_mcp.assert_not_called()
+        assert 400 in handler.sent_responses
+
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
+
+def test_handle_mcp_post_rejects_oversized_body_without_reading():
+    """Content-Length above the cap is 413 and must not call rfile.read or _handle_mcp."""
+    from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES
+
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+    with patch.object(mcp_protocol, "_handle_mcp") as mock_handle_mcp:
+        handler = MockHandler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES + 1)}, b"{}")
+        reads: list[int] = []
+        original = handler.rfile.read
+
+        def _read(n=-1):
+            reads.append(n)
+            return original(n)
+
+        handler.rfile.read = _read
+        mcp_protocol.handle_mcp_post(handler)
+
+        mock_handle_mcp.assert_not_called()
+        assert reads == []
+        assert 413 in handler.sent_responses
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
+        assert "exceeds" in response_data.get("message", "")
+
+
+def _bare_generic_handler(headers, body=b""):
+    """Skip BaseHTTPRequestHandler.__init__ (it wants a live socket)."""
+    from plugin.mcp.server import GenericRequestHandler
+
+    handler = GenericRequestHandler.__new__(GenericRequestHandler)
+    handler.headers = headers
+    handler.rfile = BytesIO(body)
+    handler.wfile = BytesIO()
+    handler.client_address = ("127.0.0.1", 9)
+    handler.requestline = "POST /mcp HTTP/1.0"
+    handler.request_version = "HTTP/1.0"
+    return handler
+
+
+def _response_json(handler) -> tuple[int, dict]:
+    raw = handler.wfile.getvalue().decode("utf-8")
+    head, _, payload = raw.partition("\r\n\r\n")
+    status = int(head.split("\r\n", 1)[0].split(" ", 2)[1])
+    return status, json.loads(payload)
+
+
+def test_generic_handler_body_cap_timeout_and_negative_length():
+    from plugin.mcp.server import GenericRequestHandler, MCP_HTTP_MAX_BODY_BYTES, MCP_HTTP_SOCKET_TIMEOUT_SEC
+
+    assert GenericRequestHandler.timeout == MCP_HTTP_SOCKET_TIMEOUT_SEC
+
+    oversized = _bare_generic_handler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES + 1)}, b"{}")
+    reads: list[int] = []
+    oversized.rfile.read = lambda n=-1: reads.append(n)
+    assert oversized._read_body() is None
+    assert reads == []
+    status, body = _response_json(oversized)
+    assert status == 413
+    assert body.get("code") == "PARSE_ERROR"
+    assert "exceeds" in body.get("message", "")
+
+    stalled = _bare_generic_handler({"Content-Length": "8"}, b"")
+
+    def _timeout(n=-1):
+        del n
+        raise TimeoutError("stalled")
+
+    stalled.rfile.read = _timeout
+    assert stalled._read_body() is None
+    status, body = _response_json(stalled)
+    assert status == 408
+    assert body.get("code") == "PARSE_ERROR"
+
+    negative = _bare_generic_handler({"Content-Length": "-1"}, b"{}")
+
+    def _refuse_read(n=-1):
+        del n
+        raise AssertionError("negative length was read")
+
+    negative.rfile.read = _refuse_read
+    assert negative._read_body() is None
+    status, body = _response_json(negative)
+    assert status == 400
+    assert body.get("code") == "PARSE_ERROR"
+    assert "negative" in body.get("message", "")
+
+    at_cap = _bare_generic_handler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES)}, b"{}")
+    seen: list[int] = []
+
+    def _read_cap(n=-1):
+        seen.append(n)
+        return b"{}"
+
+    at_cap.rfile.read = _read_cap
+    assert at_cap._read_body() == {}
+    assert seen == [MCP_HTTP_MAX_BODY_BYTES]
+
+
+def test_get_request_sets_socket_timeout():
+    import socketserver
+
+    from plugin.mcp.server import MCP_HTTP_SOCKET_TIMEOUT_SEC, _ThreadedHTTPServer
+
+    server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
+    conn = MagicMock()
+    with patch.object(socketserver.TCPServer, "get_request", return_value=(conn, ("127.0.0.1", 1))):
+        got, addr = _ThreadedHTTPServer.get_request(server)
+    assert got is conn
+    assert addr == ("127.0.0.1", 1)
+    conn.settimeout.assert_called_once_with(MCP_HTTP_SOCKET_TIMEOUT_SEC)
+
+
+def test_handle_error_timeout_does_not_call_super():
+    from plugin.mcp.server import _ThreadedHTTPServer
+
+    server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
+    try:
+        raise TimeoutError("stalled body")
+    except TimeoutError:
+        with patch("socketserver.BaseServer.handle_error") as super_handle:
+            server.handle_error(None, ("127.0.0.1", 1))
+    super_handle.assert_not_called()
+
 def test_handle_mcp_post_truncated_json():
     """Test when Content-Length is larger than body (truncated JSON).
     Should hit invalid-json path and not call _handle_mcp."""
@@ -310,6 +454,29 @@ def test_to_mcp_schema_injects_document_url():
     assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]
 
 
+def test_handle_mcp_tools_call_is_async_routing():
+    """Test that _mcp_tools_call routes tools with is_async() returning True to long running."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    tool_mock = MagicMock()
+    tool_mock.name = "dummy_async_tool"
+    tool_mock.long_running = False
+    tool_mock.is_async.return_value = True
+    mcp_protocol.tool_registry = MagicMock()
+    mcp_protocol.tool_registry.get.return_value = tool_mock
+
+    with patch.object(mcp_protocol, "_execute_long_running") as mock_execute_lr:
+        params = {
+            "name": "dummy_async_tool",
+            "arguments": {"arg": "val"}
+        }
+        mcp_protocol._mcp_tools_call(params)
+        mock_execute_lr.assert_called_once()
+        args, kwargs = mock_execute_lr.call_args
+        assert args[0] == "dummy_async_tool"
+
+
 def test_handle_mcp_tools_call_parameter():
     """Test that _mcp_tools_call extracts document_url from arguments and uses it."""
     services = MagicMock()
@@ -342,4 +509,3 @@ def test_handle_mcp_tools_call_parameter():
         assert args[1]["arg1"] == "value"
         # The target document_url passed as keyword arg should be the one from the arguments
         assert kwargs.get("document_url") == "file:///my/custom/doc.odt"
-

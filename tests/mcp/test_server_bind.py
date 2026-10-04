@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """HTTP/MCP bind: single attempt, clear failure — no LibreOffice required."""
 import socket
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
@@ -181,3 +183,298 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
     assert isinstance(mod._registry, HttpRouteRegistry)
 
     mod.shutdown()
+
+
+class _Cfg:
+    def __init__(self, values: dict):
+        self.values = dict(values)
+
+    def get(self, key, default=None):
+        return self.values.get(key, default)
+
+
+class _Listener:
+    """Stand-in for HttpServer: records the port it was asked to bind."""
+
+    def __init__(self, port: int, fail: BaseException | None = None):
+        self.port = port
+        self._fail = fail
+        self.running = False
+        self.stop_count = 0
+
+    def start(self) -> None:
+        if self._fail is not None:
+            raise self._fail
+        self.running = True
+
+    def stop(self) -> None:
+        self.stop_count += 1
+        self.running = False
+
+    def is_running(self) -> bool:
+        return self.running
+
+    def get_status(self) -> dict:
+        return {"port": self.port, "host": "127.0.0.1", "url": "http://127.0.0.1:%s" % self.port}
+
+
+def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: BaseException | None = None):
+    """McpModule wired to a fake listener and config, without a live socket."""
+    import threading
+    from unittest.mock import MagicMock
+
+    import plugin.mcp as mcp_mod
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    created: list[_Listener] = []
+
+    def _factory(**kwargs):
+        srv = _Listener(kwargs["port"], fail=fail_start)
+        created.append(srv)
+        return srv
+
+    services = MagicMock()
+    cfg = _Cfg(cfg_values)
+    services.config.proxy_for.return_value = cfg
+    services.events = MagicMock()
+
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    mod._services = services
+    mod._registry = MagicMock()
+    mod._srv_lock = threading.Lock()
+    mod._server = listener
+    mod._tunnel = None
+    mod._mcp_routes_registered = True
+    mod._mcp_protocol = None
+    dialogs: list = []
+    mod._show_start_failure_dialog = lambda ctx=None: dialogs.append(ctx)
+
+    monkeypatch.setattr(mcp_mod, "_shared_http_server", listener)
+    monkeypatch.setattr(mcp_mod, "_shared_tunnel", None)
+    monkeypatch.setattr(mcp_mod, "_primary_http_module", mod)
+    monkeypatch.setattr(mcp_mod, "_last_start_error", None)
+    monkeypatch.setattr("plugin.mcp.server.HttpServer", _factory)
+    monkeypatch.setattr("plugin.mcp.reload_cors_policy_from_config", lambda *_a, **_k: None)
+    return mod, cfg, created, dialogs
+
+
+def test_mcp_port_only_change_rebinds_running_server(monkeypatch):
+    """Settings port-only save emits key=mcp.mcp_port, not bulk \"\"."""
+    old = _Listener(18765)
+    old.running = True
+    mod, cfg, created, dialogs = _module_with_listener(
+        monkeypatch,
+        old,
+        {"mcp_enabled": True, "mcp_port": 19000, "host": "127.0.0.1", "use_ssl": False, "tunnel_enabled": False},
+    )
+    mod._on_config_changed(key="mcp.mcp_port", value=19000)
+    assert old.stop_count == 1
+    assert old.is_running() is False
+    assert len(created) == 1
+    assert created[0].port == 19000
+    assert created[0].is_running()
+    assert mod._bound_http_server() is created[0]
+    assert dialogs == []
+    assert cfg.get("mcp_port") == 19000
+
+
+def test_mcp_port_change_in_bulk_save_rebinds_running_server(monkeypatch):
+    """Settings OK that changes the port plus other keys emits key=\"\"."""
+    old = _Listener(18765)
+    old.running = True
+    mod, _cfg, created, dialogs = _module_with_listener(
+        monkeypatch,
+        old,
+        {
+            "mcp_enabled": True,
+            "mcp_port": 20000,
+            "host": "127.0.0.1",
+            "use_ssl": False,
+            "tunnel_enabled": True,
+            "tunnel_provider": "cloudflare",
+        },
+    )
+    mod._on_config_changed(key="", keys=("mcp.mcp_port", "mcp.tunnel_provider"))
+    assert old.stop_count == 1
+    assert len(created) == 1
+    assert created[0].port == 20000
+    assert created[0].is_running()
+    assert dialogs == []
+
+
+def test_mcp_port_unchanged_does_not_restart_listener(monkeypatch):
+    old = _Listener(18765)
+    old.running = True
+    mod, _cfg, created, _dialogs = _module_with_listener(
+        monkeypatch,
+        old,
+        {"mcp_enabled": True, "mcp_port": 18765, "host": "127.0.0.1", "use_ssl": False, "tunnel_enabled": False},
+    )
+    mod._on_config_changed(key="mcp.mcp_port", value=18765)
+    assert old.stop_count == 0
+    assert old.is_running()
+    assert created == []
+
+
+def test_unrelated_config_key_does_not_rebind_mcp_port(monkeypatch):
+    old = _Listener(18765)
+    old.running = True
+    mod, _cfg, created, _dialogs = _module_with_listener(
+        monkeypatch,
+        old,
+        {"mcp_enabled": True, "mcp_port": 19000, "host": "127.0.0.1", "use_ssl": False, "tunnel_enabled": False},
+    )
+    # Port in config already differs, but this key is not a lifecycle key.
+    mod._on_config_changed(key="mcp.host", value="127.0.0.1")
+    mod._on_config_changed(key="chatbot.max_tool_rounds", value=15)
+    assert old.stop_count == 0
+    assert old.is_running()
+    assert created == []
+
+
+def test_mcp_port_change_while_disabled_does_not_start(monkeypatch):
+    mod, _cfg, created, dialogs = _module_with_listener(
+        monkeypatch,
+        None,
+        {"mcp_enabled": False, "mcp_port": 19000, "host": "127.0.0.1", "use_ssl": False, "tunnel_enabled": False},
+    )
+    mod._on_config_changed(key="mcp.mcp_port", value=19000)
+    assert created == []
+    assert dialogs == []
+    assert mod._bound_http_server() is None
+
+
+def test_mcp_port_change_starts_when_enabled_but_stopped(monkeypatch):
+    mod, _cfg, created, dialogs = _module_with_listener(
+        monkeypatch,
+        None,
+        {"mcp_enabled": True, "mcp_port": 19000, "host": "127.0.0.1", "use_ssl": False, "tunnel_enabled": False},
+    )
+    mod._on_config_changed(key="mcp.mcp_port", value=19000)
+    assert len(created) == 1
+    assert created[0].port == 19000
+    assert created[0].is_running()
+    assert dialogs == []
+
+
+def test_mcp_port_rebind_failure_stops_old_listener_and_reports(monkeypatch):
+    old = _Listener(18765)
+    old.running = True
+    boom = OSError(98, "Address already in use")
+    mod, _cfg, created, dialogs = _module_with_listener(
+        monkeypatch,
+        old,
+        {"mcp_enabled": True, "mcp_port": 19000, "host": "127.0.0.1", "use_ssl": False, "tunnel_enabled": False},
+        fail_start=boom,
+    )
+    mod._on_config_changed(key="mcp.mcp_port", value=19000, ctx="settings-ctx")
+    assert old.stop_count == 1
+    assert old.is_running() is False
+    assert len(created) == 1
+    assert created[0].is_running() is False
+    assert mod._bound_http_server() is None
+    assert dialogs == ["settings-ctx"]
+    import plugin.mcp as mcp_mod
+
+    assert mcp_mod._last_start_error is boom
+
+
+def _open_listener():
+    """Real bound HTTPServer whose server_close is the stdlib one, counted."""
+    httpd = HTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+    httpd.server_closes = 0
+    httpd.shutdowns = 0
+    real_close = httpd.server_close
+
+    def server_close():
+        httpd.server_closes += 1
+        real_close()
+
+    httpd.server_close = server_close
+    httpd._real_close = real_close
+    return httpd
+
+
+def _http_server_on(httpd):
+    host, port = httpd.server_address
+    server = HttpServer(route_registry=_EmptyRoutes(), port=port, host=host)
+    server._server = httpd
+    server._running = True
+    return server
+
+
+def _release_listener(httpd):
+    sock = getattr(httpd, "socket", None)
+    if sock is not None and sock.fileno() != -1:
+        httpd._real_close()
+
+
+def test_accept_loop_exit_closes_listen_socket():
+    """serve_forever ending on its own must release the listen socket.
+
+    stop() returns as soon as _running is false, so it never reaches
+    server_close(). A later stop() must not close the socket again.
+    """
+    httpd = _open_listener()
+    httpd.serve_forever = lambda poll_interval=0.5: None
+    server = _http_server_on(httpd)
+    thread = threading.Thread(target=server._run, name="http-accept-exit", daemon=True)
+    try:
+        thread.start()
+        thread.join(2)
+        assert not thread.is_alive()
+        assert not server.is_running()
+        assert httpd.server_closes == 1
+        assert httpd.socket.fileno() == -1
+        assert httpd._sse_stop.is_set()
+        # If stop() called shutdown() after the loop had already returned,
+        # the real shutdown() would wait forever on an unset event.
+        stop_thread = threading.Thread(target=server.stop, name="http-stop-after-exit", daemon=True)
+        stop_thread.start()
+        stop_thread.join(2)
+        assert not stop_thread.is_alive()
+        assert httpd.server_closes == 1
+        assert httpd.shutdowns == 0
+    finally:
+        if thread.is_alive():
+            thread.join(1)
+        _release_listener(httpd)
+
+
+def test_stop_closes_listen_socket_once():
+    """The normal stop() path closes the listener once, with no second close from _run."""
+    httpd = _open_listener()
+    release = threading.Event()
+    entered = threading.Event()
+
+    def serve_forever(poll_interval=0.5):
+        entered.set()
+        assert release.wait(2)
+
+    def shutdown():
+        httpd.shutdowns += 1
+        release.set()
+
+    httpd.serve_forever = serve_forever
+    httpd.shutdown = shutdown
+    server = _http_server_on(httpd)
+    thread = threading.Thread(target=server._run, name="http-stop-once", daemon=True)
+    try:
+        thread.start()
+        assert entered.wait(2)
+        server.stop()
+        thread.join(2)
+        assert not thread.is_alive()
+        assert not server.is_running()
+        assert httpd.shutdowns == 1
+        assert httpd.server_closes == 1
+        assert httpd.socket.fileno() == -1
+        server.stop()
+        assert httpd.server_closes == 1
+        assert httpd.shutdowns == 1
+    finally:
+        release.set()
+        if thread.is_alive():
+            thread.join(1)
+        _release_listener(httpd)

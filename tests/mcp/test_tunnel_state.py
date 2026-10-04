@@ -65,7 +65,10 @@ def test_start_requested_transition():
 
     effects = tr.effects
     assert any(isinstance(e, CancelRetryTimerEffect) for e in effects)
-    assert any(isinstance(e, TerminateProcessEffect) for e in effects)
+    term = [e for e in effects if isinstance(e, TerminateProcessEffect)][0]
+    # Default state provider is cloudflare; the effect must name that, not ngrok.
+    # post_stop runs after state.provider has already been replaced.
+    assert term.provider == "cloudflare"
     start_eff = [e for e in effects if isinstance(e, StartProcessEffect)][0]
     assert start_eff.port == 19000
     assert start_eff.provider == "ngrok"
@@ -78,6 +81,17 @@ def test_start_requested_empty_port_keeps_state_defaults():
     tr = next_state(state, event)
     assert tr.state.port == 18765
     assert tr.state.max_retries == 5
+
+
+def test_start_requested_terminate_names_provider_being_left():
+    """Tailscale → other must reset Funnel for tailscale, not the new provider."""
+    state = TunnelState(status=TunnelStatus.CONNECTED, provider="tailscale", port=18765, desired_running=True, public_url="https://node.ts.net")
+    event = TunnelEvent(TunnelEventKind.START_REQUESTED, {"port": 19000, "provider": "cloudflare", "provider_token": ""})
+    tr = next_state(state, event)
+    assert tr.state.provider == "cloudflare"
+    assert tr.state.port == 19000
+    term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)][0]
+    assert term.provider == "tailscale"
 
 
 def test_url_acquired_transition():
@@ -156,6 +170,11 @@ def test_process_exited_exhausts_max_retries():
     assert tr.state.desired_running is False
     assert "failed to reconnect after 4 attempts (code 2)" in (tr.state.last_error or "")
     assert not any(isinstance(e, ScheduleRetryTimerEffect) for e in tr.effects)
+    # Funnel/serve config outlives the process. Giving up must reset the
+    # provider that owned the session, same as stop/switch.
+    term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)]
+    assert len(term) == 1
+    assert term[0].provider == "ngrok"
 
 
 def test_process_exited_auth_error_fails_immediately_without_retry():
@@ -176,6 +195,9 @@ def test_process_exited_auth_error_fails_immediately_without_retry():
     assert tr.state.desired_running is False
     assert tr.state.last_error == "ngrok authtoken required or invalid"
     assert not any(isinstance(e, ScheduleRetryTimerEffect) for e in tr.effects)
+    term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)]
+    assert len(term) == 1
+    assert term[0].provider == "ngrok"
 
 
 def test_retry_timer_expired_starts_process_when_desired_running():
@@ -231,7 +253,8 @@ def test_stop_requested_cleans_up_from_any_state():
         assert tr.state.retry_count == 0
         assert tr.state.last_error is None
         assert any(isinstance(e, CancelRetryTimerEffect) for e in tr.effects)
-        assert any(isinstance(e, TerminateProcessEffect) for e in tr.effects)
+        term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)][0]
+        assert term.provider == "cloudflare"
 
 
 # ── Hypothesis Property-Based Verification ─────────────────────────────

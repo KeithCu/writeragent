@@ -59,7 +59,24 @@ class JsonRpcParseError:
     code: int = INVALID_REQUEST
 
 
-@deal.pre(lambda msg: not isinstance(msg, dict) or (len(msg) <= DEAL_MAX_CMD_ARGS and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in msg)))
+def _deal_jsonrpc_msg_ok_pytest(msg: object) -> bool:
+    # A client message with extra keys or a non-ASCII key is still JSON-RPC.
+    # The old cap raised PreContractError instead of JsonRpcParseError.
+    # The body returns that parse error. CrossHair keeps the short dict.
+    # ``msg`` is unused.
+    return True
+
+
+def _deal_jsonrpc_msg_ok_crosshair(msg: object) -> bool:
+    return not isinstance(msg, dict) or (
+        len(msg) <= DEAL_MAX_CMD_ARGS and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in msg)
+    )
+
+
+_deal_jsonrpc_msg_ok = _deal_jsonrpc_msg_ok_crosshair if UNDER_CROSSHAIR else _deal_jsonrpc_msg_ok_pytest
+
+
+@deal.pre(lambda msg: _deal_jsonrpc_msg_ok(msg))
 @deal.post(lambda result: isinstance(result, (ParsedJsonRpcRequest, JsonRpcParseError)))
 def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseError:
     """Parse and validate a single JSON-RPC request object.
@@ -110,7 +127,22 @@ def jsonrpc_success(req_id: RequestId, result: dict[str, Any]) -> dict[str, Any]
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
 
 
-@deal.pre(lambda req_id, code, message, data=None: str_bounded(message, DEAL_MAX_SOURCE) and isinstance(code, int))
+def _deal_jsonrpc_failure_ok_pytest(message: object, code: object) -> bool:
+    # Tool errors are longer than DEAL_MAX_SOURCE. The body copies the
+    # string into the error object. CrossHair keeps the short message.
+    return isinstance(message, str) and isinstance(code, int)
+
+
+def _deal_jsonrpc_failure_ok_crosshair(message: object, code: object) -> bool:
+    return str_bounded(message, DEAL_MAX_SOURCE) and isinstance(code, int)
+
+
+_deal_jsonrpc_failure_ok = (
+    _deal_jsonrpc_failure_ok_crosshair if UNDER_CROSSHAIR else _deal_jsonrpc_failure_ok_pytest
+)
+
+
+@deal.pre(lambda req_id, code, message, data=None: _deal_jsonrpc_failure_ok(message, code))
 @deal.post(lambda result: isinstance(result, dict) and result.get("jsonrpc") == "2.0" and "error" in result)
 def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None = None) -> dict[str, Any]:
     err: dict[str, Any] = {"code": code, "message": message}
@@ -133,12 +165,29 @@ class InitializeResult:
         return out
 
 
+def _deal_initialize_client_version_ok_pytest(client_protocol_version: object) -> bool:
+    # initialize params.protocolVersion is client input. A long or odd
+    # string used to raise PreContractError (DEAL_MAX_TOKEN). The body
+    # copies it into the result. CrossHair keeps the short token.
+    # ``client_protocol_version`` is unused.
+    return True
+
+
+def _deal_initialize_client_version_ok_crosshair(client_protocol_version: object) -> bool:
+    return client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN)
+
+
+_deal_initialize_client_version_ok = (
+    _deal_initialize_client_version_ok_crosshair if UNDER_CROSSHAIR else _deal_initialize_client_version_ok_pytest
+)
+
+
 @deal.pre(
     lambda protocol_version, server_version, instructions, client_protocol_version=None: (
         (not isinstance(protocol_version, str) or str_bounded(protocol_version, DEAL_MAX_TOKEN))
         and str_bounded(server_version, DEAL_MAX_TOKEN)
         and str_bounded(instructions, DEAL_MAX_SOURCE)
-        and (client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN))
+        and _deal_initialize_client_version_ok(client_protocol_version)
     )
 )
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
@@ -184,7 +233,15 @@ _DEAL_CALL_KEY_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 _DEAL_CALL_VAL_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
-def _deal_call_tool_params_ok(params: object) -> bool:
+def _deal_call_tool_params_ok_pytest(params: object) -> bool:
+    # tools/call arguments are arbitrary JSON: numbers, lists, long text,
+    # extra fields. The old pre raised PreContractError before the body
+    # could raise ValueError for a missing name. CrossHair keeps the
+    # closed name/args domain. ``params`` is unused.
+    return True
+
+
+def _deal_call_tool_params_ok_crosshair(params: object) -> bool:
     # cover-all 33180040863: unbounded params → 3400 examples on from_params.
     # check-all 33668189572: missing/empty name → ValueError CHECK FAIL on {}.
     if type(params) is not dict:
@@ -212,6 +269,11 @@ def _deal_call_tool_params_ok(params: object) -> bool:
     return True
 
 
+_deal_call_tool_params_ok = (
+    _deal_call_tool_params_ok_crosshair if UNDER_CROSSHAIR else _deal_call_tool_params_ok_pytest
+)
+
+
 @deal.pre(lambda params: _deal_call_tool_params_ok(params))
 def _call_tool_request_params_from_dict(params: dict[str, Any]) -> CallToolRequestParams:
     # crosshair: off
@@ -234,7 +296,20 @@ def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
     return out
 
 
-@deal.pre(lambda data_b64, mime_type="image/png", is_error=False: str_bounded(data_b64, DEAL_MAX_SOURCE) and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1))
+def _deal_image_b64_ok_pytest(data_b64: object, mime_type: object = "image/png") -> bool:
+    # A real image is far longer than DEAL_MAX_SOURCE. The body wraps the
+    # string. CrossHair keeps the short base64 domain.
+    return isinstance(data_b64, str) and isinstance(mime_type, str) and len(mime_type) >= 1
+
+
+def _deal_image_b64_ok_crosshair(data_b64: object, mime_type: object = "image/png") -> bool:
+    return str_bounded(data_b64, DEAL_MAX_SOURCE) and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1)
+
+
+_deal_image_b64_ok = _deal_image_b64_ok_crosshair if UNDER_CROSSHAIR else _deal_image_b64_ok_pytest
+
+
+@deal.pre(lambda data_b64, mime_type="image/png", is_error=False: _deal_image_b64_ok(data_b64, mime_type))
 @deal.post(lambda result: isinstance(result, dict) and "content" in result)
 def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
     """Tool result carrying an IMAGE content block (MCP image type) instead of text.

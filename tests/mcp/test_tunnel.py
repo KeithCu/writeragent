@@ -137,9 +137,65 @@ def test_parse_ngrok_url_from_json():
 
 
 def test_parse_tailscale_url():
-    line = "Available at https://node.tailnet-name.ts.net/"
-    assert parse_tailscale_url(line) == "https://node.tailnet-name.ts.net"
+    # Real `tailscale funnel` stdout (serve_v2.go messageForPort). The URL is
+    # alone on a line; AsyncProcess delivers one line at a time.
+    output = "\n".join(
+        [
+            "Available on the internet:",
+            "",
+            "https://node.tailnet-name.ts.net/",
+            "|-- proxy http://127.0.0.1:18765",
+        ]
+    )
+    urls = [parse_tailscale_url(line) for line in output.splitlines()]
+    assert urls == [None, None, "https://node.tailnet-name.ts.net", None]
+    # Docs sample omits the trailing slash; non-443 Funnel keeps the port.
+    assert parse_tailscale_url("https://amelie-workstation.pango-lin.ts.net") == (
+        "https://amelie-workstation.pango-lin.ts.net"
+    )
+    assert parse_tailscale_url("https://node.tailnet-name.ts.net:8443/") == (
+        "https://node.tailnet-name.ts.net:8443"
+    )
     assert parse_tailscale_url("starting") is None
+    assert parse_tailscale_url("Available on the internet:") is None
+
+
+def test_tailscale_funnel_stdout_publishes_url(monkeypatch):
+    """One line at a time, as AsyncProcess._read_stream delivers funnel stdout."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    mgr = TunnelManager()
+    funnel_stdout = [
+        "Available on the internet:",
+        "",
+        "https://node.tailnet-name.ts.net/",
+        "|-- proxy http://127.0.0.1:18765",
+    ]
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+
+        def start():
+            if stdout_cb and cmd[0] == "tailscale":
+                for line in funnel_stdout:
+                    stdout_cb(line)
+
+        proc.start = start
+        proc.terminate = MagicMock()
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert mgr.status == TunnelStatus.CONNECTED
+        assert mgr.public_url == "https://node.tailnet-name.ts.net"
+        assert mgr.mcp_public_url() == "https://node.tailnet-name.ts.net/mcp"
+        mgr.stop()
 
 
 def test_normalize_public_base_and_mcp_url():
@@ -416,8 +472,10 @@ def test_tunnel_manager_reconnect_and_url_recovery(monkeypatch):
         assert mgr.public_url is None
         assert "reconnecting (attempt 1/5" in (mgr.last_error or "")
 
-        # 3. Simulate timer firing / reconnect attempt -> recovers URL
-        mgr._on_retry_timer_expired()
+        # 3. Simulate timer firing / reconnect attempt -> recovers URL.
+        # cancel() only stops the daemon thread. The manager still tracks
+        # this timer, so the callback is a live expiry.
+        _fire_current_retry_timer(mgr)
         assert mgr.public_url == "http://bore.pub:1111"
         assert mgr.is_reconnecting is False
         assert mgr.retry_count == 0
@@ -430,12 +488,12 @@ def test_tunnel_manager_reconnect_and_url_recovery(monkeypatch):
 def test_tunnel_manager_max_retries_failure(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
-    exit_cb = {"fn": None}
+    exits: list = []
 
     def _fake_die_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
         proc = MagicMock()
         proc.is_running = True
-        exit_cb["fn"] = on_exit_cb
+        exits.append(on_exit_cb)
         proc.start = MagicMock()
         proc.terminate = MagicMock()
         return proc
@@ -444,23 +502,580 @@ def test_tunnel_manager_max_retries_failure(monkeypatch):
         patch("plugin.mcp.tunnel.binary_available", return_value=True),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_die_process),
     ):
+        def _expire_retry() -> None:
+            # The exit callback arms a real Timer. Fire its callback on this
+            # thread so the identity guard sees the timer still being tracked.
+            _fire_current_retry_timer(mgr)
+
         assert mgr.start(18765, "bore", max_retries=2) is True
-        # Attempt 1 drop
-        exit_cb["fn"](1)
+        # Attempt 1 drop. A second call on this same callback is stale: the
+        # process ref is already cleared, and only the replacement's exit counts.
+        exits[0](1)
         assert mgr.is_reconnecting is True
         assert mgr.retry_count == 1
+        exits[0](1)
+        assert mgr.retry_count == 1
 
-        # Attempt 2 drop
-        exit_cb["fn"](1)
+        # Retry starts a new process; that process drops -> attempt 2.
+        _expire_retry()
+        exits[1](1)
         assert mgr.is_reconnecting is True
         assert mgr.retry_count == 2
 
         # Attempt 3 drop -> max retries (2) exceeded -> FAILED
-        exit_cb["fn"](1)
+        _expire_retry()
+        exits[2](1)
         assert mgr.is_reconnecting is False
         assert "failed to reconnect after 2 attempts" in (mgr.last_error or "")
 
         mgr.stop()
+
+
+def _fire_current_retry_timer(mgr: TunnelManager) -> None:
+    """Run the armed reconnect callback on this thread.
+
+    ``Timer.cancel()`` stops the daemon thread. It does not clear the timer
+    ``TunnelManager`` is tracking, so this is a live expiry, not a stale one.
+    """
+    timer = mgr._reconnect_timer
+    assert timer is not None
+    timer.cancel()
+    timer.function(*timer.args, **timer.kwargs)
+
+
+def test_stale_retry_timer_does_not_spawn_second_process(monkeypatch):
+    """A retry callback that already started must not outlive start()'s cancel.
+
+    Timer.cancel() does not stop a callback that is already in flight.
+    After start() has spawned the replacement, the callback must not
+    start another process.
+    """
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    procs: list = []
+    exits: list = []
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        procs.append(proc)
+        exits.append(on_exit_cb)
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "cloudflare") is True
+        exits[0](1)
+        assert mgr.is_reconnecting is True
+        stale = mgr._reconnect_timer
+        assert stale is not None
+        stale.cancel()
+
+        # Config change while the callback is already in flight: cancel is a
+        # no-op for a running callback. The exited process is already gone
+        # (_process is None); start() spawns the replacement (P2).
+        assert mgr.start(18765, "bore", provider_token="relay.example") is True
+        assert len(procs) == 2
+        assert mgr._process is procs[1]
+
+        stale.function(*stale.args, **stale.kwargs)
+        assert len(procs) == 2
+        assert mgr._process is procs[1]
+        procs[1].terminate.assert_not_called()
+        assert mgr.is_reconnecting is False
+
+        # The replacement's own exit still arms a timer the stale callback
+        # must not clear.
+        exits[1](1)
+        assert mgr.is_reconnecting is True
+        live = mgr._reconnect_timer
+        assert live is not None
+        assert live is not stale
+        stale.function(*stale.args, **stale.kwargs)
+        assert mgr._reconnect_timer is live
+        assert mgr._process is None
+        assert len(procs) == 2
+        mgr.stop()
+
+
+def test_stale_exit_does_not_drop_replacement_process(monkeypatch):
+    """Provider/token restart: the old wait thread must not orphan the new process."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    mgr = TunnelManager()
+    exits: list = []
+    procs: list = []
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        proc.cmd = list(cmd)
+        exits.append(on_exit_cb)
+        procs.append(proc)
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "cloudflare") is True
+        assert mgr.start(18765, "bore", provider_token="relay.example sec") is True
+        assert len(procs) == 2
+        procs[0].terminate.assert_called_once()
+        assert mgr._process is procs[1]
+        assert mgr.provider == "bore"
+        assert mgr.status == TunnelStatus.STARTING
+        assert mgr._reconnect_timer is None
+
+        # Old cloudflared wait thread exits after bore is already current.
+        exits[0](1)
+        assert mgr._process is procs[1]
+        assert mgr.is_reconnecting is False
+        assert mgr.retry_count == 0
+        assert mgr._reconnect_timer is None
+        procs[1].terminate.assert_not_called()
+
+        # Token change on the same provider is the same terminate-then-start race.
+        assert mgr.start(18765, "bore", provider_token="other-secret") is True
+        assert mgr._process is procs[2]
+        exits[1](1)
+        assert mgr._process is procs[2]
+        assert mgr.is_reconnecting is False
+        assert mgr._reconnect_timer is None
+
+        # The live process exiting still reconnects.
+        exits[2](1)
+        assert mgr._process is None
+        assert mgr.is_reconnecting is True
+        assert mgr.retry_count == 1
+        mgr.stop()
+
+
+def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
+    """Tailscale → other must run funnel/serve reset even though state.provider already changed."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    procs: list = []
+    exits: list = []
+
+    def _run(cmd, **kwargs):
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        procs.append(proc)
+        exits.append(on_exit_cb)
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        # pre_start resets before the funnel process is spawned.
+        assert reset_cmds == [
+            ["tailscale", "funnel", "reset"],
+            ["tailscale", "serve", "reset"],
+        ]
+        assert mgr.provider == "tailscale"
+
+        assert mgr.start(18765, "cloudflare") is True
+        assert mgr.provider == "cloudflare"
+        assert mgr._process is procs[1]
+        procs[0].terminate.assert_called_once()
+        # post_stop for the provider being left, not cloudflare (which has none).
+        import time
+        t0 = time.monotonic()
+        while len(reset_cmds) < 4 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+        assert reset_cmds == [
+            ["tailscale", "funnel", "reset"],
+            ["tailscale", "serve", "reset"],
+            ["tailscale", "funnel", "reset"],
+            ["tailscale", "serve", "reset"],
+        ]
+        # Stale tailscale exit must not drop the cloudflared process.
+        exits[0](0)
+        assert mgr._process is procs[1]
+        assert mgr.is_reconnecting is False
+        mgr.stop()
+
+
+def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
+    """Funnel config outlives the process. Reset it when leaving while reconnecting."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    exits: list = []
+
+    def _run(cmd, **kwargs):
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        exits.append(on_exit_cb)
+        return proc
+
+    tailscale_reset = [
+        ["tailscale", "funnel", "reset"],
+        ["tailscale", "serve", "reset"],
+    ]
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert reset_cmds == tailscale_reset
+        exits[0](1)
+        assert mgr.is_reconnecting is True
+        assert mgr._process is None
+        if mgr._reconnect_timer is not None:
+            mgr._reconnect_timer.cancel()
+
+        # Provider switch: no process object, but the effect's provider is tailscale.
+        assert mgr.start(18765, "cloudflare") is True
+
+        # post_stop runs in the background, so wait a bit
+        import time
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 2 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+        assert reset_cmds == tailscale_reset + tailscale_reset
+        mgr.stop()
+        assert reset_cmds == tailscale_reset + tailscale_reset
+
+        # Disable while reconnecting.
+        assert mgr.start(18765, "tailscale") is True
+        # wait for pre_start to finish
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 3 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+
+        exits[-1](1)
+        assert mgr._process is None
+        assert mgr.is_reconnecting is True
+        if mgr._reconnect_timer is not None:
+            mgr._reconnect_timer.cancel()
+        mgr.stop()
+
+        # wait for post_stop
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 4 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+        assert reset_cmds == tailscale_reset + tailscale_reset + tailscale_reset + tailscale_reset
+
+        # Idle stop was already STOPPED. Another stop must not reset again.
+        mgr.stop()
+        assert reset_cmds == tailscale_reset + tailscale_reset + tailscale_reset + tailscale_reset
+
+        # FAILED has no process. Giving up resets on that transition.
+        # Restart from STOPPED does not post_stop (already reset above);
+        # pre_start resets once, the FAILED transition resets again, and
+        # stop-from-FAILED resets once more. A further idle stop does not.
+        assert mgr.start(18765, "tailscale", max_retries=0) is True
+        exits[-1](1)
+        assert mgr.status == TunnelStatus.FAILED
+        assert mgr._process is None
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 6 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+        assert reset_cmds == tailscale_reset * 6
+        mgr.stop()
+        t0 = time.monotonic()
+        while len(reset_cmds) < len(tailscale_reset) * 7 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+        assert reset_cmds == tailscale_reset * 7
+        mgr.stop()
+        assert reset_cmds == tailscale_reset * 7
+
+
+def _tailscale_reset_cmds() -> list[list[str]]:
+    return [
+        ["tailscale", "funnel", "reset"],
+        ["tailscale", "serve", "reset"],
+    ]
+
+
+def _capture_background(bucket: list):
+    def _capture(func, *args, **kwargs):
+        del args, kwargs
+        bucket.append(func)
+        handle = MagicMock()
+        handle.join = MagicMock()
+        handle.is_alive = MagicMock(return_value=False)
+        return handle
+
+    return _capture
+
+
+def _fake_running_process(spawned: list):
+    def _fake(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        del stdout_cb, stderr_cb, on_exit_cb, kwargs
+        proc = MagicMock()
+        proc.is_running = True
+        proc.cmd = cmd
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        spawned.append(proc)
+        return proc
+
+    return _fake
+
+
+def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
+    """A reset scheduled by stop() must no-op after a newer Tailscale start."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    scheduled: list = []
+    spawned: list = []
+    tailscale_reset = _tailscale_reset_cmds()
+
+    def _run(cmd, **kwargs):
+        del kwargs
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert reset_cmds == tailscale_reset
+        mgr.stop()
+        assert len(scheduled) == 1
+        assert reset_cmds == tailscale_reset
+        assert mgr.start(18765, "tailscale") is True
+        assert reset_cmds == tailscale_reset * 2
+        scheduled[0]()
+        assert reset_cmds == tailscale_reset * 2
+        assert len(spawned) == 2
+
+
+def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
+    """The same captured reset still runs if start() has not bumped the generation."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    scheduled: list = []
+    spawned: list = []
+    tailscale_reset = _tailscale_reset_cmds()
+
+    def _run(cmd, **kwargs):
+        del kwargs
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        mgr.stop()
+        assert len(scheduled) == 1
+        scheduled[0]()
+        assert reset_cmds == tailscale_reset * 2
+        assert len(spawned) == 1
+
+
+def test_tailscale_post_stop_still_runs_after_cloudflare_start(monkeypatch):
+    """Cloudflare has no post_stop, so it must not invalidate a pending Tailscale reset."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    scheduled: list = []
+    spawned: list = []
+    tailscale_reset = _tailscale_reset_cmds()
+
+    def _run(cmd, **kwargs):
+        del kwargs
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        mgr.stop()
+        assert mgr.start(18765, "cloudflare") is True
+        assert len(scheduled) == 1
+        scheduled[0]()
+        assert reset_cmds == tailscale_reset * 2
+        assert spawned[-1].cmd[0] == "cloudflared"
+
+
+def test_stopped_stop_resets_tailscale_when_crash_marker_exists(monkeypatch, tmp_path):
+    """A new process is STOPPED on cloudflare. The arm file is what still names Tailscale."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    marker = tmp_path / "writeragent-tailscale-funnel-armed"
+    marker.write_text("armed\n", encoding="utf-8")
+    monkeypatch.setattr("plugin.mcp.tunnel._tailscale_arm_path", lambda: str(marker))
+
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    scheduled: list = []
+
+    def _run(cmd, **kwargs):
+        del kwargs
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        mgr.stop()
+        assert len(scheduled) == 1
+        scheduled[0]()
+        assert reset_cmds == _tailscale_reset_cmds()
+        assert not marker.exists()
+        mgr.stop()
+        assert len(scheduled) == 1
+        assert reset_cmds == _tailscale_reset_cmds()
+
+
+def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, tmp_path):
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    marker = tmp_path / "writeragent-tailscale-funnel-armed"
+    monkeypatch.setattr("plugin.mcp.tunnel._tailscale_arm_path", lambda: str(marker))
+
+    mgr = TunnelManager()
+    scheduled: list = []
+    spawned: list = []
+
+    def _run(cmd, **kwargs):
+        del cmd, kwargs
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert marker.is_file()
+        assert marker.read_text(encoding="utf-8") == "armed\n"
+        mgr.stop()
+        assert marker.is_file()
+        assert len(scheduled) == 1
+        scheduled[0]()
+        assert not marker.exists()
+        assert len(spawned) == 1
+
+
+def test_pytest_does_not_use_config_dir_for_tailscale_arm(monkeypatch, tmp_path):
+    """PYTEST_CURRENT_TEST forces the marker off even when config has a resolved path."""
+    import os
+
+    from plugin.mcp.tunnel import _tailscale_arm_path
+
+    fake_config = tmp_path / "writeragent.json"
+    fake_config.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("plugin.framework.config._resolved_config_path", str(fake_config))
+    assert os.environ.get("PYTEST_CURRENT_TEST")
+    assert _tailscale_arm_path() is None
+    assert not (tmp_path / "writeragent-tailscale-funnel-armed").exists()
+
+
+def test_tailscale_pre_start_does_not_hold_tunnel_lock(monkeypatch):
+    """stop() must return while funnel reset is still inside pre_start."""
+    import threading
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    entered = threading.Event()
+    release = threading.Event()
+    calls = {"n": 0}
+    spawned: list = []
+    result: dict[str, bool] = {}
+
+    def _run(cmd, **kwargs):
+        del cmd, kwargs
+        calls["n"] += 1
+        if calls["n"] == 1:
+            entered.set()
+            assert release.wait(2)
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    def _start() -> None:
+        result["ok"] = mgr.start(18765, "tailscale")
+
+    stopped = threading.Event()
+
+    def _do_stop() -> None:
+        mgr.stop()
+        stopped.set()
+
+    stopper: threading.Thread | None = None
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+    ):
+        worker = threading.Thread(target=_start)
+        worker.start()
+        try:
+            assert entered.wait(2)
+            acquired = mgr._lock.acquire(timeout=0.3)
+            assert acquired, "pre_start held _lock"
+            mgr._lock.release()
+            stopper = threading.Thread(target=_do_stop)
+            stopper.start()
+            assert stopped.wait(1), "stop() blocked behind Tailscale pre_start"
+        finally:
+            release.set()
+        worker.join(2)
+        if stopper is not None:
+            stopper.join(2)
+    assert not worker.is_alive()
+    assert result["ok"] is False
+    assert spawned == []
+    assert mgr.is_running is False
 
 
 def test_test_tunnel_connectivity_binary_missing():
@@ -548,10 +1163,12 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
         sync_mcp_config_snippet,
         McpTunnelEnabledListener,
         McpPortTextListener,
+        _retired_provider_tunnel_urls,
         _tested_provider_tunnel_urls,
     )
 
     _tested_provider_tunnel_urls.clear()
+    _retired_provider_tunnel_urls.clear()
 
     mock_dlg = MagicMock()
     mock_snippet = MagicMock()
@@ -603,6 +1220,13 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     data = json.loads(args[0])
     assert data["mcpServers"]["libreoffice"]["url"] == "https://<domain>.ngrok-free.app/mcp"
 
+    # 4b. Tailscale placeholder is a Funnel hostname (<machine>.<tailnet>.ts.net).
+    mock_provider.getText.return_value = "tailscale"
+    provider_listener.itemStateChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "https://<machine>.<tailnet>.ts.net/mcp"
+
     # 5. Switching back to cloudflare -> shows tested cloudflare URL again
     mock_provider.getText.return_value = "cloudflare"
     provider_listener.itemStateChanged(MagicMock())
@@ -628,5 +1252,123 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     assert data["mcpServers"]["libreoffice"]["url"] == "http://localhost:20000/mcp"
 
 
+def test_start_does_not_hold_lock_during_binary_probe(monkeypatch):
+    """A hung provider --version must not block stop() or the tunnel lock."""
+    import threading
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    probed = threading.Event()
+    release = threading.Event()
+    result: dict[str, bool] = {}
+
+    def _slow(provider: str) -> bool:
+        del provider
+        probed.set()
+        assert release.wait(2)
+        return True
+
+    def _run() -> None:
+        result["ok"] = mgr.start(18765, "cloudflare")
+
+    stopped = threading.Event()
+
+    def _do_stop() -> None:
+        mgr.stop()
+        stopped.set()
+
+    stopper: threading.Thread | None = None
+    with (
+        patch("plugin.mcp.tunnel.binary_available", side_effect=_slow),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=AssertionError("should not spawn")),
+    ):
+        worker = threading.Thread(target=_run)
+        worker.start()
+        try:
+            assert probed.wait(2)
+            acquired = mgr._lock.acquire(timeout=0.3)
+            assert acquired, "start() held _lock across binary_available"
+            mgr._lock.release()
+            stopper = threading.Thread(target=_do_stop)
+            stopper.start()
+            assert stopped.wait(1), "stop() blocked behind the binary probe"
+        finally:
+            release.set()
+        worker.join(2)
+        if stopper is not None:
+            stopper.join(2)
+    assert not worker.is_alive()
+    assert result["ok"] is False
+    assert mgr.is_running is False
+
+
+def test_stop_cancels_a_start_that_was_only_armed(monkeypatch):
+    """stop() after note_pending_start must win even if start() has not entered the probe."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    token = object()
+    mgr.note_pending_start(token)
+    mgr.stop()
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=AssertionError("should not spawn")),
+    ):
+        assert mgr.start(18765, "cloudflare", start_token=token) is False
+    assert mgr.is_running is False
+
+
+def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
+    """config:changed must return while provider --version is still running."""
+    import threading
+    import time
+
+    import plugin.mcp as mcp_mod
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    monkeypatch.setattr(mcp_mod, "_shared_tunnel", None)
+    monkeypatch.setattr(mcp_mod, "_shared_http_server", None)
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    services = MagicMock()
+    services.config.proxy_for.return_value = {
+        "mcp_enabled": True,
+        "tunnel_enabled": True,
+        "mcp_port": 18765,
+        "tunnel_provider": "cloudflare",
+        "tunnel_provider_token": "",
+    }
+    mod._services = services
+    bound = MagicMock()
+    bound.is_running.return_value = True
+    bound.port = 18765
+    mod._server = bound
+    tunnel = TunnelManager()
+    mod._tunnel = tunnel
+
+    caller = threading.current_thread()
+    probed = threading.Event()
+    release = threading.Event()
+    probe_thread: dict[str, threading.Thread] = {}
+
+    def _slow(provider: str) -> bool:
+        del provider
+        probe_thread["t"] = threading.current_thread()
+        probed.set()
+        assert release.wait(2)
+        return False
+
+    monkeypatch.setattr("plugin.mcp.tunnel.binary_available", _slow)
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    try:
+        mod._sync_tunnel()
+        assert probed.wait(2)
+        assert probe_thread["t"] is not caller
+    finally:
+        release.set()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and tunnel.status != TunnelStatus.FAILED:
+        time.sleep(0.02)
+    assert tunnel.status == TunnelStatus.FAILED
 
 
