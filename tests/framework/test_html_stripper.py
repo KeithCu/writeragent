@@ -86,6 +86,20 @@ def test_streaming_html_stripper_holds_split_entity():
     assert stripper.feed("p; b") + stripper.finalize() == "& b"
 
 
+def test_strip_html_tags_newline_after_entity():
+    """An ampersand entity or token followed by a newline must preserve the newline."""
+    assert strip_html_tags("Hello &\nWorld") == "Hello &\nWorld"
+    assert strip_html_tags("Hello &amp;\nWorld") == "Hello &\nWorld"
+    assert strip_html_tags("a & b\nc") == "a & b\nc"
+
+    # Streaming API must also preserve the newline
+    stripper = StreamingHTMLStripper()
+    assert stripper.feed("Hello &\n") + stripper.feed("World") + stripper.finalize() == "Hello &\nWorld"
+
+    stripper2 = StreamingHTMLStripper()
+    assert stripper2.feed("Hello &amp") + stripper2.feed(";\n") + stripper2.finalize() == "Hello &\n"
+
+
 def test_streaming_html_stripper_chunks():
     stripper = StreamingHTMLStripper()
     chunks = [
