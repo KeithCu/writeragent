@@ -96,6 +96,19 @@ def _grep_text_in_writer(
         try:
             if para.supportsService("com.sun.star.text.Paragraph"):
                 para_texts.append(para.getString())
+            elif para.supportsService("com.sun.star.text.TextTable"):
+                cell_texts = []
+                names = para.getCellNames() or ()
+                for name in names:
+                    try:
+                        cell = para.getCellByName(name)
+                        cell_texts.append(cell.getString())
+                    except Exception:
+                        continue
+                if cell_texts:
+                    para_texts.append(" ".join(cell_texts))
+                else:
+                    para_texts.append("")
             else:
                 para_texts.append("")
         except Exception:
