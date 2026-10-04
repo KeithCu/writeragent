@@ -98,10 +98,11 @@ def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
 def ensure_index_wakeup(ctx: Any, services: Any, model: Any) -> None:
     """Non-blocking wakeup when search runs against a missing or stale cache."""
     try:
-        from plugin.chatbot.tool_loop_actions import current_turn
+        from plugin.framework.queue_executor import get_current_send_cancellation
 
-        turn = current_turn(None)
-        if turn and getattr(turn.cancellation_scope, "is_cancelled", False):
+        # TurnController has no cancellation scope. Stop latches SendCancellation.
+        scope = get_current_send_cancellation()
+        if scope is not None and scope.is_cancelled():
             return
     except Exception:
         pass
