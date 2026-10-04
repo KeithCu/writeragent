@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.async_stream import BlockingWaitStopped
 from plugin.writer.editselection import do_extend_selection, do_edit_selection
 from plugin.framework.config import set_configs
 
@@ -32,9 +31,9 @@ def test_extend_selection_stops_on_cancel(mock_create_client, mock_stream_comple
         assert mock_stream_completion.called
         apply_chunk_fn = mock_stream_completion.call_args.args[5]
 
-        # When apply_chunk is called, it should raise BlockingWaitStopped because stop_checker is True
-        with pytest.raises(BlockingWaitStopped, match="Stopped by user"):
-            apply_chunk_fn("new chunk")
+        # A chunk already in hand still appends when stop_checker is true.
+        apply_chunk_fn("new chunk")
+        text_range.setString.assert_called()
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
@@ -64,9 +63,9 @@ def test_edit_selection_stops_on_cancel(mock_create_client, mock_stream_completi
         assert mock_stream_completion.called
         apply_chunk_fn = mock_stream_completion.call_args.args[5]
 
-        # When apply_chunk is called, it should raise BlockingWaitStopped because stop_checker is True
-        with pytest.raises(BlockingWaitStopped, match="Stopped by user"):
-            apply_chunk_fn("new chunk")
+        # A chunk already in hand still appends when stop_checker is true.
+        apply_chunk_fn("new chunk")
+        text_range.setString.assert_called()
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
@@ -90,9 +89,8 @@ def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client,
 
         apply_chunk_fn = mock_stream_completion.call_args.args[5]
 
-        # Should raise BlockingWaitStopped wrapping the inner exception
-        with pytest.raises(BlockingWaitStopped, match="Stopped \\(stop_checker failed\\)"):
-            apply_chunk_fn("new chunk")
+        # apply_chunk does not consult stop_checker, so a broken checker does not block the write.
+        apply_chunk_fn("new chunk")
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")

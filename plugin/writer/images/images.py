@@ -211,8 +211,8 @@ class ImageGenerate(ToolWriterImageBase):
         img_path = paths[0]
 
         def _insert_or_replace() -> str:
-            if stop_checker and stop_checker():
-                return "Image generation was cancelled by the user."
+            # Bytes are already in hand. Stop may abort the network wait above;
+            # it does not skip this document insert.
             if is_edit:
                 replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
                 if not replaced:
