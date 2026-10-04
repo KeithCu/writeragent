@@ -348,7 +348,8 @@ _GUARDED_FORWARDED = frozenset({"register", "unregister", "df"})
 class GuardedDuckDBConnection:
     """Delegate to an in-memory DuckDB connection; ``execute`` / ``sql`` use the firewall.
 
-    Register / CREATE VIEW stay available. Raw import duckdb is not on the user whitelist.
+    Register / CREATE VIEW stay available. Raw ``import duckdb`` is allowed and
+    unguarded; ``session_duckdb()`` is what returns this wrapper.
     """
 
     def __init__(self, con: Any) -> None:
