@@ -955,7 +955,15 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     # Re-seed init script immediately after reset (C2.2.3) so helper functions (e.g. def double(x): ...)
     # and init variables are re-populated in the worker for both shared and isolated sessions.
     init_kwargs = build_python_eval_init_kwargs(target)
-    record_active_calc_session(session_id, init_kwargs)
+    # Bugfix: this re-record omitted *target*, so it took the no-doc path that
+    # drops every ``calc:unsaved:`` id. Reset of one saved workbook then left
+    # ``recorded==1``. Off-main ``=PY()`` treated the still-open sibling as
+    # unambiguous and ran it in this kernel.
+    # How: ``record_active_calc_session(session_id, init_kwargs)`` models "one
+    # workbook replacing its own id" only when the caller has no document.
+    # Why: pass *target*. The same-document GC still drops this book's own
+    # promoted unsaved id. Sibling unsaved ids and other workbooks stay.
+    record_active_calc_session(session_id, init_kwargs, doc=target)
     if init_kwargs:
         from plugin.scripting.venv_worker import run_code_in_user_venv
 

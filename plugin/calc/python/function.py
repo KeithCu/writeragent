@@ -470,7 +470,18 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             if sheet is None:
                 return
 
-            doc = _get_calc_doc(self.ctx)
+            # Bugfix: orphan cleanup locked undo and saved WriterAgentSpillRegistry
+            # on the focused workbook. The cells it cleared belong to the sheet
+            # that fired, which may be a background file.
+            # How: ``_get_calc_doc`` is ``desktop.getCurrentComponent()``.
+            # Why: walk to the spreadsheet that owns the sheet. A parent-less
+            # MagicMock still falls back to the active model so direct tests
+            # keep their stub.
+            from plugin.calc.python.sheet_modify import _owning_calc_doc
+
+            doc = _owning_calc_doc(sheet)
+            if doc is None:
+                doc = _get_calc_doc(self.ctx)
             # Bugfix: ``"PY" in formula`` is true for =PYMT and any text that
             # merely contains those letters, so replacing =PY() with an
             # unrelated formula left the spilled block. is_py_formula_text is

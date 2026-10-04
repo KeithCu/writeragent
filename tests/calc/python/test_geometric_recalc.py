@@ -1139,6 +1139,110 @@ def test_ensure_strip_index_hydrates_from_udprop():
     assert maybe_strip_geometric_eval_args("x", [((41.0,),)]) == []
 
 
+def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch):
+    """A non-empty index must not freeze a flag-off book onto a stale triple.
+
+    The user cell shares ``(code, n_args)`` with a mapped leftover and is not
+    in the map. Eval has to rescan or it strips that authored argument.
+    """
+    import json
+
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///flag-off-user.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 1).setFormula('=PY("np.mean(data)"; B1:B10; A1)')
+    sheet.getCellByPosition(0, 2).setFormula('=PY("np.mean(data)"; B1:B10; C5)')
+    wk = geometric_workbook_key(doc)
+    payload = json.dumps(
+        {
+            "workbook_key": wk,
+            "sheets": {"Sheet1": {"A2": "A1"}},
+        }
+    )
+    replace_geometric_strip_safe(wk, frozenset({_key("np.mean(data)", 2, wk)}))
+    col, pred = _mean_range_and_pred()
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
+    )
+    with (
+        patch(
+            "plugin.doc.udprops.get_document_property",
+            lambda _doc, name, default=None: (
+                payload if name == GEOMETRIC_REGISTRY_PROP else default
+            ),
+        ),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+    ):
+        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+        assert _key("np.mean(data)", 2, wk) not in current_geometric_strip_safe()
+        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [
+            col,
+            pred,
+        ]
+
+
+def test_flag_off_nonempty_index_still_strips_unanimous_leftover(monkeypatch):
+    """§9.4: flag-off rescan still strips when every cell with the triple is ours."""
+    import json
+
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///flag-off-leftover.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 1).setFormula('=PY("np.mean(data)"; B1:B10; A1)')
+    wk = geometric_workbook_key(doc)
+    payload = json.dumps(
+        {
+            "workbook_key": wk,
+            "sheets": {"Sheet1": {"A2": "A1"}},
+        }
+    )
+    replace_geometric_strip_safe(
+        wk,
+        frozenset({_key("np.mean(data)", 2, wk), EvalIndexKey(wk, "stale", 2)}),
+    )
+    col, pred = _mean_range_and_pred()
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
+    )
+    with (
+        patch(
+            "plugin.doc.udprops.get_document_property",
+            lambda _doc, name, default=None: (
+                payload if name == GEOMETRIC_REGISTRY_PROP else default
+            ),
+        ),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+    ):
+        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+        assert EvalIndexKey(wk, "stale", 2) not in current_geometric_strip_safe()
+        assert _key("np.mean(data)", 2, wk) in current_geometric_strip_safe()
+        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [col]
+
+
+def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
+    """Flag-on eval does not rescan. Modify reconcile owns that refresh."""
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///flag-on-frozen.ods")
+    wk = geometric_workbook_key(doc)
+    seeded = frozenset({_key("np.mean(data)", 2, wk)})
+    replace_geometric_strip_safe(wk, seeded)
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    with (
+        patch("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+    ):
+        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+    assert current_geometric_strip_safe() == seeded
+
+
 def test_ensure_strip_index_off_main_is_noop():
     from plugin.tests.testing_utils import CalcDocStub
 
