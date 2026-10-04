@@ -232,6 +232,9 @@ def test_manage_tracked_changes_accept():
 
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
 
+    # Mock redlines.getCount() before and after
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
+
     res = tool.execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
     ctx.doc.getCurrentController().select.assert_called_with(span_cursor)
@@ -247,6 +250,9 @@ def test_manage_tracked_changes_reject():
     enum_mock.nextElement.return_value = redline_mock
 
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
+
+    # Mock redlines.getCount() before and after
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
 
     res = tool.execute(ctx, action="reject", index=0)
     assert res["status"] == "ok"
@@ -361,10 +367,68 @@ def test_single_reject_blocked_on_agent_redline():
 
 def test_single_accept_allowed_on_user_redline():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
-    _install_redlines(ctx, [_fake_redline("")])
+    redline = _fake_redline("")
+    # Provide dummy values to pass the overlap check logic
+    text_mock = MagicMock()
+    text_mock.compareRegionStarts.return_value = 1
+    redline.getPropertyValue.return_value.getText.return_value = text_mock
+    _install_redlines(ctx, [redline])
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
+
+
+def test_single_accept_allowed_on_touching_ranges():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    r1 = _fake_redline("")
+    r2 = _fake_redline("")
+
+    text_mock = MagicMock()
+    # 0 means they are strictly adjacent (touching)
+    text_mock.compareRegionStarts.return_value = 0
+    text_mock.compareRegionEnds.return_value = 0
+
+    start_mock1 = MagicMock()
+    start_mock1.getText.return_value = text_mock
+    r1.getPropertyValue.side_effect = lambda prop: start_mock1 if prop == "RedlineStart" else start_mock1
+
+    start_mock2 = MagicMock()
+    start_mock2.getText.return_value = text_mock
+    r2.getPropertyValue.side_effect = lambda prop: start_mock2 if prop == "RedlineStart" else start_mock2
+
+    _install_redlines(ctx, [r1, r2])
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
+
+    res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
+    assert res["status"] == "ok"
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
+
+def test_single_accept_blocked_on_overlap():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    r1 = _fake_redline("")
+    r2 = _fake_redline("")
+
+    text_mock = MagicMock()
+    # -1 means they genuinely overlap (one starts before the other ends but isn't adjacent)
+    text_mock.compareRegionStarts.return_value = -1
+    text_mock.compareRegionEnds.return_value = -1
+
+    start_mock1 = MagicMock()
+    start_mock1.getText.return_value = text_mock
+    r1.getPropertyValue.side_effect = lambda prop: start_mock1 if prop == "RedlineStart" else start_mock1
+
+    start_mock2 = MagicMock()
+    start_mock2.getText.return_value = text_mock
+    r2.getPropertyValue.side_effect = lambda prop: start_mock2 if prop == "RedlineStart" else start_mock2
+
+    _install_redlines(ctx, [r1, r2])
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
+
+    res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
+    assert res["status"] == "error"
+    assert "overlaps with another change" in res["message"]
+    dispatcher.executeDispatch.assert_not_called()
 
 
 def test_single_accept_blocked_when_comment_unreadable():
@@ -373,4 +437,31 @@ def test_single_accept_blocked_when_comment_unreadable():
     _install_redlines(ctx, [_fake_redline("", raise_comment=True)])
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "error"
+    dispatcher.executeDispatch.assert_not_called()
+
+def test_single_accept_blocked_when_bounds_unreadable():
+    # Fail closed: if we cannot read the bounds of another redline, we cannot prove
+    # it doesn't overlap.
+    ctx, dispatcher, _frame, _ = _create_mock_ctx()
+    r1 = _fake_redline("")
+    r2 = _fake_redline("")
+
+    start_mock1 = MagicMock()
+    # Mock getText to just return a dummy
+    start_mock1.getText.return_value = MagicMock()
+    r1.getPropertyValue.side_effect = lambda prop: start_mock1 if prop == "RedlineStart" else start_mock1
+
+    # For r2, throw when trying to get RedlineStart
+    def r2_prop(prop):
+        if prop == "RedlineStart":
+            raise RuntimeError("bounds read boom")
+        return MagicMock()
+    r2.getPropertyValue.side_effect = r2_prop
+
+    _install_redlines(ctx, [r1, r2])
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
+
+    res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
+    assert res["status"] == "error"
+    assert "Failed to read bounds" in res["message"]
     dispatcher.executeDispatch.assert_not_called()

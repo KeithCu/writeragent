@@ -347,6 +347,48 @@ class TestSendDispose:
         listener._append_response.assert_not_called()
         listener.status_control.setText.assert_not_called()
 
+    def test_drain_finally_cleanup_on_tts_on_stop(self) -> None:
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+
+
+        listener = _make_send_listener()
+        listener._terminal_status = "Ready"
+        listener.ctx = MagicMock()
+        listener._panel_teardown = False
+        listener._send_cancellation = MagicMock()
+
+        class MockSession:
+            def __init__(self, messages):
+                self.messages = messages
+        session = MockSession(
+            messages=[{"role": "assistant", "content": _STOP_LINE}]
+        )
+
+        # Test that `_pump_completion` finally block runs drop_turn even when TTS is empty and enabled.
+        with patch("plugin.chatbot.panel.update_activity_state"):
+            with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
+                with patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=session):
+                    with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop:
+                        with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
+                            with patch.object(listener, "dispatch"):
+                                with patch.object(listener, "_sync_has_text_from_query"):
+                                    with patch.object(listener, "_set_status"):
+                                        with patch.object(listener, "_flush_sticky_restart") as mock_flush:
+                                            # simulate the execution of _pump_completion generator body being completely skipped/failed
+                                            # causing the finally block to execute
+                                            # we want to run the finally block of _run_send_drain
+                                            with patch("plugin.chatbot.panel.SendButtonListener._sync_has_text_from_query"):
+                                                with patch("plugin.chatbot.panel.SendButtonListener._get_doc_type_str", return_value="Writer"):
+                                                    try:
+                                                        # Make it fail early to hit the finally block
+                                                        with patch("plugin.chatbot.panel.SendButtonListener._set_status", side_effect=ValueError("fail")):
+                                                            listener._run_send_drain()
+                                                    except ValueError:
+                                                        pass
+                                            mock_drop.assert_called_once_with(listener)
+                                            mock_kick.assert_called_once()
+                                            mock_flush.assert_called_once()
+
     def test_drain_during_dispose_keeps_cancelled_scope(self) -> None:
         listener = _make_send_listener()
 
@@ -1073,3 +1115,34 @@ class TestHandsFreeRecord:
         assert listener.sidebar_state.send.is_recording is False
 
 
+
+class TestStopClearsAudioWavPath:
+    def test_disposing_clears_audio_wav_path(self) -> None:
+        listener = _make_send_listener()
+        listener.audio_wav_path = "/tmp/fake.wav"
+        from plugin.chatbot.send_state import StopSendEffect
+
+        from plugin.chatbot.send_state import SendEvent, SendEventKind
+        # We need the listener to execute StopSendEffect.
+        # This is triggered by STOP_CLICKED
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+
+        assert listener.audio_wav_path is None
+
+class TestStoppedTTS:
+    def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
+        listener = _make_send_listener()
+        listener._terminal_status = "Stopped"
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+
+        with (
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak
+        ):
+            mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
+            listener._run_send_drain()
+            mock_speak.assert_not_called()

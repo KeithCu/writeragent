@@ -143,6 +143,7 @@ def zvec_ingest_rows(
     *,
     build_fts: bool = True,
     build_vectors: bool = True,
+    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Ingest/upsert paragraph rows into a zvec collection.
 
@@ -160,7 +161,15 @@ def zvec_ingest_rows(
     vectors: list[list[float]] = []
     dim = 0
     if build_vectors:
-        vectors = _embed_texts(model_name, bodies, normalize=True)
+        from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE
+
+        for i in range(0, len(bodies), EMBEDDINGS_INGEST_BATCH_SIZE):
+            chunk_bodies = bodies[i : i + EMBEDDINGS_INGEST_BATCH_SIZE]
+            v = _embed_texts(model_name, chunk_bodies, normalize=True)
+            vectors.extend(v)
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "embed", "progress": len(vectors), "total": len(bodies)})
+
         if vectors:
             dim = len(vectors[0])
 
@@ -170,7 +179,7 @@ def zvec_ingest_rows(
     for i, row in enumerate(rows):
         body = bodies[i]
         vec: list[float] | None = vectors[i] if i < len(vectors) else None
-        doc = cast(Any, zvec).Doc(  # type: ignore[attr-defined]
+        doc = cast("Any", zvec).Doc(  # type: ignore[attr-defined]
             id=_stable_doc_id(row),
             fields={
                 "doc_url": str(row.get("doc_url") or ""),
@@ -382,11 +391,6 @@ def maintain_folder_zvec(
     This is intentionally simple (no dependency on sqlite indexed_* state) so zvec works side-by-side
     and can be selected even on a folder that has never used the sqlite backend.
     """
-    if not HAS_ZVEC or zvec is None:
-        raise RuntimeError(
-            "Zvec backend selected but the 'zvec' package is not importable in the configured Python venv. "
-            "Install it with: pip install zvec  (then restart LibreOffice or re-trigger the worker)."
-        )
 
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, zvec_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
@@ -396,9 +400,31 @@ def maintain_folder_zvec(
     if not root:
         raise ValueError("listing_root is required")
 
-    coll_path = str(zvec_collection_path(root, create_parent=True))
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
+    if mode != "cold":
+        from plugin.embeddings.embeddings_cache import chunk_count_from_meta
+        row_count = chunk_count_from_meta(meta_path)
+        if row_count > 0:
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "done", "mode": mode, "indexed_paragraphs": 0, "upserted": 0})
+            from plugin.embeddings.embeddings_fs import guess_indexable_paths
+            return {
+                "mode": mode,
+                "indexed_paragraphs": 0,
+                "files": len(guess_indexable_paths(root)),
+                "upserted": 0,
+                "row_count": row_count,
+                "storage_backend": "zvec",
+            }
+
+    if not HAS_ZVEC or zvec is None:
+        raise RuntimeError(
+            "Zvec backend selected but the 'zvec' package is not importable in the configured Python venv. "
+            "Install it with: pip install zvec  (then restart LibreOffice or re-trigger the worker)."
+        )
+
+    coll_path = str(zvec_collection_path(root, create_parent=True))
     # Heartbeat helper (reuse the one from the caller if provided)
     class _HB:
         _fn: Callable[[dict[str, Any]], None] | None
@@ -549,9 +575,15 @@ def maintain_folder_zvec(
     }
 
 
+def zvec_clear_cache(collection_path: str) -> None:
+    """Remove a stale collection from the memory cache after a cold rebuild wipe."""
+    _COLL_CACHE.pop(collection_path, None)
+
+
 __all__ = [
     "HAS_ZVEC",
     "maintain_folder_zvec",
+    "zvec_clear_cache",
     "zvec_delete_keys",
     "zvec_hybrid_search",
     "zvec_ingest_rows",

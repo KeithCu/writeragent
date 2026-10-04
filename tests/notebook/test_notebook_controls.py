@@ -447,7 +447,7 @@ def test_prune_keeps_container_listener():
     doc.getRuntimeUID.return_value = "uid-prune-container"
 
     form = NotebookFormRunListener(ctx, doc)
-    container = NotebookFormContainerListener(form)
+    container = NotebookFormContainerListener(form, MagicMock())
     assert container._hex_id is None
     assert container._form_level is False
 
@@ -498,3 +498,72 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
         # Should not raise RuntimeError from get_runtime_uid
     finally:
         tg.GUARD_ON = was
+
+def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
+    """prune_dead_listeners off-main thread (e.g., File Open filter) must not drop listeners just because get_active_document raises RuntimeError."""
+    from plugin.framework import thread_guard
+    from plugin.framework.errors import DocumentDisposedError
+
+    # Simulate off main thread
+    monkeypatch.setattr(thread_guard, "on_main_thread", lambda: False)
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-prune-off-main"
+
+    lis = NotebookFormRunListener(ctx, doc)
+
+    notebook_controls._listener_refs = [lis]
+    notebook_controls._wired_form_docs = {lis._doc_key_val}
+    notebook_controls._wired_keys = set()
+
+    # weakref is available and returns doc, so it should be kept
+    prune_dead_listeners()
+
+    assert lis in notebook_controls._listener_refs
+    assert lis._doc_key_val in notebook_controls._wired_form_docs
+
+    # Now if weakref is NOT available (e.g. PyUNO doesn't support it)
+    lis._doc_weak = None
+    prune_dead_listeners()
+
+    # We still keep it because we can't safely resolve off main thread
+    assert lis in notebook_controls._listener_refs
+    assert lis._doc_key_val in notebook_controls._wired_form_docs
+
+def test_form_and_container_multiple_forms():
+    """_form_and_container should find the correct form controller even if it's not at index 0."""
+    doc = MagicMock()
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+
+    forms = MagicMock()
+    forms.getCount.return_value = 2
+
+    form0 = MagicMock()
+    form1 = MagicMock()
+
+    def get_by_index(idx):
+        return form0 if idx == 0 else form1
+    forms.getByIndex.side_effect = get_by_index
+
+    doc.getDrawPage.return_value.getForms.return_value = forms
+
+    # Form0 has no controller
+    # Form1 has a controller
+    fc1 = MagicMock()
+    container1 = MagicMock()
+    fc1.getContainer.return_value = container1
+
+    def get_form_controller(form):
+        return fc1 if form is form1 else None
+
+    controller.getFormController.side_effect = get_form_controller
+    access = MagicMock()
+    access.getFormController.side_effect = get_form_controller
+    controller.queryInterface.return_value = access
+
+    fc, container = notebook_controls._form_and_container(doc)
+    assert fc is fc1
+    assert container is container1

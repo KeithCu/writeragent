@@ -813,7 +813,7 @@ class ToolLoopEffectInterpreter:
             try:
                 # Stop can land after spawn and before this body. Do not start
                 # the tool; the drain's on_stopped path closes the turn.
-                if sync and bound_stop():
+                if bound_stop():
                     emit((StreamQueueKind.STOPPED,))
                     return
 

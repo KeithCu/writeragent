@@ -70,3 +70,73 @@ def test_hit_shape_helper_with_distance():
     h = ld._shape_hit(doc)
     assert h["doc_url"] == "file:///tmp/x.odt"
     assert abs(h["score"] - 0.75) < 1e-6
+
+def test_maintain_lancedb_incremental_does_not_clear(tmp_path):
+    from plugin.embeddings.venv.embeddings_lancedb import maintain_folder_lancedb
+    import json
+
+    listing_root = str(tmp_path)
+    meta_dir = tmp_path / "writeragent_embeddings"
+    meta_dir.mkdir()
+    meta_path = meta_dir / "corpus_meta.json"
+
+    with open(meta_path, "w") as m:
+        json.dump({"schema_version": "v3", "chunk_count": 10, "embedding_model": "test-model"}, m)
+
+    out = maintain_folder_lancedb(listing_root, "test-model", mode="incremental")
+    assert out["mode"] == "incremental"
+    assert out["row_count"] == 10
+    assert out["indexed_paragraphs"] == 0
+
+def test_maintain_lancedb_cold_proceeds(tmp_path):
+    from plugin.embeddings.venv.embeddings_lancedb import maintain_folder_lancedb
+
+    listing_root = str(tmp_path)
+    try:
+        out = maintain_folder_lancedb(listing_root, "test-model", mode="cold")
+        assert out["mode"] == "lancedb"
+    except Exception as e:
+        assert "LanceDB backend selected but the 'lancedb' package is not importable" in str(e)
+
+@pytest.mark.skipif(not ld.HAS_LANCEDB, reason="lancedb package not installed in this test python")
+def test_lancedb_ingest_bad_dimension_no_overwrite(mocker):
+    """LanceDB dimension mismatch shouldn't overwrite the whole table on open_table exception."""
+    db_mock = mocker.Mock()
+    # Mock open_table to raise an Exception (like corrupted or missing)
+    db_mock.open_table.side_effect = Exception("test exception")
+
+    mocker.patch("plugin.embeddings.venv.embeddings_lancedb.lancedb.connect", return_value=db_mock)
+
+    # Run _get_or_create_table, catching the db creation
+    ld._get_or_create_table("dummy_path", 384)
+
+    # Assert create_table was called, but NOT with mode="overwrite"
+    db_mock.create_table.assert_called_once()
+    kwargs = db_mock.create_table.call_args.kwargs
+    assert "mode" not in kwargs or kwargs.get("mode") != "overwrite"
+
+@pytest.mark.skipif(not ld.HAS_LANCEDB, reason="lancedb package not installed in this test python")
+def test_lancedb_dimension_read_list_size(mocker):
+    """LanceDB dimension matching should read from schema field type.list_size, not value_type."""
+    db_mock = mocker.Mock()
+    tbl_mock = mocker.Mock()
+    db_mock.open_table.return_value = tbl_mock
+
+    schema_mock = mocker.Mock()
+    field_mock = mocker.Mock()
+    type_mock = mocker.Mock()
+
+    # Mock list_size = 384
+    type_mock.list_size = 384
+    field_mock.type = type_mock
+    schema_mock.field.return_value = field_mock
+    tbl_mock.schema = schema_mock
+
+    mocker.patch("plugin.embeddings.venv.embeddings_lancedb.lancedb.connect", return_value=db_mock)
+
+    res = ld._get_or_create_table("dummy_path", 384)
+
+    # Should just return the table if dimensions match
+    assert res == tbl_mock
+    # create_table should not be called
+    db_mock.create_table.assert_not_called()

@@ -357,3 +357,21 @@ def test_manage_charts_validate_create_requires_data_or_arrays():
     assert ok is True
 
 
+
+def test_find_calc_chart_honors_sheet_name():
+    doc = MagicMock()
+    sheet_summary = MagicMock()
+    sheet_summary.getName.return_value = "Summary"
+    sheet_summary.getCharts.return_value.hasByName.return_value = True
+
+    sheet_data = MagicMock()
+    sheet_data.getName.return_value = "Data"
+    sheet_data.getCharts.return_value.hasByName.return_value = True
+
+    sheets = MagicMock()
+    sheets.hasByName.side_effect = lambda n: n in ("Summary", "Data")
+    sheets.getByName.side_effect = lambda n: sheet_summary if n == "Summary" else sheet_data
+    doc.getSheets.return_value = sheets
+
+    chart_obj, sheet = _find_calc_chart_and_sheet(doc, "Chart_0", "Data")
+    assert sheet is sheet_data

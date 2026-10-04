@@ -50,7 +50,7 @@ class SearchEmbeddings(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if ctx.stop_checker and ctx.stop_checker() is True:
+        if callable(ctx.stop_checker) and ctx.stop_checker():
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
@@ -178,13 +178,13 @@ class SearchEmbeddings(ToolBase):
             log.exception("search_embeddings failed")
             return self._tool_error(str(exc), code="EMBEDDING_SEARCH_ERROR")
 
-        def _wakeup() -> None:
+        def _wakeup2() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
 
         if on_main_thread():
-            _wakeup()
+            _wakeup2()
         else:
-            execute_on_main_thread(_wakeup)
+            execute_on_main_thread(_wakeup2)
 
         hits = result.get("hits") or []
         return {

@@ -65,14 +65,14 @@ def _get_or_create_table(db_path: str, dim: int) -> Any:
     try:
         tbl = db.open_table(table_name)
         # Check if schema dimensions match. If not, recreate.
-        tbl_dim = len(tbl.schema.field("vector").type.value_type)
+        tbl_dim = tbl.schema.field("vector").type.list_size
         if tbl_dim != int(dim):
             log.info("LanceDB table dimension mismatch (%d vs %d), recreating table", tbl_dim, dim)
             tbl = db.create_table(table_name, schema=schema, mode="overwrite")
         return tbl
     except Exception:
         # Create fresh table
-        tbl = db.create_table(table_name, schema=schema, mode="overwrite")
+        tbl = db.create_table(table_name, schema=schema)
         return tbl
 
 
@@ -91,6 +91,7 @@ def lancedb_ingest_rows(
     *,
     build_fts: bool = True,
     build_vectors: bool = True,
+    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Ingest paragraph rows into a LanceDB table."""
     if not rows:
@@ -103,7 +104,15 @@ def lancedb_ingest_rows(
     vectors: list[list[float]] = []
     dim = 0
     if build_vectors:
-        vectors = _embed_texts(model_name, bodies, normalize=True)
+        from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE
+
+        for i in range(0, len(bodies), EMBEDDINGS_INGEST_BATCH_SIZE):
+            chunk_bodies = bodies[i : i + EMBEDDINGS_INGEST_BATCH_SIZE]
+            v = _embed_texts(model_name, chunk_bodies, normalize=True)
+            vectors.extend(v)
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "embed", "progress": len(vectors), "total": len(bodies)})
+
         if vectors:
             dim = len(vectors[0])
 
@@ -275,10 +284,6 @@ def maintain_folder_lancedb(
     hb: Any | None = None,
 ) -> dict[str, Any]:
     """LanceDB specific folder maintain."""
-    if not HAS_LANCEDB or lancedb is None:
-        raise RuntimeError(
-            "LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv."
-        )
 
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, lancedb_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
@@ -288,9 +293,30 @@ def maintain_folder_lancedb(
     if not root:
         raise ValueError("listing_root is required")
 
-    coll_path = str(lancedb_collection_path(root, create_parent=True))
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
+    if mode != "cold":
+        from plugin.embeddings.embeddings_cache import chunk_count_from_meta
+        row_count = chunk_count_from_meta(meta_path)
+        if row_count > 0:
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "done", "mode": mode, "indexed_paragraphs": 0, "upserted": 0})
+            from plugin.embeddings.embeddings_fs import guess_indexable_paths
+            return {
+                "mode": mode,
+                "indexed_paragraphs": 0,
+                "files": len(guess_indexable_paths(root)),
+                "upserted": 0,
+                "row_count": row_count,
+                "storage_backend": "lancedb",
+            }
+
+    if not HAS_LANCEDB or lancedb is None:
+        raise RuntimeError(
+            "LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv."
+        )
+
+    coll_path = str(lancedb_collection_path(root, create_parent=True))
     class _HB:
         _fn: Callable[[dict[str, Any]], None] | None
         _last: float
