@@ -31,3 +31,4 @@ Topic docs: [docs/scripting/librepy-split.md](../../docs/scripting/librepy-split
 - Shipped LibrePy (`make deploy-core`) defaults to `log_level` WARN; a checkout that still has `plugin/tests/` defaults to DEBUG.
 - Python sidebar header/hamburger (`plugin/librepy/sidebar_menus.py`) must not import `plugin.main`, `llm_client`, embeddings, or MCP.
 - Python deck is Calc + Writer (not NotebookBar-only). Writer hides `=PY()` cell chrome; do not fall back to a Calc document from a Writer frame.
+- `PythonPanelElement` is `XUIElement` only. Deck close runs `PythonSidebarController.disposing` from the root window listener's `on_dispose`, not from `PythonPanelElement.disposing`. `getRealInterface` must hop to the VCL thread (`_run_on_main_thread`); URP calls it off-main.
