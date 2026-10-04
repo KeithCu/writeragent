@@ -68,3 +68,52 @@ def test_write_agent_summary(tmp_path: Path):
     text = out.read_text(encoding="utf-8")
     assert "01_cover.svg" in text
     assert "FAIL" in text
+
+def test_evaluate_slide_fidelity_closes_source_doc_after_read(monkeypatch, tmp_path: Path):
+    from plugin.ppt_master import fidelity
+
+    class DummyDoc:
+        def __init__(self):
+            self.closed = False
+        def close(self, deliver_ownership):
+            self.closed = True
+
+    class DummyPage:
+        def getCount(self):
+            if hasattr(self, "source_doc") and getattr(self.source_doc, "closed", False):
+                raise Exception("Page used after doc closed!")
+            return 1
+
+    doc = DummyDoc()
+    source_doc = DummyDoc()
+    page = DummyPage()
+    source_page = DummyPage()
+    source_page.source_doc = source_doc
+
+    def mock_import(ctx, pptx_path, slide_index, odp_path):
+        return doc, page, source_page, source_doc
+
+    def mock_metrics(src_page, tgt_page):
+        # Access the source_page which would fail if source_doc was closed
+        src_page.getCount()
+        from plugin.ppt_master.fidelity import StructuralMetrics
+        return StructuralMetrics()
+
+    monkeypatch.setattr(fidelity, "import_slide_to_odp", mock_import)
+    monkeypatch.setattr(fidelity, "structural_metrics_pptx", mock_metrics)
+    monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
+
+    result = fidelity.evaluate_slide_fidelity(
+        None,
+        project_dir=tmp_path,
+        slide_label="test.svg",
+        slide_index=0,
+        pptx_path=tmp_path / "test.pptx",
+        reference_deck_pdf=tmp_path / "ref.pdf",
+        work_dir=tmp_path,
+        soffice="echo",
+        skip_visual=True,
+    )
+
+    assert source_doc.closed is True
+    assert doc.closed is True

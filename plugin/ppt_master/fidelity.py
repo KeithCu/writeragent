@@ -273,7 +273,7 @@ def import_slide_to_odp(
     pptx_path: Path,
     slide_index: int,
     odp_path: Path,
-) -> tuple[Any, Any, Any] | None:
+) -> tuple[Any, Any, Any, Any] | None:
     """Import one PPTX slide via the shipped pipeline; save a one-slide Impress doc."""
     imported = import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
     if imported is None:
@@ -282,14 +282,8 @@ def import_slide_to_odp(
     source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
     source_page = None
     if source_doc is not None:
-        try:
-            source_page = source_doc.getDrawPages().getByIndex(slide_index)
-        finally:
-            try:
-                source_doc.close(True)
-            except Exception as exc:
-                log.debug("close source pptx doc: %s", exc)
-    return doc, page, source_page
+        source_page = source_doc.getDrawPages().getByIndex(slide_index)
+    return doc, page, source_page, source_doc
 
 
 def evaluate_slide_fidelity(
@@ -322,7 +316,7 @@ def evaluate_slide_fidelity(
     if imported is None:
         result.errors.append("import_pptx_slide_to_odp failed")
         return result
-    doc, page, source_page = imported
+    doc, page, source_page, source_doc = imported
     if source_page is not None:
         result.structural = structural_metrics_pptx(source_page, page)
     else:
@@ -332,6 +326,11 @@ def evaluate_slide_fidelity(
         doc.close(True)
     except Exception as exc:
         log.debug("close impress doc: %s", exc)
+    if source_doc is not None:
+        try:
+            source_doc.close(True)
+        except Exception as exc:
+            log.debug("close source pptx doc: %s", exc)
 
     if skip_visual:
         if result.structural and source_page is not None:
