@@ -73,7 +73,7 @@ def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
         pass
     try:
         f2 = entry.getFormula2()
-        if f2 and f2 != "0":
+        if f2:
             result["formula2"] = f2
     except Exception:
         pass
@@ -169,13 +169,13 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        range_str = kwargs["range"][0]
         operator = kwargs["operator"]
         style_name = kwargs["style"]
         formula1 = kwargs.get("formula1") or ""
         formula2 = kwargs.get("formula2") or ""
 
         try:
+            range_str = kwargs["range"][0]
             try:
                 from com.sun.star.sheet.ConditionOperator import BETWEEN, EQUAL, FORMULA, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, NONE, NOT_BETWEEN, NOT_EQUAL
 
@@ -272,10 +272,10 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        range_str = kwargs["range"][0]
         index = kwargs.get("rule_index")
 
         try:
+            range_str = kwargs["range"][0]
             cell_range = bridge.resolve_range_or_address(range_str)
             formats = cell_range.getPropertyValue("ConditionalFormat")
 

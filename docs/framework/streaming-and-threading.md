@@ -280,7 +280,7 @@ This flat architecture avoids nested callbacks and makes state transitions expli
 
 ### Tool-loop command boundary
 
-The main-chat loop keeps the transition layer pure. Queue items from worker threads are normalized in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) by `_create_event_from_stream_item()`, then [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) `next_state()` returns only a new `ToolLoopState` plus effect dataclasses. Control fields (`round_num`, `pending_tools`, `is_stopped`, …) live solely in that frozen state (`sidebar_state.tool_loop`). [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) is the interpreter that executes those effects against host session handles (`_active_q` / `_active_batched_q`, client, tool schemas/fn, model)—not a parallel copy of the FSM counters. This keeps document mutations out of the FSM while preserving the main-thread drain-loop boundary for UNO work. An async tool closes over the execute function, document model, and stop checker from the spawn that started it. A failure is classified with that captured model, so a later send's document cannot turn a disposed-document error into an ordinary tool result. Sync tools close over the same document. ``execute_safe`` reports a disposed document as a ``DOCUMENT_DISPOSED`` dict; the chat executor raises that with the spawn document so the failure path queues ``ERROR`` and the loop ends. ``NEXT_TOOL`` while the FSM is already stopped emits ``ExitLoopEffect`` and does not spawn another LLM or final-stream worker.
+The main-chat loop keeps the transition layer pure. Queue items from worker threads are normalized in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) by `_create_event_from_stream_item()`, then [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) `next_state()` returns only a new `ToolLoopState` plus effect dataclasses. Control fields (`round_num`, `pending_tools`, `is_stopped`, …) live solely in that frozen state (`sidebar_state.tool_loop`). [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) is the interpreter that executes those effects against the current `TurnController` (queue, document model captured at spawn, client, tool schemas/fn)—not a parallel copy of the FSM counters. This keeps document mutations out of the FSM while preserving the main-thread drain-loop boundary for UNO work. An async tool closes over the execute function, document model, and stop checker from the spawn that started it. A failure is classified with that captured model, so a later send's document cannot turn a disposed-document error into an ordinary tool result. Sync tools close over the same document. ``execute_safe`` reports a disposed document as a ``DOCUMENT_DISPOSED`` dict; the chat executor raises that with the spawn document so the failure path queues ``ERROR`` and the loop ends. ``NEXT_TOOL`` while the FSM is already stopped emits ``ExitLoopEffect`` and does not spawn another LLM or final-stream worker.
 
 > [!WARNING]
 > **`job_done` ownership invariant:** `job_done[0]` must **only** be written by the drain loop (main thread) when it processes a terminal queue item (`STREAM_DONE`, `ERROR`, or `STOPPED`). The worker thread must never set `job_done[0] = True` directly, even in a `finally` block.
@@ -316,7 +316,7 @@ Smolagents (`ToolCallingAgent.process_tool_calls`) uses the same rule: multiple 
 
 ### Stop / cancellation
 
-Each sidebar **Send** is one `TurnController` (the mode captured when the user clicked Send, and the session list that send writes) and runs under a **`SendCancellation`** scope ([`plugin/framework/queue_executor.py`](../../plugin/framework/queue_executor.py) `agent_session()`). **Stop** and the next send abort that controller and later `put` calls drop the item. The sidebar paints `session.messages`; streamed tokens are the open row on that list. **Stop** calls `scope.cancel()` once, then the drain stores the open row and the stop line before the send drain drops the controller. A mode change aborts the turn so its chunks do not paint onto the transcript just shown. Closing the tab (or disposing the send control) during drain is re-entrant on the UI thread inside `processEventsToIdle`; [`SendButtonListener.disposing`](../../plugin/chatbot/panel.py) aborts the turn, cancels the same scope, and latches `_stop_requested_fallback` so the drain stop checker matches Stop. A retry of the HTTP stream is refused after any emitted byte, including a thinking delta or tool-call arguments. Requeue of main-thread work uses the same offer path as enqueue.
+Each sidebar **Send** is one `TurnController` (the mode captured when the user clicked Send, the session list that send writes, and the queue, stripper, and document model for that send) and runs under a **`SendCancellation`** scope ([`plugin/framework/queue_executor.py`](../../plugin/framework/queue_executor.py) `agent_session()`). **Stop** and the next send abort that controller and later `put` calls drop the item. The sidebar paints `session.messages`; streamed tokens are the open row on that list. **Stop** calls `scope.cancel()` once, then the turn commits the open row, closes unanswered tool calls with one cancelled row each, and appends the stop line as a normal message before the send drain drops the controller. Clear and a mode change abort the turn first, then replace the list or the session. Closing the tab (or disposing the send control) during drain is re-entrant on the UI thread inside `processEventsToIdle`; [`SendButtonListener.disposing`](../../plugin/chatbot/panel.py) aborts the turn, cancels the same scope, and latches `_stop_requested_fallback` so the drain stop checker matches Stop. A retry of the HTTP stream is refused after any emitted byte, including a thinking delta or tool-call arguments. Requeue of main-thread work uses the same offer path as enqueue.
 
 #### What `scope.cancel()` does
 
@@ -418,7 +418,7 @@ Key guarantees the implementation provides:
 The **primary user-visible chat streaming path** was updated:
 
 - `plugin/chatbot/tool_loop.py`:
-  - `_start_tool_calling_async` creates both the raw queue (`_active_q`) **and** a `BatchingStreamQueue` wrapper (`_active_batched_q`).
+  - `_start_tool_calling_async` creates both the raw queue and a `BatchingStreamQueue` wrapper and stores them on the current `TurnController` (`queue` / `batcher`).
   - `_spawn_llm_worker` and `_spawn_final_stream` accept either a raw `Queue` or a `BatchingStreamQueue`. When the latter is supplied they use the `.content_cb()` / `.thinking_cb()` helpers (or the equivalent manual `batched.put(...)` + `batched.flush()` before every boundary put).
   - All terminal / control puts in those two workers now do `if batched: batched.flush()` before emitting `STREAM_DONE`, `FINAL_DONE`, `STOPPED`, `ERROR`, etc.
 - `plugin/framework/async_stream.py`:
@@ -479,7 +479,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 
 1. Start with the grep above.
 2. For each site, answer:
-   - Is this inside a send that already has an `_active_batched_q` (or equivalent) in scope?
+   - Is this inside a send that already has a turn batcher (or equivalent) in scope?
    - If yes, change the put to go through the batcher (or the `.content_cb()`).
    - If no (one-off path, test, or different send lifetime), either create a short-lived `BatchingStreamQueue` around the raw queue for that operation, or at minimum insert an explicit `batcher.flush()` immediately before every control/boundary item.
 3. Pay special attention to any place that does a "final tiny chunk" followed immediately by a terminal kind — that tiny chunk must be flushed.
@@ -489,7 +489,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 ### Cross references
 
 - Implementation: `plugin/framework/async_stream.py` (`BatchingStreamQueue`, the defensive bits in `run_async_worker_with_drain`)
-- Primary wiring: `plugin/chatbot/tool_loop.py` (`_active_batched_q`, `_spawn_llm_worker`, `_spawn_final_stream`)
+- Primary wiring: `plugin/chatbot/tool_loop.py` (turn `batcher`, `_spawn_llm_worker`, `_spawn_final_stream`)
 - Tests: `tests/framework/test_async_stream.py` (the four new batcher tests)
 - UX context & scroll work: [../chat/rich-text-control-sidebar.md](../chat/rich-text-control-sidebar.md) (`reveal_rich_control_caret`)
 - Original plan / todo items: the conversation transcript and the todo list that existed at the moment the change landed (items such as `boundary-flush-audit`, `wire-acp-and-other-backends`, `flush-for-rerender-clear`, etc. were deliberately cancelled / marked "deferred to global audit" rather than completed).

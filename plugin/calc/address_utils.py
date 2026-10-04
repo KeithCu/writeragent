@@ -215,8 +215,9 @@ def format_address(col: int, row: int) -> str:
     """
     return f"{index_to_column(col)}{row + 1}"
 
-def parse_output_anchor(output_range: str) -> tuple[int, int]:
-    """Column and row where a generated report should start.
+
+def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
+    """Sheet name (if any), column, and row where a generated report should start.
 
     What was wrong: ``output_range.rsplit(".", 1)[-1]`` treated the last dot
     as the sheet separator. A quoted or dotted name (``'Q1.Sales'!B2``) was
@@ -228,6 +229,7 @@ def parse_output_anchor(output_range: str) -> tuple[int, int]:
     ``.`` and ``!``. The write starts at the first cell, with ``$`` locks
     removed, then ``parse_address``.
     """
-    cell_part = split_sheet_prefix(output_range)[1]
+    sheet_name, cell_part = split_sheet_prefix(output_range)
     anchor = cell_part.replace("$", "").split(":", 1)[0].strip()
-    return parse_address(anchor)
+    col, row = parse_address(anchor)
+    return sheet_name, col, row

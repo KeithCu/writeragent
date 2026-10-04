@@ -56,7 +56,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
     from plugin.framework.client.llm_client import LlmClient
-    from plugin.framework.html_stripper import StreamingHTMLStripper
 
 _AudioRecorderCls: type[Any] | None
 try:
@@ -373,6 +372,19 @@ class QueryKeyListener(BaseKeyListener):
 # ---------------------------------------------------------------------------
 
 
+def _chunk_text(turn: Any, text: str, role: str, *, strip_non_assistant: bool) -> str:
+    """Plain text for one sidebar chunk. The stripper lives on the turn."""
+    from plugin.chatbot.tool_loop_actions import TurnController
+    from plugin.framework.html_stripper import strip_html_tags
+
+    stripper = turn.stripper if isinstance(turn, TurnController) else None
+    if role == "assistant" and stripper is not None:
+        return stripper.feed(text)
+    if role == "assistant" or strip_non_assistant:
+        return strip_html_tags(text)
+    return text
+
+
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
@@ -484,21 +496,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._writing_plan_topic = ""
         self._in_ppt_master_mode = False
         self._ppt_master_topic = ""
-        self._plain_text_stripper: StreamingHTMLStripper | None = None
         self.panel = None
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
         self._fixed_send_width: int | None = None
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
-        self._active_q: Any = None
+        # The queue, stripper, and document model live on ``_turn``.
         self._turn = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
         self._active_execute_tool_fn: Any = None
         self._active_query_text: Any = None
-        self._active_model: Any = None
         self._active_supports_status: Any = None
         self._current_tool_call_id = None
         self._record_assistant_start = False
@@ -623,7 +633,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.sidebar_state = dataclasses.replace(self.sidebar_state, audio=self.audio_recorder.state)
 
     def set_session(self, session: Any) -> None:
-        """Update the active session (e.g. when switching between Document and Research chat)."""
+        """Swap the visible session after the in-flight turn has been aborted.
+
+        A mode change used to replace ``host.session`` while the turn was
+        still alive, and the next bind wrote the reply onto the transcript
+        just shown. Abort first. The turn keeps the session it started with.
+        """
+        from plugin.chatbot.tool_loop_actions import abort_turn
+
+        abort_turn(self)
         self.session = session
         self.client = None  # Force client recreation if needed, though they usually share same config
 
@@ -898,54 +916,53 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Write a closing line onto this turn's session after ``abort``.
 
         The drain aborts before the send ``finally`` can report an exception.
-        ``_append_response`` then treats the line as a late chunk.
+        ``_append_response`` then treats the line as a late chunk. The turn
+        still owns the list until a newer send or Clear replaces it.
         """
-        from plugin.chatbot.rich_text_paste import fold_transcript_chunk
-        from plugin.chatbot.tool_loop_actions import current_turn, session_for_turn
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
         turn = current_turn(self)
-        session = turn.session if turn is not None and turn.accepts_history(self) else session_for_turn(self)
-        messages = getattr(session, "messages", None)
-        if session is not None and isinstance(messages, list):
-            fold_transcript_chunk(session, text, "assistant")
-            if getattr(self, "session", None) is session:
-                self.render_session_messages(session)
+        if isinstance(turn, TurnController) and turn.fold_chunk(self, text, "assistant"):
+            if getattr(self, "session", None) is turn.session and turn.session is not None:
+                self.render_session_messages(turn.session)
             return
         self._append_response(text)
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
         """Project ``text`` onto the session, then draw that list.
 
-        A live turn accepts chunks only while it is alive. After Stop the
-        stop line still belongs on that turn. A newer send or Clear rejects
-        the write. With no session (a unit host) the plain control still
-        concatenates, because there is no message list to project.
+        Chunks land only while this turn is alive. Stop writes its line
+        through the turn, so a stop string after abort is not a special
+        paint. A message list with no live turn is not written. A unit host
+        with no list still concatenates the plain control.
         """
-        from plugin.chatbot.tool_loop_actions import current_turn
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
         turn = current_turn(self)
-        if turn is not None and not turn.accepts_display(self, text):
+        session = getattr(self, "session", None)
+        messages = getattr(session, "messages", None) if session is not None else None
+        has_list = isinstance(messages, list)
+        if has_list:
+            if (
+                not isinstance(turn, TurnController)
+                or not turn.alive
+                or not turn.accepts_history(self)
+                or turn.session is not session
+            ):
+                return
+        elif isinstance(turn, TurnController) and not turn.alive:
             return
         with suppress_disposed("_append_response", logger=log):
             widget = getattr(self, "rich_text_widget", None)
             if widget:
                 from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
-                from plugin.chatbot.rich_text_paste import fold_transcript_chunk
-                from plugin.chatbot.tool_loop_actions import session_for_turn
 
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
                 # "AI:" / "Using chat model" are plain-sidebar labels. The paint
                 # writes Assistant: from the message list, so they are not rows.
                 if role != "user" and skip_legacy_assistant_stream_chunk(text):
                     return
-                if role == "assistant":
-                    if self._plain_text_stripper is not None:
-                        clean_text = self._plain_text_stripper.feed(text)
-                    else:
-                        from plugin.framework.html_stripper import strip_html_tags
-                        clean_text = strip_html_tags(text)
-                else:
-                    clean_text = text
+                clean_text = _chunk_text(turn, text, role, strip_non_assistant=False)
                 # A held tag fragment is not a list change. Drawing now would
                 # rebuild the same paint.
                 if role == "assistant" and not clean_text:
@@ -954,14 +971,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 def _paint_from_list() -> None:
                     # Captured at send time. A post that runs after Stop or a
                     # new send dropped this turn must not fold into the next one.
-                    if turn is not None and (current_turn(self) is not turn or not turn.accepts_display(self, text)):
+                    if not isinstance(turn, TurnController) or current_turn(self) is not turn or not turn.alive:
                         return
-                    session = session_for_turn(self)
-                    if session is None:
-                        session = getattr(self, "session", None)
-                    # The list is the transcript. The control is drawn from it.
-                    # A user row the send path already stored is left as it is.
-                    fold_transcript_chunk(session, clean_text, role)
+                    turn.fold_chunk(self, clean_text, role)
                     if role != "user" and getattr(self, "_record_assistant_start", False):
                         self._record_assistant_start = False
                         self._assistant_stream_start_len = widget.get_text_length()
@@ -969,7 +981,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             "_append_response: rich-control stream start len=%s (final answer)",
                             self._assistant_stream_start_len,
                         )
-                    widget.paint_session(session)
+                    widget.paint_session(turn.session)
                     if role == "user":
                         self._assistant_stream_start_len = widget.get_text_length()
                         log.debug(
@@ -992,39 +1004,23 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
                 from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
-                from plugin.chatbot.rich_text_paste import fold_transcript_chunk
-                from plugin.chatbot.tool_loop_actions import session_for_turn
-                from plugin.framework.html_stripper import strip_html_tags
 
-                session = session_for_turn(self)
-                if session is None:
-                    session = getattr(self, "session", None)
-                messages = getattr(session, "messages", None)
                 # A session list is the transcript. Hosts with no list (unit
                 # tests) still append onto the control.
-                if isinstance(messages, list):
+                if has_list:
                     if role != "user" and skip_legacy_assistant_stream_chunk(text):
                         return
-                    if role == "assistant" and self._plain_text_stripper is not None:
-                        clean_text = self._plain_text_stripper.feed(text)
-                    elif role == "assistant":
-                        clean_text = strip_html_tags(text)
-                    else:
-                        clean_text = strip_html_tags(text)
+                    clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
                     if role == "assistant" and not clean_text:
                         return
-                    fold_transcript_chunk(session, clean_text, role)
+                    if isinstance(turn, TurnController):
+                        turn.fold_chunk(self, clean_text, role)
                     self.render_session_messages(session)
                     return
 
                 should_scroll = self._should_auto_scroll()
                 current = get_control_text(self.response_control) or ""
-
-                if role == "assistant" and self._plain_text_stripper is not None:
-                    clean_text = self._plain_text_stripper.feed(text)
-                else:
-                    clean_text = strip_html_tags(text)
-
+                clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
                 set_control_text(self.response_control, current + clean_text)
                 if should_scroll:
                     self._scroll_response_to_bottom()
@@ -1422,6 +1418,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.i18n import _
 
+        if not self.send_control or not self.send_control.getModel():
+            return
+
         if getattr(self, "_approval_event", None) is not None and self.send_control and self.send_control.getModel():
             if self.send_control.getModel().Label == _("Accept"):
                 self._finish_inline_web_approval(True)
@@ -1576,9 +1575,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _do_send(self) -> None:
         from plugin.framework.i18n import _
-        from plugin.framework.html_stripper import StreamingHTMLStripper
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        self._plain_text_stripper = StreamingHTMLStripper()
+        # The turn exists before any worker and before early error rows.
+        # Mode and the document are filled in once this send knows them.
+        begin_send_turn(self, "")
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         log.info("=== _do_send START ===")
@@ -1709,11 +1710,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
         sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
-        # Mode is an argument of this send. A later dropdown change bumps the
-        # generation; it does not retarget the turn already started.
-        begin_send_turn(self, sidebar_mode)
+        # Mode and the document are arguments of the turn already started.
+        # A later dropdown change aborts it; it does not retarget the turn.
+        started = current_turn(self)
+        if isinstance(started, TurnController):
+            started.mode = str(sidebar_mode or "")
+            started.model = model
 
         if sidebar_mode == CHAT_MODE_LIBRARIAN:
             log.info("_do_send: using librarian onboarding agent")
@@ -1813,7 +1817,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         return
                     self._do_send_extracted_peer(query_text, already_appended=already_appended)
                 finally:
-                    self._send_cancellation = None
+                    if not getattr(self, "_panel_teardown", False):
+                        self._send_cancellation = None
         except Exception as e:
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("Extracted peer send unhandled exception [doc: %s]", doc_type_for_log)
@@ -1827,12 +1832,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if self._terminal_status == "Error":
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
-                    # Extracted send only uses Ready or Error (unlike _do_send, which
-                    # may leave ""). Always set Ready here so ty does not treat a
-                    # nonempty-string check as a redundant condition.
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
                     self._sync_has_text_from_query()
-                    self._set_status(_("Ready"))
+                    # Ty: _terminal_status defaults to "Ready", which is unconditionally true.
+                    # _run_send_drain may leave it "" to keep the label as-is, but extracted
+                    # peer ignores those paths. Avoid the redundant if-check.
+                    self._set_status(_(self._terminal_status))
                     self._flush_sticky_restart()
             from plugin.chatbot.tool_loop_actions import drop_turn
 
@@ -1842,14 +1847,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
         """Force chat-with-tools. No Ask read/clear, no setFocus, no librarian/image."""
         from plugin.framework.i18n import _
-        from plugin.framework.html_stripper import StreamingHTMLStripper
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_CHAT,
             mode_from_selector_with_flags,
             sidebar_mode_flags_for_doc_type,
         )
 
-        self._plain_text_stripper = StreamingHTMLStripper()
+        from plugin.chatbot.tool_loop_actions import TurnController, begin_send_turn, current_turn
+
+        begin_send_turn(self, CHAT_MODE_CHAT)
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         if self.ensure_path_fn:
@@ -1872,9 +1878,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             )
             self._terminal_status = "Error"
             return
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
-
-        begin_send_turn(self, CHAT_MODE_CHAT)
+        started = current_turn(self)
+        if isinstance(started, TurnController):
+            started.mode = CHAT_MODE_CHAT
+            started.model = model
         if not already_appended:
             self.session.add_user_message(query_text)
             self._append_response(query_text, role="user")
@@ -2185,10 +2192,10 @@ class ClearButtonListener(BaseActionListener):
         if self.send_listener is not None:
             from plugin.chatbot.tool_loop_actions import abort_turn
 
-            # Stop already aborted a busy send. Abort again when it was idle
-            # so a worker that outlived the button cannot paint.
-            if send_state is None or not send_state.is_busy:
-                abort_turn(self.send_listener)
+            # Abort before the list is replaced. Stop already aborted a busy
+            # send; abort again when it was idle so a worker that outlived
+            # the button cannot paint onto the new list.
+            abort_turn(self.send_listener)
         self.session.clear()
 
         if self.send_listener and self.send_listener.rich_text_widget:

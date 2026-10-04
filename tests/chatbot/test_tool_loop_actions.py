@@ -53,13 +53,10 @@ class FakeHost:
         self.session = FakeSession()
         self.image_model_selector = None
         self.audio_wav_path = None
-        self._active_q = queue.Queue()
-        self._active_batched_q = None
         self._active_client = Mock()
         self._active_max_tokens = 100
         self._active_tools = [{"function": {"name": "tool"}}]
         self._active_execute_tool_fn = Mock(return_value='{"status": "ok"}')
-        self._active_model = Mock()
         self._active_query_text = "question"
         self._active_supports_status = False
         self._current_tool_call_id = None
@@ -70,6 +67,55 @@ class FakeHost:
         self.spawned_llm = []
         self.spawned_final = []
         self.document = Mock()
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        turn = begin_send_turn(self, "chat", model=Mock(name="doc"))
+        turn.queue = queue.Queue()
+
+    @property
+    def _active_q(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return None if turn is None else turn.queue
+
+    @_active_q.setter
+    def _active_q(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.queue = value
+
+    @property
+    def _active_model(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return None if turn is None else turn.model
+
+    @_active_model.setter
+    def _active_model(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.model = value
+
+    @property
+    def _active_batched_q(self):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        return None if turn is None else turn.batcher
+
+    @_active_batched_q.setter
+    def _active_batched_q(self, value):
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        turn = current_turn(self)
+        if turn is not None:
+            turn.batcher = value
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
         self.appended.append((text, is_thinking, role))
@@ -178,6 +224,21 @@ def test_web_research_approval_setup_failure_does_not_run_search():
         _restore_main(old_main)
     registry.execute.assert_not_called()
     assert "WEB_RESEARCH_APPROVAL_UNAVAILABLE" in out
+
+
+def test_web_research_approval_missing_queue_does_not_run_search():
+    host = FakeHost()
+    host._active_q = None
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True):
+            execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
+            called_ctx = registry.execute.call_args[0][1]
+            approval_result = called_ctx.approval_callback("query", "web_research", {})
+            assert approval_result == (False, None)
+    finally:
+        _restore_main(old_main)
 
 
 def test_execute_fn_reraises_disposed_document():
@@ -486,13 +547,133 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     assert put_for_turn(host, turn2, turn2.queue, (StreamQueueKind.CHUNK, " after-clear")) is False
 
 
+def test_abort_discards_a_late_write():
+    """After abort, enqueue is a no-op and a write against a replaced list does not land."""
+    import queue
+
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn, put_for_turn
+    from plugin.framework.async_stream import StreamQueueKind
+
+    class Session:
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = [{"role": "user", "content": "q"}]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            self.messages.append({"role": "assistant", "content": content or ""})
+
+    class Host:
+        def __init__(self) -> None:
+            self.session = Session()
+
+    host = Host()
+    turn = begin_send_turn(host, "chat")
+    first_q: queue.Queue = queue.Queue()
+    turn.queue = first_q
+    abort_turn(host)
+    assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, "late")) is False
+    assert first_q.empty()
+    host.session.messages = []
+    turn.persist_assistant(host, content="late-row")
+    assert host.session.messages == []
+
+
+def test_second_send_replaces_the_turn():
+    """The previous turn cannot enqueue or append once a new send owns the host."""
+    import queue
+
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, put_for_turn
+    from plugin.framework.async_stream import StreamQueueKind
+
+    class Session:
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = [{"role": "user", "content": "q"}]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            self.messages.append({"role": "assistant", "content": content or ""})
+
+    class Host:
+        def __init__(self) -> None:
+            self.session = Session()
+
+    host = Host()
+    first = begin_send_turn(host, "chat")
+    first_q: queue.Queue = queue.Queue()
+    first.queue = first_q
+    second = begin_send_turn(host, "chat")
+    second_q: queue.Queue = queue.Queue()
+    second.queue = second_q
+    assert host._turn is second
+    assert not first.alive
+    assert put_for_turn(host, first, first_q, (StreamQueueKind.CHUNK, "stale")) is False
+    assert first_q.empty()
+    first.persist_assistant(host, content="from-first")
+    assert all(message.get("content") != "from-first" for message in host.session.messages)
+    second.persist_assistant(host, content="from-second")
+    assert any(message.get("content") == "from-second" for message in host.session.messages)
+
+
+def test_stop_closes_a_pending_tool_call():
+    """Stop keeps the assistant row and adds one cancelled tool row. It does not strip tool_calls."""
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
+
+    call_done = {"id": "call_done", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+    call_open = {"id": "call_open", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+
+    class Session:
+        def __init__(self) -> None:
+            self.messages: list[dict] = [
+                {"role": "user", "content": "q"},
+                {
+                    "role": "assistant",
+                    "content": "I will look that up.",
+                    "tool_calls": [call_done, call_open],
+                },
+                {"role": "tool", "tool_call_id": "call_done", "content": "found"},
+                {"role": "assistant", "content": "Still working", "_open_transcript": True},
+            ]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            if self.messages and self.messages[-1].get("_open_transcript"):
+                self.messages.pop()
+            msg = {"role": "assistant", "content": content or ""}
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+            self.messages.append(msg)
+
+        def add_tool_result(self, call_id, content) -> None:
+            self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
+
+    class Host:
+        def __init__(self) -> None:
+            self.session = Session()
+
+    host = Host()
+    turn = begin_send_turn(host, "chat")
+    abort_turn(host)
+    turn.close_stopped(host, None)
+    assistant = next(message for message in host.session.messages if message.get("tool_calls"))
+    assert assistant["tool_calls"] == [call_done, call_open]
+    assert assistant["content"] == "I will look that up."
+    cancelled = [
+        message
+        for message in host.session.messages
+        if message.get("role") == "tool" and message.get("tool_call_id") == "call_open"
+    ]
+    assert len(cancelled) == 1
+    assert "may have completed" in cancelled[0]["content"]
+    assert any(
+        message.get("role") == "assistant" and "[Stopped by user]" in str(message.get("content") or "")
+        for message in host.session.messages
+    )
+    assert any(message.get("content") == "Still working" for message in host.session.messages)
+
+
 def test_stop_keeps_open_row_instead_of_no_response():
     """Stop aborts the turn and stores the open row, not a placeholder."""
     from plugin.chatbot.rich_text_paste import fold_transcript_chunk
     from plugin.chatbot.tool_loop_actions import (
         abort_turn,
         begin_send_turn,
-        persist_assistant_on_turn,
         stopped_assistant_text,
     )
 
@@ -514,18 +695,11 @@ def test_stop_keeps_open_row_instead_of_no_response():
     assert host._turn is turn
     assert stopped_assistant_text(host, None) == "Hello"
     assert stopped_assistant_text(host, "No response.") == "Hello"
-    persist_assistant_on_turn(host, content=stopped_assistant_text(host, "No response."))
-    assert any(message.get("content") == "Hello" for message in host.session.messages)
-    assert turn.accepts_display(host, " more") is False
-    assert turn.accepts_display(host, "\n[Stopped by user]\n") is True
-    assert turn.accepts_display(host, "see [Stopped by user] later") is False
-    saved_messages = host.session.messages
-    host.session.messages = []
-    assert turn.accepts_display(host, "\n[Stopped by user]\n") is False
-    host.session.messages = saved_messages
-    turn2 = begin_send_turn(host, "chat")
-    assert turn.accepts_display(host, "\n[Stopped by user]\n") is False
-    assert turn2.accepts_display(host, "\n[Stopped by user]\n") is True
+    turn.close_stopped(host, "No response.")
+    contents = [message.get("content") for message in host.session.messages]
+    assert "Hello" in contents
+    assert any(isinstance(content, str) and "[Stopped by user]" in content for content in contents)
+    assert turn.put((StreamQueueKind.CHUNK, " more")) is False
 
 
 def _capture_background(started: list):
@@ -786,7 +960,6 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     send.rich_text_widget = None
     send.response_control = MagicMock()
     send.response_control.getModel.return_value = MagicMock()
-    send._plain_text_stripper = None
     send._should_auto_scroll = MagicMock(return_value=False)
     send._scroll_response_to_bottom = MagicMock()
     send.queue_executor = MagicMock()
@@ -800,9 +973,14 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
         def __init__(self) -> None:
             self.messages: list[dict[str, str]] = [{"role": "system", "content": "s"}]
 
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            self.messages.append({"role": "assistant", "content": content or ""})
+
     send.session = Session()
-    begin_send_turn(send, "chat")
+    turn = begin_send_turn(send, "chat")
     abort_turn(send)
+    turn.close_stopped(send, None)
+    assert any("[Stopped by user]" in str(message.get("content") or "") for message in send.session.messages)
 
     with (
         patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()),
@@ -810,8 +988,5 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
         patch("plugin.chatbot.dialogs.set_control_text") as mock_set,
     ):
         send._append_response("\n[Stopped by user]\n")
-        written = mock_set.call_args[0][1]
-        mock_set.reset_mock()
         send._append_response(" late")
-    assert "[Stopped by user]" in written
     mock_set.assert_not_called()

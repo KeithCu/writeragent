@@ -39,15 +39,10 @@ from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
 from plugin.chatbot.tool_loop_actions import (
     TurnController,
-    _turn_accepts_write,
     abort_turn,
-    bind_turn_session,
     current_turn,
-    fold_stop_tail,
     persist_assistant_on_turn,
-    session_for_turn,
-    stopped_assistant_text,
-    take_stripper_tail,
+    running_turn,
 )
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
@@ -79,7 +74,8 @@ class _SendWorkerQueue:
     What was wrong: image, agent, and web workers called ``Queue.put`` on the
     drain queue. After Stop or a newer send those items still arrived, and
     the drain kept a second queue alive to filter them. ``put`` goes through
-    the controller. Once that turn is aborted, the item is dropped.
+    the controller. Once that turn is aborted, the item is dropped. The
+    worker does not assign the queue; the drain attached it.
     """
 
     _turn: TurnController | None
@@ -92,19 +88,39 @@ class _SendWorkerQueue:
     def put(self, item: Any, *_args: Any, **_kwargs: Any) -> None:
         turn = self._turn
         if isinstance(turn, TurnController):
-            if turn.queue is None:
-                turn.queue = self.raw
             turn.put(item)
-            return
-        self.raw.put(item)
 
 
 def _send_worker_queues(host: Any) -> tuple["queue.Queue[Any]", _SendWorkerQueue]:
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    # ``_do_send`` starts the turn. A direct handler call with no turn yet
+    # starts one before the worker. An aborted turn is not replaced.
+    if current_turn(host) is None:
+        begin_send_turn(host, "")
     raw: queue.Queue[Any] = queue.Queue()
     turn = current_turn(host)
-    if isinstance(turn, TurnController):
+    if isinstance(turn, TurnController) and turn.alive:
         turn.queue = raw
+        turn.batcher = None
     return raw, _SendWorkerQueue(turn, raw)
+
+
+def _turn_session_or_stop(host: Any) -> Any:
+    """The session for this send. None when the turn is already over.
+
+    ``_do_send`` starts the turn before this runs. A direct call with no
+    turn yet starts one. An aborted turn is not replaced: that rebind wrote
+    the reply onto a session the turn did not start with.
+    """
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    if current_turn(host) is None:
+        begin_send_turn(host, "")
+    turn = running_turn(host)
+    if turn is None:
+        return None
+    return turn.session
 
 
 def _specialized_tool_error_payload(note: str) -> dict[str, str]:
@@ -329,13 +345,12 @@ class SendHandlersMixin:
             # What was wrong: only agent Stop stored a row. Web and image pass
             # no on_stopped_callback, and finalize skips rerender after Stop,
             # so the painted partial never landed in session.messages.
-            # Why: store stopped_assistant_text for every handler. Agent still
-            # prefers the non-thinking chunks it accumulated; web and image
-            # use the open row on the session.
-            fold_stop_tail(self, take_stripper_tail(self))
+            # Why: the turn commits the open row and writes the stop line.
+            # Agent still prefers the non-thinking chunks it accumulated.
+            turn = current_turn(self)
             partial = "".join(agent_parts).strip() if current_state.handler_type == "agent" else None
-            text = stopped_assistant_text(self, partial)
-            persist_assistant_on_turn(self, content=text or "No response.")
+            if isinstance(turn, TurnController):
+                turn.close_stopped(self, partial)
             if on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
@@ -364,6 +379,7 @@ class SendHandlersMixin:
 
         turn = current_turn(self)
         if isinstance(turn, TurnController) and turn.queue is None:
+            # The drain owns the queue. The worker wrapper only calls put.
             turn.queue = q
         try:
             run_async_worker_with_drain(
@@ -495,9 +511,8 @@ class SendHandlersMixin:
             if model and hasattr(model, "getURL"):
                 document_url = str(model.getURL() or "")
 
-        bind_turn_session(self)
-        turn_session = session_for_turn(self)
-        if turn_session is None or not _turn_accepts_write(self, turn_session):
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
             return
 
         try:
@@ -627,9 +642,8 @@ class SendHandlersMixin:
         self._librarian_suggested_user_name = get_suggested_user_name(self.ctx)
 
         self._in_librarian_mode = True
-        bind_turn_session(self)
-        turn_session = session_for_turn(self)
-        if turn_session is None or not _turn_accepts_write(self, turn_session):
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
             return
         turn_session.add_user_message(query_text)
 
@@ -650,9 +664,8 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_brainstorming_mode = True
-        bind_turn_session(self)
-        turn_session = session_for_turn(self)
-        if turn_session is None or not _turn_accepts_write(self, turn_session):
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
             return
         turn_session.add_user_message(query_text)
 
@@ -671,9 +684,8 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_writing_plan_mode = True
-        bind_turn_session(self)
-        turn_session = session_for_turn(self)
-        if turn_session is None or not _turn_accepts_write(self, turn_session):
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
             return
         turn_session.add_user_message(query_text)
 
@@ -692,9 +704,8 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_ppt_master_mode = True
-        bind_turn_session(self)
-        turn_session = session_for_turn(self)
-        if turn_session is None or not _turn_accepts_write(self, turn_session):
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
             return
         turn_session.add_user_message(query_text)
 
@@ -712,9 +723,8 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        bind_turn_session(self)
-        turn_session = session_for_turn(self)
-        if turn_session is None or not _turn_accepts_write(self, turn_session):
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
             return
         turn_session.add_user_message(query_text)
 

@@ -579,9 +579,16 @@ def test_do_send_direct_image_error():
 def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
     """Run the send drain on this thread and stop at the first terminal item.
 
+    The send path calls ``begin_send_turn`` before the worker. Tests that
+    enter the drain directly do the same so Stop has a turn to close.
+
     The real drain sets job_done on STREAM_DONE / STOPPED and does not also
     run the wrapper's trailing STREAM_DONE sentinel.
     """
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+
+    if current_turn(panel) is None:
+        begin_send_turn(panel, handler_type)
     q: queue.Queue = queue.Queue()
     state = SendHandlerState(handler_type=handler_type, status="starting")
     interpreter = EffectInterpreter(panel)
@@ -637,7 +644,11 @@ def test_agent_stop_stores_partial_or_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "agent")
-    panel.session.add_assistant_message.assert_called_once_with(content="partial")
+    panel.session.add_assistant_message.assert_any_call(content="partial")
+    assert any(
+        "[Stopped by user]" in str(call.kwargs.get("content") or "")
+        for call in panel.session.add_assistant_message.call_args_list
+    )
 
 
 def test_agent_stop_with_no_chunks_stores_placeholder():
@@ -647,7 +658,11 @@ def test_agent_stop_with_no_chunks_stores_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "agent")
-    panel.session.add_assistant_message.assert_called_once_with(content="No response.")
+    panel.session.add_assistant_message.assert_any_call(content="No response.")
+    assert any(
+        "[Stopped by user]" in str(call.kwargs.get("content") or "")
+        for call in panel.session.add_assistant_message.call_args_list
+    )
 
 
 def test_brainstorm_finish_runs_on_stream_done():
@@ -1306,15 +1321,14 @@ class _RecordingSession:
 
 def _append_recording_turn(panel):
     """Fold assistant chunks into the session, the way the sidebar paints them."""
-    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
     from plugin.chatbot.tool_loop_actions import current_turn
 
     def _append(text, is_thinking=False, role="assistant"):
         panel.responses.append(text)
         panel.thinking_flags.append(bool(is_thinking))
         turn = current_turn(panel)
-        if turn is not None and turn.accepts_display(panel, text) and turn.session is not None:
-            fold_transcript_chunk(turn.session, text, role)
+        if turn is not None and turn.alive and turn.session is not None:
+            turn.fold_chunk(panel, text, role)
 
     panel._append_response = _append
 
@@ -1333,7 +1347,8 @@ def test_web_and_image_stop_persist_emitted_text():
             q.put((StreamQueueKind.STOPPED, None))
 
         _drive_unified_drain(panel, worker, handler_type)
-        assert panel.session.stored == ["partial answer"]
+        assert panel.session.stored[0] == "partial answer"
+        assert "[Stopped by user]" in panel.session.stored[1]
 
 
 def test_web_stop_without_emitted_text_stores_placeholder():
@@ -1343,7 +1358,11 @@ def test_web_stop_without_emitted_text_stores_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "web")
-    panel.session.add_assistant_message.assert_called_once_with(content="No response.")
+    panel.session.add_assistant_message.assert_any_call(content="No response.")
+    assert any(
+        "[Stopped by user]" in str(call.kwargs.get("content") or "")
+        for call in panel.session.add_assistant_message.call_args_list
+    )
 
 
 def test_specialized_tool_errors_persist_assistant_row():

@@ -150,22 +150,35 @@ class SQLite3History:
             conn.commit()
 
 
-def _json_history_filename(session_id: str) -> str:
+def _json_history_filename(session_id: str, history_dir: str) -> str:
     """One path segment under the history directory.
 
-    Regenerated ids are SHA-256 hex or UUID. A WriterAgentSessionID document
-    property is used as-is, so an absolute path or ``..`` must not be joined
-    onto the directory. Unsafe ids are hashed for the filename only.
+    Regenerated ids are SHA-256 hex or UUID. Unsafe ids are hashed for the filename only.
+    To stop case-alias collisions on case-insensitive filesystems, any id that contains
+    an uppercase letter is also hashed, unless an older unhashed file already exists.
     """
     name = session_id or ""
-    if (
+    is_unsafe = (
         not name
         or name in (".", "..")
         or "/" in name
         or "\\" in name
         or os.path.basename(name) != name
-    ):
-        name = hashlib.sha256((session_id or "").encode("utf-8")).hexdigest()
+    )
+    if is_unsafe:
+        name = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    elif name != name.lower():
+        hashed_name = hashlib.sha256(name.encode("utf-8")).hexdigest()
+        exact_match_found = False
+        if history_dir:
+            try:
+                exact_match_found = f"{name}.json" in os.listdir(history_dir)
+            except OSError:
+                pass
+        if exact_match_found:
+            pass
+        else:
+            name = hashed_name
     return f"{name}.json"
 
 
@@ -188,13 +201,13 @@ class JSONHistory:
         except OSError:
             log.exception("JSONHistory: Error creating directory")
 
-        self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id))
+        self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id, self.history_dir))
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
         try:
             messages = self.get_messages()
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # open(..., "w") truncated the file before json.dump. A crash or a
             # bad read then looked like an empty session and the next add
             # replaced history with one row. Leave an unreadable file alone.
@@ -238,7 +251,7 @@ class JSONHistory:
                 raise json.JSONDecodeError("session is not a list of objects", "", 0)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # Callers (ChatSession open, add_message) must not treat a corrupt
             # file as an empty history and write a fresh system row over it.
             log.exception("JSONHistory: Error reading messages")

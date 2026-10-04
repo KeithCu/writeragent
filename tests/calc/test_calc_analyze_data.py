@@ -26,12 +26,12 @@ def test_output_anchor_quoted_dotted_sheet_and_range():
     """rsplit('.') dropped quoted/dotted sheets and used the range's end cell."""
     from plugin.calc.address_utils import parse_output_anchor as _output_anchor
 
-    assert _output_anchor("'Q1.Sales'!B2") == (1, 1)
-    assert _output_anchor("'Data Sheet'.C3") == (2, 2)
-    assert _output_anchor("Sheet1.A1:Sheet1.C10") == (0, 0)
-    assert _output_anchor("$A$1:$C$5") == (0, 0)
-    assert _output_anchor("Sheet1.$B$2") == (1, 1)
-    assert _output_anchor("A1") == (0, 0)
+    assert _output_anchor("'Q1.Sales'!B2") == ("Q1.Sales", 1, 1)
+    assert _output_anchor("'Data Sheet'.C3") == ("Data Sheet", 2, 2)
+    assert _output_anchor("Sheet1.A1:Sheet1.C10") == ("Sheet1", 0, 0)
+    assert _output_anchor("$A$1:$C$5") == (None, 0, 0)
+    assert _output_anchor("Sheet1.$B$2") == ("Sheet1", 1, 1)
+    assert _output_anchor("A1") == (None, 0, 0)
 
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
@@ -51,6 +51,7 @@ def test_analyze_data_output_range_quoted_sheet(mock_run_trusted, mock_main_thre
 
     assert result["status"] == "ok"
     mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs["sheet_name"] == "Q1.Sales"
     assert mock_insert.call_args.kwargs["start_col"] == 1
     assert mock_insert.call_args.kwargs["start_row"] == 1
 
@@ -146,7 +147,8 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
-    mock_main_thread.assert_called_once()
+    # execute_on_main_thread is now inside run_trusted_analysis for reading data only,
+    # but since run_trusted_analysis is mocked entirely here, main_thread won't be called.
     mock_run_trusted.assert_called_once()
     _, kwargs = mock_run_trusted.call_args
     assert kwargs["helper"] == "describe_data"
@@ -155,8 +157,9 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
-def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_run_trusted, mock_main_thread, calc_ctx):
+@patch("plugin.calc.analysis_runner.run_analysis")
+@patch("plugin.calc.calc_addin_data._resolve_python_data")
+def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, mock_run_analysis, mock_main_thread, calc_ctx):
     call_order: list[str] = []
 
     def main_thread(fn, *args, **kwargs):
@@ -168,7 +171,8 @@ def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_run_trusted,
         return {"status": "ok", "helper": "describe_data"}
 
     mock_main_thread.side_effect = main_thread
-    mock_run_trusted.side_effect = run_side
+    mock_run_analysis.side_effect = run_side
+    mock_resolve.return_value = ({"col1": [1, 2]}, None)
 
     tool = AnalyzeDataTool()
     result = tool.execute(calc_ctx, helper="describe_data", data_range="A1:B2")

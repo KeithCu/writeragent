@@ -32,26 +32,29 @@ def _forecast_table(forecast_result: dict[str, Any]) -> dict[str, Any] | None:
 
 def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None) -> list[list[Any]] | None:
     """Merge historical range data with forecast table rows for band plotting."""
-    import pandas as pd
-
     forecast_table = _forecast_table(forecast_result)
     if forecast_table is None:
         return None
 
-    columns = forecast_table.get("columns")
-    rows = forecast_table.get("rows")
-    if not isinstance(columns, list) or not isinstance(rows, list) or not columns or not rows:
+    fc_columns = forecast_table.get("columns")
+    fc_rows_raw = forecast_table.get("rows")
+    if not isinstance(fc_columns, list) or not isinstance(fc_rows_raw, list) or not fc_columns or not fc_rows_raw:
         return None
+    fc_columns_str = [str(c) for c in fc_columns]
 
     params = dict(forecast_params or {})
     date_col = str(params.get("date_col", "Date"))
     value_col = str(params.get("value_col", "Value"))
 
+    hist_headers = []
+    hist_records = []
+
     if hasattr(history_data, "columns"):
-        hist_df = history_data.copy()
+        # history_data is a DataFrame (only happens if tests pass one in)
+        hist_headers = list(history_data.columns)
+        hist_records = history_data.values.tolist()
     else:
         from plugin.scripting.payload_codec import is_calc_range_payload
-        from plugin.scripting.venv.coerce import coerce_to_dataframe
 
         grid = history_data
         if is_calc_range_payload(history_data):
@@ -64,14 +67,27 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
             from plugin.scripting.calc_range import materialize_calc_range
 
             grid = materialize_calc_range(history_data).values
-        hist_df = coerce_to_dataframe(grid, headers=True).df
 
-    if date_col not in hist_df.columns or value_col not in hist_df.columns:
+        if isinstance(grid, list) and len(grid) > 0 and isinstance(grid[0], list):
+            hist_headers = [str(c) for c in grid[0]]
+            hist_records = grid[1:]
+
+    if date_col not in hist_headers or value_col not in hist_headers:
         return None
 
-    fc_df = pd.DataFrame(rows, columns=pd.Index([str(c) for c in columns]))
-    has_lower = "lower" in fc_df.columns
-    has_upper = "upper" in fc_df.columns
+    date_idx = hist_headers.index(date_col)
+    val_idx = hist_headers.index(value_col)
+
+    has_lower = "lower" in fc_columns_str
+    has_upper = "upper" in fc_columns_str
+
+    fc_date_idx = fc_columns_str.index("date") if "date" in fc_columns_str else -1
+    fc_forecast_idx = fc_columns_str.index("forecast") if "forecast" in fc_columns_str else -1
+    fc_lower_idx = fc_columns_str.index("lower") if has_lower else -1
+    fc_upper_idx = fc_columns_str.index("upper") if has_upper else -1
+
+    if fc_date_idx == -1 or fc_forecast_idx == -1:
+        return None
 
     plot_cols = ["date", value_col, "forecast"]
     if has_lower:
@@ -80,8 +96,10 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
         plot_cols.append("upper")
 
     hist_rows: list[list[Any]] = []
-    for _unused, row in hist_df[[date_col, value_col]].iterrows():
-        entry: list[Any] = [row[date_col], row[value_col], None]
+    for rec in hist_records:
+        if len(rec) <= max(date_idx, val_idx):
+            continue
+        entry: list[Any] = [rec[date_idx], rec[val_idx], None]
         if has_lower:
             entry.append(None)
         if has_upper:
@@ -89,12 +107,23 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
         hist_rows.append(entry)
 
     fc_rows: list[list[Any]] = []
-    for _unused, row in fc_df.iterrows():
-        entry = [row.get("date"), None, row.get("forecast")]
+    for row in fc_rows_raw:
+        if not isinstance(row, list) or len(row) <= max(fc_date_idx, fc_forecast_idx):
+            # If it's a dict, handle it gracefully
+            if isinstance(row, dict):
+                entry = [row.get("date"), None, row.get("forecast")]
+                if has_lower:
+                    entry.append(row.get("lower"))
+                if has_upper:
+                    entry.append(row.get("upper"))
+                fc_rows.append(entry)
+            continue
+
+        entry = [row[fc_date_idx], None, row[fc_forecast_idx]]
         if has_lower:
-            entry.append(row.get("lower"))
+            entry.append(row[fc_lower_idx] if len(row) > fc_lower_idx else None)
         if has_upper:
-            entry.append(row.get("upper"))
+            entry.append(row[fc_upper_idx] if len(row) > fc_upper_idx else None)
         fc_rows.append(entry)
 
     return [plot_cols, *hist_rows, *fc_rows]

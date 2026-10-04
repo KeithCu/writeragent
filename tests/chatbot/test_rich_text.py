@@ -29,7 +29,10 @@ class MockTextCursor:
         pass
 
     def goRight(self, count, select):
-        pass
+        if not hasattr(self, "go_right_calls"):
+            self.go_right_calls = []
+        self.go_right_calls.append((count, select))
+        return True
 
     def getStart(self):
         return self
@@ -124,6 +127,32 @@ class TestAppendRichText:
         doc = self._call("", role="assistant")
         content = doc.getText().getString()
         assert ("Assistant: ") in (content)
+
+    def test_append_rich_text_chunks_go_right(self):
+        from plugin.chatbot.rich_text import append_rich_text
+        doc = MockDoc()
+
+        # Force pre_len in append_rich_text to be large enough to trigger chunking
+        # pre_len is calculated as doc.CharacterCount - previous
+        doc._text._content = " " * 40000
+
+        created_cursors = []
+        original_create = doc.getText().createTextCursor
+        def patched_create():
+            c = original_create()
+            created_cursors.append(c)
+            return c
+        doc.getText().createTextCursor = patched_create
+
+        append_rich_text(doc, "Some content", "user")
+
+        body_cursor = created_cursors[-1]
+        assert hasattr(body_cursor, "go_right_calls")
+
+        calls = body_cursor.go_right_calls
+        pre_len = sum(count for count, expand in calls)
+        assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
+        assert all(count <= 8192 for count, expand in calls)
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""

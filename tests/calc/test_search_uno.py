@@ -43,3 +43,29 @@ def test_calc_search_and_replace(ctx, doc):
     matches_after = res_search_after.get("matches", [])
     assert len(matches_after) == 1, f"Expected 1 match for BlueberryUnique, found {len(matches_after)}"
     assert matches_after[0].get("cell") == "B20", f"Expected BlueberryUnique at B20, got {matches_after[0].get('cell')}"
+
+@native_test
+@with_native_doc("calc")
+def test_calc_search_replace_hidden_sheets(ctx, doc):
+    doc.getSheets().insertNewByName("_HiddenDB", 1)
+
+    _execute_calc_tool(doc, ctx, "write_formula_range", {"range": "_HiddenDB.A1:A1", "values": [["HiddenData"]]})
+
+    res_search = _execute_calc_tool(doc, ctx, "search_in_spreadsheet", {"pattern": "HiddenData", "all_sheets": True})
+    assert res_search.get("status") == "ok"
+    assert len(res_search.get("matches", [])) == 0, f"Expected 0 matches for HiddenData on hidden sheet, found {len(res_search.get('matches', []))}"
+
+    res_replace = _execute_calc_tool(doc, ctx, "replace_in_spreadsheet", {"search": "HiddenData", "replace": "ExposedData", "all_sheets": True})
+    assert res_replace.get("status") == "ok"
+    assert res_replace.get("replacements") == 0, f"Expected 0 replacements on hidden sheet, got {res_replace.get('replacements')}"
+
+@native_test
+@with_native_doc("calc")
+def test_calc_search_replace_invalid_regex(ctx, doc):
+    res_search = _execute_calc_tool(doc, ctx, "search_in_spreadsheet", {"pattern": "[invalid", "regex": True})
+    assert res_search.get("status") == "error"
+    assert res_search.get("code") == "INVALID_REGEX"
+
+    res_replace = _execute_calc_tool(doc, ctx, "replace_in_spreadsheet", {"search": "[invalid", "replace": "valid", "regex": True})
+    assert res_replace.get("status") == "error"
+    assert res_replace.get("code") == "INVALID_REGEX"

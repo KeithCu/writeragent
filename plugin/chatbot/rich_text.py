@@ -32,6 +32,17 @@ from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
+_GO_RIGHT_CHUNK = 8192
+
+def _go_right(cursor: Any, n: int, expand: bool) -> bool:
+    """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
+    while n > 0:
+        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
+        if not cursor.goRight(step, expand):
+            return False
+        n -= step
+    return True
+
 _HTML_TAG_RE = re.compile(
     r"<(?:"
     r"p[>\s/]"
@@ -465,7 +476,7 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             # Build a range covering only the newly inserted content
             body_range = text_obj.createTextCursor()
             body_range.gotoStart(False)
-            body_range.goRight(pre_len, False)
+            _go_right(body_range, pre_len, False)
             body_range.gotoEnd(True)
             # Plain text gets the role tint; successful HTML import keeps
             # per-span CharColor from the filter (red/blue runs, etc.).
@@ -507,9 +518,11 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
         rerender = getattr(listener, "rerender_rich_text_session", None)
         if callable(rerender):
             replaced = rerender() is True
-    stripper = getattr(listener, "_plain_text_stripper", None)
-    if stripper is not None:
-        leftover = stripper.finalize()
-        listener._plain_text_stripper = None
+    from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+    turn = current_turn(listener)
+    stripper = turn.stripper if isinstance(turn, TurnController) else None
+    if stripper is not None and isinstance(turn, TurnController):
+        leftover = turn.take_stripper_tail()
         if leftover and not replaced:
             listener._append_response(leftover, role="assistant")

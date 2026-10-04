@@ -107,10 +107,9 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
                 if sheets.getByIndex(idx).getName() == prefix:
                     sheet_idx = idx
                     break
-        try:
-            col_idx, row_idx = parse_address(address)
-        except Exception:
-            col_idx, row_idx = 0, 0
+
+        # This will raise ValueError if invalid, instead of silently returning 0,0 (A1)
+        col_idx, row_idx = parse_address(address)
 
     try:
         from com.sun.star.table import CellAddress
@@ -319,7 +318,11 @@ class NamedRangeAdd(ToolCalcRangeBase):
                         sheet_idx = idx
                         break
 
-            pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+            try:
+                pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+            except ValueError as ve:
+                return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
+
             type_mask = _parse_flags(flags_arg)
 
             container.addNewByName(name, content, pos, type_mask)
@@ -368,6 +371,13 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
             nr = container.getByName(name)
 
+            if new_name is not None and new_name.strip() and new_name.strip() != name:
+                new_clean = new_name.strip()
+                if container.hasByName(new_clean):
+                    return self._tool_error(f"Cannot rename to '{new_clean}': a named range with that name already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
+            else:
+                new_clean = None
+
             if content is not None:
                 nr.setContent(content.strip())
 
@@ -383,13 +393,13 @@ class NamedRangeEdit(ToolCalcRangeBase):
                         if sheets.getByIndex(idx).getName() == sheet_obj.getName():
                             sheet_idx = idx
                             break
-                pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+                try:
+                    pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+                except ValueError as ve:
+                    return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
                 nr.setReferencePosition(pos)
 
-            if new_name is not None and new_name.strip() and new_name.strip() != name:
-                new_clean = new_name.strip()
-                if container.hasByName(new_clean):
-                    return self._tool_error(f"Cannot rename to '{new_clean}': a named range with that name already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
+            if new_clean:
                 nr.setName(new_clean)
                 final_name = new_clean
             else:
@@ -452,7 +462,10 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         import uno
 
         bridge = CalcBridge(ctx.doc)
-        range_str = kwargs["range"][0].strip()
+        range_arr = kwargs.get("range", [])
+        if not range_arr:
+            return self._tool_error("range is required", code="INVALID_ARGUMENT")
+        range_str = range_arr[0].strip()
         border_str = kwargs.get("border", "top")
         if border_str is None or str(border_str).strip() == "":
             border_str = "top"

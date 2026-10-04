@@ -348,7 +348,8 @@ def listener_is_busy(listener: Any) -> bool:
     send = getattr(state, "send", None) if state is not None else None
     if send is not None and bool(getattr(send, "is_busy", False)):
         return True
-    if getattr(listener, "_active_q", None) is not None:
+    turn = getattr(listener, "_turn", None)
+    if turn is not None and getattr(turn, "queue", None) is not None and getattr(turn, "alive", False):
         return True
     if getattr(listener, "_send_cancellation", None) is not None:
         return True

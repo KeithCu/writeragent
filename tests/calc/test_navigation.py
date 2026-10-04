@@ -28,6 +28,11 @@ def test_normalize_cell_address_simple():
     assert normalize_cell_address("cell://Sheet1!C3") == "Sheet1.C3"
     assert normalize_cell_address("Orders!A1") == "Orders.A1"
 
+    # Advanced sheet names (quotes, spaces, hyphens)
+    assert normalize_cell_address("'My Sheet'.B2") == "My Sheet.B2"
+    assert normalize_cell_address("'My-Sheet'.B2") == "My-Sheet.B2"
+    assert normalize_cell_address("My_Sheet.B2") == "My_Sheet.B2"
+
 
 def test_render_calc_cell_refs_html():
     text = (

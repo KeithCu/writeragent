@@ -101,7 +101,7 @@ class OptimizeDataTool(ToolBaseDummy):
         if output_range and result.get("status") == "ok":
 
             def _write() -> None:
-                col, row = parse_output_anchor(output_range)
+                _sheet, col, row = parse_output_anchor(output_range)
                 insert_optimize_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
 
             try:

@@ -106,7 +106,7 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
     return rows
 
 
-def insert_tabular_result_into_calc(doc: Any, uno_ctx: Any, grid: list[list[Any]], *, start_col: int | None = None, start_row: int | None = None) -> int:
+def insert_tabular_result_into_calc(doc: Any, uno_ctx: Any, grid: list[list[Any]], *, sheet_name: str | None = None, start_col: int | None = None, start_row: int | None = None) -> int:
     """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count."""
     if start_col is None or start_row is None:
         col, row = calc_anchor_from_selection(doc)
@@ -115,6 +115,14 @@ def insert_tabular_result_into_calc(doc: Any, uno_ctx: Any, grid: list[list[Any]
 
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
+
     addr = f"{index_to_column(start_col)}{start_row + 1}"
+    if sheet_name:
+        escaped_name = sheet_name.replace("'", "''")
+        if " " in escaped_name or "." in escaped_name or "'" in sheet_name:
+            addr = f"'{escaped_name}'.{addr}"
+        else:
+            addr = f"{sheet_name}.{addr}"
+
     manipulator.write_formula_range(addr, grid)
     return len(grid)

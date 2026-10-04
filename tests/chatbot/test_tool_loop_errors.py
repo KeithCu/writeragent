@@ -95,6 +95,9 @@ def test_instance():
         mock_get_api_config.return_value = {"chat_max_tool_rounds": 1}
         mock_validate_api_config.return_value = (True, "")
 
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(instance, "chat", model=MagicMock())
         yield instance
 
 def test_tool_execution_error_handling(test_instance, mock_get_tools):
@@ -163,6 +166,9 @@ def test_audio_handling_error(test_instance, mock_get_tools):
 
     with patch("plugin.chatbot.tool_loop.agent_log"):
 
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(test_instance, "chat")
         test_instance.audio_wav_path = "/fake/path/audio.wav"
 
         # Override open to throw IOError
@@ -174,7 +180,8 @@ def test_audio_handling_error(test_instance, mock_get_tools):
             assert any("test" in r for r in test_instance.responses)
             assert test_instance._terminal_status != "Error" # Should not terminate on audio error
 
-        # Override open to throw unexpected error
+        # The first send's drain aborted its turn. This call is a new send.
+        begin_send_turn(test_instance, "chat")
         test_instance.audio_wav_path = "/fake/path/audio.wav"
         with patch("builtins.open", side_effect=TypeError("Bad arguments")):
             test_instance._do_send_chat_with_tools("test", "test_model", "writer")
@@ -188,14 +195,17 @@ def test_audio_handling_error(test_instance, mock_get_tools):
 def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     import dataclasses
 
+    from plugin.chatbot.tool_loop_actions import current_turn
+
     test_instance.audio_wav_path = "/fake/path/audio.wav"
     test_instance._active_query_text = "hello"
-    test_instance._active_q = MagicMock()
-    test_instance._active_batched_q = None
+    live = current_turn(test_instance)
+    live.queue = MagicMock()
+    live.batcher = None
     test_instance._active_client = MagicMock()
     test_instance._active_max_tokens = 128
     test_instance._active_tools = []
-    test_instance._active_model = MagicMock()
+    live.model = MagicMock()
     test_instance.session.messages.append({"role": "user", "content": [{"type": "input_audio"}]})
     test_instance.sidebar_state = dataclasses.replace(
         test_instance.sidebar_state,
@@ -235,10 +245,13 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     """
     import dataclasses
 
+    from plugin.chatbot.tool_loop_actions import current_turn
+
     test_instance.audio_wav_path = "/fake/path/audio.wav"
     test_instance._active_query_text = ""
-    test_instance._active_q = MagicMock()
-    test_instance._active_batched_q = None
+    live = current_turn(test_instance)
+    live.queue = MagicMock()
+    live.batcher = None
     test_instance._active_client = MagicMock()
     test_instance._active_max_tokens = 128
     test_instance._active_tools = []
@@ -355,8 +368,11 @@ def test_handle_stream_error_keeps_named_window_sentence(test_instance):
 def _prime_active_tool_loop(instance):
     import dataclasses
 
-    instance._active_q = MagicMock()
-    instance._active_batched_q = None
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    live = current_turn(instance)
+    live.queue = MagicMock()
+    live.batcher = None
     instance._active_client = MagicMock()
     instance._active_max_tokens = 128
     instance._active_tools = []
@@ -513,6 +529,9 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
     client.stream_request_with_tools.return_value = {"content": "ok"}
     view = [{"role": "system", "content": "view"}]
     q = MagicMock()
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    current_turn(test_instance).queue = q
     compact_inside_lane = {"value": False}
 
     class _Lane:
@@ -564,6 +583,9 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
 
     client = MagicMock()
     q = MagicMock()
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    current_turn(test_instance).queue = q
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,

@@ -217,6 +217,36 @@ class TestAppendRichTextViaClipboard:
         assert "kept" in inserted
         bad.createEnumeration.assert_called()
 
+    def test_not_success_when_exception_in_copy_loop(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        good = _body_paragraph("kept")
+        doc.getText.return_value.createEnumeration.return_value = _uno_enum([good])
+        theme = MagicMock(user_color=1, assistant_color=2)
+
+        def _raise_on_insert(*args, **kwargs):
+            raise RuntimeError("insert failed")
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.process_events_to_idle"), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_raise_on_insert):
+            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+
+        assert ok is False
+
 class TestHistoryMessageBatching:
     def test_iter_batches_empty(self):
         assert list(iter_history_message_batches([])) == []
@@ -613,14 +643,13 @@ class TestPaintMessageItems:
         mock_plain.assert_not_called()
         doc.close.assert_called_once_with(True)
 
-    def test_stop_line_is_its_own_row(self):
+    def test_stop_text_folds_like_any_other_chunk(self):
+        """The stop line is not detected by comparing text. The turn writes it."""
         session = MagicMock()
-        session.messages = [{"role": "assistant", "content": "partial answer"}]
+        session.messages = [{"role": "assistant", "content": "partial answer", "_open_transcript": True}]
         assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is True
-        assert session.messages[0]["content"] == "partial answer"
-        assert "[Stopped by user]" in session.messages[1]["content"]
-        assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is False
-        assert len(session.messages) == 2
+        assert session.messages[0]["content"] == "partial answer\n[Stopped by user]\n"
+        assert len(session.messages) == 1
 
     def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()

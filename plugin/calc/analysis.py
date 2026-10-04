@@ -44,6 +44,13 @@ except ImportError:
 log = logging.getLogger("writeragent.calc")
 
 
+def _output_anchor(output_range: str) -> tuple[str | None, int, int]:
+    """Sheet name (if any), column, and row where an analysis report should start.
+
+    Parsing lives in ``parse_output_anchor`` so forecast and optimize share it.
+    """
+    return parse_output_anchor(output_range)
+
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
 # NLPSolver engines that open status dialogs (see docs/calc/analysis-tools.md).
@@ -411,11 +418,8 @@ class AnalyzeDataTool(ToolBaseDummy):
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))
         except Exception as exc:
@@ -425,8 +429,8 @@ class AnalyzeDataTool(ToolBaseDummy):
             anchor_ref = output_range
 
             def _write() -> None:
-                col, row = parse_output_anchor(anchor_ref)
-                insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
+                sheet, col, row = _output_anchor(anchor_ref)
+                insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
             try:
                 execute_on_main_thread(_write)
@@ -440,12 +444,8 @@ class AnalyzeDataTool(ToolBaseDummy):
 
             plot_result = None
             if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
-
-                def _auto_plot() -> dict[str, Any] | None:
-                    return run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
-
                 # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
-                plot_result = execute_on_main_thread(_auto_plot)
+                plot_result = run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
             if plot_result is not None:
                 result = dict(result)
                 result["plot"] = plot_result
