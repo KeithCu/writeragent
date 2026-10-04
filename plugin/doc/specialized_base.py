@@ -169,6 +169,11 @@ class DelegateToSpecializedBase(ToolBase):
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = _field_from_tool_arguments(arguments, "domain")
         if domain in self._READ_ONLY_DOMAINS:
+            if domain == "vision":
+                # USE_SUB_AGENT delegates run ExtractStructureFromImage with insert_into_document=True.
+                from plugin.framework.constants import USE_SUB_AGENT
+                if USE_SUB_AGENT:
+                    return True
             return False
         return super().requires_document_lock(arguments)
 
@@ -204,7 +209,8 @@ class DelegateToSpecializedBase(ToolBase):
                 if status_callback:
                     status_callback(_("Running local OCR on selected image(s)..."))
                 # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
-                return ExtractStructureFromImage().execute(ctx, insert_into_document=True)
+                vision_tool = ExtractStructureFromImage()
+                return vision_tool.execute(ctx, insert_into_document=True)
 
         if domain == "document_research" and not USE_SUB_AGENT:
             return self._tool_error(
