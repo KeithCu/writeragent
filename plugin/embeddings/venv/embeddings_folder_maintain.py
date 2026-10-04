@@ -141,11 +141,14 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
 
     for index, entry in enumerate(files):
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"})
-        paragraph_count, chunks = _extract_file_chunks(entry)
+        try:
+            paragraph_count, chunks = _extract_file_chunks(entry)
+        except Exception:
+            log.warning("Extraction failed for %s", entry.name, exc_info=True)
+            continue
         rows = [chunk_to_index_row(chunk) for chunk in chunks]
         hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "cold"})
         if not rows:
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
         result = _ingest_rows(listing_root, embedding_model, rows, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
@@ -197,9 +200,21 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
         if not file_is_stale(db_path, entry.url, entry.modified):
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
-        paragraph_count, chunks = _extract_file_chunks(entry)
+        try:
+            paragraph_count, chunks = _extract_file_chunks(entry)
+        except Exception:
+            log.warning("Extraction failed for %s", entry.name, exc_info=True)
+            continue
         to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
-        hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(chunks), "mode": "incremental"})
+        hb.force(
+            {
+                "phase": "extract",
+                "file": entry.name,
+                "paragraphs": paragraph_count,
+                "chunks": len(chunks),
+                "mode": "incremental",
+            }
+        )
         if to_delete or to_index:
             if to_delete:
                 hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
