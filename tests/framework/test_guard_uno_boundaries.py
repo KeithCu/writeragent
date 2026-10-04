@@ -74,6 +74,8 @@ class TestGuardUnoBoundaries:
             handler._execute_long_running("noop", {}, document_url=None)
 
         mock_get_ctx.assert_called()
+        services.tools.execute.assert_called()
+        assert "bypass_thread_guard" not in services.tools.execute.call_args.kwargs
 
     def test_get_calc_doc_wraps_current_component(self) -> None:
         calc_doc = MagicMock(name="calc_doc")

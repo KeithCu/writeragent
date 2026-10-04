@@ -45,13 +45,10 @@ COMPLETION TOOLS:
 - write_document_section: write content for a section to the document.
 - writing_research_web: search the public web for context or information."""
 
+
 def get_writing_sub_agent_instructions(ctx: Any | None = None) -> str:
     """Full system instructions for the writing plan smol sub-agent."""
-    parts = [
-        WRITING_SUB_AGENT_INSTRUCTIONS,
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
-        get_chat_response_format_instructions(ctx),
-    ]
+    parts = [WRITING_SUB_AGENT_INSTRUCTIONS, WRITER_APPLY_DOCUMENT_HTML_RULES, get_chat_response_format_instructions(ctx)]
     return "\n\n".join(parts)
 
 
@@ -85,13 +82,7 @@ class WritingResearchWeb(ToolWriterSpecialBase):
     description: str = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
     is_mutation: bool | None = False
     long_running: bool = True
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Research question or topic."},
-        },
-        "required": ["query"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"query": {"type": "string", "description": "Research question or topic."}}, "required": ["query"]}
 
     def is_async(self) -> bool:
         return True
@@ -110,22 +101,19 @@ class WriteDocumentSection(ToolWriterSpecialBase):
     required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
     intent: str | None = "edit"
     name: str | None = "write_document_section"
+
+    def is_async(self) -> bool:
+        return True
+
     description: str = "Insert or replace a section of document content with formatted HTML."
     is_mutation: bool | None = True
     long_running: bool = True
+    timeout: float = 600.0
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "content": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of HTML fragments (e.g. <h2>, <p>, <ul>). No Markdown.",
-            },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "full_document"],
-                "description": "Where to insert. Default end. Use full_document only when the doc is empty.",
-            },
+            "content": {"type": "array", "items": {"type": "string"}, "description": "List of HTML fragments (e.g. <h2>, <p>, <ul>). No Markdown."},
+            "target": {"type": "string", "enum": ["beginning", "end", "full_document"], "description": "Where to insert. Default end. Use full_document only when the doc is empty."},
         },
         "required": ["content"],
     }
@@ -177,11 +165,7 @@ class WritingPlanSessionTool(ToolBase):
     long_running: bool = True
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "User message or initial task."},
-            "history_text": {"type": "string", "description": "Previous conversation text."},
-            "topic": {"type": "string", "description": "Original context/topic for writing task."},
-        },
+        "properties": {"query": {"type": "string", "description": "User message or initial task."}, "history_text": {"type": "string", "description": "Previous conversation text."}, "topic": {"type": "string", "description": "Original context/topic for writing task."}},
         "required": ["query"],
     }
 
@@ -192,4 +176,3 @@ class WritingPlanSessionTool(ToolBase):
         from plugin.chatbot.smol_agent import run_subagent_tool
 
         return run_subagent_tool("Writing plan", _run_writing_agent, ctx, **kwargs)
-

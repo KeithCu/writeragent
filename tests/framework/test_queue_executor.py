@@ -1188,3 +1188,34 @@ def test_flush_pending_posts_keeps_original_scope():
     qe._pending_posts.append((lambda: None, (), {}, scope))
     qe._flush_pending_posts()
     assert seen == [scope]
+
+def test_execute_accepts_and_passes_bound_scope() -> None:
+    executor = mt.QueueExecutor()
+    scope = mt.SendCancellation()
+
+    # We must mock _enqueue_work to see if it received bound_scope.
+    # But execute is blocking, so we need _wait_for_result to return immediately.
+    # We'll just patch _wait_for_result and _enqueue_work, or mock _enqueue_work
+    # to return a dummy item and check what was passed.
+
+    with patch.object(executor, '_should_run_inline', return_value=False), \
+         patch.object(executor, '_is_logical_main_thread', return_value=False), \
+         patch.object(executor, '_get_async_callback', return_value=MagicMock()), \
+         patch('plugin.framework.queue_executor._force_marshal_mode', True), \
+         patch.object(executor, '_wait_for_result', return_value="dummy_result"), \
+         patch.object(executor, '_enqueue_work') as mock_enqueue:
+
+         # Mock enqueue to return a minimal WorkItem
+         mock_item = mt._WorkItem("id", lambda: None, (), {}, True, scope)
+         mock_enqueue.return_value = mock_item
+
+         # Note: _force_marshal_mode=True guarantees we don't return inline
+         def dummy_fn(): pass
+
+         executor.execute(dummy_fn, 1, 2, bound_scope=scope, timeout=5.0)
+
+         mock_enqueue.assert_called_once()
+         assert mock_enqueue.call_args.kwargs.get("bound_scope") is scope
+         assert mock_enqueue.call_args.kwargs.get("blocking") is True
+         assert mock_enqueue.call_args.args[0] is dummy_fn
+         assert mock_enqueue.call_args.args[1] == (1, 2)
