@@ -950,6 +950,33 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(saved) == 1
 
 
+def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Orphan cleanup must undo/save the workbook that owns the sheet."""
+    owner = CalcDocStub(url="file:///owner.ods", props={"RuntimeUID": "uid-owner"})
+    active = CalcDocStub(url="file:///active.ods", props={"RuntimeUID": "uid-active"})
+    sheet = owner.getSheets().getByName("Sheet1")
+    sheet.getParent = lambda: owner  # type: ignore[method-assign]
+    origin = sheet.getCellByPosition(1, 1)
+    spilled = sheet.getCellByPosition(1, 2)
+    origin.setFormula("")
+    spilled.setValue(99)
+
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: active)
+    saved: list[Any] = []
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda doc: saved.append(doc))
+
+    key = ("file:///owner.ods", "Sheet1", 1, 1)
+    python_function.SPILL_REGISTRY[key] = [(2, 1)]
+    try:
+        listener = python_function.CalcSpillModifyListener(MagicMock(), "file:///owner.ods", "Sheet1")
+        listener.modified(SimpleNamespace(Source=sheet))
+        assert key not in python_function.SPILL_REGISTRY
+        assert spilled.getValue() == 0
+        assert saved == [owner]
+    finally:
+        python_function.SPILL_REGISTRY.pop(key, None)
+
+
 def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeypatch: pytest.MonkeyPatch) -> None:
     """=PYMT and other formulas that merely contain PY/PYTHON must drop stale spills."""
     sheet = MagicMock()

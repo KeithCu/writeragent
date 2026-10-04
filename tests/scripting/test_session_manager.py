@@ -242,6 +242,65 @@ def test_reset_reports_init_reseed_failure() -> None:
     assert "init boom" in msgbox.call_args[0][1]
 
 
+def test_reset_one_workbook_keeps_sibling_sessions() -> None:
+    """Reset re-records the target only. Sibling unsaved ids stay recorded.
+
+    The no-doc re-record used to drop every ``calc:unsaved:`` id. One saved
+    workbook's reset then made ``off_main_calc_session_is_unambiguous`` true
+    while another book was still open.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    target = CalcDocStub(url="file:///reset-me.ods", props={"RuntimeUID": "uid-reset"})
+    sibling = CalcDocStub(url="", props={"RuntimeUID": "uid-sibling"})
+    other = CalcDocStub(url="file:///other-book.ods", props={"RuntimeUID": "uid-other"})
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:sibling", doc=sibling)
+        session_manager.record_active_calc_session("calc:file:///other-book.ods", doc=other)
+        with (
+            patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}),
+            patch("plugin.scripting.session_manager._msgbox"),
+            patch("plugin.scripting.session_manager.python_session_mode", return_value="isolated"),
+        ):
+            session_manager._reset_calc_python_sessions(MagicMock(), target)
+        ids = session_manager.recorded_calc_session_ids()
+        assert "calc:unsaved:sibling" in ids
+        assert "calc:file:///other-book.ods" in ids
+        assert "calc:file:///reset-me.ods" in ids
+        assert session_manager.recorded_calc_session_count() == 3
+        assert session_manager.off_main_calc_session_is_unambiguous() is False
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_reset_unsaved_workbook_keeps_other_unsaved_sibling() -> None:
+    """Reset of one unsaved book must not drop a different unsaved book's id."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    target = CalcDocStub(url="", props={"RuntimeUID": "uid-reset-unsaved"})
+    sibling = CalcDocStub(url="", props={"RuntimeUID": "uid-other-unsaved"})
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:other-book", doc=sibling)
+        with (
+            patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}),
+            patch("plugin.scripting.session_manager._msgbox"),
+            patch("plugin.scripting.session_manager.python_session_mode", return_value="isolated"),
+        ):
+            session_manager._reset_calc_python_sessions(MagicMock(), target)
+        ids = session_manager.recorded_calc_session_ids()
+        assert "calc:unsaved:other-book" in ids
+        assert session_manager.recorded_calc_session_count() >= 2
+        assert session_manager.off_main_calc_session_is_unambiguous() is False
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_workbook_session_id_off_main_ambiguous_when_two_workbooks() -> None:
     from unittest.mock import MagicMock, patch
 
