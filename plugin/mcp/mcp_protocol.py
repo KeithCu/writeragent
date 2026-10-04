@@ -549,8 +549,9 @@ class MCPProtocolHandler:
         """GET /debug — show available debug actions."""
         # Note: headers are just a dict here, so wrap it in a dummy handler structure
         # or just pass a dummy to `_is_tunneled` which expects `handler.headers`.
+        _hdrs = headers
         class _DummyHandler:
-            headers = headers
+            headers = _hdrs
 
         if self._is_tunneled(_DummyHandler()):
             return (403, {"error": "Forbidden: Debug actions restricted to localhost (tunneled access blocked)"})
