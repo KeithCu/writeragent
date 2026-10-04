@@ -120,6 +120,61 @@ def test_image_generate_default_base_size_is_1024():
     assert DEFAULT_IMAGE_BASE_SIZE == 1024
 
 
+def test_image_generate_forwards_stop_checker():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    stop_checker = MagicMock(return_value=False)
+    ctx.stop_checker = stop_checker
+
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/new.png"], None)
+
+    def _run(fn, *args, timeout=60.0, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.insert_image"),
+        patch("plugin.writer.images.images.get_config_int", return_value=1024),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="a stop checked cat")
+    assert res["status"] == "ok"
+    assert svc.generate_image.call_args.kwargs.get("stop_checker") is stop_checker
+
+
+def test_image_generate_skips_insert_on_stop():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    stop_checker = MagicMock(return_value=True)  # Signifies generation was stopped/cancelled
+    ctx.stop_checker = stop_checker
+
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/new.png"], None)
+
+    def _run(fn, *args, timeout=60.0, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.insert_image") as mock_insert,
+        patch("plugin.writer.images.images.replace_image_in_place") as mock_replace,
+        patch("plugin.writer.images.images.get_config_int", return_value=1024),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="a canceled cat")
+    assert res["status"] == "ok"
+    assert res["message"] == "Image generation was cancelled by the user."
+    mock_insert.assert_not_called()
+    mock_replace.assert_not_called()
+
+
 def test_image_generate_invalid_base_size_falls_back_to_1024():
     ctx = TestingFactory.create_context(doc_type="writer")
     svc = MagicMock()
