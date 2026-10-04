@@ -199,6 +199,37 @@ def test_start_native_script_run_worker_splits_main_and_venv():
     assert seen == [{"ok": True, "status_ok_text": "done"}]
 
 
+def test_start_native_script_run_forwards_data_range():
+    """Monaco's data-binding text is the range passed into prepare."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    seen = []
+
+    def _prepare(passed_ctx, passed_doc, code, *, data_range=None):
+        assert passed_ctx is ctx
+        assert passed_doc is doc
+        assert code == "result = 1"
+        assert data_range == "A1:B2"
+        return {"early_outcome": {"ok": True, "status_ok_text": "bound"}}
+
+    def _inline(func, *args, **kwargs):
+        func()
+        return MagicMock()
+
+    with (
+        _deliver_posted_native_run(),
+        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch("plugin.scripting.python_runner._prepare_rps_execution", side_effect=_prepare),
+        patch("plugin.scripting.python_runner._run_prepared_rps") as mock_run,
+    ):
+        ui.start_native_script_run(
+            ctx, doc, "result = 1", on_complete=seen.append, data_range="A1:B2"
+        )
+
+    mock_run.assert_not_called()
+    assert seen == [{"ok": True, "status_ok_text": "bound"}]
+
+
 def test_start_native_script_run_reports_venv_failure():
     ctx = MagicMock()
     doc = MagicMock()

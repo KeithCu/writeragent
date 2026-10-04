@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from typing import Any, Callable
 
 from plugin.framework.config import get_config, get_config_str
@@ -49,8 +50,12 @@ DEFAULT_STT_LOCAL_MODEL = "base"
 
 _PROBE_TIMEOUT_SEC = 60.0
 # First run may download weights (base is ~150 MB; medium is ~1.5 GB) and then
-# transcribe. A short recording on CPU is much less than this.
+# transcribe. A short recording on CPU is much less than this. Stop kills the
+# child; this is only the bound when the user does not press Stop.
 _TRANSCRIBE_TIMEOUT_SEC = 900.0
+# How often the host re-checks Stop while the child is alive. The cancel hook
+# kills the process immediately; this wait is the backup poll.
+_STT_POLL_SEC = 0.2
 
 _WHISPER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whisper_transcribe.py")
 
@@ -237,6 +242,109 @@ def resolve_stt_python() -> str | None:
     return resolve_venv_python(venv_dir)
 
 
+class SttStopped(Exception):
+    """Stop aborted speech-to-text before a transcript existed.
+
+    Not a :class:`ConfigError`. The sidebar must end the turn as Stopped
+    and must not paint a transcription failure for that click.
+    """
+
+
+def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
+    if stop_checker is None:
+        return False
+    try:
+        return bool(stop_checker())
+    except Exception:
+        log.exception("STT stop_checker failed")
+        return False
+
+
+def terminate_stt_process(proc: subprocess.Popen[str] | None) -> None:
+    """Kill a Whisper or probe child. A second call is a no-op.
+
+    ``SIGKILL`` (``kill``) so Stop does not wait on a 900s ``subprocess.run``.
+    The caller reaps with ``wait``. Do not ``wait`` here: this runs on the UI
+    thread from ``SendCancellation.cancel``.
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.kill()
+    except OSError:
+        log.debug("STT kill failed", exc_info=True)
+
+
+def _reap_stt_process(proc: subprocess.Popen[str]) -> None:
+    try:
+        proc.wait(timeout=1.0)
+    except Exception:
+        log.debug("STT reap failed", exc_info=True)
+
+
+def _stt_run_extra(
+    stop_checker: Callable[[], bool] | None,
+    cancel_scope: Any,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None,
+) -> dict[str, Any]:
+    """Keyword args for :func:`_run_cmd`. Omit Nones so test doubles keep ``(cmd, timeout)``."""
+    extra: dict[str, Any] = {}
+    if stop_checker is not None:
+        extra["stop_checker"] = stop_checker
+    if cancel_scope is not None:
+        extra["cancel_scope"] = cancel_scope
+    if on_spawn is not None:
+        extra["on_spawn"] = on_spawn
+    return extra
+
+
+def _arm_stt_cancel(
+    proc: subprocess.Popen[str],
+    stop_checker: Callable[[], bool] | None,
+    cancel_scope: Any,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None,
+) -> None:
+    """Register kill on the send scope that was current when STT started.
+
+    What was wrong: the child was ``subprocess.run(..., timeout=900)`` with no
+    stop checker. Stop cancelled the chat scope and the process kept running.
+    A later send stores a new scope on the panel; reading that live field
+    misses the first Stop.
+
+    Why: ``register_on_cancel`` closes over this process and this scope object.
+    Cancelling a newer send does not run this hook. ``on_spawn`` lets the
+    sidebar kill the same process when Stop hits after the panel field moved.
+    """
+
+    def _kill() -> None:
+        terminate_stt_process(proc)
+
+    if cancel_scope is not None:
+        register = getattr(cancel_scope, "register_on_cancel", None)
+        if callable(register):
+            try:
+                register(_kill)
+            except Exception:
+                log.exception("STT cancel hook registration failed")
+    if on_spawn is not None:
+        try:
+            on_spawn(proc)
+        except Exception:
+            log.exception("STT on_spawn failed")
+    if _stop_requested(stop_checker):
+        _kill()
+        raise SttStopped()
+
+
+def _read_stt_pipe(stream: Any, sink: list[str]) -> None:
+    try:
+        data = stream.read() if stream is not None else ""
+    except Exception:
+        log.debug("STT pipe read failed", exc_info=True)
+        data = ""
+    sink.append(data if isinstance(data, str) else "")
+
+
 def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
     log.info("%s", message)
     if on_status is None:
@@ -247,32 +355,125 @@ def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
         log.exception("STT status callback failed")
 
 
-def _run_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str] | None:
+def _run_cmd(
+    cmd: list[str],
+    timeout: float,
+    stop_checker: Callable[[], bool] | None = None,
+    cancel_scope: Any = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run *cmd* and return when it exits, Stop fires, or *timeout* elapses.
+
+    Returns None on timeout or when the process cannot start. Raises
+    :class:`SttStopped` when *stop_checker* or *cancel_scope* aborts it.
+    The child is killed in both cases so a Whisper process is not left behind.
+    """
     # A console window on Windows would flash over the document during Record.
     # Same flag as plugin/scripting/audio_recorder_service.py _popen_kwargs.
+    if _stop_requested(stop_checker):
+        raise SttStopped()
     run_kwargs: dict[str, Any] = {
-        "capture_output": True,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
         "text": True,
-        "timeout": timeout,
-        "check": False,
         "stdin": subprocess.DEVNULL,
         "env": scrub_subprocess_env(dict(os.environ)),
     }
     if sys.platform == "win32":
         run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
-        return subprocess.run(wrap_command_for_sandbox(cmd), **run_kwargs)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = subprocess.Popen(wrap_command_for_sandbox(cmd), **run_kwargs)
+    except OSError as exc:
         log.warning("STT command failed (%s): %s", cmd[0], exc)
         return None
 
+    from plugin.framework.worker_pool import run_in_background
 
-def _probe_faster_whisper(py_exe: str) -> bool:
-    completed = _run_cmd([py_exe, "-c", "import faster_whisper"], _PROBE_TIMEOUT_SEC)
+    # Drain both pipes. A full stdout pipe deadlocks the child while we poll Stop.
+    out_parts: list[str] = []
+    err_parts: list[str] = []
+    handles: list[Any] = []
+    stdout_pipe = proc.stdout
+    stderr_pipe = proc.stderr
+    if stdout_pipe is not None:
+        handles.append(
+            run_in_background(lambda stream=stdout_pipe, sink=out_parts: _read_stt_pipe(stream, sink), name="stt-stdout", dedicated=True)
+        )
+    if stderr_pipe is not None:
+        handles.append(
+            run_in_background(lambda stream=stderr_pipe, sink=err_parts: _read_stt_pipe(stream, sink), name="stt-stderr", dedicated=True)
+        )
+
+    def _join_drains() -> None:
+        for handle in handles:
+            try:
+                handle.join(timeout=1.0)
+            except Exception:
+                log.debug("STT pipe drain join failed", exc_info=True)
+
+    try:
+        _arm_stt_cancel(proc, stop_checker, cancel_scope, on_spawn)
+        deadline = time.monotonic() + timeout
+        while proc.poll() is None:
+            if _stop_requested(stop_checker):
+                terminate_stt_process(proc)
+                raise SttStopped()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                log.warning("STT command timed out (%s)", cmd[0])
+                terminate_stt_process(proc)
+                return None
+            try:
+                proc.wait(timeout=min(_STT_POLL_SEC, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+            # The cancel hook can kill the child during wait(). poll() is then
+            # set, so the loop must not treat that exit as a transcript.
+            if _stop_requested(stop_checker):
+                terminate_stt_process(proc)
+                raise SttStopped()
+        if _stop_requested(stop_checker):
+            terminate_stt_process(proc)
+            raise SttStopped()
+        # Join before reading the lists. ``return`` evaluates its expression
+        # before ``finally``, so a join only in ``finally`` would drop stdout.
+        _reap_stt_process(proc)
+        _join_drains()
+        return subprocess.CompletedProcess(
+            cmd,
+            proc.returncode if proc.returncode is not None else 1,
+            "".join(out_parts),
+            "".join(err_parts),
+        )
+    finally:
+        if proc.poll() is None:
+            terminate_stt_process(proc)
+            _reap_stt_process(proc)
+        _join_drains()
+
+
+def _probe_faster_whisper(
+    py_exe: str,
+    *,
+    stop_checker: Callable[[], bool] | None = None,
+    cancel_scope: Any = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+) -> bool:
+    completed = _run_cmd(
+        [py_exe, "-c", "import faster_whisper"],
+        _PROBE_TIMEOUT_SEC,
+        **_stt_run_extra(stop_checker, cancel_scope, on_spawn),
+    )
     return completed is not None and completed.returncode == 0
 
 
-def ensure_faster_whisper(py_exe: str) -> bool:
+def ensure_faster_whisper(
+    py_exe: str,
+    *,
+    stop_checker: Callable[[], bool] | None = None,
+    cancel_scope: Any = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+) -> bool:
     """Return True when ``import faster_whisper`` succeeds in ``py_exe``.
 
     A successful probe is remembered for this process so the next recording
@@ -284,7 +485,7 @@ def ensure_faster_whisper(py_exe: str) -> bool:
     with _probe_lock:
         if py_exe in _whisper_ready:
             return True
-    if _probe_faster_whisper(py_exe):
+    if _probe_faster_whisper(py_exe, stop_checker=stop_checker, cancel_scope=cancel_scope, on_spawn=on_spawn):
         with _probe_lock:
             _whisper_ready.add(py_exe)
         return True
@@ -338,13 +539,17 @@ def _transcribe_local(
     wav_path: str,
     model_name: str,
     on_status: Callable[[str], None] | None,
+    *,
+    stop_checker: Callable[[], bool] | None = None,
+    cancel_scope: Any = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
     py_exe = resolve_stt_python()
     if not py_exe:
         raise ConfigError(_missing_venv_message())
     if not os.path.isfile(_WHISPER_SCRIPT):
         raise ConfigError(_("Local Whisper script is missing from the extension."))
-    if not ensure_faster_whisper(py_exe):
+    if not ensure_faster_whisper(py_exe, stop_checker=stop_checker, cancel_scope=cancel_scope, on_spawn=on_spawn):
         raise ConfigError(_missing_package_message())
 
     # The child downloads inside WhisperModel. Mention it only when model.bin
@@ -354,6 +559,7 @@ def _transcribe_local(
     completed = _run_cmd(
         [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, "--model", model_name],
         _TRANSCRIBE_TIMEOUT_SEC,
+        **_stt_run_extra(stop_checker, cancel_scope, on_spawn),
     )
     if completed is None:
         if _local_whisper_weights_cached(model_name):
@@ -387,15 +593,33 @@ def transcribe(
     client: Any = None,
     model: str | None = None,
     on_status: Callable[[str], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    cancel_scope: Any = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
     """Transcribe ``wav_path`` with the configured STT provider.
 
     ``model`` is the endpoint STT id (``audio.stt_model``). Local Whisper
     ignores it and uses ``audio.stt_local_model``. Endpoint calls
     ``client.transcribe_audio`` and does not spawn the venv.
+
+    ``stop_checker`` and ``cancel_scope`` are the send that started this
+    transcription (``capture_send_stop``). A later send must not replace them.
     """
+    if _stop_requested(stop_checker):
+        raise SttStopped()
     if uses_local_stt():
-        return _transcribe_local(wav_path, get_stt_local_model(), on_status)
+        # Omit None stop kwargs so a test double of ``(wav, model, on_status)``
+        # still matches. A real Stop always passes the checker.
+        return _transcribe_local(
+            wav_path,
+            get_stt_local_model(),
+            on_status,
+            **_stt_run_extra(stop_checker, cancel_scope, on_spawn),
+        )
     if client is None or not hasattr(client, "transcribe_audio"):
         raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
-    return str(client.transcribe_audio(wav_path, model=model) or "")
+    extra = _stt_run_extra(stop_checker, None, None)
+    # Endpoint Stop is the HTTP checker. The scope also calls ``client.stop``
+    # when the sidebar registered this client on that same send.
+    return str(client.transcribe_audio(wav_path, model=model, **extra) or "")

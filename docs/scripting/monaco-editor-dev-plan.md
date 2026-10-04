@@ -47,7 +47,7 @@ Same framing as [`worker_harness.py`](../../plugin/scripting/worker_harness.py) 
 | `load` | LO → child | Buffer contents: stripped Python (never `=PY()`), optional `title`, `data_binding`, `plain_text_label`, `save_as_plain`, **`ui`** (see [Localization](#localization)), plus the session envelope below. |
 | `save` | child → LO | User saved/ran: `code`, optional `save_as_plain`, optional `data_binding`, optional `action`. Echoes the envelope. |
 | `saved` / `error` | LO → child | Apply result in UI; `saved` may include `status_ok_text` (e.g. **Saved without =PY().**). Same envelope as the `save` they answer. |
-| `request_save` | LO → child | Ask the focused buffer to click Save (dirty cell → another cell). Addressed to that `session_id`. |
+| `request_save` | LO → child | Ask the focused buffer to click Save before a different load (any dirty mode). Addressed to that `session_id`. |
 | `dirty` | child → LO | Unsaved-edit flag for that session. |
 | `closed` / `cancel` | either | Tear down **that** `session_id`. Window hide vs process exit is still the persistent-child lifecycle. |
 | `scripts_list` / `request_scripts` / `save_script` / … | either | Run Python Script picker; stamp the envelope like any other session message. |
@@ -66,7 +66,7 @@ Callers put identity on `load` (cell A1, script name, init `resource`, LaTeX obj
 
 **Flow:** `launch_monaco_editor` mints or reuses a session, registers `on_save` / `on_closed` in `PersistentEditor.sessions[session_id]`, sends stamped `load`. Reusing the same target clears `pending_load`, `pending_on_save`, and `pending_on_closed`, so a `queue_save_then_load` still in flight cannot fire on a later unrelated save. Child remembers the last `load`’s envelope and stamps `_write_parent`. JS stores `session_id` and ignores `saved`/`error` for a different id. Host `_dispatch_incoming` looks up the id; unknown ids are ignored (not applied to “the” editor).
 
-**One child process, N host sessions.** UI queues in the child are keyed by `session_id`. **Simple UI (current):** one focused view — opening a *different* target `end_session`s the previous one and sends `load`. Dirty calc cells still confirm, then `request_save` on the old id, then `load` the new. That replace-on-switch policy is UI, not the protocol. Extra windows later keep unfocused sessions in the map (see [Multiple editor views](#multiple-editor-views-windows-vs-tabs)).
+**One child process, N host sessions.** UI queues in the child are keyed by `session_id`. **Simple UI (current):** one focused view — opening a *different* target `end_session`s the previous one and sends `load`. Any dirty buffer (calc cell, Run Python Script, init script, or LaTeX) confirms first. Yes sends `request_save` on the old id, then loads the new buffer. Choosing No discards the edits. Cancel keeps the current editor. That replace-on-switch policy is UI, not the protocol. Extra windows later keep unfocused sessions in the map (see [Multiple editor views](#multiple-editor-views-windows-vs-tabs)).
 
 ---
 
@@ -76,6 +76,7 @@ Callers put identity on `load` (cell A1, script name, init `resource`, LaTeX obj
 
 - Pipe reader: [`run_in_background`](../../plugin/framework/worker_pool.py) (`editor-pipe-reader`).
 - **Never call UNO from the reader thread.** Use [`execute_on_main_thread`](../../plugin/framework/queue_executor.py) for `save` (setFormula, `calculateAll`).
+- **Monaco Run** (`action == "run"`) returns a `DeferredEditorResult`. Document prep and result insert stay on the UI thread; the venv wait uses `start_native_script_run` off that thread. The saved or error frame is sent when the run finishes. Save (`action == "save"`) stays synchronous.
 - A script-picker exception is sent as an `error` frame and must not escape the reader. Save and close already wrap their bodies. The save handler's error-frame send is guarded the same way as the picker: a second failure while sending that frame is logged and does not leave `_dispatch_incoming`. An escaping exception used to mark the reader failed and `terminate()` the child, dropping the unsaved buffer.
 - Unexpected disconnect drops `run_script_doc` and `run_script_doc_url` once no session remains. Those fields are the launch document the picker targets. Leaving them set kept the UNO reference alive. `terminate_persistent_editor` already cleared them. A replacement session that is still registered is left alone.
 - When the reader loop ends and this process is still `self._proc` with `poll()` `None` (clean stdout EOF or a failed read), `terminate()` kills the child. Leaving it up made `is_running` true with no reader, so the next open reused a dead session. A child that has already exited, or a reader superseded by a new spawn, is left alone.
@@ -667,7 +668,7 @@ The architecture challenge (unaddressed pipe, one `on_save`, process-global dirt
 | Data ranges | Editable toolbar textbox (`data_binding` on load/save); written into `=PY("code"; …)` suffix via [`formula_edit.py`](../../plugin/calc/python/formula_edit.py); single range → `data`, multiple comma/semicolon-separated → `ranges` |
 | Formula strings | Reads `getFormula()`, `FormulaLocal`, `Formula`; normalizes leading `=`, array braces, smart quotes |
 | Unparsed PYTHON (e.g. `=PY(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |
-| Sessions | One **persistent child** process; **N host sessions** keyed by `session_id`. Simple UI: one **focused** view — switching cells sends `load` and ends the previous session (dirty path still `request_save` then load). Same cell/script target reuses `session_id`. WM close hides the window, drops that session, process stays warm. |
+| Sessions | One **persistent child** process; **N host sessions** keyed by `session_id`. Simple UI: one **focused** view — switching editors sends `load` and ends the previous session. Any dirty mode confirms first (`request_save`, then load, or discard, or cancel). Same cell/script target reuses `session_id`. WM close hides the window, drops that session, process stays warm. |
 | Child stderr | `editor-stderr-drain` thread logs lines at debug; `read_stderr_tail()` uses ring buffer for failure dialogs. |
 | Child `sys.path` | [`editor_main.py`](../../plugin/scripting/editor_main.py) bootstraps repo root so `plugin.scripting.editor_protocol` imports |
 | Save errors to UI | Bridge sends `error` + `traceback` to child; red toolbar status (Phase 2A) |

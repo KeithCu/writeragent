@@ -542,6 +542,81 @@ class TestSendDispose:
         assert listener._terminal_status == ""
         listener._append_response.assert_not_called()
 
+    def test_stt_inflight_keeps_the_first_stop(self) -> None:
+        """A second StartSend must not replace the scope that owns the Whisper child."""
+        from plugin.chatbot.send_state import StartSendEffect
+
+        listener = _make_send_listener()
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *a, **k: posted.append(fn)
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        first = listener._send_cancellation
+        assert first is not None
+        listener._stt_inflight = True
+        killed: list[str] = []
+        listener._stt_kill = lambda: killed.append("kill")
+        with patch("plugin.audio.tts_service.stop_speech"):
+            listener._interpret_effect(StartSendEffect())
+        assert listener._send_cancellation is first
+        assert len(posted) == 1
+        assert not first.is_cancelled()
+        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        assert killed == ["kill"]
+        assert first.is_cancelled()
+        assert listener._stop_requested_fallback
+
+    def test_nested_drain_during_stt_does_not_start_another_send(self) -> None:
+        listener = _make_send_listener()
+        scope = SendCancellation()
+        listener._send_cancellation = scope
+        listener._stt_inflight = True
+        listener._do_send = MagicMock()
+        listener._run_send_drain()
+        listener._do_send.assert_not_called()
+        assert listener._send_cancellation is scope
+        assert not scope.is_cancelled()
+
+    def test_do_send_during_stt_does_not_abort_the_turn(self) -> None:
+        listener = _make_send_listener()
+        listener._stt_inflight = True
+        with patch("plugin.chatbot.tool_loop_actions.begin_send_turn") as begin:
+            listener._do_send()
+        begin.assert_not_called()
+
+    def test_do_send_stopped_stt_does_not_post_empty_speech(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.audio_wav_path = "/tmp/take.wav"
+        listener.query_control = None
+        listener._append_response = MagicMock()
+
+        def _stopped(_path: str, _model: str) -> str:
+            listener._terminal_status = "Stopped"
+            return ""
+
+        listener._transcribe_audio = _stopped
+        with (
+            patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()),
+            patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
+            patch("plugin.audio.stt_service.uses_local_stt", return_value=True),
+            patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat"),
+            patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+            patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="whisper-1"),
+        ):
+            listener._do_send()
+        assert listener._terminal_status == "Stopped"
+        for call in listener._append_response.call_args_list:
+            assert "No speech detected" not in str(call.args[0])
+
+    def test_disposing_kills_inflight_stt(self) -> None:
+        listener = _make_send_listener()
+        killed: list[str] = []
+        listener._stt_kill = lambda: killed.append("kill")
+        with patch("plugin.audio.tts_service.stop_speech"):
+            listener.disposing(None)
+        assert killed == ["kill"]
+
     def test_record_start_failure_does_not_leave_stop_rec(self) -> None:
         """Nested ERROR during RECORD_CLICKED used to restore Stop Rec after resetting is_recording."""
         listener = _make_send_listener()

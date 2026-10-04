@@ -31,7 +31,7 @@ from plugin.framework.worker_pool import get_subprocess_creationflags
 if TYPE_CHECKING:
     import subprocess as subprocess_types
 
-from plugin.framework.thread_guard import background
+from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import QueueExecutor, default_executor
@@ -216,6 +216,33 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
 # the same thread to clear or check _ACTIVE_SESSION.
 _SESSION_LOCK = threading.RLock()
 _ACTIVE_SESSION: EditorSession | None = None
+# Set on a dirty session after the user picks Don't save. _register_load_session
+# refuses to overwrite a live dirty buffer unless this is present.
+_REPLACE_CONFIRMED = "replace_confirmed"
+
+
+_EditorDeliver = Callable[[dict[str, Any]], None]
+_EditorStart = Callable[[_EditorDeliver], None]
+
+
+class DeferredEditorResult:
+    """A save whose Monaco frame is delivered later, on the main thread.
+
+    Monaco Run used to call the venv wait inside the UI-thread save handler.
+    ``start(deliver)`` schedules that work. ``deliver`` is called once with the
+    same dict a synchronous ``on_save`` would have returned.
+    """
+
+    _start: _EditorStart
+
+    def __init__(self, start: _EditorStart) -> None:
+        self._start = start
+
+    def start(self, deliver: _EditorDeliver) -> None:
+        self._start(deliver)
+
+
+EditorSaveCallback = Callable[..., dict[str, Any] | DeferredEditorResult]
 
 
 @dataclass
@@ -225,11 +252,11 @@ class EditorSessionState:
     session_id: str
     mode: str
     target: dict[str, str]
-    on_save: Callable[..., dict[str, Any]] | None = None
+    on_save: EditorSaveCallback | None = None
     on_closed: Callable[[], None] | None = None
     dirty: bool = False
     pending_load: dict[str, Any] | None = None
-    pending_on_save: Callable[..., dict[str, Any]] | None = None
+    pending_on_save: EditorSaveCallback | None = None
     pending_on_closed: Callable[[], None] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -646,6 +673,10 @@ class PersistentEditor:
                 with self._save_lock:
                     if self._save_token is not token:
                         return
+                    # A deferred Run delivers on a later UI turn. A newer save
+                    # replaces this token, so a late result must not clear dirty.
+                    if payload.get("type") == "saved" or payload.get("ok"):
+                        captured.dirty = False
                     self.send(payload, session=captured)
 
             def _handle_save() -> None:
@@ -655,6 +686,34 @@ class PersistentEditor:
                         result = on_save(code, save_as_plain, data_binding, action)
                     else:
                         result = {"type": "saved", "ok": True}
+                    if isinstance(result, DeferredEditorResult):
+                        # What was wrong: Monaco Run ran execute_and_insert_result
+                        # inside this UI-thread handler. The venv wait froze
+                        # LibreOffice for the whole script.
+                        # How: the pipe reader blocks in executor.execute until
+                        # on_save returns, and on_save waited for the venv.
+                        # Why this works: on_save returns a DeferredEditorResult
+                        # after the fast library write. start() uses the native
+                        # prepare/finish split, so only the venv wait leaves the
+                        # UI thread. The saved/error frame is sent when it
+                        # finishes. pending_load stays for the Save click that
+                        # queued a mode switch; this Run must not consume it.
+                        def deliver(payload: dict[str, Any]) -> None:
+                            if not isinstance(payload, dict):
+                                payload = {"type": "error", "message": _("Script execution failed.")}
+                            try:
+                                _send_save(payload)
+                            except Exception:
+                                log.exception("Editor run result could not be sent")
+
+                        try:
+                            result.start(deliver)
+                        except Exception as e:
+                            log.exception("Editor run failed to start")
+                            _send_save(
+                                {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
+                            )
+                        return
                     if not isinstance(result, dict):
                         result = {"type": "saved", "ok": True}
                     if result.get("type") == "saved" or result.get("ok"):
@@ -781,7 +840,7 @@ class EditorSession:
     """One editor session wrapper, delegating to the PersistentEditor singleton."""
 
     _proc: subprocess_types.Popen[bytes]
-    _on_save: Callable[..., dict[str, Any]]
+    _on_save: EditorSaveCallback
     _on_closed: Callable[[], None]
     _executor: QueueExecutor
     session_id: str
@@ -790,7 +849,7 @@ class EditorSession:
         self,
         proc: "subprocess_types.Popen[bytes]",
         *,
-        on_save: Callable[..., dict[str, Any]],
+        on_save: EditorSaveCallback,
         on_closed: Callable[[], None],
         executor: QueueExecutor | None = None,
         session_id: str = "",
@@ -824,7 +883,20 @@ class EditorSession:
         if self.session_id:
             live = _PERSISTENT_EDITOR.lookup(self.session_id)
             if live is not None and live.on_save is self._on_save:
-                _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=False)
+                # What was wrong: every replace ended the session here with
+                # call_closed=False, before on_save and before on_closed.
+                # How: launch_monaco_editor calls set_active_session first, so
+                # the focused buffer was already gone when load overwrote it.
+                # A dirty calc cell, Run Script, init script, or LaTeX buffer
+                # was discarded with nothing written back.
+                # Why this works: a dirty window that is still running stays
+                # registered. launch_monaco_editor confirms or queues a save
+                # before it gets here. Discard sets replace_confirmed, and
+                # _register_load_session ends that target with on_closed.
+                # A dead process still ends here so the map does not keep a
+                # session whose window is gone.
+                if not (live.dirty is True and _PERSISTENT_EDITOR.is_running):
+                    _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=False)
 
         global _ACTIVE_SESSION
         with _SESSION_LOCK:
@@ -840,6 +912,9 @@ def get_active_session() -> EditorSession | None:
 def set_active_session(session: EditorSession | None) -> None:
     global _ACTIVE_SESSION
     with _SESSION_LOCK:
+        # _finish keeps a dirty running buffer. The confirm/flush gate in
+        # launch_monaco_editor runs before this, so a replace does not drop
+        # unsaved edits on the way into _register_load_session.
         if session is not None and _ACTIVE_SESSION is not None and _ACTIVE_SESSION is not session:
             _ACTIVE_SESSION._finish()
         if session is None and _ACTIVE_SESSION is not None:
@@ -916,15 +991,52 @@ def monaco_open_expected(ctx: Any) -> tuple[str | None, bool]:
     return exe, ok and bool(exe)
 
 
+def monaco_session_needs_flush() -> bool:
+    """True when the running Monaco window has unsaved edits, in any mode."""
+    editor = _PERSISTENT_EDITOR
+    if not editor.is_running:
+        return False
+    focused = editor.focused()
+    if focused is None:
+        return False
+    # ``is True`` so a MagicMock stand-in for the editor does not look dirty.
+    return focused.dirty is True
+
+
 def calc_cell_session_needs_flush() -> bool:
-    """True when a running Monaco calc_cell session has unsaved edits."""
+    """True when the running Monaco buffer has unsaved edits.
+
+    What was wrong: this returned True only for ``mode == "calc_cell"``.
+    Opening a cell while Run Python Script, the init script, or LaTeX was
+    dirty skipped the confirm. ``run_python_dialog`` never called this, so a
+    dirty cell was dropped the other way when Run Python Script opened.
+    How: ``launch_monaco_editor`` then ``set_active_session`` → ``_finish``
+    → ``end_session(call_closed=False)``, and the next load overwrote the
+    buffer. ``on_save`` never ran, so the edits were not written.
+    Why this works: any dirty focused buffer counts. ``launch_monaco_editor``
+    asks before replace, for every mode, in both directions.
+    """
+    return monaco_session_needs_flush()
+
+
+def focused_monaco_buffer_label() -> str:
+    """Short name for the unsaved-changes question (cell, script, or formula)."""
     focused = _PERSISTENT_EDITOR.focused()
-    return (
-        _PERSISTENT_EDITOR.is_running
-        and focused is not None
-        and focused.mode == "calc_cell"
-        and focused.dirty
-    )
+    if focused is None:
+        return ""
+    target = focused.target
+    if focused.mode == "calc_cell":
+        return target.get("cell_address", "")
+    if focused.mode == "run_script":
+        return target.get("script_name", "")
+    if focused.mode == "init_script":
+        return _("the initialization script")
+    if focused.mode == "latex":
+        resource = target.get("resource", "")
+        if resource and resource != "insert":
+            return resource
+        return _("the LaTeX formula")
+    return target.get("resource", "")
 
 
 def last_calc_cell_address() -> str:
@@ -934,9 +1046,82 @@ def last_calc_cell_address() -> str:
     return focused.target.get("cell_address", "")
 
 
+def _dirty_blocks_replace(state: EditorSessionState) -> bool:
+    """True when *state* is a live unsaved buffer the user has not discarded."""
+    if state.dirty is not True:
+        return False
+    if state.extra.get(_REPLACE_CONFIRMED) is True:
+        return False
+    return _PERSISTENT_EDITOR.is_running
+
+
+class DirtyBufferError(RuntimeError):
+    """Refused to replace a live Monaco buffer that still has unsaved edits."""
+
+
+@main_thread_only
+def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
+    """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
+    from plugin.framework.uno_context import get_desktop, product_display_name
+
+    title = product_display_name(ctx)
+    where = label.strip() if label and label.strip() else _("this editor")
+    message = _(
+        "Save changes to {0}?\n\nYes saves them before switching. No discards them. Cancel keeps the current editor."
+    ).format(where)
+    try:
+        desktop = get_desktop(ctx)
+        frame = desktop.getCurrentFrame() if desktop is not None else None
+        window = frame.getContainerWindow() if frame is not None else None
+        if window is None:
+            return "cancel"
+        smgr = ctx.getServiceManager()
+        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+        # QUERYBOX=4, BUTTONS_YES_NO_CANCEL=4. Results: YES=2, NO=3, CANCEL=0.
+        box = toolkit.createMessageBox(window, 4, 4, title, message)
+        result = int(box.execute())
+        if result == 2:
+            return "save"
+        if result == 3:
+            return "discard"
+        return "cancel"
+    except Exception:
+        log.exception("confirm_unsaved_monaco_edit failed")
+        return "cancel"
+
+
+def prepare_monaco_buffer_replace(
+    ctx: Any,
+    load_message: dict[str, Any],
+    on_save: EditorSaveCallback,
+    on_closed: Callable[[], None],
+) -> str:
+    """Confirm or queue a save before a load replaces the focused buffer.
+
+    Returns ``proceed`` (nothing dirty, or the user discarded), ``queued``
+    (request_save is in flight; do not load yet), or ``cancel``.
+    A second call after discard returns ``proceed`` without asking again.
+    """
+    if not monaco_session_needs_flush():
+        return "proceed"
+    focused = _PERSISTENT_EDITOR.focused()
+    if focused is None:
+        return "proceed"
+    if focused.extra.get(_REPLACE_CONFIRMED) is True:
+        return "proceed"
+    choice = confirm_unsaved_monaco_edit(ctx, focused_monaco_buffer_label())
+    if choice == "cancel":
+        return "cancel"
+    if choice == "save":
+        queue_save_then_load(load_message, on_save, on_closed)
+        return "queued"
+    focused.extra[_REPLACE_CONFIRMED] = True
+    return "proceed"
+
+
 def _register_load_session(
     ipc_message: dict[str, Any],
-    on_save: Callable[..., dict[str, Any]],
+    on_save: EditorSaveCallback,
     on_closed: Callable[[], None],
 ) -> tuple[EditorSessionState, dict[str, Any]]:
     """Bind *ipc_message* to a session (reuse same target; replace focused if different)."""
@@ -944,16 +1129,40 @@ def _register_load_session(
     target = target_from_load(ipc_message)
     ipc_message["mode"] = mode
     ipc_message["target"] = target
+
+    existing = _PERSISTENT_EDITOR.find_by_target(mode, target)
+    focused = _PERSISTENT_EDITOR.focused()
+    blocked = existing if existing is not None and _dirty_blocks_replace(existing) else None
+    if blocked is None and existing is None and focused is not None and _dirty_blocks_replace(focused):
+        blocked = focused
+    if blocked is not None:
+        # What was wrong: switching modes ended the focused session and the
+        # load overwrote the buffer. The only confirm covered calc_cell, and
+        # only when opening another cell. Run Script, init, and LaTeX edits
+        # were dropped, and Run Script dropped a dirty cell.
+        # How: set_active_session → _finish used call_closed=False, so neither
+        # on_save nor on_closed ran before the new code replaced the editor.
+        # Why this works: launch_monaco_editor asks first. Save queues
+        # request_save and does not reach here until that save clears dirty.
+        # Discard sets replace_confirmed. Anything else keeps the buffer.
+        raise DirtyBufferError(
+            f"Refusing to replace dirty Monaco session {blocked.session_id} ({blocked.mode})"
+        )
+
+    if mode == "run_script" and "run_script_doc" in ipc_message:
+        # Queued save-then-load still carries the document. The direct launch
+        # path pops it before this call and has already stored it.
+        _PERSISTENT_EDITOR.set_run_script_document(ipc_message.get("run_script_doc"))
     ipc_message.pop("run_script_doc", None)
     ipc_message.pop("doc", None)
 
-    existing = _PERSISTENT_EDITOR.find_by_target(mode, target)
     if existing is not None:
         existing.on_save = on_save
         existing.on_closed = on_closed
         existing.target = target
         existing.mode = mode
         existing.dirty = False
+        existing.extra.pop(_REPLACE_CONFIRMED, None)
         # What was wrong: reuse reset dirty but left pending_load /
         # pending_on_save / pending_on_closed. A queue_save_then_load still
         # in flight then applied that stale load on a later unrelated save.
@@ -964,7 +1173,6 @@ def _register_load_session(
         existing.pending_on_closed = None
         state = existing
     else:
-        focused = _PERSISTENT_EDITOR.focused()
         if focused is not None:
             # One visible buffer: switching targets ends the previous session.
             _PERSISTENT_EDITOR.end_session(focused.session_id, call_closed=True)
@@ -984,7 +1192,7 @@ def _register_load_session(
 
 def _activate_load(
     ipc_message: dict[str, Any],
-    on_save: Callable[..., dict[str, Any]],
+    on_save: EditorSaveCallback,
     on_closed: Callable[[], None],
 ) -> EditorSessionState:
     """Register or reuse a session and send ``load`` (process already up)."""
@@ -995,10 +1203,10 @@ def _activate_load(
 
 def queue_save_then_load(
     load_message: dict[str, Any],
-    on_save: Callable[..., dict[str, Any]],
+    on_save: EditorSaveCallback,
     on_closed: Callable[[], None],
 ) -> None:
-    """Ask Monaco to save the current cell, then load *load_message*."""
+    """Ask Monaco to save the current buffer, then load *load_message*."""
     from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
 
     focused = _PERSISTENT_EDITOR.focused()
@@ -1007,7 +1215,15 @@ def queue_save_then_load(
     focused.pending_load = enrich_monaco_load_message(dict(load_message))
     focused.pending_on_save = on_save
     focused.pending_on_closed = on_closed
-    _PERSISTENT_EDITOR.send({"type": "request_save"}, session=focused)
+    try:
+        _PERSISTENT_EDITOR.send({"type": "request_save"}, session=focused)
+    except Exception:
+        # The queued load must not fire on a later unrelated save when the
+        # request never reached the child.
+        focused.pending_load = None
+        focused.pending_on_save = None
+        focused.pending_on_closed = None
+        raise
 
 
 def launch_monaco_editor(
@@ -1015,10 +1231,15 @@ def launch_monaco_editor(
     *,
     exe: str,
     load_message: dict[str, Any],
-    on_save: Callable[..., dict[str, Any]],
+    on_save: EditorSaveCallback,
     on_closed: Callable[[], None] | None = None,
 ) -> bool:
-    """Start or reuse the Monaco child process and send *load_message*. Return True on success."""
+    """Start or reuse the Monaco child and send *load_message*.
+
+    Returns True when the editor matches the request: the load was sent, the
+    user kept the current buffer, or a save-then-load was queued. Returns False
+    only when the child failed to start or the load could not be sent.
+    """
     from plugin.chatbot.dialogs import msgbox_with_report
     from plugin.framework.uno_context import product_display_name
     from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
@@ -1028,10 +1249,6 @@ def launch_monaco_editor(
     _PERSISTENT_EDITOR.ctx = ctx
     # Host-only keys (e.g. pyuno document refs) must not cross the pickle IPC boundary.
     ipc_message = enrich_monaco_load_message(dict(load_message))
-    run_script_doc = None
-    if ipc_message.get("mode") == "run_script":
-        run_script_doc = ipc_message.pop("run_script_doc", None)
-        _PERSISTENT_EDITOR.set_run_script_document(run_script_doc)
     closed_handler = on_closed if on_closed is not None else (lambda: None)
 
     # Inject current LO theme so the child Monaco + toolbar chrome automatically
@@ -1044,12 +1261,28 @@ def launch_monaco_editor(
         try:
             from plugin.framework.appearance import get_monaco_theme_info
 
-            # Prefer any doc we had for the run_script case or if caller left it in msg
-            doc_for_theme = run_script_doc or ipc_message.get("doc") or ipc_message.get("run_script_doc")
+            # Prefer any doc we had for the run_script case or if caller left it in msg.
+            # Leave run_script_doc on the message until after the unsaved-changes
+            # question. Cancel must not retarget the script picker document.
+            doc_for_theme = ipc_message.get("doc") or ipc_message.get("run_script_doc")
             ipc_message["theme"] = get_monaco_theme_info(doc=doc_for_theme, ctx=ctx)
         except Exception:
             log.debug("Failed to compute monaco theme info; falling back to light", exc_info=True)
             ipc_message["theme"] = {"monaco": "vs", "is_dark": False}
+
+    # What was wrong: this function replaced the focused buffer before anyone
+    # asked. The cell editor only asked for mode calc_cell, and Run Python
+    # Script never asked, so each direction dropped the other buffer.
+    # Why this works: one gate covers cell, Run Script, init script, and LaTeX.
+    # Cancel and queued save return before set_active_session. Discard is
+    # marked on the session so _register_load_session may replace it.
+    decision = prepare_monaco_buffer_replace(ctx, ipc_message, on_save, closed_handler)
+    if decision != "proceed":
+        return True
+
+    if ipc_message.get("mode") == "run_script":
+        run_script_doc = ipc_message.pop("run_script_doc", None)
+        _PERSISTENT_EDITOR.set_run_script_document(run_script_doc)
 
     if _PERSISTENT_EDITOR.is_running:
         log.info("editor_host: reusing running Monaco background process")
@@ -1103,6 +1336,12 @@ def launch_monaco_editor(
         state, stamped = _register_load_session(ipc_message, on_save, closed_handler)
         session.session_id = state.session_id
         session.send(stamped)
+    except DirtyBufferError:
+        # The confirm gate should have queued, cancelled, or marked discard.
+        # Killing the child here would throw away the buffer we just refused
+        # to replace.
+        log.error("editor_host: refused to replace a dirty Monaco buffer")
+        return True
     except Exception as e:
         log.exception("Failed to send load to editor")
         ipc_detail = "\n\n".join(filter(None, [session.read_stderr_tail(), exception_traceback(e)]))

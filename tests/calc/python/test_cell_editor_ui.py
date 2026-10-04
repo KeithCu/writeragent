@@ -311,16 +311,13 @@ def test_native_dirty_retarget_discard_loads_new_cell():
     assert inst._dirty is False
 
 
-def test_monaco_launch_cancel_skips_load():
+def test_monaco_cell_open_delegates_unsaved_guard_to_launch():
+    """Cell open no longer confirms locally. launch_monaco_editor asks for every mode."""
     from plugin.calc.python import editor as ed
 
     cell = MagicMock()
     cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
-    with patch.object(ed, "calc_cell_session_needs_flush", return_value=True), patch.object(
-        ed, "confirm_unsaved_cell_edit", return_value="cancel"
-    ), patch.object(ed, "launch_monaco_editor") as launch, patch.object(
-        ed, "queue_save_then_load"
-    ) as queued:
+    with patch.object(ed, "launch_monaco_editor") as launch:
         ed._launch_editor_with_code(
             MagicMock(),
             MagicMock(),
@@ -329,8 +326,11 @@ def test_monaco_launch_cancel_skips_load():
             parsed_parts=None,
             exe="/bin/python",
         )
-    launch.assert_not_called()
-    queued.assert_not_called()
+    launch.assert_called_once()
+    load = launch.call_args.kwargs["load_message"]
+    assert load["mode"] == "calc_cell"
+    assert load["cell_address"] == "A1"
+    assert load["code"] == "x"
 
 
 def test_format_cell_a1():
@@ -401,9 +401,7 @@ def test_monaco_follow_ref_load_shows_code_cell_and_keeps_data():
         captured["on_save"] = on_save
         return True
 
-    with patch.object(ed, "calc_cell_session_needs_flush", return_value=False), patch.object(
-        ed, "launch_monaco_editor", side_effect=fake_launch
-    ):
+    with patch.object(ed, "launch_monaco_editor", side_effect=fake_launch):
         ed._launch_editor_with_code(
             MagicMock(),
             MagicMock(),
