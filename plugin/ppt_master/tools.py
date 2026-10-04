@@ -29,7 +29,6 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
     )
     is_mutation: bool | None = True
     long_running: bool = True
-    is_async: bool | None = True
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -37,6 +36,9 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         },
         "required": ["project_path"],
     }
+
+    def is_async(self) -> bool:
+        return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         apply_data_root_env(ctx.ctx)
