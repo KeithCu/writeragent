@@ -137,7 +137,7 @@ def _copy_page_notes(source_page: Any, target_page: Any) -> None:
     except Exception as exc:
         if is_disposed_exception(exc):
             raise
-        log.debug("copy page notes: %s", exc)
+        raise
 
 
 def _import_slides_from_source(

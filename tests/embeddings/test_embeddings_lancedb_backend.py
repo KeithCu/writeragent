@@ -70,3 +70,30 @@ def test_hit_shape_helper_with_distance():
     h = ld._shape_hit(doc)
     assert h["doc_url"] == "file:///tmp/x.odt"
     assert abs(h["score"] - 0.75) < 1e-6
+
+def test_maintain_lancedb_incremental_does_not_clear(tmp_path):
+    from plugin.embeddings.venv.embeddings_lancedb import maintain_folder_lancedb
+    import json
+
+    listing_root = str(tmp_path)
+    meta_dir = tmp_path / "writeragent_embeddings"
+    meta_dir.mkdir()
+    meta_path = meta_dir / "corpus_meta.json"
+
+    with open(meta_path, "w") as m:
+        json.dump({"schema_version": "v3", "chunk_count": 10, "embedding_model": "test-model"}, m)
+
+    out = maintain_folder_lancedb(listing_root, "test-model", mode="incremental")
+    assert out["mode"] == "incremental"
+    assert out["row_count"] == 10
+    assert out["indexed_paragraphs"] == 0
+
+def test_maintain_lancedb_cold_proceeds(tmp_path):
+    from plugin.embeddings.venv.embeddings_lancedb import maintain_folder_lancedb
+
+    listing_root = str(tmp_path)
+    try:
+        out = maintain_folder_lancedb(listing_root, "test-model", mode="cold")
+        assert out["mode"] == "lancedb"
+    except Exception as e:
+        assert "LanceDB backend selected but the 'lancedb' package is not importable" in str(e)

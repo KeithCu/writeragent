@@ -41,6 +41,9 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         "required": ["project_path"],
     }
 
+    def is_async(self) -> bool:
+        return True
+
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         apply_data_root_env(ctx.ctx)
         st = data_root_status(ctx.ctx)
