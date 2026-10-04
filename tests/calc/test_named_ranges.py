@@ -15,6 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for Calc named range tools and flag parsing."""
 
+import sys
 from unittest.mock import MagicMock
 import pytest
 
@@ -48,9 +49,30 @@ def _doc_with_sheet_names(*names: str) -> MagicMock:
     return doc
 
 
-def test_named_range_unknown_sheet_prefix_errors():
+class _RecordingCellAddress:
+    """CellAddress stand-in that keeps the fields the parser passes.
+
+    The full suite imports ``tests/framework/test_errors.py``, which replaces
+    ``sys.modules['com.sun.star.table']`` with a MagicMock. ``CellAddress(Sheet=1)``
+    then returns a mock whose ``.Sheet`` is not 1, so a correct index looked
+    like a failure.
+    """
+
+    def __init__(self, Sheet: int = 0, Column: int = 0, Row: int = 0) -> None:
+        self.Sheet = Sheet
+        self.Column = Column
+        self.Row = Row
+
+
+def test_named_range_unknown_sheet_prefix_errors(monkeypatch):
     # An unknown prefix used to leave the default sheet (0), so a relative
     # name was anchored on the wrong sheet.
+    table = sys.modules.get("com.sun.star.table")
+    if table is None:
+        table = MagicMock()
+        monkeypatch.setitem(sys.modules, "com.sun.star.table", table)
+    monkeypatch.setattr(table, "CellAddress", _RecordingCellAddress, raising=False)
+
     doc = _doc_with_sheet_names("Sheet1", "Data")
 
     with pytest.raises(ValueError, match="No sheet named 'Nope'"):
