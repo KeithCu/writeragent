@@ -77,6 +77,46 @@ def test_wire_all_with_registry_off_main_thread_does_not_raise(monkeypatch):
         tg.GUARD_ON = was
 
 
+def test_wire_all_off_main_thread_duplicate_click(monkeypatch):
+    """Off-main wire_all must prevent duplicate listener attachment even if uno_same raises."""
+    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-dummy-duplicate"
+
+    state = MagicMock()
+    state.code_cells = [MagicMock()]
+
+    container = MagicMock()
+    container.getControls.return_value = []
+    fc = MagicMock()
+
+    try:
+        notebook_controls._listener_refs.clear()
+        notebook_controls._wired_form_docs.clear()
+        with (
+            patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+            patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(fc, container)),
+            patch("plugin.framework.uno_context.uno_same", side_effect=RuntimeError("thread guard")),
+        ):
+            res1 = wire_all_notebook_run_buttons(ctx, doc)
+            res2 = wire_all_notebook_run_buttons(ctx, doc)
+
+        # Only one NotebookFormRunListener and one ContainerListener should be added
+        form_listeners = [l for l in notebook_controls._listener_refs if isinstance(l, notebook_controls.NotebookFormRunListener)]
+        assert len(form_listeners) == 1
+    finally:
+        tg.GUARD_ON = was
+        notebook_controls._listener_refs.clear()
+        notebook_controls._wired_form_docs.clear()
+
+
 def test_wire_all_returns_0_no_container():
     ctx = MagicMock()
     doc = MagicMock()

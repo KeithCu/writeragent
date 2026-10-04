@@ -597,13 +597,6 @@ class NotebookRunButtonListener(BaseActionListener):
         from plugin.framework.thread_guard import on_main_thread
 
         is_main = on_main_thread()
-        if is_main and self._doc_url:
-            try:
-                doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
-                if doc is not None:
-                    return doc
-            except Exception:
-                pass
         # Prefer a live wrapper before enumerating the desktop (unit tests and
         # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
         weak = getattr(self, "_doc_weak", None)
@@ -611,6 +604,7 @@ class NotebookRunButtonListener(BaseActionListener):
             ref_doc = weak()
             if ref_doc is not None:
                 return ref_doc
+
         if is_main and self._runtime_uid:
             try:
                 doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
@@ -618,6 +612,15 @@ class NotebookRunButtonListener(BaseActionListener):
                     return doc
             except Exception:
                 pass
+
+        if is_main and self._doc_url:
+            try:
+                doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
+                if doc is not None:
+                    return doc
+            except Exception:
+                pass
+
         if is_main:
             from plugin.framework.uno_context import get_active_document
             try:
@@ -733,6 +736,9 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
         count = getattr(forms, "getCount", lambda: 0)()
         if count < 1:
             return None, None
+
+        first_valid_fc, first_valid_container = None, None
+
         for i in range(count):
             form = forms.getByIndex(i)
             fc = None
@@ -745,8 +751,25 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
             if fc is not None:
                 container = fc.getContainer() if hasattr(fc, "getContainer") else None
                 if container is not None:
-                    return fc, container
-        return None, None
+                    if first_valid_fc is None:
+                        first_valid_fc, first_valid_container = fc, container
+
+                    form_has_nb_run = False
+                    try:
+                        elem_count = form.getCount() if hasattr(form, "getCount") else 0
+                        for j in range(elem_count):
+                            elem = form.getByIndex(j)
+                            name = _control_name(elem)
+                            if name and name.startswith(_RUN_PREFIX):
+                                form_has_nb_run = True
+                                break
+                    except Exception:
+                        pass
+
+                    if form_has_nb_run:
+                        return fc, container
+
+        return first_valid_fc, first_valid_container
     except Exception:
         log.debug("notebook controls: form controller lookup failed", exc_info=True)
         return None, None
@@ -815,16 +838,20 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
 
     from plugin.framework.uno_context import uno_same
     with _lock:
-        # Check if this specific container view is already wired
-        for lis in _listener_refs:
-            if isinstance(lis, NotebookFormContainerListener):
-                try:
-                    if uno_same(lis._container, container):
-                        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
-                        return 1
-                except Exception:
-                    pass
+        if doc_key in _wired_form_docs:
+            return 1
         _wired_form_docs.add(doc_key)
+        listener_snapshot = list(_listener_refs)
+
+    # Check if this specific container view is already wired
+    for lis in listener_snapshot:
+        if isinstance(lis, NotebookFormContainerListener):
+            try:
+                if uno_same(lis._container, container):
+                    log.debug("notebook controls: form listener already attached doc=%s", doc_key)
+                    return 1
+            except Exception:
+                pass
 
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
