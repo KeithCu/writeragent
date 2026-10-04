@@ -15,16 +15,16 @@ message only.
 import html as html_mod
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
 from plugin.scripting.editor_ipc import exception_traceback
-from plugin.scripting.editor_host import launch_monaco_editor, monaco_open_expected
+from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_open_expected
 from plugin.scripting.venv_worker import run_code_in_user_venv
-from plugin.scripting.python_runner_ui import show_python_input_dialog
+from plugin.scripting.python_runner_ui import show_python_input_dialog, start_native_script_run
 from plugin.writer.format import insert_content_at_position
 from plugin.doc.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
@@ -490,8 +490,9 @@ def execute_and_insert_result(
 ) -> dict[str, Any]:
     """Run *code* in the user venv and insert the result into *doc* when possible.
 
-    Synchronous. The native dialog must not call this on the UNO event thread;
-    use :func:`plugin.scripting.python_runner_ui.start_native_script_run`.
+    Synchronous. The native dialog and Monaco Run must not call this on the
+    UNO event thread; both use
+    :func:`plugin.scripting.python_runner_ui.start_native_script_run`.
     """
     prepared = _prepare_rps_execution(ctx, doc, code, data_range=data_range)
     early = prepared.get("early_outcome")
@@ -503,6 +504,28 @@ def execute_and_insert_result(
         log.exception("execute_and_insert_result failed")
         return rps_error_outcome(str(e), t0=prepared["t0"], traceback=exception_traceback(e))
     return _finish_rps_execution(prepared, response)
+
+
+def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dict[str, Any]:
+    """Map a native-run outcome to the Monaco saved or error frame."""
+    if not isinstance(outcome, dict) or not outcome.get("ok"):
+        message = _("Unknown error")
+        traceback_text = None
+        if isinstance(outcome, dict):
+            raw = outcome.get("message")
+            if isinstance(raw, str) and raw:
+                message = raw
+            tb = outcome.get("traceback")
+            if isinstance(tb, str) and tb:
+                traceback_text = tb
+        payload: dict[str, Any] = {"type": "error", "message": message}
+        if traceback_text:
+            payload["traceback"] = traceback_text
+        return payload
+    status = outcome.get("status_ok_text", run_ok_text)
+    if not isinstance(status, str) or not status:
+        status = run_ok_text
+    return {"type": "saved", "ok": True, "status_ok_text": status}
 
 
 def _picker_template_name(name: str) -> bool:
@@ -531,13 +554,20 @@ def _run_python_monaco(
 
         initial_binding = calc_selection_to_a1(doc) or ""
     show_binding = is_calc(doc) and script_header_needs_data_binding(initial_code, doc=doc)
+    # One Monaco window. A second Run while the venv is still working would
+    # insert two results and the later frame would win the save token.
+    run_busy = {"on": False}
 
     def on_save(
         code: str,
         _save_as_plain: bool,
         data_binding: str | None = None,
         action: str = "run",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | DeferredEditorResult:
+        # A second Run is refused before the library write. Save still persists
+        # while a run is in flight; only Run is one-at-a-time on this editor.
+        if action != "save" and run_busy["on"]:
+            return {"type": "error", "message": _("A script is already running.")}
         # Save the edited code back to the currently selected script
         from plugin.scripting.python_runner import resolve_run_script_name_config_key
         name_config_key = resolve_run_script_name_config_key(doc)
@@ -582,18 +612,30 @@ def _run_python_monaco(
                     }
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
-        outcome = execute_and_insert_result(ctx, doc, code, data_range=data_binding)
-        if not outcome.get("ok"):
-            return {
-                "type": "error",
-                "message": outcome.get("message", _("Unknown error")),
-                "traceback": outcome.get("traceback"),
-            }
-        return {
-            "type": "saved",
-            "ok": True,
-            "status_ok_text": outcome.get("status_ok_text", run_ok_text),
-        }
+        # What was wrong: Run called execute_and_insert_result on the UI
+        # thread, inside the editor save handler. The venv wait froze
+        # LibreOffice until the script finished.
+        # How: the pipe reader marshals on_save onto the UI thread and blocks
+        # until it returns.
+        # Why this works: the library write above stays on the UI thread.
+        # The venv wait uses the same prepare/finish split as the native Run
+        # button. The Monaco frame is delivered when that run finishes.
+        run_busy["on"] = True
+        snapshot = code
+        binding = data_binding if isinstance(data_binding, str) else None
+
+        def _start(deliver: Callable[[dict[str, Any]], None]) -> None:
+            def _on_complete(outcome: dict[str, Any]) -> None:
+                run_busy["on"] = False
+                deliver(_monaco_editor_run_payload(outcome, run_ok_text))
+
+            try:
+                start_native_script_run(ctx, doc, snapshot, data_range=binding, on_complete=_on_complete)
+            except Exception:
+                run_busy["on"] = False
+                raise
+
+        return DeferredEditorResult(_start)
 
     load_msg: dict[str, Any] = {
         "type": "load",
@@ -667,6 +709,10 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
         if monaco_expected and exe:
             monaco_launch_ok = False
             try:
+                # launch_monaco_editor confirms or flushes a dirty buffer
+                # (calc cell, this script, init script, or LaTeX) before it
+                # replaces the window. Cancel and a queued save both return
+                # True so the native dialog stays closed.
                 monaco_launch_ok = _run_python_monaco(
                     uno_ctx,
                     doc,
