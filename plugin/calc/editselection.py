@@ -60,12 +60,12 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
 
     tasks: list[StreamCompletionTask] = []
     cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
-    data_array = cell_range.getDataArray()
+    formula_array = cell_range.getFormulaArray()
 
     for row_idx, row in enumerate(row_range):
         for col_idx, col in enumerate(col_range):
-            raw_val = data_array[row_idx][col_idx]
-            # Convert values/empty cells to strings (similar to what getString() would do)
+            raw_val = formula_array[row_idx][col_idx]
+            # Convert values/empty cells to strings
             cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
 
             if not is_edit:
@@ -94,16 +94,16 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         if not is_edit:
             accumulated_text[0] = task.prompt
         elif original is not None:
-            cell.setString("")
+            cell.setFormula("")
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
-                cell.setString(accumulated_text[0])
+                cell.setFormula(accumulated_text[0])
 
         def on_error(e: BaseException) -> None:
             if original is not None:
-                cell.setString(original)
+                cell.setFormula(original)
             msgbox(ctx, title, format_error_message(e))
 
         return apply_chunk, on_error
