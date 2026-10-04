@@ -35,6 +35,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         },
         "required": ["helper"],
     }
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     long_running: bool = True
 
     def is_async(self) -> bool:
@@ -66,6 +67,9 @@ class SymbolicMathTool(ToolCalcPythonBase):
         out: dict[str, Any] = dict(result)
 
         def _insert() -> None:
+            stop_checker = getattr(ctx, "stop_checker", None)
+            if callable(stop_checker) and stop_checker() is True:
+                return
             insert_symbolic_result_into_doc(ctx.ctx, ctx.doc, result, display_block=display_block)
 
         try:

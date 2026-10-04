@@ -501,6 +501,7 @@ class PythonSidebarController:
         return get_calc_document_from_ctx(self.ctx)
 
     def refresh(self) -> None:
+        self._calc_panel = self._frame_is_calc()
         if not self._calc_panel:
             set_control_text(self._ctrl("status"), format_runtime_status(self.ctx, None))
             return

@@ -48,10 +48,26 @@ def resolve_grep_candidates(
 
     *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``) or an absolute path to one file.
     """
+    from plugin.doc.document_research import resolve_listing_directory
+
     raw = str(file_subset).strip() if file_subset else None
+    listing_root = resolve_listing_directory(ctx, active_model)
 
     if raw and os.path.isabs(raw) and os.path.isfile(raw):
         norm = os.path.normpath(os.path.abspath(raw))
+
+        # Prevent accessing absolute paths outside the listing root
+        if listing_root:
+            import pathlib
+            try:
+                # Use resolve() to handle symlinks and relative parts cleanly
+                root_path = pathlib.Path(listing_root).resolve()
+                norm_path = pathlib.Path(norm).resolve()
+                if not norm_path.is_relative_to(root_path):
+                    return [], False, f"Path {norm} is outside the active folder."
+            except Exception:
+                pass
+
         entry = FileEntry(
             path=norm,
             name=os.path.basename(norm),

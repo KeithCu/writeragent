@@ -48,6 +48,11 @@ def test_symbolic_math_requires_helper(writer_ctx):
     assert result["status"] == "error"
 
 
+def test_symbolic_math_uno_services():
+    tool = SymbolicMathTool()
+    assert tool.uno_services == ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+
+
 def test_symbolic_math_in_python_domain():
     from plugin.main import get_tools
 

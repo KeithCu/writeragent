@@ -238,6 +238,17 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
+    if mode != "cold":
+        from plugin.embeddings.embeddings_cache import chunk_count_from_meta
+
+        row_count = chunk_count_from_meta(meta_path)
+        if row_count > 0:
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "done", "mode": mode, "indexed_paragraphs": 0, "upserted": 0})
+            from plugin.embeddings.embeddings_fs import guess_indexable_paths
+
+            return {"mode": mode, "indexed_paragraphs": 0, "files": len(guess_indexable_paths(root)), "upserted": 0, "row_count": row_count, "storage_backend": "lancedb"}
+
     if not HAS_LANCEDB or lancedb is None:
         raise RuntimeError("LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv.")
 
@@ -295,16 +306,28 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
     write_corpus_meta(meta_path, storage_backend="lancedb")
 
+    # Purge deleted files
     current_urls = {entry.url for entry in files}
+    db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
+    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+
+    indexed_urls = get_all_indexed_urls(Path(db_path))
+
+    tbl = None
     try:
         tbl = _open_for_search(coll_path)
-        all_docs = tbl.search().select(["doc_url"]).to_list()
-        indexed_urls = {doc.get("doc_url") for doc in (all_docs or []) if doc.get("doc_url")}
-        for url in list(indexed_urls):
-            if url not in current_urls:
-                tbl.delete(f"doc_url = '{url}'")
     except Exception:
         pass
+
+    for url in indexed_urls:
+        if url in current_urls:
+            continue
+        if tbl is not None:
+            try:
+                tbl.delete(f"doc_url = '{url}'")
+            except Exception:
+                pass
+        remove_file_from_index(Path(db_path), url)
 
     for idx, entry in enumerate(files):
         _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
@@ -325,12 +348,13 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
             log.debug("lancedb extract failed for %s: %s", entry.name, e)
             continue
 
+        if chunks is None:
+            # Failed extract is not an empty document. Do not purge stored rows.
+            continue
+
         rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end, "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
 
-        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": mode})
-
-        if not rows:
-            continue
+        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "lancedb"})
 
         # For clean per-file refresh, delete previous docs for this doc_url.
         try:
@@ -339,12 +363,15 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
         except Exception:
             pass
 
+        if not rows:
+            continue
+
         res = lancedb_ingest_rows(coll_path, str(meta_path), embedding_model, rows, build_fts=True, build_vectors=True)
         up = int(res.get("upserted") or res.get("indexed") or 0)
         upserted_total += up
         indexed += len(rows)
 
-        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": mode})
+        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "lancedb"})
 
     try:
         tbl = _open_for_search(coll_path)
@@ -357,4 +384,4 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
     _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
 
-    return {"mode": mode, "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "lancedb"}
+    return {"mode": "lancedb", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "lancedb"}

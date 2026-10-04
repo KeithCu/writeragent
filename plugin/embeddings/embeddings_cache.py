@@ -244,8 +244,16 @@ def remove_file_from_index(db_path: Path, doc_url: str) -> None:
         conn.close()
 
 
-def diff_chunk_rows(db_path: Path, doc_url: str, chunks: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
+def diff_chunk_rows(
+    db_path: Path,
+    doc_url: str,
+    chunks: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db.
+
+    ``doc_url`` is required so an empty extract still finds that document's
+    stored rows and returns them as deletes.
+    """
     from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
 
     if not db_path.is_file():
@@ -411,7 +419,6 @@ def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: A
     if not listing_root:
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
-    maybe_upgrade_legacy_index(listing_root)
     db_path = corpus_db_path(listing_root)
     meta = corpus_meta_path(listing_root)
     return folder_key, db_path, meta, listing_root

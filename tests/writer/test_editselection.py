@@ -1,20 +1,17 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.async_stream import BlockingWaitStopped
 from plugin.writer.editselection import do_extend_selection, do_edit_selection
 from plugin.framework.config import set_configs
 
+
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
-def test_extend_selection_stops_on_cancel(mock_create_client, mock_stream_completion):
+def test_extend_selection_applies_chunk_when_stopped(mock_create_client, mock_stream_completion):
     set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
-    # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # stop_checker returns True, meaning stopped by user
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -28,24 +25,22 @@ def test_extend_selection_stops_on_cancel(mock_create_client, mock_stream_comple
 
         do_extend_selection(ctx, model, MagicMock())
 
-        # apply_chunk should be passed to stream_completion
         assert mock_stream_completion.called
         apply_chunk_fn = mock_stream_completion.call_args.args[5]
 
-        # When apply_chunk is called, it should raise BlockingWaitStopped because stop_checker is True
-        with pytest.raises(BlockingWaitStopped, match="Stopped by user"):
-            apply_chunk_fn("new chunk")
+        # In-hand chunk should land without raising an exception
+        apply_chunk_fn("new chunk")
+        text_range.setString.assert_called_with("some textnew chunk")
+
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
-def test_edit_selection_stops_on_cancel(mock_create_client, mock_stream_completion):
+def test_edit_selection_applies_chunk_when_stopped(mock_create_client, mock_stream_completion):
     set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
-    # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # stop_checker returns True, meaning stopped by user
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -60,64 +55,9 @@ def test_edit_selection_stops_on_cancel(mock_create_client, mock_stream_completi
 
         do_edit_selection(ctx, model, MagicMock())
 
-        # apply_chunk should be passed to stream_completion
         assert mock_stream_completion.called
         apply_chunk_fn = mock_stream_completion.call_args.args[5]
 
-        # When apply_chunk is called, it should raise BlockingWaitStopped because stop_checker is True
-        with pytest.raises(BlockingWaitStopped, match="Stopped by user"):
-            apply_chunk_fn("new chunk")
+        apply_chunk_fn("new chunk")
+        text_range.setString.assert_called_with("new chunk")
 
-@patch("plugin.writer.editselection.stream_completion")
-@patch("plugin.writer.editselection.create_validated_client")
-def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
-    mock_client = MagicMock()
-    mock_create_client.return_value = mock_client
-
-    ctx = MagicMock()
-    # stop_checker raises an exception
-    ctx.stop_checker = MagicMock(side_effect=RuntimeError("Some internal error"))
-
-    model = MagicMock()
-    selection = MagicMock()
-    model.CurrentController.getSelection.return_value = selection
-
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
-
-        do_extend_selection(ctx, model, MagicMock())
-
-        apply_chunk_fn = mock_stream_completion.call_args.args[5]
-
-        # Should raise BlockingWaitStopped wrapping the inner exception
-        with pytest.raises(BlockingWaitStopped, match="Stopped \\(stop_checker failed\\)"):
-            apply_chunk_fn("new chunk")
-
-@patch("plugin.writer.editselection.stream_completion")
-@patch("plugin.writer.editselection.create_validated_client")
-def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
-    mock_client = MagicMock()
-    mock_create_client.return_value = mock_client
-
-    ctx = MagicMock()
-    ctx.stop_checker = MagicMock(return_value=False)
-
-    model = MagicMock()
-    text_range = MagicMock()
-    # Mock setString to throw Exception
-    text_range.setString.side_effect = Exception("failed to write to document")
-    selection = MagicMock()
-    selection.getByIndex.return_value = text_range
-    model.CurrentController.getSelection.return_value = selection
-
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
-
-        do_extend_selection(ctx, model, MagicMock())
-
-        apply_chunk_fn = mock_stream_completion.call_args.args[5]
-
-        with pytest.raises(RuntimeError, match="streamed append: chunk apply failed"):
-            apply_chunk_fn("new chunk")

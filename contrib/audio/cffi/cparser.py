@@ -5,7 +5,9 @@ try:
     from . import _pycparser as pycparser
 except ImportError:
     import pycparser
-import weakref, re, sys
+import weakref
+import re
+import sys
 
 try:
     if sys.version_info < (3,):
@@ -20,8 +22,7 @@ def _workaround_for_static_import_finders():
     # Issue #392: packaging tools like cx_Freeze can not find these
     # because pycparser uses exec dynamic import.  This is an obscure
     # workaround.  This function is never called.
-    import pycparser.yacctab
-    import pycparser.lextab
+    pass
 
 CDEF_SOURCE_STRING = "<cdef source string>"
 _r_comment = re.compile(r"/\*.*?\*/|//([^\n\\]|\\.)*?$",

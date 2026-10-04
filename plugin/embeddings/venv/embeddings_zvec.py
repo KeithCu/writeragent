@@ -332,6 +332,17 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
+    if mode != "cold":
+        from plugin.embeddings.embeddings_cache import chunk_count_from_meta
+
+        row_count = chunk_count_from_meta(meta_path)
+        if row_count > 0:
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "done", "mode": mode, "indexed_paragraphs": 0, "upserted": 0})
+            from plugin.embeddings.embeddings_fs import guess_indexable_paths
+
+            return {"mode": mode, "indexed_paragraphs": 0, "files": len(guess_indexable_paths(root)), "upserted": 0, "row_count": row_count, "storage_backend": "zvec"}
+
     if not HAS_ZVEC or zvec is None:
         raise RuntimeError("Zvec backend selected but the 'zvec' package is not importable in the configured Python venv. Install it with: pip install zvec  (then restart LibreOffice or re-trigger the worker).")
 
@@ -392,22 +403,32 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
     write_corpus_meta(meta_path, storage_backend="zvec")
 
+    # Purge deleted files
     current_urls = {entry.url for entry in files}
+    db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
+    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+
+    indexed_urls = get_all_indexed_urls(Path(db_path))
+
+    coll = None
     try:
         if coll_path in _COLL_CACHE:
             coll = _COLL_CACHE[coll_path]
         else:
             coll = zvec.open(coll_path)  # type: ignore[attr-defined]
             _COLL_CACHE[coll_path] = coll
-
-        all_docs = coll.query(include_vector=False, topk=1000000, output_fields=["doc_url"])
-        indexed_urls = {doc.get("doc_url") for doc in (all_docs or []) if doc.get("doc_url")}
-
-        for url in list(indexed_urls):
-            if url not in current_urls:
-                coll.delete_by_filter(f'doc_url == "{url}"')
     except Exception:
         pass
+
+    for url in indexed_urls:
+        if url in current_urls:
+            continue
+        if coll is not None:
+            try:
+                coll.delete_by_filter(f'doc_url == "{url}"')
+            except Exception:
+                pass
+        remove_file_from_index(Path(db_path), url)
 
     for idx, entry in enumerate(files):
         _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
@@ -432,13 +453,13 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
             log.debug("zvec extract failed for %s: %s", entry.name, e)
             continue
 
+        if chunks is None:
+            # Failed extract is not an empty document. Do not purge stored rows.
+            continue
+
         rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end, "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
 
-        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": mode})
-
-        if not rows:
-            # Nothing to index for this file; still "touch" it in meta sense by ensuring collection exists.
-            continue
+        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "zvec"})
 
         # For clean per-file refresh, remove any previous docs for this doc_url.
         try:
@@ -452,12 +473,16 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
             # Collection may not exist yet; the upsert below will create on open/create path.
             pass
 
+        if not rows:
+            # Nothing to index for this file; still "touch" it in meta sense by ensuring collection exists.
+            continue
+
         res = zvec_ingest_rows(coll_path, str(meta_path), embedding_model, rows, build_fts=True, build_vectors=True)
         up = int(res.get("upserted") or res.get("indexed") or 0)
         upserted_total += up
         indexed += len(rows)
 
-        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": mode})
+        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "zvec"})
 
     # Final meta + flush
     try:
@@ -483,7 +508,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
 
     _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
 
-    return {"mode": mode, "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "zvec"}
+    return {"mode": "zvec", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "zvec"}
 
 
 def zvec_clear_cache(collection_path: str) -> None:
