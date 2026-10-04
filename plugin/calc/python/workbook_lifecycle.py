@@ -242,11 +242,15 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                     # Fall back to doing it in the background if the worker is busy to avoid deadlocks.
                     def do_retry(retry_sid: str = sid):
                         import time
-                        time.sleep(0.5)
-                        try:
-                            reset_python_session(self._ctx, retry_sid)
-                        except Exception:
-                            pass
+                        for _ in range(10):
+                            time.sleep(0.5)
+                            try:
+                                res_retry = reset_python_session(self._ctx, retry_sid)
+                                if isinstance(res_retry, dict) and res_retry.get("status") == "error" and res_retry.get("code") == "WORKER_REENTRY":
+                                    continue
+                                break
+                            except Exception:
+                                break
                     from plugin.framework.worker_pool import run_in_background
                     run_in_background(do_retry, name="reset_python_session_retry", daemon=True)
                 elif isinstance(res, dict) and res.get("status") != "ok":
