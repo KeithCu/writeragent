@@ -65,7 +65,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             return run_and_insert_vision_for_selection(ctx.ctx, doc, helper="extract_structure", params=params_dict or None, insert_into_document=insert_into_document)
 
         try:
-            result = execute_on_main_thread(_run)
+            result = _run()
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "VISION_ERROR"))
         except Exception as exc:

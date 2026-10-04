@@ -654,6 +654,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
     # / test_stream_drain_loop_processing_error). Skip it after stop and after
     # an inner handler failure: those paths already flushed, and a second raise
     # would call on_error again.
+    state.defer_next_tool_exit = False
     skip_trailing_flush = False
     for index, item in enumerate(items):
         if stop_checker and stop_checker():

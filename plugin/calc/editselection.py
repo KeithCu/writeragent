@@ -78,15 +78,17 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     row_range = range(start_row, end_row + 1)
 
     cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
-    data_array = cell_range.getDataArray()
+    formula_array = cell_range.getFormulaArray()
 
     for row_idx, row in enumerate(row_range):
         for col_idx, col in enumerate(col_range):
             if len(tasks) >= 250:
                 break
-            raw_val = data_array[row_idx][col_idx]
-            # getDataArray returns float for integers, so read string formatting directly from cell for values
-            cell_text = sheet.getCellByPosition(col, row).getString() if raw_val != "" and raw_val is not None else ""
+            raw_val = formula_array[row_idx][col_idx]
+
+            # Use the formula array, not getString(), so formulas are not
+            # replaced by their evaluated display text.
+            cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
 
             if not cell_text:
                 continue
@@ -120,11 +122,11 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
-                cell.setString(accumulated_text[0])
+                cell.setFormula(accumulated_text[0])
 
         def on_error(e: BaseException) -> None:
             if original is not None:
-                cell.setString(original)
+                cell.setFormula(original)
             msgbox(ctx, title, format_error_message(e))
 
         return apply_chunk, on_error

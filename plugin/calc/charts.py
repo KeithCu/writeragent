@@ -24,6 +24,7 @@ Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties
 """
 
 import logging
+import time
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int as _parse_color
 from plugin.framework.tool import ToolBaseDummy
@@ -1092,7 +1093,7 @@ class UpsertChart(ToolBaseDummy):
             except Exception as e:
                 log.debug("Failed direct chart_doc model update: %s", e)
 
-        _process_events()
+        _process_events(ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
 
     def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
@@ -1127,7 +1128,7 @@ class UpsertChart(ToolBaseDummy):
             chart_doc.setDiagram(chart_doc.createInstance(service))
             _apply_chart_styling(chart_doc, **kwargs)
 
-        _process_events()
+        _process_events(ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
 
 
@@ -1159,8 +1160,8 @@ class DeleteChart(ToolBaseDummy):
             try:
                 page = doc.getDrawPage()
                 for j in range(page.getCount()):
-                    shape = page.getByIndex(j)
-                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape" and shape.Name == chart_name:
+                    shape = _ole2_shape_at(page, j)
+                    if shape and shape.Name == chart_name:
                         page.remove(shape)
                         return {"status": "ok", "deleted": chart_name}
             except Exception:
@@ -1171,8 +1172,8 @@ class DeleteChart(ToolBaseDummy):
             for i in range(doc.getDrawPages().getCount()):
                 page = doc.getDrawPages().getByIndex(i)
                 for j in range(page.getCount()):
-                    shape = page.getByIndex(j)
-                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape" and shape.Name == chart_name:
+                    shape = _ole2_shape_at(page, j)
+                    if shape and shape.Name == chart_name:
                         page.remove(shape)
                         return {"status": "ok", "deleted": chart_name}
             return self._tool_error(f"Chart '{chart_name}' not found.")

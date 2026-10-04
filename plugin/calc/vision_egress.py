@@ -19,7 +19,10 @@ from plugin.writer.images.image_tools import _get_selected_graphic_object
 
 
 def _cell(value: Any) -> Any:
-    return to_calc_compatible(value)
+    val = to_calc_compatible(value)
+    if isinstance(val, str) and val != "":
+        return f"'{val}"
+    return val
 
 
 def _append_blank(rows: list[list[Any]]) -> None:
@@ -145,7 +148,10 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
     try:
         if hasattr(obj, "getPropertyValue"):
             anchor = obj.getPropertyValue("Anchor")
-    except Exception:
+    except Exception as exc:
+        from plugin.framework.errors import is_disposed_exception, DocumentDisposedError
+        if is_disposed_exception(exc):
+            raise DocumentDisposedError("Document disposed") from exc
         anchor = None
 
     if anchor is None:
@@ -155,7 +161,10 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
         addr = anchor.getCellAddress()
         col = int(addr.Column)
         row = int(addr.Row)
-    except Exception:
+    except Exception as exc:
+        from plugin.framework.errors import is_disposed_exception, DocumentDisposedError
+        if is_disposed_exception(exc):
+            raise DocumentDisposedError("Document disposed") from exc
         raise ToolExecutionError(_("Anchor the image to a cell, select it, then Run again."), code="NO_OUTPUT_ANCHOR") from None
 
     return col, row + 1

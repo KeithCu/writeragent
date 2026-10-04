@@ -72,7 +72,7 @@ _HTML_ELEMENTS = frozenset({
 _DISCARD_BODY_LIMIT = 256
 # Trailing incomplete entity (``&amp`` split across chunks). A finished
 # ``&amp;`` does not match. ``3 & 5`` does not end on the ampersand.
-_INCOMPLETE_ENTITY_TAIL = re.compile(r"&(?:#x[0-9A-Fa-f]*|#\d*|[A-Za-z][A-Za-z0-9]{0,31})?$")
+_INCOMPLETE_ENTITY_TAIL = re.compile(r"&(?:#x[0-9A-Fa-f]*|#\d*|[A-Za-z][A-Za-z0-9]{0,31})?\Z")
 
 
 def _split_incomplete_entity(text: str) -> tuple[str, str]:
