@@ -210,6 +210,8 @@ class SearchNearbyFiles(ToolBase):
                 k,
                 model=model,
                 near_slop=near_slop,
+                stop_checker=ctx.stop_checker,
+                cancellation_scope=ctx.send_cancellation,
             )
             if result.get("error"):
                 return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")
