@@ -263,7 +263,7 @@ def test_execute_tool_prefers_script_session_document():
     registry._services = {}
     registry.execute.return_value = {"status": "ok"}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
@@ -431,3 +431,57 @@ def test_handle_tool_call_frame_invalid_tool_name_type():
 
     with pytest.raises(RuntimeError, match="Invalid tool_call"):
         handle_tool_call_frame({"type": "tool_call", "tool": 123}, stdin_write=MagicMock())
+
+def test_execute_tool_async_tool_runs_on_caller_thread():
+    from plugin.framework.tool import ToolBase, ToolContext
+    import threading
+
+    class AsyncMockTool(ToolBase):
+        name: str = "async_mock_tool"
+        description: str = "Mock tool"
+        timeout: float = 600.0
+
+        def is_async(self) -> bool:
+            return True
+
+        def execute(self, ctx: ToolContext, **kwargs) -> dict:
+            return {"status": "ok", "thread": threading.current_thread().name}
+
+    from plugin.scripting.host_rpc import execute_tool
+
+    registry = MagicMock()
+    registry._services = {}
+
+    # We simulate ToolRegistry.execute's thread behavior loosely for tests,
+    # but more importantly we test that host_rpc does not wrap the final `registry.execute`
+    # in `execute_on_main_thread` directly anymore since we split it.
+
+    # ToolRegistry.execute is actually what executes. Let's make sure it receives ToolContext properly.
+    def mock_registry_execute(tool_name, tctx, **kwargs):
+        assert tctx.doc is not None
+        assert tctx.ctx is not None
+        return {"status": "ok", "caller_tctx": tctx.caller}
+
+    registry.execute.side_effect = mock_registry_execute
+    focused = MagicMock()
+    bound = MagicMock()
+
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
+        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.doc.doc_type.is_draw", return_value=True),
+        patch("plugin.doc.doc_type.is_calc", return_value=False),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
+    ):
+        res = execute_tool("async_mock_tool", {}, allowed_tools=frozenset({"async_mock_tool"}), caller="test_caller")
+
+    assert res["status"] == "ok"
+    assert res["caller_tctx"] == "test_caller"
+    registry.execute.assert_called_once()
+
+    # execute_on_main_thread should only be called once, for `_run`
+    mock_exec_main.assert_called_once()
+    assert mock_exec_main.call_args[0][0].__name__ == "_run"

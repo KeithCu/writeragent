@@ -120,6 +120,7 @@ def test_handle_llm_request_uses_host_cancellation_scope():
 
     scope = object()
     client = MagicMock()
+    client._stopped = False
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
     with (
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
@@ -263,3 +264,48 @@ def test_execute_ppt_master_turn_does_not_pickle_cancellation_scope():
 
     assert mock_ipc.call_args.kwargs["cancellation_scope"] is scope
     assert "cancellation_scope" not in mock_ipc.call_args.kwargs["data"]
+
+def test_handle_llm_request_returns_user_stopped_via_client_stopped():
+    from plugin.ppt_master.venv.host_rpc import handle_llm_request
+
+    client = MagicMock()
+    client._stopped = True
+    client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
+        patch("plugin.framework.client.llm_client.LlmClient", return_value=client) as mock_llm,
+    ):
+        out = handle_llm_request(
+            {
+                "messages": [{"role": "user", "content": "x"}],
+                "max_tokens": 16,
+            }
+        )
+
+    assert out["status"] == "error"
+    assert out["code"] == "USER_STOPPED"
+
+def test_handle_llm_request_returns_user_stopped_via_stop_checker():
+    from plugin.ppt_master.venv.host_rpc import handle_llm_request
+
+    client = MagicMock()
+    client._stopped = False
+    client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
+        patch("plugin.framework.client.llm_client.LlmClient", return_value=client) as mock_llm,
+    ):
+        out = handle_llm_request(
+            {
+                "messages": [{"role": "user", "content": "x"}],
+                "max_tokens": 16,
+                "_stop_checker": lambda: True
+            }
+        )
+
+    assert out["status"] == "error"
+    assert out["code"] == "USER_STOPPED"
