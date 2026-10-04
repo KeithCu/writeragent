@@ -209,12 +209,6 @@ def _cold_build(
     search_mode: str = "embeddings",
 ) -> dict[str, Any]:
     clear_folder_cache(listing_root)
-    try:
-        from plugin.embeddings.embeddings_cache import zvec_collection_path
-        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
-        zvec_clear_cache(str(zvec_collection_path(listing_root)))
-    except ImportError:
-        pass
     if build_vectors:
         ensure_corpus_meta(corpus_meta_path(listing_root), embedding_model=embedding_model)
     db_path = corpus_db_path(listing_root)
@@ -240,7 +234,6 @@ def _cold_build(
             }
         )
         if not rows:
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
         result = _ingest_rows(
@@ -347,6 +340,8 @@ def _incremental_refresh(
                 "mode": "incremental",
             }
         )
+        if not chunks and not to_delete:
+            continue
         if to_delete:
             hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
             _ingest_rows(
@@ -486,12 +481,6 @@ def maintain_folder_corpus(
         # corpus.db is not a cold signal: zvec and lancedb never create it.
         if resolved_mode == "cold":
             clear_folder_cache(root)
-            try:
-                from plugin.embeddings.embeddings_cache import zvec_collection_path
-                from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
-                zvec_clear_cache(str(zvec_collection_path(root)))
-            except ImportError:
-                pass
         if backend == "zvec":
             from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 

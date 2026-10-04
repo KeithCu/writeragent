@@ -141,11 +141,16 @@ def _texts_from_ooxml_slide_xml(xml_bytes: bytes) -> str:
         root = ET.fromstring(xml_bytes)
     except Exception:
         return ""
-    parts: list[str] = []
-    for node in root.iter(f"{_DRAWML_NS}t"):
-        if node.text and node.text.strip():
-            parts.append(node.text.strip())
-    return " ".join(parts)
+    paras: list[str] = []
+    for p_node in root.iter(f"{_DRAWML_NS}p"):
+        parts: list[str] = []
+        for t_node in p_node.iter(f"{_DRAWML_NS}t"):
+            if t_node.text:
+                parts.append(t_node.text)
+        para_text = "".join(parts).strip()
+        if para_text:
+            paras.append(para_text)
+    return "\n".join(paras)
 
 
 def extract_pptx_passages(path: str) -> list[str]:

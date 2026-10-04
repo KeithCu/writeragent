@@ -64,16 +64,21 @@ def _get_or_create_table(db_path: str, dim: int) -> Any:
 
     try:
         tbl = db.open_table(table_name)
-        # Check if schema dimensions match. If not, recreate.
-        tbl_dim = tbl.schema.field("vector").type.list_size
-        if tbl_dim != int(dim):
-            log.info("LanceDB table dimension mismatch (%d vs %d), recreating table", tbl_dim, dim)
-            tbl = db.create_table(table_name, schema=schema, mode="overwrite")
-        return tbl
     except Exception:
         # Create fresh table
         tbl = db.create_table(table_name, schema=schema)
         return tbl
+
+    # Check if schema dimensions match. If not, recreate.
+    try:
+        tbl_dim = tbl.schema.field("vector").type.list_size
+        if tbl_dim != int(dim):
+            log.info("LanceDB table dimension mismatch (%d vs %d), recreating table", tbl_dim, dim)
+            tbl = db.create_table(table_name, schema=schema, mode="overwrite")
+    except Exception as e:
+        log.warning("Could not read LanceDB table dimension: %s", e)
+
+    return tbl
 
 
 def _open_for_search(db_path: str) -> Any:
