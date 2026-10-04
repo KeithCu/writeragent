@@ -1518,6 +1518,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             if spoken and spoken.messages:
                                 last_msg = spoken.messages[-1]
                                 if last_msg.get("role") == "assistant" and last_msg.get("content"):
+                                    from plugin.chatbot.tool_loop_actions import _STOP_LINE
+                                    content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
+                                    if not content_to_speak.strip():
+                                        return
+
                                     from plugin.audio.tts_service import speak_text_async, is_speaking
 
                                     # Restore the send-complete status after download/fallback lines.
@@ -1547,7 +1552,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                         self.queue_executor.post(_disable_stop)
 
                                     speak_text_async(
-                                        last_msg["content"],
+                                        content_to_speak,
                                         on_complete=_on_speech_complete,
                                         on_status=_on_tts_status,
                                         # Sentence breaks use BreakIterator on this UI
@@ -1912,6 +1917,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
     def disposing(self, Source: Any) -> None:
+        try:
+            from plugin.audio.tts_service import stop_speech
+            stop_speech()
+        except Exception:
+            pass
         # UNO can deliver this re-entrantly inside processEventsToIdle while
         # run_stream_drain_loop is still on the stack. The flag is first so
         # that drain's finally does not write status or start TTS after ctx
