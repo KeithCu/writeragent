@@ -582,7 +582,7 @@ class DocumentPersistence:
             self._entries.clear()
             self._blob_identity = None
             self._session_identity = None
-        grammar_registry.remove_persistence(self._doc_id)
+        grammar_registry.clear_for_doc(self._doc_id)
         self._model = None
 
     def get(
@@ -777,11 +777,15 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
 
         found_range = None
         try:
-            if start_pos > 0:
+            if start_pos > 0 and view_cursor:
                 text_obj = model.getText()
-                doc_cursor = text_obj.createTextCursorByRange(text_obj.getStart())
-                doc_cursor.goRight(start_pos, False)
-                found_range = model.findNext(doc_cursor.getStart(), search_desc)
+                doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())
+                if hasattr(doc_cursor, "gotoStartOfParagraph"):
+                    doc_cursor.gotoStartOfParagraph(False)
+                    doc_cursor.goRight(start_pos, False)
+                    doc_cursor.goRight(len(sentence_text), True)
+                    if doc_cursor.getString() == sentence_text:
+                        found_range = doc_cursor
         except Exception:
             pass
 
