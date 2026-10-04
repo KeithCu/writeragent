@@ -269,14 +269,27 @@ def test_execute_and_insert_vision_multi_image_host_loop(mock_pairs, mock_orches
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve:
-        outcome = execute_and_insert_result(ctx, doc, code)
+    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+        "plugin.scripting.client.run_vision"
+    ) as mock_run_vision:
+        mock_resolve.return_value = b"png"
+        mock_run_vision.return_value = {
+            "status": "ok",
+            "html": "<p>mock</p>",
+            "full_text": "mock",
+            "context": {"image_name": "A"}
+        }
+
+        with patch("plugin.vision.vision_egress.insert_vision_result"):
+            outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
     assert "2 images" in outcome["status_ok_text"]
-    mock_orchestrator.assert_called_once()
-    mock_venv.assert_not_called()
-    mock_resolve.assert_not_called()
+    # We no longer use the orchestrator function at all, but custom background loops
+    mock_run_vision.assert_called()
+    assert mock_run_vision.call_count == 2
+    # mock_resolve should be called twice (for A and B) on the main thread in prepare
+    assert mock_resolve.call_count == 2
 
 
 @patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
@@ -299,12 +312,22 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve:
-        outcome = execute_and_insert_result(ctx, doc, code)
+    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+        "plugin.scripting.client.run_vision"
+    ) as mock_run_vision:
+        mock_resolve.return_value = b"png"
+        mock_run_vision.return_value = {
+            "status": "ok",
+            "html": "<p>mock</p>",
+            "full_text": "mock",
+            "context": {"image_name": "OnlyImg"}
+        }
+
+        with patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert:
+            outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
     assert "Inserted formatted HTML" in outcome["status_ok_text"]
     assert "2 images" not in outcome["status_ok_text"]
-    mock_orchestrator.assert_called_once()
-    mock_venv.assert_not_called()
-    mock_resolve.assert_not_called()
+    mock_run_vision.assert_called_once()
+    mock_resolve.assert_called_once()
