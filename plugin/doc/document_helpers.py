@@ -220,10 +220,11 @@ def get_document_context_for_chat(
                         end_offset = start_offset + max_selection_span
 
             if use_head_tail:
+                tail_start = max(0, doc_len - end_chars)
                 start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
-                end_excerpt = _text_helpers._read_writer_text_slice(model, doc_len - end_chars, end_chars)
+                end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
                 start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-                end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
+                end_excerpt = _inject_markers_into_excerpt(end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,

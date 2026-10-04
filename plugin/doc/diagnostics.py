@@ -106,7 +106,7 @@ class DocumentHealthCheck(ToolBaseDummy):
                             # The anchor might be missing entirely or the bookmark collapsed
                             # so strictly getAnchor might fail.
                             continue
-                        if _anchor is None:
+                        if _anchor is None or not _anchor.getString():
                             issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
                     except Exception:
                         issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
@@ -182,7 +182,6 @@ class SetDocumentProtection(ToolBaseDummy):
                         # passwords via setProtectionPassword.
                         # It requires byte arrays for ProtectionKey instead.
                         import hashlib
-                        # Wait, what's the UNO API way? Let's just set ProtectionKey.
                         section.setPropertyValue("ProtectionKey", tuple(hashlib.sha256(password.encode('utf-8')).digest()))
             except Exception as exc:
                 log.warning("Could not set protection on section %d: %s", i, exc)
