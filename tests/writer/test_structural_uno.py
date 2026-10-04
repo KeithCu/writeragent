@@ -7,7 +7,7 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
-from plugin.writer.structural import GetPageObjects
+from plugin.writer.structural import GetPageObjects, CloneHeadingBlock
 
 
 @native_test
@@ -71,3 +71,53 @@ def test_get_page_objects_with_table_at_page_end_uno(ctx, doc):
     restored = vc.getPropertyValue("TextTable")
     assert restored is not None
     assert restored.getName() == tbl.getName()
+
+
+@native_test
+@with_native_doc("writer")
+def test_clone_heading_block_without_tracked_deletions_uno(ctx, doc):
+    text = doc.getText()
+    cursor = text.createTextCursor()
+
+    # 1. Setup a heading and some body text
+    cursor.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertString(cursor, "My Heading", False)
+    text.insertControlCharacter(cursor, 0, False) # PARAGRAPH_BREAK
+
+    cursor.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cursor, "This is good text.", False)
+
+    # Enable track changes
+    doc.RecordChanges = True
+
+    # Delete " good" using track changes
+    cursor.gotoStartOfParagraph(False)
+    cursor.goRight(7, False) # "This is"
+    cursor.goRight(5, True) # " good"
+    cursor.setString("")
+
+    # Let's ensure track changes was effective - it should be "This is text." without tracking,
+    # but the underlying string (getString()) still returns "This is good text."
+
+    doc.RecordChanges = False
+
+    # Build tree service so we can clone it
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    clone_res = CloneHeadingBlock().execute(tool_ctx, paragraph_index=0)
+    assert clone_res.get("status") == "ok", clone_res
+
+    # We started with 2 paragraphs, cloning should append 2 more
+    # The last paragraph should now be the cloned body paragraph.
+    # Its text should NOT include " good"
+
+    enum = text.createEnumeration()
+    last_para = None
+    count = 0
+    while enum.hasMoreElements():
+        last_para = enum.nextElement()
+        count += 1
+
+    assert count == 4, f"Expected 4 paragraphs, got {count}"
+    assert last_para is not None
+    assert last_para.getString() == "This is text.", f"Tracked deletions were cloned! Got: '{last_para.getString()}'"
