@@ -749,6 +749,7 @@ def mark_file_indexed_in_db(
 
 def diff_chunk_rows_in_db(
     conn: sqlite3.Connection,
+    doc_url: str,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
@@ -758,19 +759,18 @@ def diff_chunk_rows_in_db(
     seen: set[tuple[str, int, int, int]] = set()
 
     stored: dict[tuple[int, int, int], str] = {}
-    if chunks:
-        doc_url = str(chunks[0].doc_url if isinstance(chunks[0], ParagraphChunk) else "")
-        if doc_url:
-            rows = conn.execute(
-                """
-                SELECT para_index, char_start, char_end, content_hash
-                FROM chunks WHERE doc_url = ?
-                """,
-                (doc_url,),
-            ).fetchall()
-            for row in rows:
-                locator = (int(row["para_index"]), int(row["char_start"]), int(row["char_end"]))
-                stored[locator] = str(row["content_hash"] or "")
+    doc_url = str(doc_url or "")
+    if doc_url:
+        rows = conn.execute(
+            """
+            SELECT para_index, char_start, char_end, content_hash
+            FROM chunks WHERE doc_url = ?
+            """,
+            (doc_url,),
+        ).fetchall()
+        for row in rows:
+            locator = (int(row["para_index"]), int(row["char_start"]), int(row["char_end"]))
+            stored[locator] = str(row["content_hash"] or "")
 
     for chunk in chunks:
         if not isinstance(chunk, ParagraphChunk):
@@ -783,21 +783,18 @@ def diff_chunk_rows_in_db(
             continue
         to_index.append(chunk_to_index_row(chunk))
 
-    if not chunks:
-        return to_index, []
-
-    doc_url = chunks[0].doc_url
     to_delete: list[dict[str, Any]] = []
-    for (para_index, char_start, char_end), _stored_hash in stored.items():
-        if (doc_url, para_index, char_start, char_end) not in seen:
-            to_delete.append(
-                {
-                    "doc_url": doc_url,
-                    "para_index": para_index,
-                    "char_start": char_start,
-                    "char_end": char_end,
-                }
-            )
+    if doc_url:
+        for (para_index, char_start, char_end), _stored_hash in stored.items():
+            if (doc_url, para_index, char_start, char_end) not in seen:
+                to_delete.append(
+                    {
+                        "doc_url": doc_url,
+                        "para_index": para_index,
+                        "char_start": char_start,
+                        "char_end": char_end,
+                    }
+                )
 
     return to_index, to_delete
 

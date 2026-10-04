@@ -48,6 +48,34 @@ def _chunk(doc_url: str, para_index: int, text: str) -> ParagraphChunk:
     )
 
 
+def test_incremental_empty_extract_deletes_stale_chunks(tmp_path):
+    listing_root = str(tmp_path)
+    file_entry = WriterFileEntry(path="/a.ods", url="file:///a.ods", modified=2.0, name="a.ods")
+
+    # Simulate an empty extract (file really is empty now), but diff_chunk_rows returns old chunks to delete.
+    with (
+        patch.object(maintain, "file_is_stale", return_value=True),
+        patch.object(maintain, "_extract_file_chunks", return_value=(0, [])),
+        patch.object(maintain, "diff_chunk_rows", return_value=([], [{"doc_url": "file:///a.ods", "para_index": 0}])),
+        patch.object(maintain, "_ingest_rows") as ingest,
+        patch.object(maintain, "sync_file_paragraph_state") as sync_mock,
+        patch.object(maintain, "corpus_db_path", return_value=tmp_path / "writeragent_embeddings" / "corpus.db"),
+        patch.object(maintain, "_write_row_count_meta"),
+    ):
+        result = maintain._incremental_refresh(
+            listing_root,
+            "test-model",
+            [file_entry],
+            maintain._HeartbeatThrottle(None),
+            build_fts=False,
+            build_vectors=False,
+        )
+
+    ingest.assert_called_once()
+    assert ingest.call_args.kwargs["delete_keys"] == [{"doc_url": "file:///a.ods", "para_index": 0}]
+    sync_mock.assert_called_once()
+
+
 def test_cold_build_ingests_one_file_at_a_time(tmp_path):
     """Cold build should not accumulate the whole folder before a single ingest RPC."""
     listing_root = str(tmp_path)

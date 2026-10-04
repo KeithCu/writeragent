@@ -142,7 +142,7 @@ def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
             file_mtime=1.0,
         ),
     ]
-    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, chunks)
+    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, "file:///a.odt", chunks)
     assert len(to_index) == 2
     assert to_delete == [
         {"doc_url": "file:///a.odt", "para_index": 2, "char_start": 0, "char_end": 4}

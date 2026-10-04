@@ -233,6 +233,7 @@ def mark_file_indexed(
 
 def diff_chunk_rows(
     db_path: Path,
+    doc_url: str,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
@@ -245,7 +246,7 @@ def diff_chunk_rows(
         return to_index, []
     conn = _open_index_db(db_path)
     try:
-        return diff_chunk_rows_in_db(conn, chunks)
+        return diff_chunk_rows_in_db(conn, doc_url, chunks)
     finally:
         conn.close()
 
