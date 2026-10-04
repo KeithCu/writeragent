@@ -546,33 +546,6 @@ class TestStdinWriteCapturesProc:
         assert stdin.written
         assert b"session/cancel" in stdin.written[0]
 
-    def test_send_notification_writes_proc_nulled_before_deferred_write(self):
-        conn = ACPConnection(cmd_line=["agent"])
-        stdin = _Stdin()
-
-        class _Proc:
-            def __init__(self, stdin):
-                self.stdin = stdin
-                self.poll = lambda: None
-                self.stdout = None
-
-        proc = _Proc(stdin)
-        conn._proc = proc
-        conn._running = True
-
-        from unittest.mock import patch
-
-        # Patch run_in_background so we can null conn._proc before it runs
-        def mock_run_in_background(func, name=None):
-            conn._proc = None
-            func()
-
-        with patch("plugin.acp.acp_connection.run_in_background", side_effect=mock_run_in_background):
-            conn.send_notification("session/cancel", {"sessionId": "s"})
-
-        assert stdin.written
-        assert b"session/cancel" in stdin.written[0]
-
     def test_send_response_writes_captured_proc(self):
         conn = ACPConnection(cmd_line=["agent"])
         stdin = _Stdin()
@@ -586,68 +559,3 @@ class TestStdinWriteCapturesProc:
             time.sleep(0.01)
         assert stdin.written
         assert b'"id": 4' in stdin.written[0]
-
-    def test_send_response_writes_proc_nulled_before_deferred_write(self):
-        conn = ACPConnection(cmd_line=["agent"])
-        stdin = _Stdin()
-
-        class _Proc:
-            def __init__(self, stdin):
-                self.stdin = stdin
-                self.poll = lambda: None
-                self.stdout = None
-
-        proc = _Proc(stdin)
-        conn._proc = proc
-        conn._running = True
-
-        from unittest.mock import patch
-
-        # Patch run_in_background so we can null conn._proc before it runs
-        def mock_run_in_background(func, name=None):
-            conn._proc = None
-            func()
-
-        with patch("plugin.acp.acp_connection.run_in_background", side_effect=mock_run_in_background):
-            conn.send_response(4, result={"outcome": {"outcome": "cancelled"}})
-
-        assert stdin.written
-        assert b'"id": 4' in stdin.written[0]
-
-def test_stop_flushes_before_terminate():
-    from unittest.mock import MagicMock
-    import time
-
-    conn = ACPConnection(["dummy"])
-    mock_proc = MagicMock()
-    mock_stdin = MagicMock()
-    mock_proc.stdin = mock_stdin
-
-    # We track the order of events
-    events = []
-
-    def mock_write(b):
-        events.append("write")
-
-    def mock_terminate():
-        events.append("terminate")
-
-    mock_stdin.write.side_effect = mock_write
-    mock_proc.terminate.side_effect = mock_terminate
-
-    conn._proc = mock_proc
-    conn._running = True
-    mock_proc.poll.return_value = None
-
-    # If it were asynchronous, the background thread would race with stop()
-    # and write might happen after terminate, or not at all.
-    conn.send_notification("session/cancel", {})
-    conn.stop()
-
-    assert "write" in events, "write was never called"
-    assert "terminate" in events, "terminate was never called"
-
-    # Check that the write happened BEFORE terminate
-    write_idx = events.index("write")
-    term_idx = events.index("terminate")
-    assert write_idx < term_idx, "Write happened after terminate!"

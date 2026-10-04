@@ -401,12 +401,6 @@ class KokoroProcessPool:
             }
         return result
 
-    def get_inflight_token(self) -> object | None:
-        with self._lock:
-            if self._inflight:
-                return self._exec_token
-            return None
-
     def cancel_inflight(self, token: object | None = None) -> None:
         """Kill the child only when a job is running. Idle warm processes stay up.
 
@@ -504,7 +498,9 @@ def get_kokoro_inflight_token() -> object | None:
     with _POOL_LOCK:
         pool = _POOL
     if pool is not None:
-        return pool.get_inflight_token()
+        with pool._lock:
+            if pool._inflight:
+                return pool._exec_token
     return None
 
 
