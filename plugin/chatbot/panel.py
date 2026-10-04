@@ -1765,7 +1765,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._run_ppt_master(query_text, model)
             return
 
-        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
+        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
+        # What was wrong: `_do_send_via_agent_backend` sat in this try. The except
+        # only logged, then execution fell through to `_do_send_chat_with_tools`,
+        # so one Send started a second builtin turn. The handler documents no
+        # builtin fallback. Show the error and end the send here.
         try:
             from plugin.framework.config import get_config
             from plugin.acp.registry import normalize_backend_id
@@ -1775,8 +1779,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.info("_do_send: using agent backend %s" % agent_backend_id)
                 self._do_send_via_agent_backend(query_text, model, doc_type_label)
                 return
-        except Exception:
+        except Exception as exc:
             log.exception("_do_send: agent backend check failed")
+            self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
+            self._terminal_status = "Error"
+            self._set_status(_("Error"))
+            return
 
         # Regular Chat with Tools or Streams
         # Cast to Any to satisfy ty since SendButtonListener mixes in multiple protocol hosts

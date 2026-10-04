@@ -1065,6 +1065,61 @@ def test_do_send_uses_document_chat_when_selector_is_chat():
     listener._do_send_chat_with_tools.assert_called_once()
 
 
+def test_do_send_agent_backend_exception_does_not_start_builtin():
+    """A failed external agent must not continue into the builtin chat turn."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_listener()
+    listener._do_send_via_agent_backend.side_effect = RuntimeError("acp down")
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="hermes"
+    ), patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._do_send_via_agent_backend.assert_called_once()
+    listener._do_send_chat_with_tools.assert_not_called()
+    assert listener._terminal_status == "Error"
+    assert listener._set_status.call_args[0][0] == "Error"
+    shown = listener._append_response.call_args[0][0]
+    assert "Agent backend error" in shown
+    assert "acp down" in shown
+
+
+def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
+    """An exception while reading the agent backend must not start builtin chat."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patch(
+        "plugin.framework.config.get_config", side_effect=RuntimeError("config boom")
+    ), patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._do_send_via_agent_backend.assert_not_called()
+    listener._do_send_chat_with_tools.assert_not_called()
+    assert listener._terminal_status == "Error"
+    shown = listener._append_response.call_args[0][0]
+    assert "config boom" in shown
+
+
+def test_do_send_agent_backend_success_skips_builtin():
+    """A completed external-agent send stays on that path."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="hermes"
+    ), patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._do_send_via_agent_backend.assert_called_once()
+    listener._do_send_chat_with_tools.assert_not_called()
+    listener._append_response.assert_not_called()
+
+
 def test_on_librarian_session_finished_applies_chat_mode():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, SidebarModeFlags
     from plugin.chatbot.panel import SendButtonListener
