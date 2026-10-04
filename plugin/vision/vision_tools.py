@@ -88,7 +88,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                 }
             return self._tool_error(message, code=code, vision_result=result, **partial_fields)
 
-        out = {
+        out: dict[str, Any] = {
             "status": "ok",
             "helper": "extract_structure",
             "full_text": str(result.get("full_text") or ""),
