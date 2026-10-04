@@ -165,6 +165,9 @@ def _is_real_html_tag(buf: str) -> bool:
     if name not in _HTML_ELEMENTS:
         return False
     _name, _close, rest = _tag_name_body(buf)
+    # A generic token like `<a@b.com>` stops the name run at `@`. We check the rest.
+    # Delimiters indicating a tag: end of string (e.g. `<a>`, `</a>`), whitespace (`<a href>`),
+    # or a slash (`<a/>` - handled by `is_empty` above, but `is_empty` also allows `<widget/>`).
     return (not rest) or rest[0].isspace()
 
 
@@ -205,7 +208,11 @@ class StreamingHTMLStripper:
             ready, self._entity_tail = _split_incomplete_entity(combined)
         else:
             ready, self._entity_tail = combined, ""
-        return html.unescape(ready)
+        return re.sub(
+            r"&(?:[a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);",
+            lambda m: m.group(0) if m.group(0).lower() in ("&lt;", "&gt;", "&#60;", "&#62;", "&#x3c;", "&#x3e;") else html.unescape(m.group(0)),
+            ready,
+        )
 
     def _release_tag_buffer(self, out: list[str], *, force_emit: bool) -> None:
         """Stop buffering a tag. Emit unless we are discarding element text."""

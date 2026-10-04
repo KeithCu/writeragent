@@ -238,7 +238,6 @@ def _cold_build(
             }
         )
         if not rows:
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
         result = _ingest_rows(
@@ -307,7 +306,7 @@ def _incremental_refresh(
     for url in indexed_urls:
         if url in current_urls:
             continue
-        to_index, to_delete = diff_chunk_rows(db_path, [], doc_url=url)
+        to_index, to_delete = diff_chunk_rows(db_path, url, [])
         if to_delete:
             file_name = url.split("/")[-1] if "/" in url else url
             hb.force({"phase": "delete", "file": file_name, "keys": len(to_delete)})
@@ -333,7 +332,7 @@ def _incremental_refresh(
         paragraph_count, chunks = _extract_file_chunks(entry)
         if chunks is None:
             continue
-        to_index, to_delete = diff_chunk_rows(db_path, chunks, doc_url=entry.url)
+        to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
         hb.force(
             {
                 "phase": "extract",
@@ -343,6 +342,8 @@ def _incremental_refresh(
                 "mode": "incremental",
             }
         )
+        if not chunks and not to_delete:
+            continue
         if to_delete:
             hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
             _ingest_rows(

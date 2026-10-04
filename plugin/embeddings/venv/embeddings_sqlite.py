@@ -764,9 +764,8 @@ def remove_file_from_index_in_db(conn: sqlite3.Connection, doc_url: str) -> None
 
 def diff_chunk_rows_in_db(
     conn: sqlite3.Connection,
-    chunks: list[Any],
-    *,
     doc_url: str,
+    chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
     from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
@@ -775,8 +774,8 @@ def diff_chunk_rows_in_db(
     seen: set[tuple[str, int, int, int]] = set()
 
     stored: dict[tuple[int, int, int], str] = {}
+    doc_url = str(doc_url or "")
     if doc_url:
-        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
             SELECT para_index, char_start, char_end, content_hash
@@ -799,6 +798,7 @@ def diff_chunk_rows_in_db(
             continue
         to_index.append(chunk_to_index_row(chunk))
 
+    # Empty extracts still purge this document. Do not require chunks[0].
     to_delete: list[dict[str, Any]] = []
     if doc_url:
         for (para_index, char_start, char_end), _stored_hash in stored.items():

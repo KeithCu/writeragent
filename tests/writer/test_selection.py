@@ -179,6 +179,8 @@ def test_set_selection_is_core_read_only():
 
 
 def test_apply_document_content_selection_failure_not_silent():
+    from plugin.framework.config import set_configs
+    set_configs({'doc.agent_edit_review_mode': 'none'})
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import format as format_support
     from plugin.writer.content import ApplyDocumentContent

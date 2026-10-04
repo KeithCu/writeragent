@@ -22,7 +22,7 @@ def test_emptied_calc_retains_chunks(tmp_path: Path):
     conn.execute("INSERT INTO chunks (doc_url, para_index, char_start, char_end, content_hash, body) VALUES (?, ?, ?, ?, ?, ?)", ("file:///fake.ods", 0, 0, 10, "abc", "bodytext"))
     conn.commit()
 
-    to_index, to_delete = diff_chunk_rows_in_db(conn, [], doc_url="file:///fake.ods")
+    to_index, to_delete = diff_chunk_rows_in_db(conn, "file:///fake.ods", [])
     assert len(to_delete) == 1
     assert to_delete[0]["doc_url"] == "file:///fake.ods"
     assert to_delete[0]["para_index"] == 0

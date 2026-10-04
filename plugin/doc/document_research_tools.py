@@ -47,7 +47,7 @@ class ListNearbyFiles(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
 
         filt = kwargs.get("filter")
         file_kind_raw = kwargs.get("file_kind")
@@ -58,7 +58,10 @@ class ListNearbyFiles(ToolBase):
 
         if on_main_thread():
             return _run()
-        return execute_on_main_thread(_run)
+        try:
+            return execute_on_main_thread(_run)
+        except SendCancelled:
+            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
 
 
 class ListOpenDocuments(ToolBase):
@@ -85,7 +88,7 @@ class ListOpenDocuments(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
         from plugin.doc.document_research import get_open_documents
 
         def _run() -> dict[str, Any]:
@@ -97,7 +100,10 @@ class ListOpenDocuments(ToolBase):
 
         if on_main_thread():
             return _run()
-        return execute_on_main_thread(_run)
+        try:
+            return execute_on_main_thread(_run)
+        except SendCancelled:
+            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
 
 
 class GetGuidance(ToolBase):

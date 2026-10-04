@@ -604,9 +604,10 @@ class PythonWorkerManager:
                                 host_read_timeout_sec,
                                 grace,
                                 on_heartbeat,
+                                stop_checker=stop_checker,
                             )
                         else:
-                            response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec)
+                            response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec, stop_checker=stop_checker)
                         if not response_bytes:
                             stderr_out = self._drain_stderr()
                             message = f"Worker closed stdout without a response{stderr_out}"
@@ -1017,7 +1018,7 @@ class PythonWorkerManager:
             )
             log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
 
-    def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int) -> bytes:
+    def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         proc = self._proc
         assert proc is not None
         # Do not merge this with ipc.read_pickle_frame_with_timeout: the worker
@@ -1026,10 +1027,10 @@ class PythonWorkerManager:
         # for =PY(). Windows select.select() only supports sockets, not pipes
         # (WinError 10038); PeekNamedPipe there instead of a ReadFile thread.
         if sys.platform == "win32":
-            return self._read_response_bytes_threaded(stdout, timeout_sec)
-        return self._read_response_bytes_select(stdout, timeout_sec)
+            return self._read_response_bytes_threaded(stdout, timeout_sec, stop_checker=stop_checker)
+        return self._read_response_bytes_select(stdout, timeout_sec, stop_checker=stop_checker)
 
-    def _read_response_bytes_select(self, stdout: IO[bytes], timeout_sec: float | int) -> bytes:
+    def _read_response_bytes_select(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         """POSIX path: use select() to poll the pipe with a timeout."""
         proc = self._proc
         assert proc is not None
@@ -1038,11 +1039,15 @@ class PythonWorkerManager:
 
         def _read_exact(n: int) -> bytes:
             buf = bytearray()
+            if stop_checker and stop_checker():
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
             while len(buf) < n:
+                if stop_checker and stop_checker():
+                    raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
                 if time.monotonic() >= end:
                     raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
                 remaining = end - time.monotonic()
-                ready, _unused, _unused2 = select.select([stdout], [], [], min(1.0, remaining))
+                ready, _unused, _unused2 = select.select([stdout], [], [], min(0.2, remaining) if stop_checker else min(0.2, remaining) if getattr(self, '_stop_checker_for_deadline', None) else min(1.0, remaining))
                 if ready:
                     chunk = stdout.read(n - len(buf))
                     if not chunk:
@@ -1062,7 +1067,7 @@ class PythonWorkerManager:
             or b""
         )
 
-    def _read_response_bytes_threaded(self, stdout: IO[bytes], timeout_sec: float | int) -> bytes:
+    def _read_response_bytes_threaded(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         """Windows path: PeekNamedPipe, not a daemon thread blocked in ReadFile.
 
         Closing the pipe while a thread was inside ReadFile crashed the xdist
@@ -1073,10 +1078,12 @@ class PythonWorkerManager:
         deadline = time.monotonic() + float(timeout_sec)
 
         def _read_exact(n: int) -> bytes:
+            if stop_checker and stop_checker():
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-            return self._read_exact_win32(stdout, n, remaining, timeout_sec)
+            return self._read_exact_win32(stdout, n, remaining, timeout_sec, stop_checker)
 
         return (
             read_frame_payload(
@@ -1088,7 +1095,7 @@ class PythonWorkerManager:
             or b""
         )
 
-    def _read_exact_win32(self, stdout: IO[bytes], nbytes: int, remaining: float, timeout_sec: float | int) -> bytes:
+    def _read_exact_win32(self, stdout: IO[bytes], nbytes: int, remaining: float, timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         """One exact read on Windows: peek a real pipe, else a join-timeout thread."""
         if sys.platform == "win32":
             try:
@@ -1098,7 +1105,7 @@ class PythonWorkerManager:
             if isinstance(fd, int) and fd >= 0:
                 from plugin.scripting.ipc import _read_bytes_with_timeout_win32
 
-                return _read_bytes_with_timeout_win32(stdout, nbytes, remaining, cmd=self.exe)
+                return _read_bytes_with_timeout_win32(stdout, nbytes, remaining, cmd=self.exe, stop_checker=stop_checker)
 
         result: list[bytes] = [b""]
         error: list[BaseException | None] = [None]
@@ -1118,19 +1125,21 @@ class PythonWorkerManager:
             raise error[0]
         return result[0] or b""
 
-    def _read_exact_before_deadline(self, stdout: IO[bytes], nbytes: int, deadline: float) -> bytes:
+    def _read_exact_before_deadline(self, stdout: IO[bytes], nbytes: int, deadline: float, stop_checker: Callable[[], bool] | None = None) -> bytes:
         remaining = deadline - time.monotonic()
         if sys.platform == "win32":
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(-remaining) or 1))
-            return self._read_exact_win32(stdout, nbytes, remaining, max(1, int(remaining) or 1))
+            return self._read_exact_win32(stdout, nbytes, remaining, max(1, int(remaining) or 1), stop_checker)
 
         buf = bytearray()
         while len(buf) < nbytes:
+            if stop_checker and stop_checker():
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(deadline - time.monotonic()) or 1))
             if time.monotonic() >= deadline:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(deadline - time.monotonic()) or 1))
             remaining = deadline - time.monotonic()
-            ready, _unused, _unused2 = select.select([stdout], [], [], min(1.0, remaining))
+            ready, _unused, _unused2 = select.select([stdout], [], [], min(0.2, remaining) if stop_checker else min(0.2, remaining) if getattr(self, '_stop_checker_for_deadline', None) else min(1.0, remaining))
             if ready:
                 chunk = stdout.read(nbytes - len(buf))
                 if not chunk:
@@ -1146,15 +1155,20 @@ class PythonWorkerManager:
         timeout_sec: float | int,
         grace_sec: int,
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
+        stop_checker: Callable[[], bool] | None = None,
     ) -> bytes:
         from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
 
         deadline_holder = [time.monotonic() + max(timeout_sec, grace_sec)]
 
         def _read_exact(n: int) -> bytes:
-            return self._read_exact_before_deadline(stdout, n, deadline_holder[0])
+            if stop_checker and stop_checker():
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+            return self._read_exact_before_deadline(stdout, n, deadline_holder[0], stop_checker)
 
         while True:
+            if stop_checker is not None and stop_checker():
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
             frame_bytes = self._read_frame_bytes(stdout, _read_exact)
             if not frame_bytes:
                 return b""
