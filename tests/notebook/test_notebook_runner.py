@@ -104,22 +104,28 @@ def test_execute_code_does_not_pump_idle():
         patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
         patch("plugin.notebook.notebook_runner.run_blocking_in_thread", return_value=worker_result) as pump,
         patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
+        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
+        patch("plugin.notebook.notebook_runner.release_script_document") as release,
     ):
         out = execute_code(ctx, doc, "x = 1")
         assert out == worker_result
         pump.assert_called_once()
         assert pump.call_args.kwargs.get("pump_idle") is False
-        assert callable(pump.call_args.kwargs.get("stop_checker"))
         run_venv.assert_not_called()
 
+        # Call the mapped function to test inner logic
+        func = pump.call_args.args[1]
+        func()
+        run_venv.assert_called_once()
+        kwargs = run_venv.call_args.kwargs
+        assert kwargs.get("python_tool_domain") == ""
+        assert kwargs.get("session_id") == "notebook:test"
+        assert kwargs.get("script_session_id") == "doc:test"
+        assert callable(kwargs.get("stop_checker"))
+        release.assert_called_once_with("doc:test")
 
 def test_execute_code_stop_returns_interrupted_without_venv():
-    """``BlockingWaitStopped`` is another thread setting the flag.
-
-    The hamburger cannot do that: it runs on the UI thread that is inside
-    this wait, and the wait does not pump VCL.
-    """
-    from plugin.framework.async_stream import BlockingWaitStopped
+    """When stop_checker is true during exception handling in _run, we return stopped."""
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -127,14 +133,18 @@ def test_execute_code_stop_returns_interrupted_without_venv():
         patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
         patch(
             "plugin.notebook.notebook_runner.run_blocking_in_thread",
-            side_effect=BlockingWaitStopped("stopped"),
+            side_effect=lambda ctx, func, **kw: func(),
         ) as pump,
-        patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", side_effect=Exception("stalled")) as run_venv,
+        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
+        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
+        patch("plugin.notebook.notebook_runner.release_script_document"),
+        patch("plugin.framework.worker_pool.run_in_background", lambda f, **kwargs: f()),
     ):
         out = execute_code(ctx, doc, "x = 1")
-    assert out["status"] == "interrupted"
+    assert out["status"] == "stopped"
     assert pump.call_args.kwargs.get("pump_idle") is False
-    run_venv.assert_not_called()
+    run_venv.assert_called_once()
 
 
 def test_run_cell_updates_registry_and_execution_count():
@@ -376,6 +386,8 @@ def test_is_next_cell_boundary_markdown_and_code():
     assert _is_next_cell_boundary("Preformatted Text", "Out [1]: 42", None) is False
     # Fallback stdout style must not count as the next cell, or re-runs stack.
     assert _is_next_cell_boundary("WriterAgent Notebook Output", "old stdout", None) is False
+    assert _is_next_cell_boundary("Quotations", "A blockquote", None) is True
+    assert _is_next_cell_boundary("List 1 Start", "A list item", None) is True
 
 
 def test_paragraph_string_uses_selection_when_nonempty():
@@ -433,6 +445,44 @@ def test_clear_cell_output_uses_set_string_not_delete_contents():
     text.deleteContents.assert_not_called()
     sel.gotoRange.assert_called_once_with("end-pos", True)
     sel.setString.assert_called_once_with("")
+
+
+
+def test_clear_cell_output_stops_at_markdown_blockquote():
+    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Preformatted Text"
+    start.getString.return_value = "Array: [10 20 30]"
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Preformatted Text"
+    walker.getString.return_value = "Array: [10 20 30]"
+
+    def goto_next(_expand):
+        walker.ParaStyleName = "Quotations"
+        walker.getString.return_value = "A blockquote"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = "md-start"
+
+    range_start = MagicMock(name="range_start")
+    sel = MagicMock(name="sel")
+    sel.getString.return_value = "Array: [10 20 30]\n"
+
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    sel.setString.assert_called_once_with("")
+    walker.gotoStartOfParagraph.assert_called_once()
 
 
 def test_clear_cell_output_stops_at_markdown_cell_heading():
@@ -905,9 +955,34 @@ def test_run_cell_for_doc_hex_execution_error_does_not_msgbox():
         run_cell_for_doc_hex(ctx, doc, hex_id)
 
     boxed.assert_not_called()
-    assert apply_calls and apply_calls[0]["status"] == "error"
+    assert apply_calls
+    assert isinstance(apply_calls, list) and len(apply_calls) > 0 and isinstance(apply_calls[0], dict) and apply_calls[0].get("status") == "error"
 
 
+
+
+def test_run_cell_for_doc_hex_setup_error_shows_msgbox():
+    """Empty code or missing field surfaces a msgbox, as there's no result inline."""
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    doc = MagicMock()
+    ctx = MagicMock()
+    hex_id = cell_id_to_hex(cell.cell_id)
+
+    with (
+        patch("plugin.notebook.notebook_runner.is_writer", return_value=True),
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="   "),  # Empty code
+        patch("plugin.notebook.notebook_runner.execute_code") as execute,
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.notebook_runner.msgbox") as boxed,
+    ):
+            run_cell_for_doc_hex(ctx, doc, hex_id)
+            execute.assert_not_called()
+            boxed.assert_called_once_with(ctx, "WriterAgent", "Code cell is empty.")
 def test_clear_cell_output_preserves_spacer_before_next_heading():
     """Delete stdout but not the empty paragraph immediately before the next cell."""
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
@@ -1110,7 +1185,7 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
         ran.append(code)
         return {"status": "ok", "result": None, "stdout": ""}
 
-    def _flush(_ctx, **_k):
+    def _flush(*_a, **_k):
         request_stop(doc)
 
     with (
@@ -1129,6 +1204,88 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
     assert result.cells_run == 1
     assert ran == ["x = 1"]
     assert apply.call_count == 1
+
+
+def _patch_run_cells(state, exec_side_effect, flush, pump):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        with (
+            patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+            patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
+            patch("plugin.notebook.notebook_runner.execute_code", side_effect=exec_side_effect),
+            patch("plugin.notebook.notebook_runner.clear_cell_output"),
+            patch("plugin.notebook.notebook_runner.apply_run_result"),
+            patch("plugin.notebook.notebook_runner.update_in_prompt"),
+            patch("plugin.notebook.notebook_runner.save_registry"),
+            patch("plugin.notebook.writer_importer.flush_ui_idle", new=flush),
+            patch("plugin.framework.queue_executor.pump_ui_idle", new=pump),
+            patch("plugin.framework.uno_context.get_toolkit", return_value=object()),
+        ):
+            yield
+
+    return _ctx()
+
+
+def test_run_cells_chat_stop_under_drain_skips_remainder():
+    """Chat Stop during a drain-owned Run All skips cells that have not started.
+
+    flush_ui_idle does not pump while a drain owns VCL. The click is delivered
+    by pump_ui_idle, and chat Stop latches SendCancellation rather than the
+    notebook Event.
+    """
+    from plugin.framework.async_drain_guard import drain_owner_scope
+    from plugin.framework.queue_executor import SendCancellation, agent_session
+
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+    scope = SendCancellation()
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _flush(*_a, **_k):
+        scope.cancel()
+
+    with agent_session(scope), drain_owner_scope("stream"):
+        with _patch_run_cells(state, _exec, None, _flush):
+            result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert ran == ["x = 1"]
+    assert cells[1].execution_count is None
+    assert cells[2].execution_count is None
+
+
+def test_run_cells_already_cancelled_chat_skips_without_flush():
+    """A latched chat Stop skips the batch even when the between-cell flush is a no-op."""
+    from plugin.framework.async_drain_guard import drain_owner_scope
+    from plugin.framework.queue_executor import SendCancellation, agent_session
+
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    scope = SendCancellation()
+    scope.cancel()
+    flush = MagicMock()
+
+    def _exec(_ctx, _doc, code):
+        raise AssertionError(code)
+
+    with agent_session(scope), drain_owner_scope("stream"):
+        with _patch_run_cells(state, _exec, None, flush):
+            result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 0
+    flush.assert_not_called()
 
 
 def test_run_cells_busy_guard_skips_play_but_stop_works():
@@ -1295,16 +1452,86 @@ def test_run_cells_does_not_pump_idle_during_execute():
         patch("plugin.notebook.notebook_runner.apply_run_result"),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
-        patch("plugin.framework.uno_context.process_events_to_idle") as idle,
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
+        patch("plugin.notebook.writer_importer.flush_ui_idle") as flush_idle,
+        patch("plugin.framework.queue_executor.pump_ui_idle"),
     ):
         run_cells(ctx, doc, start_index=0)
 
     assert pumps == ["execute", "flush", "execute"]
-    idle.assert_not_called()
+    assert flush_idle.call_count == 1
     src = inspect.getsource(execute_code)
     assert "pump_idle=False" in src
     assert "processEventsToIdle" not in src or "never" in src.lower() or "not" in src.lower()
+
+
+def test_run_cells_between_cell_pump_under_drain_owner():
+    from plugin.notebook.notebook_runner import _pump_between_notebook_cells
+
+    ctx = MagicMock()
+    pumps: list[str] = []
+
+    def _flush(*_a, **_k):
+        pumps.append("flush")
+
+    def _pump_idle(*_a, **_k):
+        pumps.append("pump_ui_idle")
+
+    def _pump_work(*_a, **_k):
+        pumps.append("pump_main_thread_work_queue")
+
+    with (
+        patch("plugin.framework.async_drain_guard.get_drain_owner", return_value=None),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
+        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+    ):
+        _pump_between_notebook_cells(ctx)
+    assert pumps == ["pump_main_thread_work_queue", "flush"]
+
+    pumps.clear()
+    with (
+        patch("plugin.framework.async_drain_guard.get_drain_owner", return_value="owner"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
+        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+    ):
+        _pump_between_notebook_cells(ctx)
+    assert pumps == ["pump_main_thread_work_queue", "pump_ui_idle"]
+
+
+def test_run_cells_between_cell_pump_disposal_stops_execution():
+    ctx = MagicMock()
+    cells = _three_cells()[:2]
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    pumps: list[str] = []
+
+    def _exec(*_a, **_k):
+        pumps.append("execute")
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _flush(*_a, **_k):
+        pumps.append("flush")
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.notebook.notebook_runner.is_document_disposed", side_effect=[False, True]),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    # Second cell skipped because document was disposed after first cell
+    assert pumps == ["execute", "flush"]
+    assert result.status == "stopped"
 
 
 def test_run_all_for_doc_hex_setup_msgbox_only():
