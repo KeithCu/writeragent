@@ -601,22 +601,6 @@ class NotebookRunButtonListener(BaseActionListener):
         from plugin.framework.thread_guard import on_main_thread
 
         is_main = on_main_thread()
-        # Prefer a live wrapper before enumerating the desktop (unit tests and
-        # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
-        weak = getattr(self, "_doc_weak", None)
-        if callable(weak):
-            ref_doc = weak()
-            if ref_doc is not None:
-                return ref_doc
-
-        if is_main and self._runtime_uid:
-            try:
-                doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
-                if doc is not None:
-                    return doc
-            except Exception:
-                pass
-
         if is_main and self._doc_url:
             try:
                 doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
@@ -624,7 +608,20 @@ class NotebookRunButtonListener(BaseActionListener):
                     return doc
             except Exception:
                 pass
-
+        # Prefer a live wrapper before enumerating the desktop (unit tests and
+        # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
+        weak = getattr(self, "_doc_weak", None)
+        if callable(weak):
+            ref_doc = weak()
+            if ref_doc is not None:
+                return ref_doc
+        if is_main and self._runtime_uid:
+            try:
+                doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
+                if doc is not None:
+                    return doc
+            except Exception:
+                pass
         if is_main:
             from plugin.framework.uno_context import get_active_document
             try:
@@ -744,7 +741,7 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
         target_form = None
         for i in range(count):
             form = forms.getByIndex(i)
-            # Prefer the form that actually hosts nb_run_* controls.
+            # check for elements with nb_run_ prefix
             has_nb = False
             elem_count = getattr(form, "getCount", lambda: 0)()
             for j in range(elem_count):
@@ -842,37 +839,20 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     from plugin.framework.uno_context import uno_same
     already_wired = False
     with _lock:
-        # Claim the doc before uno_same. Off the main thread uno_same raises,
-        # and a second wire must not attach another listener. A later call
-        # whose container is a different view still rewires when uno_same
-        # returns False.
-        claimed = doc_key in _wired_form_docs
-        if not claimed:
-            _wired_form_docs.add(doc_key)
-        listener_snapshot = list(_listener_refs)
-
-    for lis in listener_snapshot:
-        if isinstance(lis, NotebookFormContainerListener) and getattr(lis, "_doc_key_val", None) == doc_key:
-            try:
-                if uno_same(lis._container, container):
-                    already_wired = True
+        for lis in _listener_refs:
+            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
+                try:
+                    if uno_same(ctx, lis._container, container):
+                        already_wired = True
+                        break
+                except Exception:
+                    already_wired = True  # fallback to just assuming it's the same if uno_same fails
                     break
-            except Exception:
-                # Cannot compare UNO identity off the main thread. The claimed
-                # key means this document is already wired.
-                already_wired = True
-                break
-
-    if not already_wired and claimed and not any(
-        isinstance(lis, NotebookFormContainerListener) and getattr(lis, "_doc_key_val", None) == doc_key
-        for lis in listener_snapshot
-    ):
-        # Re-entrant second wire before the listener is appended.
-        already_wired = True
 
     if already_wired:
         log.debug("notebook controls: form listener already attached doc=%s", doc_key)
         return 1
+
 
 
     listener = NotebookFormRunListener(ctx, doc)
