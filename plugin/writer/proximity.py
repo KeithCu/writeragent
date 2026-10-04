@@ -30,6 +30,7 @@ from typing import Any
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
+from plugin.writer.tree import _heading_tree_fingerprint
 
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
@@ -50,16 +51,28 @@ class ProximityService(ServiceBase):
         self._bm_svc = services.writer_bookmarks
         events = services.events
         self._flat_cache: dict[Any, list[Any]] = {}  # doc_key -> [flat entries]
+        self._flat_fp: dict[Any, int | None] = {}  # doc_key -> CharacterCount at flatten time
+        self._flat_root: dict[Any, dict[str, Any]] = {}  # doc_key -> tree object that was flattened
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
+
+    def _drop_flat_cache(self, key: Any | None = None) -> None:
+        if key is None:
+            self._flat_cache.clear()
+            self._flat_fp.clear()
+            self._flat_root.clear()
+            return
+        self._flat_cache.pop(key, None)
+        self._flat_fp.pop(key, None)
+        self._flat_root.pop(key, None)
 
     def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any) -> None:
         # key= first: close/unload emits the stored key without a live model.
         if key is not None:
-            self._flat_cache.pop(key, None)
+            self._drop_flat_cache(key)
         elif doc is None:
-            self._flat_cache.clear()
+            self._drop_flat_cache()
         else:
-            self._flat_cache.pop(self._doc_svc.doc_key(doc), None)
+            self._drop_flat_cache(self._doc_svc.doc_key(doc))
 
     # ==================================================================
     # Flattened tree (ordered heading list with parent pointers)
@@ -67,13 +80,26 @@ class ProximityService(ServiceBase):
 
     def _flatten_tree(self, root: dict[str, Any], doc: Any) -> list[Any]:
         key = self._doc_svc.doc_key(doc)
+        fingerprint = _heading_tree_fingerprint(doc)
         if is_cacheable_doc_key(key) and key in self._flat_cache:
-            return self._flat_cache[key]
+            cached_fp = self._flat_fp.get(key)
+            # What was wrong: any cache hit returned the previous flat list and
+            # ignored ``root``. A programmatic edit that XModifyListener misses
+            # still moves CharacterCount, so TreeService rebuilds and hands the
+            # new tree here. next/previous/sibling/parent kept walking the old
+            # paragraphs.
+            # Why: same CharacterCount rule as TreeService.build_heading_tree
+            # (no count → listener-only). Also require this tree object: a
+            # rebuilt root must not reuse the list flattened from the previous one.
+            if (fingerprint is None or fingerprint == cached_fp) and self._flat_root.get(key) is root:
+                return self._flat_cache[key]
 
         flat: list[Any] = []
         self._flatten_recurse(root["children"], None, flat)
         if is_cacheable_doc_key(key):
             self._flat_cache[key] = flat
+            self._flat_fp[key] = fingerprint
+            self._flat_root[key] = root
         return flat
 
     def _flatten_recurse(self, children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
