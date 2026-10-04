@@ -749,12 +749,14 @@ def test_run_all_stop_skips_remaining_cells(ctx, doc):
         state = load_registry(doc)
         assert state is not None and len(state.code_cells) == 3
 
-        def _flush(_ctx, **_k):
+        def _flush(*_a, **_k):
+            # Pump is only called between cells now, so if we request stop here, it's before cell 2.
+            # The first cell already ran! So cells_run=1 is correct.
             request_stop(doc)
 
         with (
             patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
-            patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+            patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
         ):
             result = run_all_for_doc(ctx, doc)
         assert result is not None, "run_all_for_doc returned None"

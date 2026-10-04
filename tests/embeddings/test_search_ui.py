@@ -47,18 +47,23 @@ class TestSearchDialog:
 
         show_search_dialog(mock_ctx)
 
-    @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args) if "warm" not in fn.__name__ else None)
+    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
+    @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
     @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
-    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="dummy")
-    @patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=True)
-    @patch("plugin.embeddings.embeddings_indexer._clear_enqueue")
     @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
-    def test_rebuild_action_triggered(self, mock_get_model, mock_clear_enqueue, mock_try_enqueue, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg):
+    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg, mock_get_model):
+
+        # Capture the heartbeat_fn to test the exception guard
+        hb_capture = []
+        def _mock_maintain(*args, **kwargs):
+            if "heartbeat_fn" in kwargs:
+                hb_capture.append(kwargs["heartbeat_fn"])
+        mock_maintain.side_effect = _mock_maintain
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
         
@@ -79,10 +84,32 @@ class TestSearchDialog:
         mock_doc.return_value = MagicMock()
 
         # Call Rebuild
-        dialog._run_rebuild(mock_dlg)
+        with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=True) as mock_try, \
+             patch("plugin.embeddings.embeddings_indexer._clear_enqueue"), \
+             patch("plugin.embeddings.search_ui.get_embedding_model", return_value="dummy_model", create=True):
+            dialog._run_rebuild(mock_dlg)
+            assert mock_try.called
 
         assert mock_clear.called
         assert mock_maintain.called
+
+        # Test heartbeat callback exception handling
+        if hb_capture:
+            hb = hb_capture[0]
+            # Emit extract phase
+            hb({"file": "test.txt", "phase": "extract", "paragraphs": 5, "chunks": 10})
+
+            # Make the results control throw when accessed
+            mock_results_ctrl = MagicMock()
+            mock_dlg.getControl.side_effect = lambda name: mock_results_ctrl if name == "ResultsEdit" else MagicMock()
+            mock_results_ctrl.getModel.side_effect = Exception("UI Disposed")
+
+            # Emit index phase which should trigger UI update that throws
+            try:
+                hb({"file": "test.txt", "phase": "index", "paragraphs": 5, "chunks": 10})
+            except Exception as e:
+                import pytest
+                pytest.fail(f"Heartbeat callback raised exception: {e}")
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 
     def test_query_edit_enter_triggers_search(self):
@@ -116,21 +143,16 @@ class TestSearchDialog:
         dialog._run_search.assert_called_with(mock_dlg)
         assert dialog._run_search.call_count == 2
 
-    @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args) if "warm" not in fn.__name__ else None)
+    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
+    @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
     @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
-    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="dummy")
-    @patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=True)
-    @patch("plugin.embeddings.embeddings_indexer._clear_enqueue")
     @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
     def test_rebuild_untitled_doc_uses_my_documents_listing(
         self,
-        mock_get_model,
-        mock_clear_enqueue,
-        mock_try_enqueue,
         mock_search_mode,
         mock_maintain,
         mock_clear,
@@ -138,6 +160,7 @@ class TestSearchDialog:
         mock_get_desktop,
         _mock_execute,
         _mock_bg,
+        mock_get_model,
         tmp_path,
     ):
         mock_ctx = MagicMock()
@@ -163,7 +186,11 @@ class TestSearchDialog:
 
         with patch("plugin.doc.text_helpers.get_document_path", return_value=None):
             with patch("plugin.doc.document_research.get_work_directory", return_value=my_docs):
-                dialog._run_rebuild(mock_dlg)
+                with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=True) as mock_try, \
+                     patch("plugin.embeddings.embeddings_indexer._clear_enqueue"), \
+                     patch("plugin.embeddings.search_ui.get_embedding_model", return_value="dummy_model", create=True):
+                    dialog._run_rebuild(mock_dlg)
+                    assert mock_try.called
 
         assert mock_clear.called
         assert mock_clear.call_args.args[0] == my_docs

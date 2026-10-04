@@ -147,6 +147,8 @@ class SearchEmbeddings(ToolBase):
                 k,
                 model=model,
             )
+            if result.get("error"):
+                return self._tool_error(result["error"], code="EMBEDDING_SEARCH_ERROR")
         except Exception as exc:
             log.exception("search_embeddings failed")
             return self._tool_error(str(exc), code="EMBEDDING_SEARCH_ERROR")
