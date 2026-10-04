@@ -83,7 +83,7 @@ class DrawBridge:
         return self._pages
 
     def get_active_page(self) -> Any | None:
-        if hasattr(self.doc, "getSheets"):
+        if self.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
             try:
                 from plugin.calc.bridge import CalcBridge
                 sheet = CalcBridge(self.doc).get_active_sheet()
