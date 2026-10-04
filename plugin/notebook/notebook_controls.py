@@ -813,17 +813,10 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
 
-    from plugin.framework.uno_context import uno_same
     with _lock:
-        # Check if this specific container view is already wired
-        for lis in _listener_refs:
-            if isinstance(lis, NotebookFormContainerListener):
-                try:
-                    if uno_same(lis._container, container):
-                        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
-                        return 1
-                except Exception:
-                    pass
+        if doc_key in _wired_form_docs:
+            log.debug("notebook controls: form listener already attached doc=%s", doc_key)
+            return 1
         _wired_form_docs.add(doc_key)
 
     listener = NotebookFormRunListener(ctx, doc)
