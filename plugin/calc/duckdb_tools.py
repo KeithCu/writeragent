@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcAnalysisBase
