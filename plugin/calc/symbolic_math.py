@@ -53,11 +53,8 @@ class SymbolicMathTool(ToolCalcPythonBase):
 
         from plugin.scripting.symbolic import run_trusted_symbolic
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_symbolic(ctx.ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint)
-
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_symbolic(ctx.ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "SYMBOLIC_ERROR"))
         except Exception as exc:

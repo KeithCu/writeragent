@@ -95,6 +95,7 @@ def run_trusted_symbolic(
     helper: str,
     params: dict[str, Any] | None = None,
     task_hint: str | None = None,
+    doc_type: str | None = None,
 ) -> dict[str, Any]:
     """Run a trusted symbolic helper in the user venv."""
     name = str(helper or "").strip()
@@ -102,7 +103,18 @@ def run_trusted_symbolic(
         raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="SYMBOLIC_ERROR")
-    if not is_calc(doc) and not is_writer(doc):
+    if doc_type:
+        is_valid = doc_type in ("calc", "writer")
+    else:
+        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import execute_on_main_thread
+
+        def _check_doc() -> bool:
+            return is_calc(doc) or is_writer(doc)
+
+        is_valid = _check_doc() if on_main_thread() else execute_on_main_thread(_check_doc)
+
+    if not is_valid:
         raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
 
     spec: dict[str, Any] = {"helper": name}

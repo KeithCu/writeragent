@@ -24,7 +24,7 @@ def calc_ctx():
 
 def test_output_anchor_quoted_dotted_sheet_and_range():
     """rsplit('.') dropped quoted/dotted sheets and used the range's end cell."""
-    from plugin.calc.analysis import _output_anchor
+    from plugin.calc.address_utils import parse_output_anchor as _output_anchor
 
     assert _output_anchor("'Q1.Sales'!B2") == ("Q1.Sales", 1, 1)
     assert _output_anchor("'Data Sheet'.C3") == ("Data Sheet", 2, 2)

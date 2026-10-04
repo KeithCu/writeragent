@@ -76,7 +76,7 @@ class OptimizeDataTool(ToolBaseDummy):
             return self._tool_error("Provide data_range or data")
 
         from plugin.scripting.optimize import run_trusted_optimize, insert_optimize_result_into_calc
-        from plugin.calc.address_utils import parse_address
+        from plugin.calc.address_utils import parse_output_anchor
         from plugin.framework.queue_executor import execute_on_main_thread
 
         dr = str(data_range).strip() if data_range else None
@@ -101,8 +101,7 @@ class OptimizeDataTool(ToolBaseDummy):
         if output_range and result.get("status") == "ok":
 
             def _write() -> None:
-                cell_part = output_range.rsplit(".", 1)[-1] if output_range else output_range
-                col, row = parse_address(cell_part)
+                _sheet, col, row = parse_output_anchor(output_range)
                 insert_optimize_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
 
             try:
