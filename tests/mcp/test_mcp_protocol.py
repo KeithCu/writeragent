@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """MCP protocol document echo and tools/call thread-guard. No LibreOffice."""
+
 import json
 import threading
 from unittest.mock import MagicMock, patch
@@ -30,6 +31,7 @@ def test_attach_document_echo_shape_and_absence():
     r3 = {"status": "ok", "document": {"name": "keep"}}
     _attach_document_echo(r3, doc)
     assert r3["document"]["name"] == "keep"
+
 
 def test_long_running_precomputes_echo_without_post_execute_doc_access():
     """Echo is captured once inside _prepare_mcp_execution (main-thread marshal); the worker path must not
@@ -81,9 +83,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
     registry = _Registry()
     handler = MCPProtocolHandler(_FakeServices(registry))
 
-    with patch("plugin.mcp.mcp_protocol._document_echo_payload",
-               return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo, \
-         patch("plugin.mcp.mcp_protocol._attach_document_echo") as mock_attach:
+    with patch("plugin.mcp.mcp_protocol._document_echo_payload", return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo, patch("plugin.mcp.mcp_protocol._attach_document_echo") as mock_attach:
         result = handler._execute_long_running("any_tool", {}, document_url="file:///doc.odt")
 
     assert result["status"] == "ok"
@@ -139,7 +139,7 @@ class _Services:
 
 
 class _SyncProbe(ToolBase):
-    """Real tool so execute_safe's disposed-document check runs. long_running defaults to True."""
+    """Real tool so execute_safe's disposed-document check runs."""
 
     name = "sync_probe"
     description = "probe"
@@ -147,7 +147,7 @@ class _SyncProbe(ToolBase):
     uno_services = None
     doc_types = None
     is_mutation = True
-    long_running = True
+    long_running = False
     requires_document = True
 
     def __init__(self):
@@ -200,11 +200,7 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
 def test_tools_call_keeps_real_arguments_when_stripping_bypass():
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)
-    result = handler._execute_long_running(
-        "sync_probe",
-        {"bypass_thread_guard": True, "note": "keep"},
-        document_url="file:///live.odt",
-    )
+    result = handler._execute_long_running("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
     assert result["status"] == "ok"
     assert result["note"] == "keep"
     assert tool.body_calls == [{"note": "keep"}]
@@ -283,10 +279,7 @@ def test_notification_batch_includes_session_id(monkeypatch):
     services = MagicMock()
     services.tools = MagicMock()
     mcp = MCPProtocolHandler(services)
-    batch = [
-        {"jsonrpc": "2.0", "method": "notifications/initialized"},
-        {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {}},
-    ]
+    batch = [{"jsonrpc": "2.0", "method": "notifications/initialized"}, {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {}}]
     mcp._handle_mcp(batch, handler)
     handler.send_response.assert_called_with(202)
     assert ("Mcp-Session-Id", "sess-batch") in sent
@@ -319,9 +312,10 @@ def test_handle_debug_post_blocks_tunneled_request(monkeypatch):
     # Valid localhost request (no active tunnel)
     req4 = MockHandler({})
     mock_tunnel.is_running = False
-    with patch.object(handler, '_read_body', return_value={}):
+    with patch.object(handler, "_read_body", return_value={}):
         handler.handle_debug_post(req4)
     assert 200 in req4.sent_responses
+
 
 def test_http_server_stop_ends_sse_keepalive():
     """stop() must wake the SSE request thread instead of leaving it in select."""
@@ -407,3 +401,72 @@ def test_http_server_stop_ends_sse_keepalive():
             client.close()
         if srv is not None:
             srv.stop()
+
+
+def test_async_tools_are_long_running():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from unittest.mock import patch, MagicMock
+
+    class MockAsyncTool(ToolBase):
+        name = "async_mock"
+        timeout = 10
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def is_async(self):
+            return True
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["async_mock"] = MockAsyncTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    with patch.object(handler, "_execute_long_running", return_value={"status": "ok"}) as mock_lr:
+        handler._mcp_tools_call({"name": "async_mock", "arguments": {}})
+        assert mock_lr.called
+
+
+def test_document_url_not_popped_when_declared():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from unittest.mock import patch, MagicMock
+
+    class MockDocUrlTool(ToolBase):
+        name = "doc_url_mock"
+        parameters = {"properties": {"document_url": {"type": "string"}}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["doc_url_mock"] = MockDocUrlTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    with patch.object(handler, "_execute_with_backpressure", return_value={"status": "ok"}) as mock_bp:
+        handler._mcp_tools_call({"name": "doc_url_mock", "arguments": {"document_url": "test"}})
+        assert mock_bp.call_args[0][1] == {"document_url": "test"}
+
+
+def test_timeout_zero_rejects_async_tool():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from unittest.mock import MagicMock
+
+    class MockAsyncNoTimeoutTool(ToolBase):
+        name = "async_no_timeout"
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def is_async(self):
+            return True
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["async_no_timeout"] = MockAsyncNoTimeoutTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    result = handler._prepare_mcp_execution("async_no_timeout", {}, None)
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"

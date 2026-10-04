@@ -539,6 +539,7 @@ class MCPProtocolHandler:
             if handler.headers.get(header) or handler.headers.get(header.title()):
                 return True
         from plugin.mcp import _shared_tunnel
+
         if _shared_tunnel and getattr(_shared_tunnel, "is_running", False):
             return True
         return False
@@ -550,6 +551,7 @@ class MCPProtocolHandler:
         # Note: headers are just a dict here, so wrap it in a dummy handler structure
         # or just pass a dummy to `_is_tunneled` which expects `handler.headers`.
         _hdrs = headers
+
         class _DummyHandler:
             headers: Any = _hdrs
 
@@ -772,7 +774,16 @@ class MCPProtocolHandler:
         call_params = wire_types.CallToolRequestParams.from_params(params)
         tool_name = call_params.name
         arguments = dict(call_params.arguments)
-        arg_document_url = arguments.pop("document_url", None)
+
+        tool = self.tool_registry.get(tool_name)
+        tool_params = tool.get_parameters() if tool else {}
+        tool_props = tool_params.get("properties", {}) if tool_params else {}
+
+        if "document_url" not in tool_props:
+            arg_document_url = arguments.pop("document_url", None)
+        else:
+            arg_document_url = arguments.get("document_url", None)
+
         if arg_document_url:
             document_url = arg_document_url
 
@@ -783,7 +794,7 @@ class MCPProtocolHandler:
             return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
 
         tool = self.tool_registry.get(tool_name)
-        is_long_running = getattr(tool, "long_running", False) if tool else False
+        is_long_running = getattr(tool, "long_running", False) or tool.is_async() if tool else False
 
         initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
 
@@ -1042,6 +1053,8 @@ class MCPProtocolHandler:
                 pass
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services)
+        if getattr(tool, "is_async", lambda: False)() and getattr(tool, "timeout", 0) <= 0:
+            return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
         return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=_tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
@@ -1052,7 +1065,9 @@ class MCPProtocolHandler:
         """
         safe_args = _arguments_without_thread_guard_bypass(dict(arguments))
         t0 = time.perf_counter()
+
         result = self.tool_registry.execute(tool_name, prepared.context, bypass_thread_guard=False, **safe_args)
+
         elapsed = time.perf_counter() - t0
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)
