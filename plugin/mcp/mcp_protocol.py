@@ -1052,12 +1052,18 @@ class MCPProtocolHandler:
             except Exception:
                 pass
 
+        from plugin.framework.queue_executor import get_current_send_cancellation
+
+        send_cancellation = get_current_send_cancellation()
+
         def stop_checker() -> bool:
-            if req_id is not None:
-                return req_id in self._cancelled_requests
+            if req_id is not None and req_id in self._cancelled_requests:
+                return True
+            if send_cancellation is not None and send_cancellation.is_cancelled():
+                return True
             return False
 
-        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, stop_checker=stop_checker)
+        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=send_cancellation, stop_checker=stop_checker)
         return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=_tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:

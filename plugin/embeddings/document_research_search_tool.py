@@ -50,7 +50,8 @@ class SearchEmbeddings(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if callable(ctx.stop_checker) and ctx.stop_checker():
+        checker = getattr(ctx, "stop_checker", None)
+        if callable(checker) and checker() is True:
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
@@ -85,52 +86,37 @@ class SearchEmbeddings(ToolBase):
         from plugin.embeddings.embeddings_service import knn_search
         from plugin.framework.config import get_config
 
-        def _resolve_context() -> dict[str, Any]:
-            folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
-            return {
-                "folder_key": folder_key,
-                "db_path": db_path,
-                "meta_path": meta_path,
-                "listing_root": listing_root
-            }
+        def _resolve_uno_context() -> str | None:
+            from plugin.doc.document_research import resolve_listing_directory
+            return resolve_listing_directory(ctx.ctx, ctx.doc)
 
-        from plugin.framework.thread_guard import on_main_thread
-        if on_main_thread():
-            ctx_data = _resolve_context()
-        else:
-            ctx_data = execute_on_main_thread(_resolve_context)
+        def _resolve_context(resolved_listing_root: str | None) -> dict[str, Any]:
+            folder_key, db_path, meta_path, listing_root = resolve_index_context(
+                ctx.ctx, ctx.doc, listing_root=resolved_listing_root
+            )
+            if folder_key is None or db_path is None or meta_path is None:
+                return {"error": listing_root or "No folder context"}
 
-        folder_key = ctx_data["folder_key"]
-        db_path = ctx_data["db_path"]
-        meta_path = ctx_data["meta_path"]
-        listing_root = ctx_data["listing_root"]
-
-        if folder_key is None or db_path is None or meta_path is None:
-            return {"status": "error", "message": listing_root or "No folder context"}
-
-        mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-        looks_empty = False
-        if mode == "zvec":
-            zpath = zvec_collection_path(listing_root, create_parent=False)
-            looks_empty = not zvec_collection_looks_populated(zpath)
-        elif mode == "lancedb":
-            lpath = lancedb_collection_path(listing_root, create_parent=False)
-            looks_empty = not lancedb_collection_looks_populated(lpath)
-        else:
-            looks_empty = index_is_empty(meta_path, db_path)
-
-        if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
-            looks_empty = True
-
-        if looks_empty:
-            def _wakeup() -> None:
-                ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
-            if on_main_thread():
-                _wakeup()
+            mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
+            looks_empty = False
+            if mode == "zvec":
+                zpath = zvec_collection_path(listing_root, create_parent=False)
+                looks_empty = not zvec_collection_looks_populated(zpath)
+            elif mode == "lancedb":
+                lpath = lancedb_collection_path(listing_root, create_parent=False)
+                looks_empty = not lancedb_collection_looks_populated(lpath)
             else:
-                execute_on_main_thread(_wakeup)
-            context_result = {"empty": True, "folder_key": folder_key}
-        else:
+                looks_empty = index_is_empty(meta_path, db_path)
+
+            # A model change must not knn-search the previous vec table. That
+            # table is empty, partial, or the wrong dimension until cold rebuild.
+            if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
+                looks_empty = True
+
+            if looks_empty:
+                ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
+                return {"empty": True, "folder_key": folder_key}
+
             if mode == "zvec":
                 search_path = str(zvec_collection_path(listing_root, create_parent=True))
             elif mode == "lancedb":
@@ -138,23 +124,21 @@ class SearchEmbeddings(ToolBase):
             else:
                 search_path = str(db_path)
 
-            context_result = {
-                "search_path": search_path,
-                "folder_key": folder_key,
-            }
+            return {"search_path": search_path, "folder_key": folder_key}
+
+        from plugin.framework.thread_guard import on_main_thread
+
+        if on_main_thread():
+            resolved_listing_root = _resolve_uno_context()
+        else:
+            resolved_listing_root = execute_on_main_thread(_resolve_uno_context)
+
+        context_result = _resolve_context(resolved_listing_root)
 
         if "error" in context_result:
             return {"status": "error", "message": context_result["error"]}
 
         if context_result.get("empty"):
-            from plugin.embeddings.embeddings_indexer import get_failed_indexing_message
-            failed_msg = get_failed_indexing_message(str(context_result.get("folder_key") or ""))
-            if failed_msg:
-                return {
-                    "status": "error",
-                    "message": f"Background indexing failed: {failed_msg}",
-                    "folder_key": context_result["folder_key"],
-                }
             return {
                 "status": "indexing",
                 "hits": [],
@@ -163,7 +147,7 @@ class SearchEmbeddings(ToolBase):
                 "message": "Folder index is building in the background. Retry search_embeddings shortly.",
             }
 
-        search_path = str(context_result["search_path"])
+        search_path = context_result["search_path"]
         model = get_embedding_model()
 
         try:
@@ -174,17 +158,19 @@ class SearchEmbeddings(ToolBase):
                 k,
                 model=model,
             )
+            if result.get("error"):
+                return self._tool_error(result["error"], code="EMBEDDING_SEARCH_ERROR")
         except Exception as exc:
             log.exception("search_embeddings failed")
             return self._tool_error(str(exc), code="EMBEDDING_SEARCH_ERROR")
 
-        def _wakeup2() -> None:
+        def _wakeup() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
 
         if on_main_thread():
-            _wakeup2()
+            _wakeup()
         else:
-            execute_on_main_thread(_wakeup2)
+            execute_on_main_thread(_wakeup)
 
         hits = result.get("hits") or []
         return {

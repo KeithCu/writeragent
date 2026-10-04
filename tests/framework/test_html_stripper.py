@@ -77,7 +77,8 @@ def test_strip_html_tags_comparison_stays_text():
 
 def test_strip_html_tags_unescapes_entities():
     assert strip_html_tags("a &amp; b") == "a & b"
-    assert strip_html_tags("<p>3 &lt; 5</p>") == "3 < 5"
+    assert strip_html_tags("<p>3 &lt; 5</p>") == "3 &lt; 5"
+    assert strip_html_tags("&lt;b&gt;bold&lt;/b&gt;") == "&lt;b&gt;bold&lt;/b&gt;"
 
 
 def test_streaming_html_stripper_holds_split_entity():

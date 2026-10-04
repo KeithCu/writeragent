@@ -190,8 +190,8 @@ def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mo
         stop_checker=stop_after_first,
     )
 
-    assert result["stopped_early"] is True
-    assert result["files_scanned"] == 1
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
 
 
 @patch("plugin.doc.document_research_grep._process_events_if_available")

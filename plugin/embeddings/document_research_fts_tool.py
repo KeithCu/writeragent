@@ -56,7 +56,8 @@ class SearchNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if callable(ctx.stop_checker) and ctx.stop_checker():
+        checker = getattr(ctx, "stop_checker", None)
+        if callable(checker) and checker() is True:
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
@@ -101,63 +102,58 @@ class SearchNearbyFiles(ToolBase):
         from plugin.framework.config import get_config
         import pathlib
 
-        def _resolve_context() -> dict[str, Any]:
-            folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
-            return {
-                "folder_key": folder_key,
-                "db_path": db_path,
-                "meta_path": meta_path,
-                "listing_root": listing_root
-            }
+        def _resolve_uno_context() -> tuple[str | None, str | None, dict[str, str]]:
+            from plugin.doc.document_research import resolve_listing_directory, get_document_path, _normalize_path, _collect_open_file_urls, _extensions_for_file_kind
+            listing_root = resolve_listing_directory(ctx.ctx, ctx.doc)
+            active_path = get_document_path(ctx.doc)
+            exclude_path = _normalize_path(active_path) if active_path else None
+            exts = _extensions_for_file_kind("documents")
+            open_paths = _collect_open_file_urls(ctx.ctx, exclude_path=exclude_path, extensions=exts)
+            return listing_root, exclude_path, open_paths
 
-        from plugin.framework.thread_guard import on_main_thread
-        if on_main_thread():
-            ctx_data = _resolve_context()
-        else:
-            ctx_data = execute_on_main_thread(_resolve_context)
+        def _resolve_context(
+            resolved_listing_root: str | None,
+            exclude_path: str | None,
+            open_paths: dict[str, str]
+        ) -> dict[str, Any]:
+            folder_key, db_path, meta_path, listing_root = resolve_index_context(
+                ctx.ctx, ctx.doc, listing_root=resolved_listing_root
+            )
+            if folder_key is None or db_path is None or meta_path is None:
+                return {"error": listing_root or "No folder context"}
 
-        folder_key = ctx_data["folder_key"]
-        db_path = ctx_data["db_path"]
-        meta_path = ctx_data["meta_path"]
-        listing_root = ctx_data["listing_root"]
-
-        if folder_key is None or db_path is None or meta_path is None:
-            return {"status": "error", "message": listing_root or "No folder context"}
-
-        mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-        looks_empty = False
-        if mode == "zvec":
-            zpath = zvec_collection_path(listing_root, create_parent=False)
-            looks_empty = not zvec_collection_looks_populated(zpath)
-        elif mode == "lancedb":
-            lpath = lancedb_collection_path(listing_root, create_parent=False)
-            looks_empty = not lancedb_collection_looks_populated(lpath)
-        else:
-            looks_empty = index_is_empty(meta_path, db_path)
-
-        if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
-            looks_empty = True
-
-        if looks_empty:
-            def _wakeup() -> None:
-                ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
-            if on_main_thread():
-                _wakeup()
+            mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
+            looks_empty = False
+            if mode == "zvec":
+                zpath = zvec_collection_path(listing_root, create_parent=False)
+                looks_empty = not zvec_collection_looks_populated(zpath)
+            elif mode == "lancedb":
+                lpath = lancedb_collection_path(listing_root, create_parent=False)
+                looks_empty = not lancedb_collection_looks_populated(lpath)
             else:
-                execute_on_main_thread(_wakeup)
-            context_result = {"empty": True, "folder_key": folder_key}
-        else:
+                looks_empty = index_is_empty(meta_path, db_path)
+
+            # Hybrid search always queries vec0. A model change must not read
+            # the previous table (empty, partial, or the wrong dimension).
+            if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
+                looks_empty = True
+
+            if looks_empty:
+                ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
+                return {"empty": True, "folder_key": folder_key}
+
             allowed_urls: set[str] | None = None
             if file_subset:
-                def _do_resolve():
-                    return resolve_grep_candidates(ctx.ctx, ctx.doc, file_subset=str(file_subset))
-                if on_main_thread():
-                    candidates, _truncated, err = _do_resolve()
-                else:
-                    candidates, _truncated, err = execute_on_main_thread(_do_resolve)
-
+                candidates, _truncated, err = resolve_grep_candidates(
+                    ctx.ctx,
+                    ctx.doc,
+                    file_subset=str(file_subset),
+                    exclude_path=exclude_path,
+                    open_paths=open_paths,
+                    listing_root=resolved_listing_root,
+                )
                 if err:
-                    return {"status": "error", "message": err}
+                    return {"error": err}
                 allowed_urls = set()
                 for c in candidates:
                     url = str(c.get("url") or "")
@@ -175,24 +171,25 @@ class SearchNearbyFiles(ToolBase):
             else:
                 search_path = str(db_path)
 
-            context_result = {
+            return {
                 "search_path": search_path,
                 "folder_key": folder_key,
                 "allowed_urls": allowed_urls,
             }
 
+        from plugin.framework.thread_guard import on_main_thread
+
+        if on_main_thread():
+            resolved_listing_root, exclude_path, open_paths = _resolve_uno_context()
+        else:
+            resolved_listing_root, exclude_path, open_paths = execute_on_main_thread(_resolve_uno_context)
+
+        context_result = _resolve_context(resolved_listing_root, exclude_path, open_paths)
+
         if "error" in context_result:
             return {"status": "error", "message": context_result["error"]}
 
         if context_result.get("empty"):
-            from plugin.embeddings.embeddings_indexer import get_failed_indexing_message
-            failed_msg = get_failed_indexing_message(str(context_result.get("folder_key") or ""))
-            if failed_msg:
-                return {
-                    "status": "error",
-                    "message": f"Background indexing failed: {failed_msg}",
-                    "folder_key": context_result["folder_key"],
-                }
             return {
                 "status": "indexing",
                 "hits": [],
@@ -201,15 +198,8 @@ class SearchNearbyFiles(ToolBase):
                 "message": "Folder index is building in the background. Retry search_nearby_files shortly.",
             }
 
-        from typing import cast
-        search_path = str(context_result["search_path"])
-
-        # safely cast allowed_urls
-        _allowed_urls_raw = context_result.get("allowed_urls")
-        resolved_urls: set[str] | None = None
-        if isinstance(_allowed_urls_raw, set):
-            resolved_urls = cast("set[str]", _allowed_urls_raw)
-
+        search_path = context_result["search_path"]
+        allowed_urls = context_result["allowed_urls"]
         model = get_embedding_model()
 
         try:
@@ -220,23 +210,24 @@ class SearchNearbyFiles(ToolBase):
                 k,
                 model=model,
                 near_slop=near_slop,
-                doc_url_filter=list(resolved_urls)[0] if resolved_urls and len(resolved_urls) == 1 else None,
             )
+            if result.get("error"):
+                return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")
         except Exception as exc:
             log.exception("search_nearby_files failed")
             return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
 
-        def _wakeup2() -> None:
+        def _wakeup() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
 
         if on_main_thread():
-            _wakeup2()
+            _wakeup()
         else:
-            execute_on_main_thread(_wakeup2)
+            execute_on_main_thread(_wakeup)
 
         hits = list(result.get("hits") or [])
-        if resolved_urls is not None and len(resolved_urls) > 1:
-            hits = [h for h in hits if h.get("doc_url") in resolved_urls]
+        if allowed_urls is not None:
+            hits = [h for h in hits if h.get("doc_url") in allowed_urls]
 
         return {
             "status": "ok",

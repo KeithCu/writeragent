@@ -149,25 +149,81 @@ def _texts_from_ooxml_slide_xml(xml_bytes: bytes) -> str:
 
 def extract_pptx_passages(path: str) -> list[str]:
     """Slide body + speaker notes from .pptx (stdlib zip + DrawingML text nodes)."""
+    import posixpath
     passages: list[str] = []
     try:
         with zipfile.ZipFile(path) as zf:
-            slide_names = sorted(
-                name for name in zf.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")
-            )
+            namelist = zf.namelist()
+
+            slide_seq = []
+            if "ppt/presentation.xml" in namelist:
+                try:
+                    pres_xml = zf.read("ppt/presentation.xml")
+                    root = ET.fromstring(pres_xml)
+                    for sldId in root.findall(".//{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"):
+                        rid = sldId.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+                        if rid:
+                            slide_seq.append(rid)
+                except Exception:
+                    pass
+
+            rid_to_slide = {}
+            if "ppt/_rels/presentation.xml.rels" in namelist:
+                try:
+                    rels_xml = zf.read("ppt/_rels/presentation.xml.rels")
+                    root = ET.fromstring(rels_xml)
+                    for rel in root.findall(".//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                        if rel.get("Type", "").endswith("/slide"):
+                            target = rel.get("Target")
+                            if target:
+                                if target.startswith("/"):
+                                    target = target[1:]
+                                elif not target.startswith("ppt/"):
+                                    target = "ppt/" + target
+                                rid_to_slide[rel.get("Id")] = target
+                except Exception:
+                    pass
+
+            slide_names = []
+            for rid in slide_seq:
+                if rid in rid_to_slide and rid_to_slide[rid] in namelist:
+                    slide_names.append(rid_to_slide[rid])
+
+            if not slide_names:
+                def _slide_num(n: str) -> int:
+                    m = re.search(r'slide(\d+)\.xml$', n)
+                    return int(m.group(1)) if m else 999999
+                slide_names = sorted(
+                    (name for name in namelist if name.startswith("ppt/slides/slide") and name.endswith(".xml")),
+                    key=_slide_num
+                )
+
             for index, name in enumerate(slide_names, start=1):
                 body = _texts_from_ooxml_slide_xml(zf.read(name))
                 if body:
                     passages.append(f"[Slide: Slide{index}]\t{body}")
-            note_names = sorted(
-                name
-                for name in zf.namelist()
-                if name.startswith("ppt/notesSlides/notesSlide") and name.endswith(".xml")
-            )
-            for index, name in enumerate(note_names, start=1):
-                notes = _texts_from_ooxml_slide_xml(zf.read(name))
-                if notes:
-                    passages.append(f"[Notes: Slide{index}]\t{notes}")
+
+                base = posixpath.basename(name)
+                dirname = posixpath.dirname(name)
+                slide_rel_path = posixpath.join(dirname, "_rels", base + ".rels")
+                if slide_rel_path in namelist:
+                    try:
+                        slide_rels_xml = zf.read(slide_rel_path)
+                        sroot = ET.fromstring(slide_rels_xml)
+                        for rel in sroot.findall(".//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                            if rel.get("Type", "").endswith("/notesSlide"):
+                                ntarget = rel.get("Target")
+                                if ntarget:
+                                    if ntarget.startswith("/"):
+                                        notes_path = ntarget[1:]
+                                    else:
+                                        notes_path = posixpath.normpath(posixpath.join(dirname, ntarget))
+                                    if notes_path in namelist:
+                                        notes = _texts_from_ooxml_slide_xml(zf.read(notes_path))
+                                        if notes:
+                                            passages.append(f"[Notes: Slide{index}]\t{notes}")
+                    except Exception:
+                        pass
     except (OSError, zipfile.BadZipFile, ET.ParseError):
         log.debug("extract_pptx_passages failed for %s", path, exc_info=True)
     return passages
