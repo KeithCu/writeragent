@@ -72,17 +72,25 @@ def _runtime_formula_result_value() -> int:
     """``FormulaResult.VALUE`` on this LibreOffice, else 1.
 
     What was wrong: a hardcoded ``1`` missed builds where ``VALUE`` is ``0``.
+    The enum module is not in the type stubs, so a ``from com.sun.star...``
+    import fails ``ty``. ``uno.getConstantByName`` is the string lookup other
+    Calc code uses for the same constants.
     """
     global _formula_result_value_code
     if _formula_result_value_code is not None:
         return _formula_result_value_code
-    code = _FORMULA_RESULT_VALUE_FALLBACK
     try:
-        from com.sun.star.sheet.FormulaResult import VALUE as result_value
+        import uno
 
-        code = int(result_value)
+        # String name, not an import: FormulaResult is absent from the type
+        # stubs, and ty rejects int() on the untyped constant. The runtime
+        # value is a plain int (0 on some builds, 1 on others).
+        raw = uno.getConstantByName("com.sun.star.sheet.FormulaResult.VALUE")
+        if type(raw) is not int:
+            raise TypeError("FormulaResult.VALUE is not an int")
+        code = raw
     except Exception:
-        code = _FORMULA_RESULT_VALUE_FALLBACK
+        return _FORMULA_RESULT_VALUE_FALLBACK
     _formula_result_value_code = code
     return code
 
