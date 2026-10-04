@@ -162,6 +162,7 @@ def index_paragraphs(
     build_fts: bool = False,
     build_vectors: bool = True,
     search_mode: str = "hybrid",
+    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Batch-embed *rows* and persist into corpus.db via the LangGraph or LlamaIndex ingest pipeline."""
     if str(search_mode).strip().lower() == "llama_index":
@@ -174,6 +175,7 @@ def index_paragraphs(
             delete_keys=[],
             build_fts=build_fts,
             build_vectors=build_vectors,
+            heartbeat_fn=heartbeat_fn,
         )
 
     if str(search_mode).strip().lower() == "zvec":
@@ -186,6 +188,7 @@ def index_paragraphs(
             rows,
             build_fts=build_fts,
             build_vectors=build_vectors,
+            heartbeat_fn=heartbeat_fn,
         )
 
     if str(search_mode).strip().lower() == "lancedb":
@@ -197,6 +200,7 @@ def index_paragraphs(
             rows,
             build_fts=build_fts,
             build_vectors=build_vectors,
+            heartbeat_fn=heartbeat_fn,
         )
 
     from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
@@ -209,6 +213,7 @@ def index_paragraphs(
         delete_keys=[],
         build_fts=build_fts,
         build_vectors=build_vectors,
+        heartbeat_fn=heartbeat_fn,
     )
 
 
