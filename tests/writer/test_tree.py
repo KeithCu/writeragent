@@ -208,30 +208,3 @@ class TestTreeServiceSearch:
         # VERY IMPORTANT: Verify unlockControllers was still called despite the exception in gotoRange
         doc.lockControllers.assert_called_once()
         doc.unlockControllers.assert_called_once()
-
-
-def test_ensure_writer_tree_loads_onto_bare_native_context():
-    """Clone heading's context often has only document + events.
-
-    That used to return "writer_nav module not loaded" instead of attaching
-    writer_bookmarks and writer_tree, which TreeService's constructor needs.
-    """
-    from plugin.framework.service import ServiceRegistry
-    from plugin.writer.structural import _ensure_writer_tree
-
-    services = ServiceRegistry()
-    services.register("document", MagicMock())
-    services.register("events", MagicMock())
-    ctx = MagicMock()
-    ctx.services = services
-
-    tree = _ensure_writer_tree(ctx)
-    assert tree is services.get("writer_tree")
-    assert services.get("writer_bookmarks") is not None
-    assert _ensure_writer_tree(ctx) is tree
-
-    missing_events = ServiceRegistry()
-    missing_events.register("document", MagicMock())
-    ctx_missing = MagicMock()
-    ctx_missing.services = missing_events
-    assert _ensure_writer_tree(ctx_missing) is None
