@@ -544,7 +544,20 @@ def _spill_registry_doc_key(doc: Any) -> str:
     try:
         from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-        return str(_lifecycle_key(doc) or "")
+        key = str(_lifecycle_key(doc) or "")
+        try:
+            url = getattr(doc, "getURL", lambda: "")() or ""
+            if key and url and url != key:
+                if url in LOADED_DOCUMENTS:
+                    LOADED_DOCUMENTS.discard(url)
+                    LOADED_DOCUMENTS.add(key)
+                with _SPILL_REGISTRY_LOCK:
+                    for k in list(SPILL_REGISTRY.keys()):
+                        if k[0] == url:
+                            SPILL_REGISTRY[(key, k[1], k[2], k[3])] = SPILL_REGISTRY.pop(k)
+        except Exception:
+            pass
+        return key
     except Exception:
         log.debug("spill registry identity failed", exc_info=True)
         return ""
