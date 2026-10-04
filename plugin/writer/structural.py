@@ -330,6 +330,33 @@ def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int | None:
     return para_index
 
 
+def _ensure_writer_tree(ctx: ToolContext) -> Any:
+    """Return ``writer_tree``, attaching it to this context when it was never loaded.
+
+    What was wrong: clone heading only did ``ctx.services.get("writer_tree")``.
+    Native tool contexts from ``TestingFactory.create_context`` register
+    document and events and nothing else, so the lookup missed and the tool
+    returned "writer_nav module not loaded" even though those two services
+    are enough to construct the writer tree. TreeService reads
+    ``writer_bookmarks`` in ``__init__``, so that service has to land first.
+    An already-registered tree is left alone (bootstrap path).
+    """
+    services = ctx.services
+    existing = services.get("writer_tree")
+    if existing is not None:
+        return existing
+    if services.get("document") is None or services.get("events") is None:
+        return None
+    if services.get("writer_bookmarks") is None:
+        from plugin.writer.specialized.bookmarks import BookmarkService
+
+        services.register("writer_bookmarks", BookmarkService(services))
+    from plugin.writer.tree import TreeService
+
+    services.register("writer_tree", TreeService(services))
+    return services.get("writer_tree")
+
+
 class CloneHeadingBlock(ToolBaseDummy):
     """Clone an entire heading block (heading + all sub-headings + body)."""
 
@@ -347,8 +374,9 @@ class CloneHeadingBlock(ToolBaseDummy):
         if para_index is None:
             return self._tool_error("Provide locator or paragraph_index.")
 
-        # Use writer_tree service to find the heading node and block size
-        tree_svc = ctx.services.get("writer_tree")
+        # Use writer_tree service to find the heading node and block size.
+        # Load it onto this context when the caller did not bootstrap the writer module.
+        tree_svc = _ensure_writer_tree(ctx)
         if tree_svc is None:
             return self._tool_error("writer_nav module not loaded; cannot resolve heading block.")
 

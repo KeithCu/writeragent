@@ -342,3 +342,11 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
     assert result["details"]["images_processed"] == 1
     assert result["details"]["image_names"] == ["Img1"]
     assert result["details"]["inserted"] is True
+
+
+def test_extract_structure_reraises_document_disposed(tool_ctx):
+    from plugin.framework.errors import DocumentDisposedError
+
+    with patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection", side_effect=DocumentDisposedError("gone", object_type="vision")):
+        with pytest.raises(DocumentDisposedError):
+            ExtractStructureFromImage().execute(tool_ctx)
