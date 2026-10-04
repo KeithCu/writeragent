@@ -37,9 +37,10 @@ def test_search_nearby_files_indexing_status():
                     "plugin.embeddings.embeddings_cache.resolve_index_context",
                     return_value=("key", MagicMock(), MagicMock(), "/tmp/folder"),
                 ):
-                    with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=True):
-                        with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
-                            result = tool.execute(_ctx(), query="web search")
+                    with patch("plugin.framework.config.get_config", return_value="sqlite"):
+                        with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=True):
+                            with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
+                                result = tool.execute(MagicMock(), query="test")
     assert result.get("status") == "indexing"
     assert result.get("hits") == []
     wakeup_mock.assert_called_once()
@@ -63,11 +64,12 @@ def test_search_nearby_files_does_not_block_main_thread_for_rpc():
                     "plugin.embeddings.embeddings_cache.resolve_index_context",
                     return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
                 ):
-                    with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                        with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
-                            with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": []}) as rpc_mock:
-                                with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
-                                    result = tool.execute(_ctx(), query="web search")
+                    with patch("plugin.framework.config.get_config", return_value="sqlite"):
+                        with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
+                            with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
+                                with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": []}) as rpc_mock:
+                                    with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
+                                        result = tool.execute(_ctx(), query="web search")
 
     assert result.get("status") == "ok"
     rpc_mock.assert_called_once()
@@ -113,3 +115,28 @@ def test_search_nearby_files_model_change_does_not_query(tmp_path):
     assert result["status"] == "indexing"
     assert result["hits"] == []
     assert result["stale"] is True
+
+
+def test_search_nearby_files_backend_error_surfaced():
+    tool = SearchNearbyFiles()
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.services = MagicMock()
+
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+                with patch(
+                    "plugin.embeddings.embeddings_cache.resolve_index_context",
+                    return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
+                ):
+                    with patch("plugin.framework.config.get_config", return_value="sqlite"):
+                        with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
+                            with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
+                                # Simulate the backend returning an error dict (e.g. from LanceDB/zvec worker)
+                                with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": [], "error": "Backend timeout or failure"}):
+                                    result = tool.execute(ctx, query="budget figures")
+
+    assert result.get("status") == "error", f"Expected error status, got {result.get('status')}"
+    assert "Backend timeout or failure" in result.get("message", "")

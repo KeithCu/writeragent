@@ -354,13 +354,13 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                         r_end = r.getPropertyValue("RedlineEnd") or r_start
 
                         # Overlap logic: Two ranges [start, end] and [r_start, r_end] overlap if
-                        # start <= r_end AND r_start <= end.
-                        # For compareRegionStarts: 1 means left < right.
+                        # start < r_end AND r_start < end.
+                        # For compareRegionStarts: 1 means left < right, 0 means left == right.
                         # For compareRegionEnds: -1 means left > right.
-                        # They do NOT overlap if:
-                        # end < r_start (i.e. compareRegionStarts(end, r_start) == 1) OR
-                        # start > r_end (i.e. compareRegionStarts(r_end, start) == 1)
-                        if text.compareRegionStarts(end, r_start) == 1 or text.compareRegionStarts(r_end, start) == 1:
+                        # They do NOT overlap if they are completely distinct or strictly adjacent:
+                        # end <= r_start (i.e. compareRegionStarts(end, r_start) in (1, 0)) OR
+                        # start >= r_end (i.e. compareRegionStarts(r_end, start) in (1, 0))
+                        if text.compareRegionStarts(end, r_start) in (1, 0) or text.compareRegionStarts(r_end, start) in (1, 0):
                             pass # No overlap
                         else:
                             return self._tool_error(
@@ -368,8 +368,13 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                                 "Resolving it via the agent may clobber adjacent changes. "
                                 "Please resolve it manually in LibreOffice."
                             )
-                    except Exception:
-                        pass # Ignore if we can't read bounds
+                    except Exception as rb_err:
+                        # Fail closed: if we cannot read the bounds of another redline, we cannot prove
+                        # it doesn't overlap.
+                        return self._tool_error(
+                            f"Failed to read bounds of tracked change at index {i} during overlap check. "
+                            f"Please resolve tracked changes manually in LibreOffice. Error: {rb_err}"
+                        )
 
                 ctx.doc.getCurrentController().select(cur)
             except Exception as e:

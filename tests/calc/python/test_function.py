@@ -1654,3 +1654,25 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
     assert result_holder == [42.0]
 
 
+
+
+def test_off_main_spill_timer_does_not_register_empty_lkey(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = None
+    t_start_called = [False]
+    class MockTimer:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            t_start_called[0] = True
+
+    monkeypatch.setattr(python_function, "_new_spill_timer", MockTimer)
+
+    reg_called = [False]
+    def mock_register(*args, **kwargs):
+        reg_called[0] = True
+    monkeypatch.setattr(python_function, "_register_spill_timer", mock_register)
+
+    python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], doc)
+
+    assert t_start_called[0], "Timer should still be started"
+    assert not reg_called[0], "Timer should not be registered when lkey is empty"

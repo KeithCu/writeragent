@@ -1,0 +1,210 @@
+<<<<<<< SEARCH
+def vec0_search(
+    conn: sqlite3.Connection,
+    query_vec: list[float],
+    *,
+    k: int,
+    model: str,
+    doc_url_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """kNN over vec_chunks joined to chunks; returns candidate dicts for MMR."""
+    import numpy as np
+
+    _load_vec_extension(conn)
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+
+    # Check if table exists
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if not has_table:
+        return []
+
+    count_row = conn.execute(f"SELECT COUNT(*) AS c FROM {tbl_name}").fetchone()
+    count = int(count_row["c"] if count_row else 0)
+    if count == 0:
+        return []
+
+    limit = min(max(int(k), 1), count)
+    q = np.asarray(query_vec, dtype=np.float32)
+    rows = conn.execute(
+        f"""
+        SELECT
+            v.chunk_id,
+            v.distance,
+            c.doc_url,
+            c.para_index,
+            c.body
+        FROM {tbl_name} v
+        JOIN chunks c ON c.chunk_id = v.chunk_id
+        WHERE v.embedding MATCH ?
+          AND k = ?
+        ORDER BY v.distance
+        """,
+        (q, limit),
+    ).fetchall()
+
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        if doc_url_filter and str(row["doc_url"] or "") != doc_url_filter:
+            continue
+        dist = float(row["distance"] or 0.0)
+        score = max(0.0, 1.0 - dist)
+        candidates.append(
+            {
+                "chunk_id": int(row["chunk_id"]),
+                "doc_url": str(row["doc_url"] or ""),
+                "para_index": int(row["para_index"] or 0),
+                "embedding_model": model,
+                "snippet": str(row["body"] or ""),
+                "score": score,
+                "distance": dist,
+            }
+        )
+    return candidates
+
+
+def fts_corpus_search(
+    conn: sqlite3.Connection,
+    query: str,
+    *,
+    k: int = 10,
+    near_slop: int = 10,
+) -> list[dict[str, Any]]:
+    """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
+    from plugin.embeddings.venv.folder_fts import build_match_query, strip_fts_snippet_markers
+
+    limit = max(1, min(int(k or 10), 50))
+    match_expr = build_match_query(str(query or ""), near_slop=near_slop)
+    sql = """
+        SELECT
+            p.rowid AS chunk_id,
+            c.doc_url,
+            c.para_index,
+            snippet(passages, 0, '[', ']', '…', 32) AS snippet,
+            bm25(passages) AS score
+        FROM passages p
+        JOIN chunks c ON c.chunk_id = p.rowid
+        WHERE passages MATCH ?
+        ORDER BY score
+        LIMIT ?
+    """
+    try:
+        rows = conn.execute(sql, (match_expr, limit)).fetchall()
+    except _conn_operational_error(conn) as exc:
+        log.debug("FTS corpus search failed for %r: %s", match_expr, exc)
+        return []
+=======
+def vec0_search(
+    conn: sqlite3.Connection,
+    query_vec: list[float],
+    *,
+    k: int,
+    model: str,
+    doc_url_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """kNN over vec_chunks joined to chunks; returns candidate dicts for MMR."""
+    import numpy as np
+
+    _load_vec_extension(conn)
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+
+    # Check if table exists
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if not has_table:
+        return []
+
+    count_row = conn.execute(f"SELECT COUNT(*) AS c FROM {tbl_name}").fetchone()
+    count = int(count_row["c"] if count_row else 0)
+    if count == 0:
+        return []
+
+    limit = min(max(int(k), 1), count)
+    q = np.asarray(query_vec, dtype=np.float32)
+
+    sql = f"""
+        SELECT
+            v.chunk_id,
+            v.distance,
+            c.doc_url,
+            c.para_index,
+            c.body
+        FROM {tbl_name} v
+        JOIN chunks c ON c.chunk_id = v.chunk_id
+        WHERE v.embedding MATCH ?
+          AND k = ?
+    """
+    params = [q, limit]
+
+    if doc_url_filter:
+        sql += " AND v.chunk_id IN (SELECT chunk_id FROM chunks WHERE doc_url = ?)"
+        params.append(doc_url_filter)
+
+    sql += " ORDER BY v.distance"
+
+    rows = conn.execute(sql, tuple(params)).fetchall()
+
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        dist = float(row["distance"] or 0.0)
+        score = max(0.0, 1.0 - dist)
+        candidates.append(
+            {
+                "chunk_id": int(row["chunk_id"]),
+                "doc_url": str(row["doc_url"] or ""),
+                "para_index": int(row["para_index"] or 0),
+                "embedding_model": model,
+                "snippet": str(row["body"] or ""),
+                "score": score,
+                "distance": dist,
+            }
+        )
+    return candidates
+
+
+def fts_corpus_search(
+    conn: sqlite3.Connection,
+    query: str,
+    *,
+    k: int = 10,
+    near_slop: int = 10,
+    doc_url_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
+    from plugin.embeddings.venv.folder_fts import build_match_query, strip_fts_snippet_markers
+
+    limit = max(1, min(int(k or 10), 50))
+    match_expr = build_match_query(str(query or ""), near_slop=near_slop)
+
+    sql = """
+        SELECT
+            p.rowid AS chunk_id,
+            c.doc_url,
+            c.para_index,
+            snippet(passages, 0, '[', ']', '…', 32) AS snippet,
+            bm25(passages) AS score
+        FROM passages p
+        JOIN chunks c ON c.chunk_id = p.rowid
+        WHERE passages MATCH ?
+    """
+    params = [match_expr]
+
+    if doc_url_filter:
+        sql += " AND c.doc_url = ?"
+        params.append(doc_url_filter)
+
+    sql += " ORDER BY score LIMIT ?"
+    params.append(limit)
+
+    try:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    except _conn_operational_error(conn) as exc:
+        log.debug("FTS corpus search failed for %r: %s", match_expr, exc)
+        return []
+>>>>>>> REPLACE
