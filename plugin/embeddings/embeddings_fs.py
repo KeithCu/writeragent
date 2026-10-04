@@ -159,6 +159,10 @@ def extract_indexable_passages(path: str) -> list[str] | None:
         return extract_draw_pages(path)
     if ext in FOREIGN_EXTENSIONS:
         passages = _extract_foreign_passages(path, ext)
+        # None is a failed extract (missing pandas/engine). An empty list is a
+        # real empty workbook and may fall through to legacy conversion.
+        if passages is None:
+            return None
         if passages:
             return passages
         return _extract_legacy_via_soffice(path, ext)
@@ -296,8 +300,12 @@ def indexable_chunks_from_path(
     return len(passages), chunks
 
 
-def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mtime: float | None = None) -> list[ParagraphChunk]:
-    """Build embed-sized chunk rows from one supported document on disk."""
+def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mtime: float | None = None) -> list[ParagraphChunk] | None:
+    """Build embed-sized chunk rows from one supported document on disk.
+
+    Returns None when extraction fails. An empty list is a successful extract
+    with nothing to index.
+    """
     _passage_count, chunks = indexable_chunks_from_path(path, doc_url=doc_url, file_mtime=file_mtime)
     del _passage_count
     return chunks
