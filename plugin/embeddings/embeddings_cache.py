@@ -282,6 +282,12 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None) -> bool:
         return True
     if not meta_path.is_file():
         return True
+    try:
+        json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # Corrupt meta, but DB exists. Assume not empty so we don't wipe it.
+        if db_path is not None and db_path.is_file():
+            return False
     return chunk_count_from_meta(meta_path) <= 0
 
 
@@ -352,6 +358,11 @@ def resolve_index_context(ctx: Any, model: Any) -> tuple[str, Path, Path, str] |
 def needs_cold_rebuild(meta_path: Path, embedding_model: str) -> bool:
     if not meta_path.is_file():
         return True
+    try:
+        json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # Corrupt meta should not trigger a cold rebuild (which wipes the DB).
+        return False
     if not schema_matches(meta_path):
         return True
     if chunk_count_from_meta(meta_path) == 0:

@@ -92,6 +92,26 @@ def test_index_is_empty_missing_and_populated(tmp_path):
     assert embeddings_cache.index_is_empty(meta_path, db_path) is False
 
 
+def test_index_is_empty_with_corrupt_meta_and_db(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+
+    # Even though read_corpus_meta would return {} and chunk_count=0,
+    # index_is_empty must explicitly return False because DB exists
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+
+
+def test_needs_cold_rebuild_with_corrupt_meta(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+
+    # Should not trigger a wipe
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "all-MiniLM-L6-v2") is False
+
+
 def test_resolve_index_context_no_listing_root():
     ctx = MagicMock()
     model = MagicMock()
