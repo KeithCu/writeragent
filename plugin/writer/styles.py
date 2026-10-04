@@ -1073,8 +1073,11 @@ class StyleCreate(ToolWriterStyleBase):
                     conditions.append(nv)
                 try:
                     new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
-                except Exception:
+                except Exception as cond_err:
                     log.warning("Failed to set ParaStyleConditions on new style", exc_info=True)
+                    # We must not silently drop conditional rules; if the property isn't writable or fails,
+                    # we must fail loudly.
+                    return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
 
         except Exception as e:
             log.exception("Failed to create style '%s' in %s", style_name, family)
