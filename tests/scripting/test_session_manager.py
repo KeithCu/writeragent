@@ -584,6 +584,11 @@ def test_off_main_two_workbooks_do_not_share_a_kernel() -> None:
 
 
 def test_clear_active_calc_session_logs_addin_cache_failure(caplog) -> None:
+    # What was wrong: logger.debug calls are stripped in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("log.debug stripped in release bundle")
     import logging
     from unittest.mock import patch
 

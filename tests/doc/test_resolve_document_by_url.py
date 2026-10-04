@@ -177,6 +177,11 @@ def test_resolve_reraises_when_enumeration_is_disposed():
 
 
 def test_get_runtime_uid_off_main_thread_raises_when_guard_on():
+    # What was wrong: thread_guard is replaced by no-op stubs in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("GUARD_ON thread guard proxy stripped in release bundle")
     import threading
 
     import plugin.framework.thread_guard as tg

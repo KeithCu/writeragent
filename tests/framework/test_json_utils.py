@@ -6,6 +6,11 @@ from plugin.framework.json_utils import safe_json_loads
 
 
 def test_literal_eval_logs_stage_name_not_payload(monkeypatch) -> None:
+    # What was wrong: logger.debug calls are stripped in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("log.debug stripped in release bundle")
     import plugin.framework.json_utils as json_utils
 
     mock_log = MagicMock()
@@ -21,6 +26,11 @@ def test_literal_eval_logs_stage_name_not_payload(monkeypatch) -> None:
 
 
 def test_repaired_json_logs_stage_name_not_payload(monkeypatch) -> None:
+    # What was wrong: logger.debug calls are stripped in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("log.debug stripped in release bundle")
     import plugin.framework.json_utils as json_utils
 
     mock_log = MagicMock()
