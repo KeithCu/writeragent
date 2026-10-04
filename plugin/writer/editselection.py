@@ -105,10 +105,8 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         session.abort_and_restore()
         msgbox(ctx, title, _(format_error_message(e)))
 
-    from plugin.framework.queue_executor import get_current_send_cancellation
-    scope = get_current_send_cancellation()
-    stop_checker = scope.is_cancelled if scope else None
-    stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, stop_checker=stop_checker)
+    # Stop is read from ctx inside stream_completion. Do not pass a separate checker.
+    stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
 
 
 def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
@@ -159,7 +157,5 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         session.abort_and_restore()
         msgbox(ctx, title, _(format_error_message(e)))
 
-    from plugin.framework.queue_executor import get_current_send_cancellation
-    scope = get_current_send_cancellation()
-    stop_checker = scope.is_cancelled if scope else None
-    stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, stop_checker=stop_checker)
+    # Stop is read from ctx inside stream_completion. Do not pass a separate checker.
+    stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)

@@ -840,27 +840,22 @@ def test_do_extend_selection_observes_stop_checker(monkeypatch):
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
 
-    def mock_get_current_send_cancellation():
-        class MockScope:
-            def is_cancelled(self):
-                return True
-        return MockScope()
-
-    monkeypatch.setattr("plugin.framework.queue_executor.get_current_send_cancellation", mock_get_current_send_cancellation)
+    class _Ctx:
+        def stop_checker(self) -> bool:
+            return True
 
     def stream_completion_mock(*args, **kwargs):
-        streams.append(kwargs)
-        # Should receive stop_checker that returns True
-        stop_checker = kwargs.get("stop_checker")
-        assert stop_checker is not None
-        assert stop_checker() is True
+        streams.append(args)
+        assert "stop_checker" not in kwargs
+        apply_chunk = args[5]
+        with pytest.raises(editselection.BlockingWaitStopped):
+            apply_chunk("more")
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
-    editselection.do_extend_selection(object(), doc, object())
+    editselection.do_extend_selection(_Ctx(), doc, object())
 
     assert len(streams) == 1
-    assert streams[0]["stop_checker"]() is True
 
 
 def test_do_edit_selection_observes_stop_checker(monkeypatch):
@@ -877,27 +872,22 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
 
-    def mock_get_current_send_cancellation():
-        class MockScope:
-            def is_cancelled(self):
-                return True
-        return MockScope()
-
-    monkeypatch.setattr("plugin.framework.queue_executor.get_current_send_cancellation", mock_get_current_send_cancellation)
+    class _Ctx:
+        def stop_checker(self) -> bool:
+            return True
 
     def stream_completion_mock(*args, **kwargs):
-        streams.append(kwargs)
-        # Should receive stop_checker that returns True
-        stop_checker = kwargs.get("stop_checker")
-        assert stop_checker is not None
-        assert stop_checker() is True
+        streams.append(args)
+        assert "stop_checker" not in kwargs
+        apply_chunk = args[5]
+        with pytest.raises(editselection.BlockingWaitStopped):
+            apply_chunk("more")
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
-    editselection.do_edit_selection(object(), doc, object())
+    editselection.do_edit_selection(_Ctx(), doc, object())
 
     assert len(streams) == 1
-    assert streams[0]["stop_checker"]() is True
 
 
 def test_stop_checker_exception_fails_closed():
