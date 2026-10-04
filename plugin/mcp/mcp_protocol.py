@@ -804,14 +804,15 @@ class MCPProtocolHandler:
             return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
 
         tool = self.tool_registry.get(tool_name)
-        # One off-thread path: a long-running tool is is_async (positive timeout,
-        # checked in _prepare_mcp_execution) and runs through execute_safe.
-        # The long_running attribute alone must not select a second path.
-        # MagicMock is_async() is not exactly True, so it stays on backpressure.
+        # One off-thread path: a long-running tool is is_async() exactly True
+        # (positive timeout checked in _prepare_mcp_execution) and runs through
+        # execute_safe. The long_running attribute alone must not select a second
+        # path. MagicMock is_async() is not exactly True, so it stays on backpressure.
         is_async_attr = getattr(tool, "is_async", None) if tool is not None else None
-        is_long_running = is_async_attr() is True if callable(is_async_attr) else False
+        is_async = is_async_attr() is True if callable(is_async_attr) else False
+        is_long_running = is_async
 
-        initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
+        initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running, "is_async": is_async})
 
         # State machine runner
         events_to_process = [initial_event]
@@ -832,7 +833,7 @@ class MCPProtocolHandler:
 
                 elif isinstance(effect, ExecuteToolEffect):
                     try:
-                        if effect.is_long_running:
+                        if effect.is_long_running is True or effect.is_async is True:
                             res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
                         else:
                             res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
