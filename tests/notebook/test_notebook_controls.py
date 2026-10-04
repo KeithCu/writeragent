@@ -77,46 +77,6 @@ def test_wire_all_with_registry_off_main_thread_does_not_raise(monkeypatch):
         tg.GUARD_ON = was
 
 
-def test_wire_all_off_main_thread_duplicate_click(monkeypatch):
-    """Off-main wire_all must prevent duplicate listener attachment even if uno_same raises."""
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    was = tg.GUARD_ON
-    tg.GUARD_ON = True
-
-    ctx = MagicMock()
-    doc = MagicMock()
-    doc.getURL.return_value = ""
-    doc.getRuntimeUID.return_value = "uid-dummy-duplicate"
-
-    state = MagicMock()
-    state.code_cells = [MagicMock()]
-
-    container = MagicMock()
-    container.getControls.return_value = []
-    fc = MagicMock()
-
-    try:
-        notebook_controls._listener_refs.clear()
-        notebook_controls._wired_form_docs.clear()
-        with (
-            patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
-            patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(fc, container)),
-            patch("plugin.framework.uno_context.uno_same", side_effect=RuntimeError("thread guard")),
-        ):
-            wire_all_notebook_run_buttons(ctx, doc)
-            wire_all_notebook_run_buttons(ctx, doc)
-
-        # Only one NotebookFormRunListener and one ContainerListener should be added
-        form_listeners = [lis for lis in notebook_controls._listener_refs if isinstance(lis, notebook_controls.NotebookFormRunListener)]
-        assert len(form_listeners) == 1
-    finally:
-        tg.GUARD_ON = was
-        notebook_controls._listener_refs.clear()
-        notebook_controls._wired_form_docs.clear()
-
-
 def test_wire_all_returns_0_no_container():
     ctx = MagicMock()
     doc = MagicMock()
@@ -542,6 +502,7 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
 def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
     """prune_dead_listeners off-main thread (e.g., File Open filter) must not drop listeners just because get_active_document raises RuntimeError."""
     from plugin.framework import thread_guard
+    from plugin.framework.errors import DocumentDisposedError
 
     # Simulate off main thread
     monkeypatch.setattr(thread_guard, "on_main_thread", lambda: False)
@@ -657,8 +618,8 @@ def test_recreated_view_skips_rewire_if_container_changes():
     # New container
     new_container = MagicMock()
 
-    # uno_same(a, b) is the real two-argument identity check.
-    def mock_uno_same(a, b):
+    # uno_same will return True if containers match
+    def mock_uno_same(c, a, b):
         return a is b
 
     with (

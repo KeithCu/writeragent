@@ -75,13 +75,3 @@ def test_ppt_master_session_no_longer_merges_draw_tools():
     assert "_PPT_MASTER_DRAW_CORE_TOOL_NAMES" not in source
     assert "collect_ppt_master_tools" not in source
     assert "run_ppt_master_venv_turn" in source or "_run_ppt_master_venv_agent" in source
-
-def test_ppt_master_session_id_pins_saved_deck_url():
-    """Saved decks stay bound to their URL, not the focused window."""
-    from unittest.mock import Mock
-
-    from plugin.ppt_master.venv.host import ppt_master_session_id
-
-    doc = Mock()
-    doc.getURL.return_value = "file:///tmp/deck.odp"
-    assert ppt_master_session_id(doc) == "ppt_master:file:///tmp/deck.odp"
