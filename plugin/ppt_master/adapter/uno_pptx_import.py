@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
-from plugin.draw.bridge import DrawBridge
+from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.framework.errors import is_disposed_exception
 from plugin.framework.uno_context import get_desktop
 from plugin.ppt_master.adapter.uno_shape_postprocess import clear_page_shapes, copy_shapes_to_page
 
@@ -55,24 +56,33 @@ def _ensure_target_page(bridge: DrawBridge, slide_index: int, *, clear: bool = T
 
 
 def _copy_page_notes(source_page: Any, target_page: Any) -> None:
+    """Copy the source NotesShape onto the target NotesShape, including "".
+
+    What was wrong: the first notes-page shape with getString/setString was
+    treated as speaker notes, and an empty read returned without writing.
+    How it happened: a header, footer, or date field can precede the
+    NotesShape. clear_page_shapes only removes slide shapes, so a re-import
+    of empty notes left the previous NotesShape text in place (or wrote the
+    chrome text into whichever shape implemented setString first).
+    Why this fixes it: find_notes_shape is the NotesShape lookup the notes
+    tools use, and writing that shape even when the text is empty replaces
+    stale notes.
+    """
     try:
-        src_notes = source_page.getNotesPage()
+        src_shape = find_notes_shape(source_page.getNotesPage())
+        # No NotesShape means the source has no speaker-notes body. hasattr
+        # is the wrong probe: a PyUNO method can be callable and still fail
+        # hasattr, and that false miss would look like empty notes.
         notes_text = ""
-        for i in range(src_notes.getCount()):
-            shape = src_notes.getByIndex(i)
-            if hasattr(shape, "getString"):
-                notes_text = str(shape.getString() or "").strip()
-                if notes_text:
-                    break
-        if not notes_text:
+        if src_shape is not None:
+            notes_text = str(src_shape.getString() or "").strip()
+        tgt_shape = find_notes_shape(target_page.getNotesPage())
+        if tgt_shape is None:
             return
-        tgt_notes = target_page.getNotesPage()
-        for i in range(tgt_notes.getCount()):
-            shape = tgt_notes.getByIndex(i)
-            if hasattr(shape, "setString"):
-                shape.setString(notes_text)
-                break
+        tgt_shape.setString(notes_text)
     except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
         log.debug("copy page notes: %s", exc)
 
 

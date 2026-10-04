@@ -7,10 +7,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
-from plugin.draw.bridge import DrawBridge
+from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.framework.errors import is_disposed_exception
+
+log = logging.getLogger(__name__)
 
 
 def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
@@ -24,6 +28,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
     bridge = DrawBridge(doc)
     pages = bridge.get_pages()
     applied = 0
+    failures: list[str] = []
     for item in plan.get("slides") or []:
         if not isinstance(item, dict):
             continue
@@ -35,17 +40,28 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
             continue
         notes = item.get("notes")
         if notes and doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+            # What was wrong: the first notes-page shape with setString was
+            # treated as speaker notes, and a failed write still returned ok.
+            # How it happened: header, footer, and date chrome can precede the
+            # NotesShape and also implement setString. except Exception then
+            # swallowed dispose and ordinary failures, and applied counted a
+            # write that never landed on the notes body.
+            # Why this fixes it: find_notes_shape is the NotesShape lookup the
+            # notes tools use. Dispose propagates. applied increments only
+            # after setString returns; a miss is status error.
             try:
                 page = pages.getByIndex(idx)
-                notes_page = page.getNotesPage()
-                for i in range(notes_page.getCount()):
-                    shape = notes_page.getByIndex(i)
-                    if hasattr(shape, "setString"):
-                        shape.setString(str(notes))
-                        applied += 1
-                        break
-            except Exception:
-                pass
+                shape = find_notes_shape(page.getNotesPage())
+                if shape is None:
+                    failures.append(f"slide {idx} notes: no NotesShape")
+                else:
+                    shape.setString(str(notes))
+                    applied += 1
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                failures.append(f"slide {idx} notes: {exc}")
+                log.warning("apply enhancement notes failed on slide %s: %s", idx, exc)
         trans = item.get("transition")
         if trans and isinstance(trans, dict):
             try:
@@ -53,6 +69,17 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
                 if "type" in trans:
                     page.setPropertyValue("TransitionType", int(trans["type"]))
                 applied += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                # A dead document must not look like a successful apply.
+                if is_disposed_exception(exc):
+                    raise
+                failures.append(f"slide {idx} transition: {exc}")
+                log.warning("apply enhancement transition failed on slide %s: %s", idx, exc)
+    if failures:
+        return {
+            "status": "error",
+            "applied": applied,
+            "failed": len(failures),
+            "message": "Failed to apply enhancement: " + "; ".join(failures) + ".",
+        }
     return {"status": "ok", "applied": applied}
