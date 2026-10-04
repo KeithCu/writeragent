@@ -306,7 +306,9 @@ class DuplicateSlide(ToolBase):
             return self._tool_error("Page index %s out of range." % page_idx)
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
-        bridge.duplicate_slide(page_idx, switch=switch_view)
+        new_page = bridge.duplicate_slide(page_idx, switch=switch_view)
+        if new_page is None:
+            return self._tool_error("Failed to duplicate slide.")
         # The copy is inserted immediately after the source. Do not re-read
         # getNumber() — Impress leaves it missing and the helper used to
         # report 0 after a successful switch.
