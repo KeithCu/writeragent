@@ -1576,13 +1576,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
-                        from plugin.chatbot.tool_loop_actions import running_turn
+                        from plugin.chatbot.tool_loop_actions import session_for_turn
 
-                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped" and running_turn(self) is not None:
-                            from plugin.chatbot.tool_loop_actions import session_for_turn
-
-                            spoken = session_for_turn(self)
-                            if spoken and spoken.messages:
+                        spoken = session_for_turn(self)
+                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped" and spoken is not None:
+                            if spoken.messages:
                                 last_msg = spoken.messages[-1]
                                 if last_msg.get("role") == "assistant" and last_msg.get("content"):
                                     from plugin.chatbot.tool_loop_actions import _STOP_LINE

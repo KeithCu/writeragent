@@ -1164,7 +1164,7 @@ class TestStoppedTTS:
             listener._run_send_drain()
             mock_speak.assert_not_called()
 
-    def test_do_send_aborted_turn_does_not_invoke_tts(self) -> None:
+    def test_do_send_aborted_turn_does_invoke_tts(self) -> None:
         listener = _make_send_listener()
         listener._terminal_status = "Ready"  # Not 'Stopped' explicitly
         listener.sidebar_state = MagicMock()
@@ -1177,6 +1177,6 @@ class TestStoppedTTS:
             patch("plugin.framework.config.get_config_bool_safe", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak
         ):
-            mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this either."}]
+            mock_session.return_value.messages = [{"role": "assistant", "content": "I should say this."}]
             listener._run_send_drain()
-            mock_speak.assert_not_called()
+            mock_speak.assert_called_once()
