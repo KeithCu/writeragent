@@ -1260,3 +1260,30 @@ def test_second_config_backup_keeps_the_first_copy(tmp_path):
     assert second is not None and second != first
     assert (tmp_path / "writeragent.json.bak").read_text(encoding="utf-8") == "first"
     assert open(second, encoding="utf-8").read() == "second"
+
+
+def test_resolve_config_path_from_ctx_rejects_mock_and_invalid_user_config():
+    from plugin.framework.config import _resolve_config_path_from_ctx
+
+    # 1. Raw MagicMock context creates MagicMock UserConfig
+    with pytest.raises(ConfigError) as exc1:
+        _resolve_config_path_from_ctx(MagicMock())
+    assert exc1.value.code == "CONFIG_PATH_ERROR"
+    assert "Invalid or missing UserConfig" in str(exc1.value)
+
+    # 2. Context returning empty string for UserConfig
+    ctx_empty = MagicMock()
+    ps = MagicMock()
+    ps.UserConfig = ""
+    ctx_empty.getServiceManager.return_value.createInstanceWithContext.return_value = ps
+    with pytest.raises(ConfigError) as exc2:
+        _resolve_config_path_from_ctx(ctx_empty)
+    assert exc2.value.code == "CONFIG_PATH_ERROR"
+
+    # 3. Context returning valid string path succeeds
+    ctx_valid = MagicMock()
+    ps_valid = MagicMock()
+    ps_valid.UserConfig = "/home/user/.config/libreoffice/4/user"
+    ctx_valid.getServiceManager.return_value.createInstanceWithContext.return_value = ps_valid
+    path = _resolve_config_path_from_ctx(ctx_valid)
+    assert path == "/home/user/.config/libreoffice/4/user/writeragent.json"

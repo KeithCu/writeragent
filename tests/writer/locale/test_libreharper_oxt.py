@@ -249,7 +249,10 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
         # __init__ calls maybe_start_harper_async when user_config_dir is set.
         # The autouse config fixture supplies a real temp dir, so without this
         # patch a unit test downloads/starts harper-ls and Windows xdist hangs.
-        with patch("plugin.writer.locale.harper.maybe_start_harper_async"):
+        with (
+            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
+            patch("plugin.writer.locale.harper.maybe_start_harper_async"),
+        ):
             proofreader = HarperProofreader(ctx)
         assert proofreader._checker_identity == "harper"
         assert proofreader._provider == "harper"
@@ -426,6 +429,7 @@ def test_locale_construction_failure_registers_degraded_and_retries() -> None:
 
     try:
         with (
+            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
             patch("plugin.writer.locale.harper_proofreader._harper_locale_tuple", side_effect=flaky),
             patch("plugin.writer.locale.harper.maybe_start_harper_async"),
             patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
@@ -457,6 +461,7 @@ def test_locale_retry_failure_is_logged_once() -> None:
 
     try:
         with (
+            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
             patch("plugin.writer.locale.harper_proofreader._harper_locale_tuple", side_effect=boom),
             patch("plugin.writer.locale.harper.maybe_start_harper_async"),
             patch("plugin.writer.locale.harper_proofreader.log") as mock_log,

@@ -109,6 +109,16 @@ def _ensure_writeragent_logger_propagates():
     wa_logger.propagate = old_propagate
 
 
+@pytest.fixture(autouse=True)
+def _suppress_unmocked_extension_update_checks(request):
+    """Headless unit tests outside test_extension_update_check must not spawn background update workers."""
+    if "test_extension_update_check" in getattr(request.module, "__name__", ""):
+        yield
+        return
+    with patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"):
+        yield
+
+
 
 com = _create_mock_module("com")
 sun = _create_mock_module("com.sun")

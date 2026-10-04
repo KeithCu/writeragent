@@ -150,6 +150,14 @@ def _resolve_config_path_from_ctx(ctx: Any) -> str:
         user_config_path = getattr(path_settings, "UserConfig", "")
         if uno and user_config_path and str(user_config_path).startswith("file://"):
             user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
+        if (
+            not isinstance(user_config_path, str)
+            or not user_config_path.strip()
+            or type(user_config_path).__name__ in ("Mock", "MagicMock")
+            or hasattr(user_config_path, "_mock_return_value")
+            or "MagicMock" in str(user_config_path)
+        ):
+            raise ConfigError("Invalid or missing UserConfig path setting", "CONFIG_PATH_ERROR")
         return os.path.join(user_config_path, CONFIG_FILENAME)
     except Exception as e:
         raise ConfigError(f"Failed to resolve config path: {e}", "CONFIG_PATH_ERROR") from e

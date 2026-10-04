@@ -303,7 +303,10 @@ def init_logging(ctx: Any | None = None) -> None:
         first_init = _debug_log_path is None
         try:
             if ctx is not None:
-                config.init_config(ctx)
+                try:
+                    config.init_config(ctx)
+                except ConfigError:
+                    pass
             udir = config.user_config_dir()
             # Eval uses MagicMock ctx; skip file logging unless the dir is real.
             if udir and os.path.isdir(udir):
