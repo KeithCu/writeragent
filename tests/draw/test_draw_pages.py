@@ -4,7 +4,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.pages import AddSlide, DuplicateSlide, MoveSlide, RenameSlide
+from plugin.draw.pages import AddSlide, DeleteSlide, DuplicateSlide, MoveSlide, RenameSlide
 
 
 def _ctx():
@@ -115,6 +115,29 @@ def test_add_slide_reports_landed_index_for_page_zero():
     assert out["master"] == "Designed"
     assert inherit.call_args[0][2] == 0
     assert inherit.call_args[0][1] is page
+
+
+def test_delete_slide_refuses_only_page():
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 1
+        out = DeleteSlide().execute(ctx, page=0)
+    assert out["status"] == "error"
+    assert out["message"] == "Cannot delete the only slide"
+    bridge.delete_slide.assert_not_called()
+
+
+def test_delete_slide_removes_page_when_another_remains():
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 2
+        bridge.get_active_page_index.return_value = 0
+        out = DeleteSlide().execute(ctx, page=1)
+    assert out["status"] == "ok"
+    bridge.delete_slide.assert_called_once_with(1)
+    assert out["active_page_index"] == 0
 
 
 def test_bridge_duplicate_calls_doc_duplicate():
