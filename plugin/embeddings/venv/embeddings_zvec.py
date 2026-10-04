@@ -489,6 +489,10 @@ def maintain_folder_zvec(
             log.debug("zvec extract failed for %s: %s", entry.name, e)
             continue
 
+        if chunks is None:
+            # Failed extract is not an empty document. Do not purge stored rows.
+            continue
+
         rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end,
                  "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
 
