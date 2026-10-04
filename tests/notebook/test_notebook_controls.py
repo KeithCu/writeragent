@@ -105,11 +105,11 @@ def test_wire_all_off_main_thread_duplicate_click(monkeypatch):
             patch("plugin.notebook.notebook_controls._form_and_container", return_value=(fc, container)),
             patch("plugin.framework.uno_context.uno_same", side_effect=RuntimeError("thread guard")),
         ):
-            res1 = wire_all_notebook_run_buttons(ctx, doc)
-            res2 = wire_all_notebook_run_buttons(ctx, doc)
+            wire_all_notebook_run_buttons(ctx, doc)
+            wire_all_notebook_run_buttons(ctx, doc)
 
         # Only one NotebookFormRunListener and one ContainerListener should be added
-        form_listeners = [l for l in notebook_controls._listener_refs if isinstance(l, notebook_controls.NotebookFormRunListener)]
+        form_listeners = [lis for lis in notebook_controls._listener_refs if isinstance(lis, notebook_controls.NotebookFormRunListener)]
         assert len(form_listeners) == 1
     finally:
         tg.GUARD_ON = was
@@ -542,7 +542,6 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
 def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
     """prune_dead_listeners off-main thread (e.g., File Open filter) must not drop listeners just because get_active_document raises RuntimeError."""
     from plugin.framework import thread_guard
-    from plugin.framework.errors import DocumentDisposedError
 
     # Simulate off main thread
     monkeypatch.setattr(thread_guard, "on_main_thread", lambda: False)
