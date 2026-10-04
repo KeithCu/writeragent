@@ -1,0 +1,17 @@
+--- tests/vision/test_vision_tools.py
++++ tests/vision/test_vision_tools.py
+@@ -133,3 +133,4 @@
+
+-@patch("plugin.framework.config.get_config_str")
++@patch("plugin.vision.vision_availability.get_config_str")
+ def test_vision_venv_configured_false_without_venv_path(_cfg):
+@@ -142,3 +143,3 @@
+ @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
+-@patch("plugin.framework.config.get_config_str")
++@patch("plugin.vision.vision_availability.get_config_str")
+ def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
+@@ -151,3 +152,3 @@
+ @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
+-@patch("plugin.framework.config.get_config_str")
++@patch("plugin.vision.vision_availability.get_config_str")
+ def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):

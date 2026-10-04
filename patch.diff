@@ -1,0 +1,13 @@
+--- plugin/doc/specialized_base.py
++++ plugin/doc/specialized_base.py
+@@ -169,6 +169,11 @@
+     def requires_document_lock(self, arguments: Any = None) -> bool:
+         domain = _field_from_tool_arguments(arguments, "domain")
+         if domain in self._READ_ONLY_DOMAINS:
++            if domain == "vision":
++                # USE_SUB_AGENT delegates run ExtractStructureFromImage with insert_into_document=True.
++                from plugin.framework.constants import USE_SUB_AGENT
++                if USE_SUB_AGENT:
++                    return True
+             return False
+         return super().requires_document_lock(arguments)

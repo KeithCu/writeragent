@@ -1,0 +1,10 @@
+--- plugin/vision/vision_tools.py
++++ plugin/vision/vision_tools.py
+@@ -63,7 +63,7 @@
+
+         def _run() -> dict[str, Any]:
+             stop_checker = getattr(ctx, "stop_checker", None)
+-            if callable(stop_checker) and getattr(stop_checker, "__name__", "") != "Mock" and stop_checker():
++            if stop_checker and stop_checker():
+                 return {"status": "error", "code": "STOPPED", "message": _("OCR stopped by user.")}
+             return run_and_insert_vision_for_selection(ctx.ctx, doc, helper="extract_structure", params=params_dict or None, insert_into_document=insert_into_document, stop_checker=stop_checker)

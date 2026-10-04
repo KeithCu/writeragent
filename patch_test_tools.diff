@@ -1,0 +1,33 @@
+--- tests/vision/test_vision_tools.py
++++ tests/vision/test_vision_tools.py
+@@ -194,6 +194,7 @@
+     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+     tool = ExtractStructureFromImage()
++    tool_ctx.stop_checker = None
+     result = tool.execute(tool_ctx, insert_into_document=True)
+
+     assert result["status"] == "ok"
+@@ -226,6 +227,7 @@
+     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+     tool = ExtractStructureFromImage()
++    tool_ctx.stop_checker = None
+     result = tool.execute(tool_ctx, insert_into_document=False)
+
+     assert result["status"] == "ok"
+@@ -344,6 +346,7 @@
+         "failed_image": "Img2",
+     }
+     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
++    tool_ctx.stop_checker = None
+     result = ExtractStructureFromImage().execute(tool_ctx)
+     assert result["status"] == "error"
+     assert result["code"] == "VISION_ERROR"
+@@ -357,6 +360,7 @@
+     from plugin.framework.errors import DocumentDisposedError
+
+     with patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection", side_effect=DocumentDisposedError("gone", object_type="vision")):
++        tool_ctx.stop_checker = None
+         with pytest.raises(DocumentDisposedError):
+             ExtractStructureFromImage().execute(tool_ctx)

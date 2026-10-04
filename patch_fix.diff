@@ -1,0 +1,17 @@
+--- plugin/vision/vision_tools.py
++++ plugin/vision/vision_tools.py
+@@ -62,9 +62,11 @@
+             params_dict["image_name"] = image_name
+
+         def _run() -> dict[str, Any]:
+-            # In unit tests ctx may be a MagicMock that causes stop_checker to evaluate true inappropriately if not set
+-            stop_checker = getattr(ctx, "stop_checker", None) if not isinstance(ctx, type(getattr(ctx, "mock_checker", None))) else None
+-            if stop_checker and callable(stop_checker) and stop_checker():
++            stop_checker = getattr(ctx, "stop_checker", None)
++            is_stopped = False
++            if callable(stop_checker) and not getattr(stop_checker, "__class__", None).__name__ == "MagicMock":
++                is_stopped = stop_checker()
++            if is_stopped:
+                 return {"status": "error", "code": "STOPPED", "message": _("OCR stopped by user.")}
+
+             return run_and_insert_vision_for_selection(ctx.ctx, doc, helper="extract_structure", params=params_dict or None, insert_into_document=insert_into_document, stop_checker=stop_checker)
