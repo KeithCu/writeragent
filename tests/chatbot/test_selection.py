@@ -5,6 +5,7 @@
 """Extend/Edit uses the sidebar frame when the hamburger passes one."""
 
 from __future__ import annotations
+from unittest.mock import MagicMock, patch
 
 from types import SimpleNamespace
 
@@ -83,3 +84,44 @@ def test_registered_handler_passes_frame(monkeypatch) -> None:
     finally:
         _ACTION_HANDLERS.clear()
         _ACTION_HANDLERS.update(saved)
+
+from plugin.chatbot.selection import stream_completion_tasks, StreamCompletionTask
+
+def test_stream_completion_tasks_defers_next_task():
+    client = MagicMock()
+    ctx = MagicMock()
+    tasks = [
+        StreamCompletionTask("1", "sys", 10),
+        StreamCompletionTask("2", "sys", 10),
+    ]
+
+    on_dones = []
+    stream_calls = []
+
+    def fake_stream_completion(ctx_arg, client_arg, prompt, sys_prompt, max_tokens, apply_chunk, on_done, on_error):
+        stream_calls.append(prompt)
+        on_dones.append(on_done)
+
+    # Note: we test that add_drain_idle_callback is actually called with the next execution
+    # by verifying that fake_add_drain gets the callback when we trigger on_done
+
+    with patch("plugin.chatbot.selection.stream_completion", side_effect=fake_stream_completion):
+        with patch("plugin.chatbot.selection.add_drain_idle_callback") as mock_add_drain:
+            stream_completion_tasks(ctx, client, tasks, lambda t: (MagicMock(), MagicMock()))
+
+            assert len(stream_calls) == 1
+            assert stream_calls[0] == "1"
+
+            # Call on_done for task 1
+            on_dones[0]()
+
+            # Since the lambda inside on_done calls add_drain_idle_callback(run_next_task),
+            # we can check that it was called!
+            assert mock_add_drain.called
+
+            # Extract the arg and run it
+            callback = mock_add_drain.call_args[0][0]
+            callback()
+
+            assert len(stream_calls) == 2
+            assert stream_calls[1] == "2"
