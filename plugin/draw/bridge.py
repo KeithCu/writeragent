@@ -820,7 +820,8 @@ def find_notes_shape(notes_page: Any) -> Any | None:
 
     A notes-master header, footer, date, or slide number can be inserted
     ahead of the notes body, so getByIndex(1) reads or overwrites the wrong
-    shape. Chat context, read_slide_text, and the notes tools share this.
+    shape. Chat context, read_slide_text, the notes tools, and ppt-master
+    notes import and enhance share this.
     """
     if notes_page is None:
         return None

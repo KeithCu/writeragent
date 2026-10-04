@@ -393,6 +393,8 @@ class InsertTable(ToolDrawSpecialBase):
 
 `get_draw_context_for_chat` resolves Active Slide/Page Index with `uno_same` (`is`, then `==`, then `uno.isSame`). `getCurrentPage()` and `getByIndex()` can be different Python wrappers for one page; bare `==` reported `-1` and the model edited the wrong slide. Shape summary and speaker notes use `active_page is not None`: an empty `XDrawPage` is falsy, and a truthiness check dropped notes on a blank slide.
 
+Speaker notes are the notes-page shape of type `com.sun.star.presentation.NotesShape` (`find_notes_shape`). A header, footer, or date field on that page also implements `getString`/`setString` and can sit ahead of the body. PPT-Master import and native enhance use that lookup. Import still writes the source text when it is empty, because clearing shapes on the slide does not clear the notes page.
+
 ---
 
 #### 5.2.5 Images on slides (`image_insert`)
