@@ -539,6 +539,8 @@ def _spill_registry_doc_key(doc: Any) -> str:
     """
     if doc is None:
         return ""
+
+
     try:
         from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
@@ -608,6 +610,31 @@ def save_spill_registry_for_doc(doc: Any) -> None:
     except Exception:
         log.exception("Failed to save spill registry to document property")
 
+
+def rename_spill_registry_sheet(doc: Any, old_sheet_name: str, new_sheet_name: str) -> None:
+    """Update SPILL_REGISTRY keys when a sheet is renamed."""
+    doc_key = _spill_registry_doc_key(doc)
+    if not doc_key:
+        return
+    with _SPILL_REGISTRY_LOCK:
+        for key in list(SPILL_REGISTRY.keys()):
+            if key[0] == doc_key and key[1] == old_sheet_name:
+                spills = SPILL_REGISTRY.pop(key)
+                new_key = (doc_key, new_sheet_name, key[2], key[3])
+                SPILL_REGISTRY[new_key] = spills
+    save_spill_registry_for_doc(doc)
+
+
+def delete_spill_registry_sheet(doc: Any, sheet_name: str) -> None:
+    """Remove SPILL_REGISTRY keys when a sheet is deleted."""
+    doc_key = _spill_registry_doc_key(doc)
+    if not doc_key:
+        return
+    with _SPILL_REGISTRY_LOCK:
+        for key in list(SPILL_REGISTRY.keys()):
+            if key[0] == doc_key and key[1] == sheet_name:
+                SPILL_REGISTRY.pop(key, None)
+    save_spill_registry_for_doc(doc)
 
 def rename_spill_registry_sheet(doc: Any, old_sheet_name: str, new_sheet_name: str) -> None:
     """Update SPILL_REGISTRY keys when a sheet is renamed."""
@@ -1010,6 +1037,33 @@ def _off_main_may_auto_spill(doc: Any | None) -> bool:
 
     return recorded_calc_session_count() <= 1
 
+
+def _check_spill_collisions(sheet: Any, formula_row: int, formula_col: int, num_rows: int, num_cols: int, prev_spill_set: set[tuple[int, int]]) -> bool:
+    """Check if the required spill area intersects with occupied cells."""
+    try:
+        from com.sun.star.table.CellContentType import EMPTY
+    except ImportError:
+        EMPTY = cast("Any", 0)
+
+    for r_idx in range(num_rows):
+        for c_idx in range(num_cols):
+            if r_idx == 0 and c_idx == 0:
+                continue
+            target_r = formula_row + r_idx
+            target_c = formula_col + c_idx
+            if target_r >= 1048576 or target_c >= 1024:
+                log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
+                return True
+            if (target_r, target_c) == (formula_row, formula_col):
+                continue
+            if (target_r, target_c) in prev_spill_set:
+                continue
+            cell = sheet.getCellByPosition(target_c, target_r)
+            cell_type = cell.getType()
+            if cell_type != EMPTY:
+                log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
+                return True
+    return False
 
 def _check_spill_collisions(sheet: Any, formula_row: int, formula_col: int, num_rows: int, num_cols: int, prev_spill_set: set[tuple[int, int]]) -> bool:
     """Check if the required spill area intersects with occupied cells."""

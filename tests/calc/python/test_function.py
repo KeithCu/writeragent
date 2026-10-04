@@ -914,6 +914,7 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     aEvent = SimpleNamespace(Source=sheet)
     doc = CalcDocStub(url="file:///fake_cleanup.ods", props={"RuntimeUID": "calc:file:///fake_cleanup.ods"})
     python_function.SPILL_REGISTRY.clear()
+    python_function.SPILL_REGISTRY.clear()
 
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
 
@@ -957,6 +958,7 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     owner = CalcDocStub(url="file:///owner.ods", props={"RuntimeUID": "uid-owner"})
     active = CalcDocStub(url="file:///active.ods", props={"RuntimeUID": "uid-active"})
     python_function.SPILL_REGISTRY.clear()
+    python_function.SPILL_REGISTRY.clear()
     sheet = owner.getSheets().getByName("Sheet1")
     sheet.getParent = lambda: owner  # type: ignore[method-assign]
     origin = sheet.getCellByPosition(1, 1)
@@ -985,6 +987,7 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
     sheet = MagicMock()
     aEvent = SimpleNamespace(Source=sheet)
     doc = CalcDocStub(url="file:///fake_pymt.ods", props={"RuntimeUID": "calc:file:///fake_pymt.ods"})
+    python_function.SPILL_REGISTRY.clear()
     python_function.SPILL_REGISTRY.clear()
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
     monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: None)
@@ -1658,6 +1661,62 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
     assert result_holder == [42.0]
 
 
+
+def test_rename_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///rename.ods", props={"RuntimeUID": "calc:file:///rename.ods"})
+    python_function.SPILL_REGISTRY.clear()
+    key = ("calc:file:///rename.ods", "OldName", 1, 1)
+    python_function.SPILL_REGISTRY[key] = [(2, 1)]
+
+    saved = []
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
+
+    python_function.rename_spill_registry_sheet(doc, "OldName", "NewName")
+
+    assert key not in python_function.SPILL_REGISTRY
+    new_key = ("calc:file:///rename.ods", "NewName", 1, 1)
+    assert python_function.SPILL_REGISTRY[new_key] == [(2, 1)]
+    assert len(saved) == 1
+
+def test_delete_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///delete.ods", props={"RuntimeUID": "calc:file:///delete.ods"})
+    python_function.SPILL_REGISTRY.clear()
+    key1 = ("calc:file:///delete.ods", "Sheet1", 1, 1)
+    key2 = ("calc:file:///delete.ods", "Sheet2", 1, 1)
+    python_function.SPILL_REGISTRY[key1] = [(2, 1)]
+    python_function.SPILL_REGISTRY[key2] = [(3, 1)]
+
+    saved = []
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
+
+    python_function.delete_spill_registry_sheet(doc, "Sheet1")
+
+    assert key1 not in python_function.SPILL_REGISTRY
+    assert key2 in python_function.SPILL_REGISTRY
+    assert len(saved) == 1
+
+def test_save_as_does_not_orphan_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Save-As changes doc url but not lifecycle id. Ensure spill registry is intact."""
+    doc = CalcDocStub(url="file:///old.ods", props={"RuntimeUID": "calc:file:///old.ods"})
+    python_function.SPILL_REGISTRY.clear()
+
+    # Spill triggers before Save-As
+    key = ("calc:file:///old.ods", "Sheet1", 1, 1)
+    python_function.SPILL_REGISTRY[key] = [(2, 1)]
+
+    # Save-As occurs, URL changes but RuntimeUID remains the same
+    doc.url = "file:///new.ods"
+
+    # A subsequent operation (e.g. rename) should correctly target the existing key because _lifecycle_key remains the same
+    saved = []
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
+
+    python_function.rename_spill_registry_sheet(doc, "Sheet1", "NewName")
+
+    assert key not in python_function.SPILL_REGISTRY
+    new_key = ("calc:file:///old.ods", "NewName", 1, 1)
+    assert python_function.SPILL_REGISTRY[new_key] == [(2, 1)]
+    assert len(saved) == 1
 
 def test_rename_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///rename.ods", props={"RuntimeUID": "calc:file:///rename.ods"})
