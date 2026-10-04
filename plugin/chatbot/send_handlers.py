@@ -260,9 +260,9 @@ class SendHandlersMixin:
                 self._terminal_status = "Stopped"
                 return ""
 
-            if not self.client:
-                api_config = get_api_config()
-                self.client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope)
+            # Always create a fresh client to avoid reusing previous STT endpoint/key
+            api_config = get_api_config()
+            self.client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope)
 
             cl = self.client
             assert cl is not None

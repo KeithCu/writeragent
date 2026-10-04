@@ -1073,3 +1073,34 @@ class TestHandsFreeRecord:
         assert listener.sidebar_state.send.is_recording is False
 
 
+
+class TestStopClearsAudioWavPath:
+    def test_disposing_clears_audio_wav_path(self) -> None:
+        listener = _make_send_listener()
+        listener.audio_wav_path = "/tmp/fake.wav"
+        from plugin.chatbot.send_state import StopSendEffect
+
+        from plugin.chatbot.send_state import SendEvent, SendEventKind
+        # We need the listener to execute StopSendEffect.
+        # This is triggered by STOP_CLICKED
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+
+        assert listener.audio_wav_path is None
+
+class TestStoppedTTS:
+    def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
+        listener = _make_send_listener()
+        listener._terminal_status = "Stopped"
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+
+        with (
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak
+        ):
+            mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
+            listener._run_send_drain()
+            mock_speak.assert_not_called()
