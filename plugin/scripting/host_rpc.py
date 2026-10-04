@@ -322,6 +322,7 @@ def execute_tool(
     caller: str = "script",
     allowed_tools: frozenset[str] | None = None,
     script_session_id: str | None = None,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> Any:
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
@@ -406,10 +407,17 @@ def execute_tool(
             doc_type=doc_type,
             services=registry._services,
             caller=caller,
+            stop_checker=stop_checker,
         )
         return registry.execute(tool_name, tctx, **payload)
 
     from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.main import get_tools
+
+    registry = get_tools()
+    tool = registry._tools.get(tool_name)
+    if tool and hasattr(tool, "is_async") and tool.is_async():
+        return _run()
 
     return execute_on_main_thread(_run)
 
@@ -538,6 +546,7 @@ def handle_tool_call_frame(
             caller=caller,
             allowed_tools=allowed_tools,
             script_session_id=script_session_id,
+            stop_checker=stop_checker,
         )
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:

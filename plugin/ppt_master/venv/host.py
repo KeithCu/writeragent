@@ -20,12 +20,14 @@ log = logging.getLogger(__name__)
 _PPT_MASTER_TURN_TIMEOUT_SEC = 1800
 
 
+from plugin.scripting.session_manager import pin_script_document
+
 def ppt_master_session_id(doc: Any) -> str:
     try:
         url = doc.getURL()
     except Exception:
         url = ""
-    return f"ppt_master:{url or 'active'}"
+    return f"ppt_master:{url}" if url else (pin_script_document(doc) or "ppt_master:active")
 
 
 def run_ppt_master_venv_turn(

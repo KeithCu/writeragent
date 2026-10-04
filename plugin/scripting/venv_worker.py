@@ -604,6 +604,7 @@ class PythonWorkerManager:
                                 host_read_timeout_sec,
                                 grace,
                                 on_heartbeat,
+                                stop_checker,
                             )
                         else:
                             response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec)
@@ -1142,6 +1143,7 @@ class PythonWorkerManager:
         timeout_sec: float | int,
         grace_sec: int,
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
+        stop_checker: Callable[[], bool] | None = None,
     ) -> bytes:
         from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
 
@@ -1151,6 +1153,8 @@ class PythonWorkerManager:
             return self._read_exact_before_deadline(stdout, n, deadline_holder[0])
 
         while True:
+            if stop_checker is not None and stop_checker():
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
             frame_bytes = self._read_frame_bytes(stdout, _read_exact)
             if not frame_bytes:
                 return b""

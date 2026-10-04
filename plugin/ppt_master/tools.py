@@ -29,6 +29,10 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
     )
     is_mutation: bool | None = True
     long_running: bool = True
+
+    def is_async(self) -> bool:
+        return True
+
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

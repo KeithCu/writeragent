@@ -75,3 +75,20 @@ def test_ppt_master_session_no_longer_merges_draw_tools():
     assert "_PPT_MASTER_DRAW_CORE_TOOL_NAMES" not in source
     assert "collect_ppt_master_tools" not in source
     assert "run_ppt_master_venv_turn" in source or "_run_ppt_master_venv_agent" in source
+
+from unittest.mock import patch, Mock
+
+@patch('plugin.ppt_master.venv.host.pin_script_document')
+def test_ppt_master_session_id_pins(pin_mock):
+    from plugin.ppt_master.venv.host import ppt_master_session_id
+
+    doc = Mock()
+    doc.getURL.return_value = "file:///tmp/deck.odp"
+    assert ppt_master_session_id(doc) == "ppt_master:file:///tmp/deck.odp"
+
+    doc2 = Mock()
+    doc2.getURL.side_effect = Exception("No URL")
+
+    pin_mock.return_value = "doc:1234"
+    assert ppt_master_session_id(doc2) == "doc:1234"
+    pin_mock.assert_called_once_with(doc2)

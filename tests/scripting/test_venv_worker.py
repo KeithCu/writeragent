@@ -1650,12 +1650,13 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
         )
     assert handled is True
     mock_tool.assert_called_once_with(
-        "apply_document_content",
-        {"content": ["x"]},
-        caller="script",
-        allowed_tools=None,
-        script_session_id=None,
-    )
+            "apply_document_content",
+            {"content": ["x"]},
+            caller="script",
+            allowed_tools=None,
+            script_session_id=None,
+            stop_checker=None,
+        )
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -2088,3 +2089,21 @@ def test_terminate_worker_race_condition(monkeypatch):
 
     if sys.platform != "win32":
         assert mgr._proc is None
+
+def test_venv_worker_honor_stop():
+    from unittest.mock import Mock
+    import io
+    from plugin.scripting.venv_worker import PythonWorkerManager
+    manager = PythonWorkerManager(exe="python", env={})
+
+    stop_checker = Mock(return_value=True)
+    stdout = io.BytesIO(b"fake data")
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        manager._read_response_with_heartbeats(
+            stdout=stdout,
+            timeout_sec=10,
+            grace_sec=10,
+            on_heartbeat=None,
+            stop_checker=stop_checker,
+        )
