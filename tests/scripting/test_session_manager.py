@@ -998,3 +998,27 @@ def test_unsaved_session_id_starts_with_unsaved():
         with patch("plugin.scripting.session_manager.set_document_property"):
             key = _workbook_session_key(doc)
             assert key.startswith("unsaved:")
+
+def test_ppt_master_unsaved_decks_unique_session_id() -> None:
+    from unittest.mock import MagicMock
+    from plugin.ppt_master.venv.host import ppt_master_session_id
+
+    deck1 = MagicMock()
+    deck1.getURL.return_value = ""
+    # Simulate missing/failing UserDefinedProperties for unsaved document
+    def prop_err(*args, **kwargs):
+        raise Exception()
+    deck1.getPropertyValue.side_effect = prop_err
+    deck1.getDocumentProperties.side_effect = prop_err
+
+    deck2 = MagicMock()
+    deck2.getURL.return_value = ""
+    deck2.getPropertyValue.side_effect = prop_err
+    deck2.getDocumentProperties.side_effect = prop_err
+
+    id1 = ppt_master_session_id(deck1)
+    id2 = ppt_master_session_id(deck2)
+
+    assert id1 != id2
+    assert id1.startswith("ppt_master:unsaved:")
+    assert id2.startswith("ppt_master:unsaved:")

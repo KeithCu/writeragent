@@ -336,8 +336,21 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 except Exception:
                     target_id = None
 
+                # Count agent changes before dispatch
+                enum_before = redlines.createEnumeration()
+                agent_changes_before = 0
+                while enum_before.hasMoreElements():
+                    r = enum_before.nextElement()
+                    is_agent_r, _ = redline_is_agent_change(r)
+                    if is_agent_r:
+                        agent_changes_before += 1
+
                 start = target_redline.getPropertyValue("RedlineStart")
-                cur = start.getText().createTextCursorByRange(start)
+                # Keep the document text from the redline anchor. Rebinding start to the
+                # expanded cursor's getStart() below must not switch the overlap comparison
+                # onto a different text object.
+                text = start.getText()
+                cur = text.createTextCursorByRange(start)
 
                 # Expand cursor to cover the entire logical change (all siblings)
                 for r in redline_objs:
@@ -361,7 +374,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 # Guard: Overlapping changes clobber check.
                 # If there's another tracked change that intersects with the one we're resolving,
                 # the dispatcher resolve will break the UNO text model or clobber the other change.
-                text = start.getText()
                 for i, r in enumerate(redline_objs):
                     if i == index:
                         continue
@@ -383,12 +395,10 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                         r_cur_start = r_cur.getStart()
                         r_cur_end = r_cur.getEnd()
 
-                        # Overlap logic: Two ranges [start, end] and [r_cur_start, r_cur_end] overlap if
-                        # start <= r_cur_end AND r_cur_start <= end.
-                        # For compareRegionStarts: 1 means left < right.
-                        # They do NOT overlap if:
-                        # end < r_cur_start OR start > r_cur_end
-                        if text.compareRegionStarts(end, r_cur_start) == 1 or text.compareRegionStarts(r_cur_end, start) == 1:
+                        # Overlap logic: ranges do not overlap when they are distinct or strictly
+                        # adjacent. compareRegionStarts: 1 means left < right, 0 means equal.
+                        # gotoRange normalizes each redline's bounds before the comparison.
+                        if text.compareRegionStarts(end, r_cur_start) in (1, 0) or text.compareRegionStarts(r_cur_end, start) in (1, 0):
                             pass # No overlap
                         else:
                             return self._tool_error(
@@ -396,8 +406,13 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                                 "Resolving it via the agent may clobber adjacent changes. "
                                 "Please resolve it manually in LibreOffice."
                             )
-                    except Exception:
-                        pass # Ignore if we can't read bounds
+                    except Exception as rb_err:
+                        # Fail closed: if we cannot read the bounds of another redline, we cannot prove
+                        # it doesn't overlap.
+                        return self._tool_error(
+                            f"Failed to read bounds of tracked change at index {i} during overlap check. "
+                            f"Please resolve tracked changes manually in LibreOffice. Error: {rb_err}"
+                        )
 
                 ctx.doc.getCurrentController().select(cur)
             except Exception as e:
@@ -414,6 +429,22 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
             if redlines.getCount() == initial_count:
                 return self._tool_error("Failed to resolve tracked change: operation silently failed.")
+
+            # Enforce self-resolve invariant
+            enum_after = redlines.createEnumeration()
+            agent_changes_after = 0
+            while enum_after.hasMoreElements():
+                r = enum_after.nextElement()
+                is_agent_r, _ = redline_is_agent_change(r)
+                if is_agent_r:
+                    agent_changes_after += 1
+
+            if agent_changes_after < agent_changes_before:
+                try:
+                    ctx.doc.getUndoManager().undo()
+                except Exception:
+                    pass
+                return self._tool_error("Agent edit was resolved, which is forbidden.")
 
             action_str = "Accepted" if is_accept else "Rejected"
             return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}
