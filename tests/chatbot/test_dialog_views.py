@@ -778,6 +778,66 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
     parent.getPeer.assert_called_once()
 
 
+def test_populate_fields_skips_one_missing_control() -> None:
+    """One unknown control id must not abort the rest of the Settings fill.
+
+    UNO getControl raises for a name that is not in the XDL. Returning None
+    is not the only miss.
+    """
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    text_ctrl = MagicMock()
+
+    def get_control(name: str):
+        if name == "not_in_xdl":
+            raise RuntimeError("no such control")
+        if name == "text_model":
+            return text_ctrl
+        return None
+
+    dlg.getControl.side_effect = get_control
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+        view._populate_fields(
+            [
+                {"name": "not_in_xdl", "value": "x"},
+                {"name": "text_model", "value": "llama3"},
+            ],
+            "http://localhost:11434",
+        )
+    mock_lru.assert_called_once()
+    assert mock_lru.call_args.args[1] is text_ctrl
+
+
+def test_extract_results_skips_control_that_raises() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    class _Text:
+        def getText(self):
+            return "hello"
+
+    dlg = MagicMock()
+
+    def get_control(name: str):
+        if name == "not_in_xdl":
+            raise RuntimeError("no such control")
+        if name == "endpoint":
+            return _Text()
+        return None
+
+    dlg.getControl.side_effect = get_control
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+    result = view._extract_results([
+        {"name": "not_in_xdl"},
+        {"name": "endpoint"},
+    ])
+    assert result == {"endpoint": "hello"}
+
+
 def test_populate_fields_text_model_does_not_fetch_remote() -> None:
     from plugin.chatbot.dialog_views import SettingsDialog
 

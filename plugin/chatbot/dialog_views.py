@@ -387,8 +387,17 @@ class SettingsDialog:
         api_key_val = self._api_key_from_field_specs(field_specs)
 
         for field in field_specs:
-            ctrl = self._dlg.getControl(field["name"])
-            if not ctrl:
+            # What was wrong: getControl raises when the name is not in the
+            # XDL. One missing control aborted show() before execute(), so
+            # the whole Settings dialog failed to open.
+            # How: the exception left this loop and the show() handler
+            # reported "Failed to open Settings".
+            # Why: get_optional returns None for a missing name (and still
+            # raises if the dialog is disposed). Skip that field and fill
+            # the rest.
+            ctrl = get_optional(self._dlg, field["name"])
+            if ctrl is None:
+                log.warning("Settings dialog missing control %r", field["name"])
                 continue
 
             name = field["name"]
@@ -539,11 +548,11 @@ class SettingsDialog:
         result: dict[str, Any] = {}
         for field in field_specs:
             name = field["name"]
-            ctrl = self._dlg.getControl(name)
-            # What was wrong: a control that is not on this dialog (no XDL
-            # widget, or getControl returned nothing) was stored as "". OK
-            # then wrote that empty string over the schema default. Skip it.
-            if not ctrl:
+            # getControl raises for an unknown id. None used to be the only
+            # skip, so one missing name aborted OK the same way it aborted
+            # open. get_optional skips the name; a disposed dialog still raises.
+            ctrl = get_optional(self._dlg, name)
+            if ctrl is None:
                 continue
 
             try:

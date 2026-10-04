@@ -452,6 +452,66 @@ def test_apply_settings_result_one_batch_no_extra_emit():
     tts_set.assert_not_called()
 
 
+def test_endpoint_for_api_key_write_keeps_a_stale_secret_on_its_host():
+    """A field that still shows the previous host's key is not stored on the new URL.
+
+    A different string was typed for the URL being saved. The same string on
+    an unchanged URL is not a write.
+    """
+    from plugin.chatbot.settings_dialog import endpoint_for_api_key_write
+
+    old = "https://openrouter.ai/api/v1"
+    new = "http://127.0.0.1:11434/v1"
+    assert endpoint_for_api_key_write("sk-old", old, new, "sk-old", "") is None
+    assert endpoint_for_api_key_write("sk-old", old, new, "sk-old", "sk-other") is None
+    assert endpoint_for_api_key_write("sk-new", old, new, "sk-old", "") == "http://127.0.0.1:11434"
+    assert endpoint_for_api_key_write("sk-old", old, old, "sk-old", "sk-old") is None
+    assert endpoint_for_api_key_write("", old, old, "sk-old", "sk-old") == "https://openrouter.ai/api"
+
+
+def test_ok_does_not_attach_previous_api_key_to_a_new_endpoint():
+    """Changing the URL leaves the previous host's key on that host.
+
+    A key typed for the new URL is stored there, and other endpoints' keys
+    stay. The batch is still one set_configs.
+    """
+    from plugin.chatbot.settings_dialog import apply_settings_result
+    from plugin.framework.config import get_config, set_api_key_for_endpoint, set_config
+    from plugin.framework.url_utils import normalize_endpoint_url
+
+    old = "https://openrouter.ai/api"
+    new = "http://127.0.0.1:11434/v1"
+    other = "https://api.together.xyz"
+    old_norm = normalize_endpoint_url(old)
+    new_norm = normalize_endpoint_url(new)
+    other_norm = normalize_endpoint_url(other)
+    set_config("endpoint", old)
+    set_api_key_for_endpoint(old, "sk-old")
+    set_api_key_for_endpoint(other, "sk-keep")
+
+    apply_settings_result(MagicMock(), {"endpoint": new, "api_key": "sk-old"})
+
+    keys = get_config("api_keys_by_endpoint")
+    assert normalize_endpoint_url(get_config("endpoint")) == new_norm
+    assert keys[old_norm] == "sk-old"
+    assert new_norm not in keys
+    assert keys[other_norm] == "sk-keep"
+
+    apply_settings_result(MagicMock(), {"endpoint": new, "api_key": "sk-typed"})
+
+    keys = get_config("api_keys_by_endpoint")
+    assert keys[new_norm] == "sk-typed"
+    assert keys[old_norm] == "sk-old"
+    assert keys[other_norm] == "sk-keep"
+
+    apply_settings_result(MagicMock(), {"endpoint": old, "api_key": "sk-replaced"})
+    keys = get_config("api_keys_by_endpoint")
+    assert normalize_endpoint_url(get_config("endpoint")) == old_norm
+    assert keys[old_norm] == "sk-replaced"
+    assert keys[new_norm] == "sk-typed"
+    assert keys[other_norm] == "sk-keep"
+
+
 def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
     """OK leaves the file alone when every dialog value matches disk.
 

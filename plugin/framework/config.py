@@ -45,7 +45,10 @@ read, ``fn``, and the patch, so a second writer cannot save a copy it
 loaded earlier and drop the first writer's keys. ``set_config`` /
 ``set_configs`` / ``remove_config`` / ``update_config_mapping`` and
 **GET-path** repairs (broken JSON, out-of-range numbers, old
-``calc_prompt_max_tokens``) go through that store. One ``config:changed``
+``calc_prompt_max_tokens``) go through that store. A ``set_configs`` value
+for ``api_keys_by_endpoint`` is a slot patch: those URL keys are merged
+into the map just read under the lock, so a one-slot Settings OK does not
+replace the map with a copy taken earlier. One ``config:changed``
 is emitted **after** the lock is released, with ``key``, ``value``, and
 ``old_value``, so listeners may call ``get_config`` / ``set_config``
 without deadlocking. Callers that map a settings key onto a stored key
@@ -783,13 +786,16 @@ class ConfigStore:
         if not path:
             raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
 
-        def _bind(stored: Any) -> Callable[[Any], Any]:
-            def _replace(_current: Any) -> Any:
+        def _bind(key: str, stored: Any) -> Callable[[Any], Any]:
+            def _replace(current: Any) -> Any:
+                # Slot patch, not a whole-map replace. See _merge_api_key_slots.
+                if key == "api_keys_by_endpoint" and isinstance(stored, dict):
+                    return _merge_api_key_slots(current, stored)
                 return stored
 
             return _replace
 
-        self.apply(path, [(key, _bind(value)) for key, value in values.items()], batch=True)
+        self.apply(path, [(key, _bind(key, value)) for key, value in values.items()], batch=True)
 
     def apply(
         self,
@@ -1091,6 +1097,24 @@ def _get_validated_config_dict() -> dict[str, Any]:
 
 
 # --- Per-endpoint API keys ---
+
+
+def _merge_api_key_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
+    """Return *current* with only the URL slots in *patch* replaced.
+
+    What was wrong: Settings copied ``api_keys_by_endpoint``, set one URL,
+    and ``set_configs`` replaced the map with that copy. A key written for
+    another endpoint after the copy and before the replace was dropped.
+    How: the copy ran before ``_config_write_lock``. The batch then stored
+    the whole dict.
+    Why: ``ConfigStore.apply`` calls this on the value just read under that
+    lock. Slots absent from *patch* stay as they were read. Callers pass
+    only the slots they are setting, not a snapshot of the rest of the map.
+    """
+    base = dict(current) if isinstance(current, dict) else {}
+    for slot, secret in patch.items():
+        base[str(slot)] = "" if secret is None else str(secret)
+    return base
 
 
 def update_config_mapping(key: str, mutate: Callable[[dict[str, Any]], None], *, event_key: str | None = None) -> None:

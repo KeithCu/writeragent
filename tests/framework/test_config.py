@@ -565,6 +565,44 @@ class TestConfigSyncFileIO:
         assert mock_emit.call_args.kwargs["value"] == "https://api.example.com"
         assert self._load_written().get("endpoint") == "https://api.example.com"
 
+    def test_set_configs_api_key_patch_keeps_other_slots(self):
+        """A one-slot set_configs merges under the lock. It does not replace the map.
+
+        What was wrong: the caller copied the map, edited one URL, and the
+        batch wrote that copy back. A key stored for another endpoint in
+        between was dropped.
+        """
+        reset_config_for_tests()
+        set_api_key_for_endpoint("https://api.together.xyz", "sk-keep")
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def _batch() -> None:
+            try:
+                barrier.wait(timeout=5)
+                set_configs({"api_keys_by_endpoint": {"https://api.openai.com": "sk-a"}})
+            except BaseException as exc:
+                errors.append(exc)
+
+        def _one() -> None:
+            try:
+                barrier.wait(timeout=5)
+                set_api_key_for_endpoint("http://localhost:11434", "sk-b")
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_batch), threading.Thread(target=_one)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        assert errors == []
+        reset_config_for_tests()
+        keys = get_config("api_keys_by_endpoint")
+        assert keys.get("https://api.openai.com") == "sk-a"
+        assert keys.get("http://localhost:11434") == "sk-b"
+        assert keys.get("https://api.together.xyz") == "sk-keep"
+
     def test_api_key_updates_do_not_drop_a_concurrent_endpoint(self):
         """Two writers must keep both keys. The lock covers the read and the write."""
         reset_config_for_tests()
