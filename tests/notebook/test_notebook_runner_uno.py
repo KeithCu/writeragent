@@ -756,7 +756,7 @@ def test_run_all_stop_skips_remaining_cells(ctx, doc):
 
         with (
             patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
-            patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
+            patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
         ):
             result = run_all_for_doc(ctx, doc)
         assert result is not None, "run_all_for_doc returned None"
