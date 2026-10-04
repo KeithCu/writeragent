@@ -445,6 +445,8 @@ class EditReviewSession:
                 "(not a reviewable agent change)",
                 n,
             )
+            with self._undo_lock():
+                _tag_new_redlines(new_redlines, "")
             return result
 
         self.changes.append(ChangeRecord(
@@ -1230,19 +1232,18 @@ class WriterStreamedRewriteSession:
     def abort_and_restore(self) -> None:
         """Restore the original text and recording state after an error."""
         try:
-            if self.was_recording:
-                try:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                except Exception:
-                    pass
-            self.text_range.setString(self.original_text)
+            # We close the compound undo first, so we can undo the whole streamed operation
+            self._compound_undo.close()
+            try:
+                self.doc.getUndoManager().undo()
+            except Exception:
+                pass
         finally:
             if self.was_recording:
                 try:
                     self.doc.setPropertyValue("RecordChanges", True)
                 except Exception:
                     pass
-            self._compound_undo.close()
 
 
 class WriterStreamedAppendSession:

@@ -268,3 +268,36 @@ def test_exception_restores_recording_and_author_uno(ctx, doc):
     except RuntimeError:
         pass
     assert doc.getPropertyValue("RecordChanges") is False, "recording restored on exception"
+
+@native_test
+@with_native_doc("writer")
+def test_anchor_failure_leaves_unregistered_does_not_hang_uno(ctx, doc):
+    _body(doc, ctx, "Anchor failure clause here.")
+    doc.setPropertyValue("RecordChanges", False)
+
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        def mutate():
+            t = doc.getText()
+            c = t.createTextCursor()
+            c.gotoStart(False)
+            c.gotoEndOfParagraph(True)
+            c.setString("Edited.")
+
+        class DocWrapper:
+            def __getattr__(self, item):
+                if item == "createInstance":
+                    def createInstance(name):
+                        if name == "com.sun.star.text.Bookmark":
+                            raise RuntimeError("mock anchor fail")
+                        return doc.createInstance(name)
+                    return createInstance
+                return getattr(doc, item)
+
+        session.doc = DocWrapper()
+        try:
+            session.record_mutation(mutate)
+        finally:
+            session.doc = doc
+
+    result = session.wait_for_review(timeout=0.1)
+    assert result == {"complete": True, "timed_out": False, "changes": []}, result
