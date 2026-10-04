@@ -115,6 +115,70 @@ def test_write_formula_range_rejects_wide_array():
     with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
         with pytest.raises(CalcError, match="is too wide"):
             manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
+def test_write_array_formula_refusal_leaves_prior_array():
+    # Old array A1:B1. The new result is 1x3, and C1 already has a value.
+    # Refusing must not clear A1:B1. B1 belongs to the array being replaced,
+    # so the first reported occupied cell is C1, not B1.
+    state = {"array": "=OLD"}
+    writes: list[tuple[tuple[int, int, int, int], str]] = []
+
+    class _Cell:
+        def __init__(self, formula: str = "", text: str = "") -> None:
+            self._formula = formula
+            self._text = text
+
+        def getFormula(self) -> str:
+            return self._formula
+
+        def getString(self) -> str:
+            return self._text
+
+    cells = {
+        (0, 0): _Cell("=OLD"),
+        (1, 0): _Cell("=OLD"),
+        (2, 0): _Cell("", "keep"),
+    }
+
+    class _Cursor:
+        def collapseToCurrentArray(self) -> None:
+            return None
+
+        def getRangeAddress(self) -> SimpleNamespace:
+            return SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=1, EndRow=0)
+
+    class _Sheet:
+        def createCursorByRange(self, _rng: object) -> _Cursor:
+            return _Cursor()
+
+        def getCellByPosition(self, col: int, row: int) -> _Cell:
+            return cells[(col, row)]
+
+        def getCellRangeByPosition(self, c1: int, r1: int, c2: int, r2: int):
+            box = (c1, r1, c2, r2)
+
+            class _Rng:
+                def getArrayFormula(self) -> str:
+                    if box == (0, 0, 1, 0):
+                        return state["array"]
+                    return ""
+
+                def setArrayFormula(self, formula: str) -> None:
+                    writes.append((box, formula))
+                    if box == (0, 0, 1, 0):
+                        state["array"] = formula
+
+            return _Rng()
+
+    manipulator = CellManipulator(MagicMock())
+    manipulator._measure_array = MagicMock(return_value=(1, 3))
+
+    with pytest.raises(CalcError, match=r"first: C1"):
+        manipulator._write_array_formula(_Sheet(), "=NEW", (0, 0), (0, 0))
+
+    assert state["array"] == "=OLD"
+    assert writes == []
+
+
 def test_write_array_formula_explicit_rejects_large_range():
     manipulator = CellManipulator(MagicMock())
     sheet = MagicMock()

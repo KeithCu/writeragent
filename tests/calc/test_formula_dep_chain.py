@@ -146,6 +146,96 @@ def test_precedents_via_formula_query_caps_cell_snapshots(monkeypatch):
     assert (5, 9) not in calls
 
 
+def test_precedents_via_formula_query_uses_precedent_sheet(monkeypatch):
+    # queryPrecedents reports Sheet=1. The snapshot must read that sheet,
+    # not the formula sheet, and the address must name it.
+    star = sys.modules.get("com.sun.star")
+    if star is None:
+        star = ModuleType("com.sun.star")
+        star.__path__ = []
+        monkeypatch.setitem(sys.modules, "com.sun.star", star)
+    sheet_mod = ModuleType("com.sun.star.sheet")
+
+    class XFormulaQuery:
+        pass
+
+    sheet_mod.XFormulaQuery = XFormulaQuery
+    monkeypatch.setitem(sys.modules, "com.sun.star.sheet", sheet_mod)
+    monkeypatch.setattr(star, "sheet", sheet_mod, raising=False)
+
+    table_mod = ModuleType("com.sun.star.table")
+
+    class CellContentType:
+        EMPTY = 0
+        VALUE = 1
+        TEXT = 2
+        FORMULA = 3
+
+    table_mod.CellContentType = CellContentType
+    monkeypatch.setitem(sys.modules, "com.sun.star.table", table_mod)
+    monkeypatch.setattr(star, "table", table_mod, raising=False)
+
+    class _Cell:
+        def __init__(self, marker: str) -> None:
+            self.marker = marker
+
+        def getType(self) -> int:
+            return 1
+
+        def getError(self) -> int:
+            return 0
+
+        def getValue(self) -> str:
+            return self.marker
+
+        def getString(self) -> str:
+            return self.marker
+
+    class _Sheet:
+        def __init__(self, name: str, marker: str) -> None:
+            self.name = name
+            self.marker = marker
+            self.reads: list[tuple[int, int]] = []
+
+        def getName(self) -> str:
+            return self.name
+
+        def getCellByPosition(self, col: int, row: int) -> _Cell:
+            self.reads.append((col, row))
+            return _Cell(self.marker)
+
+    formula_sheet = _Sheet("Sheet1", "FROM-FORMULA-SHEET")
+    data_sheet = _Sheet("Data", "FROM-DATA")
+
+    class _QueryRange:
+        def queryInterface(self, _kind: object):
+            return _Query()
+
+    class _Query:
+        def queryPrecedents(self, _all_levels: bool):
+            addr = SimpleNamespace(Sheet=1, StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+            return SimpleNamespace(getRangeAddresses=lambda: [addr])
+
+    formula_sheet.getCellRangeByPosition = lambda *_args: _QueryRange()  # type: ignore[attr-defined]
+
+    class _Sheets:
+        def getByIndex(self, index: int) -> _Sheet:
+            return (formula_sheet, data_sheet)[int(index)]
+
+    class _Doc:
+        def getSheets(self) -> _Sheets:
+            return _Sheets()
+
+    result = _precedents_via_formula_query(formula_sheet, 0, 0, _Doc())
+
+    assert result["truncated"] is False
+    assert len(result["precedents"]) == 1
+    assert result["precedents"][0]["value"] == "FROM-DATA"
+    assert result["precedents"][0]["address"] == "Data.A1"
+    assert data_sheet.reads == [(0, 0)]
+    assert formula_sheet.reads == []
+
+
 def test_precedents_via_formula_query_small_range_is_not_truncated(monkeypatch):
     calls: list[tuple[int, int]] = []
     sheet = _sheet_with_precedent_ranges(

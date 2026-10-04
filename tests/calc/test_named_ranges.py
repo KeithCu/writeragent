@@ -28,9 +28,43 @@ from plugin.calc.named_ranges import (
     _defined_name_error,
     _extract_range_info,
     _format_flags,
+    _parse_base_address,
     _parse_flags,
     _resolve_container,
 )
+
+
+def _doc_with_sheet_names(*names: str) -> MagicMock:
+    sheet_objs = []
+    for name in names:
+        sheet = MagicMock()
+        sheet.getName.return_value = name
+        sheet_objs.append(sheet)
+    sheets = MagicMock()
+    sheets.getCount.return_value = len(sheet_objs)
+    sheets.getByIndex.side_effect = lambda idx: sheet_objs[idx]
+    doc = MagicMock()
+    doc.getSheets.return_value = sheets
+    return doc
+
+
+def test_named_range_unknown_sheet_prefix_errors():
+    # An unknown prefix used to leave the default sheet (0), so a relative
+    # name was anchored on the wrong sheet.
+    doc = _doc_with_sheet_names("Sheet1", "Data")
+
+    with pytest.raises(ValueError, match="No sheet named 'Nope'"):
+        _parse_base_address(doc, "Nope.B2", default_sheet_idx=0)
+    with pytest.raises(ValueError, match="No sheet named 'Missing Sheet'"):
+        _parse_base_address(doc, "'Missing Sheet'!A1", default_sheet_idx=0)
+
+    pos = _parse_base_address(doc, "Data.B2", default_sheet_idx=0)
+    assert pos.Sheet == 1
+    assert (pos.Column, pos.Row) == (1, 1)
+
+    bare = _parse_base_address(doc, "C3", default_sheet_idx=4)
+    assert bare.Sheet == 4
+    assert (bare.Column, bare.Row) == (2, 2)
 
 
 def test_parse_flags_and_format_flags():

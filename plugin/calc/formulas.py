@@ -24,9 +24,8 @@ Provides built-in Calc function discovery and arbitrary formula pre-evaluation t
 > Unlike standard empty-worksheet insertion which fails to resolve relative or unqualified cell
 > references (e.g. `=A1+B1` evaluates to 0 on an empty sheet), `EvaluateFormula` uses a robust,
 > side-effect-free Sheet-Copy Pattern. It duplicates the active sheet to a temporary hidden sheet,
-> writes the formula at the specified `cell` coordinate context (resolving relative cell dependencies
-> against the duplicated live sheet values perfectly), and cleanly deletes the copied sheet in a
-> `finally` block before returning.
+> writes the formula at a bare cell coordinate on that copy (a sheet prefix is not followed, and a
+> defined name is rejected), and deletes the copied sheet in a `finally` block before returning.
 """
 
 from __future__ import annotations
@@ -35,6 +34,7 @@ from plugin.framework.constants import now_aware
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool import ToolBase
 
@@ -53,7 +53,52 @@ except ImportError:
     EMPTY, VALUE, TEXT, FORMULA = cast("Any", 0), cast("Any", 1), cast("Any", 2), cast("Any", 3)
     UNO_AVAILABLE = False
 
+# com.sun.star.sheet.FormulaResult: VALUE=1, STRING=2, ERROR=4.
+# A formula cell stays FORMULA even when the result is the number 0.
+FORMULA_RESULT_VALUE = 1
+
 log = logging.getLogger("writeragent.calc")
+
+
+def _context_position(cell_address: str) -> tuple[int, int]:
+    """Bare column and row for the formula context on the temporary sheet.
+
+    What was wrong: ``getCellRangeByName(cell)`` resolved ``Sheet1.C5`` and a
+    defined name against the whole document, so ``setFormula`` edited the
+    live sheet. The ``finally`` block only deleted the temporary copy.
+    How: that call is not limited to the sheet object it is invoked on.
+    Why: ``split_sheet_prefix`` drops the sheet (the copy is already the
+    active sheet), ``parse_address`` rejects a name that is not one cell,
+    and the caller writes with ``getCellByPosition``.
+    """
+    _prefix, local = split_sheet_prefix((cell_address or "").strip())
+    return parse_address(local.replace("$", ""))
+
+
+def _formula_cell_result(cell: Any) -> Any:
+    """Return a formula cell's result, keeping numeric zero as a number.
+
+    What was wrong: ``=1-1`` came back as the string ``"0"``.
+    How: ``getValue() != 0`` is false for zero, so the branch called ``getString()``.
+    Why: ``FormulaResultType`` ``VALUE`` (1) is a number, including 0.
+    Text results stay ``getString()``.
+    """
+    numeric = cell.getValue()
+    kind = getattr(cell, "FormulaResultType", None)
+    if kind is not None:
+        try:
+            kind_int = int(kind)
+        except (TypeError, ValueError):
+            kind_int = -1
+        if kind_int == FORMULA_RESULT_VALUE:
+            return numeric
+        return cell.getString()
+    if numeric != 0:
+        return numeric
+    text = cell.getString()
+    if isinstance(text, str) and text.strip() in {"0", "0.0", "0.00", "-0"}:
+        return numeric
+    return text
 
 
 def formula_evaluation_error_message(error_code: int) -> str:
@@ -141,7 +186,7 @@ class EvaluateFormula(ToolCalcErrorBase):
     description: str = "Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"formula": {"type": "string", "description": "The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'."}, "cell": {"type": "string", "description": "Optional cell coordinate/address context to evaluate relative references from, e.g. 'C5' (defaults to 'A1')."}},
+        "properties": {"formula": {"type": "string", "description": "The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'."}, "cell": {"type": "string", "description": "Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5' (defaults to 'A1'). A sheet prefix is ignored. A defined name is rejected."}},
         "required": ["formula"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -155,6 +200,13 @@ class EvaluateFormula(ToolCalcErrorBase):
             return self._tool_error("formula is required")
         if not formula_string.startswith("="):
             formula_string = "=" + formula_string
+
+        # Reject a defined name before copying a sheet. A sheet prefix is
+        # dropped here; only the bare coordinate is used below.
+        try:
+            col, row = _context_position(cell_address)
+        except ValueError as e:
+            return self._tool_error(f"Invalid cell context address '{cell_address}': {e}")
 
         doc = ctx.doc
         if not doc:
@@ -185,10 +237,10 @@ class EvaluateFormula(ToolCalcErrorBase):
             sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
             sheet = sheets.getByName(temp_sheet_name)
 
-            # Retrieve the cell by coordinates context
+            # getCellByPosition stays on this sheet. getCellRangeByName would
+            # follow Sheet1.C5 or a defined name back to the live workbook.
             try:
-                cell_range = sheet.getCellRangeByName(cell_address)
-                cell = cell_range.getCellByPosition(0, 0)
+                cell = sheet.getCellByPosition(col, row)
             except Exception as e:
                 return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
 
@@ -204,7 +256,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             elif result_type == TEXT:
                 result = cell.getString()
             elif result_type == FORMULA:
-                result = cell.getValue() if cell.getValue() != 0 else cell.getString()
+                result = _formula_cell_result(cell)
             else:
                 result = cell.getString()
 
