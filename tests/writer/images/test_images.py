@@ -169,8 +169,8 @@ def test_image_generate_skips_insert_on_stop():
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         res = ImageGenerate().execute(ctx, prompt="a canceled cat")
-    assert res["status"] == "ok"
-    assert res["message"] == "Image generation was cancelled by the user."
+        assert res["status"] == "error"
+        assert res.get("code") == "CANCELLED"
     mock_insert.assert_not_called()
     mock_replace.assert_not_called()
 
