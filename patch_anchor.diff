@@ -1,0 +1,11 @@
+--- plugin/doc/diagnostics.py
++++ plugin/doc/diagnostics.py
+@@ -101,7 +101,7 @@
+                     try:
+                         bm = bookmarks.getByName(name)
+                         try:
+-                            anchor = bm.getAnchor()
++                            _anchor = bm.getAnchor()
+                         except Exception:
+                             # The anchor might be missing entirely or the bookmark collapsed
+                             # so strictly getAnchor might fail.

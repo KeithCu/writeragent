@@ -56,7 +56,8 @@ def _writer_char_count(model: Any) -> int:
         check_disposed(model, "Document Model")
         count = getattr(model, "CharacterCount", None)
         if count is not None:
-            return max(0, int(count))
+            paras = getattr(model, "ParagraphCount", 1)
+            return max(0, int(count) + max(0, int(paras) - 1))
     except Exception:
         pass
     try:
