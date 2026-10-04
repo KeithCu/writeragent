@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from typing import Any
+from typing import Any, cast
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +128,9 @@ def _shape_graphic(source_shape: Any) -> Any | None:
 def _graphic_load_prop(name: str, value: Any) -> Any:
     import uno
 
-    prop = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    # createUnoStruct is typed as a struct whose Name/Value are not str/Any.
+    # Cast before assignment, same as writer.format.create_property_value.
+    prop = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
     prop.Name = name
     prop.Value = value
     return prop
