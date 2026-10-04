@@ -24,8 +24,10 @@ Concurrency: all background Python work must start here
 fire-and-forget jobs share a **fixed-size daemon pool** (unbounded queue).
 Servers, pipe drains, LLM streams, and anything another thread will
 ``join()`` must pass ``dedicated=True`` so they do not occupy a pool slot
-forever. ``_pool_lock`` only covers creating/resetting that pool.
-``submit`` and the shutdown drain share a lock so a test reset cannot
+forever. ``_pool_lock`` only covers creating the pool or swapping it
+out. ``reset_background_pool_for_tests`` joins the old pool after
+releasing that lock, so a job can call ``run_in_background`` during
+reset. ``submit`` and the shutdown drain share a lock so a test reset cannot
 enqueue work behind the worker sentinels. ``StderrTail``’s lock is only
 the bounded stderr buffer from a child process. Never ``join()`` a pooled
 job from another pooled job (the pool can deadlock). Map:
@@ -44,7 +46,7 @@ import sys
 import threading
 import uuid
 from collections import deque
-from concurrent.futures import CancelledError, Future, TimeoutError as FuturesTimeoutError
+from concurrent.futures import Future, TimeoutError as FuturesTimeoutError
 from typing import Optional, Callable, Any, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
@@ -61,6 +63,9 @@ from plugin.framework import thread_guard
 _pool_lock = threading.Lock()
 _pool: "_DaemonWorkPool | None" = None
 _pool_size_override: int | None = None
+# shutdown() joins in slices so a KeyboardInterrupt can land between them.
+# One slice used to return while the in-flight job was still running.
+_POOL_SHUTDOWN_JOIN_SLICE_SEC = 5.0
 
 
 def background_pool_max_workers() -> int:
@@ -110,10 +115,9 @@ class BackgroundHandle:
             fut.result(timeout=timeout)
         except FuturesTimeoutError:
             return
-        except CancelledError:
-            # 3.9+: concurrent.futures.CancelledError is BaseException, not Exception.
-            return
         except Exception:
+            # concurrent.futures.CancelledError subclasses Exception (via Error),
+            # including on Python 3.13. A cancelled future is swallowed here.
             # Do not catch BaseException: KeyboardInterrupt/SystemExit from
             # fut.set_exception must still escape join().
             return
@@ -124,6 +128,18 @@ class BackgroundHandle:
             return thread.is_alive()
         fut = self._future
         return fut is not None and not fut.done()
+
+    def is_current_thread(self) -> bool:
+        """True when this handle is the dedicated thread now running.
+
+        What was wrong: callers read ``_thread`` to skip a self-join.
+        A pooled handle has no thread, so that check was false and
+        ``join`` ran. From a ``wa-bg-*`` worker that raises, which is
+        the deadlock guard and must stay. Why: one supported check.
+        Pool workers that join a different pooled future still hit it.
+        """
+        thread = self._thread
+        return thread is not None and thread is threading.current_thread()
 
 
 class _DaemonWorkPool:
@@ -204,8 +220,24 @@ class _DaemonWorkPool:
         # Join outside the lock: a worker blocked in queue.get() only needs
         # the sentinel, and join must not run while submit is waiting.
         if wait:
-            for t in self._threads:
-                t.join(timeout=5.0)
+            _join_pool_workers(self._threads)
+
+
+def _join_pool_workers(threads: list[threading.Thread]) -> None:
+    """Join each pool worker. Do not return while it is still alive.
+
+    What was wrong: ``join(timeout=5.0)`` once, then drop the pool. Under
+    load the job already dequeued outlasts 5s, the sentinel sits until that
+    job ends, and the thread keeps running as ``wa-bg-retired-*`` next to
+    the next pool.
+    How: shutdown treated the timeout as "joined".
+    Why: keep joining. ``_wait_for_exit`` uses no timeout for the same
+    reason (a reader is not done until it returns). Slices stay interruptible.
+    A job that never returns blocks shutdown instead of leaving a live worker.
+    """
+    for thread in threads:
+        while thread.is_alive():
+            thread.join(timeout=_POOL_SHUTDOWN_JOIN_SLICE_SEC)
 
 
 def _get_pool() -> _DaemonWorkPool:
@@ -217,13 +249,21 @@ def _get_pool() -> _DaemonWorkPool:
 
 
 def reset_background_pool_for_tests(max_workers: int | None = None) -> None:
-    """Tear down the process pool so tests can bound size or avoid leaked work."""
+    """Tear down the process pool so tests can bound size or avoid leaked work.
+
+    What was wrong: ``shutdown`` joined workers while this function held
+    ``_pool_lock``. A pooled job that calls ``run_in_background`` takes
+    that lock in ``_get_pool``, so reset waited on the job and the job
+    waited on reset. Why: detach the pool under the lock, then join it
+    after the lock is released.
+    """
     global _pool, _pool_size_override
     with _pool_lock:
-        if _pool is not None:
-            _pool.shutdown(wait=True, cancel_futures=True)
-            _pool = None
+        old = _pool
+        _pool = None
         _pool_size_override = max_workers
+    if old is not None:
+        old.shutdown(wait=True, cancel_futures=True)
 
 
 def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, daemon: bool = True, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
@@ -404,6 +444,38 @@ def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
         yield tail
 
 
+def _split_on_newlines(pending: str) -> tuple[list[str], str]:
+    """Split on ``\\n``, ``\\r\\n``, and a lone ``\\r``. Hold a trailing ``\\r``.
+
+    What was wrong: ``str.splitlines`` also breaks on vertical tab, form
+    feed, and the Unicode line separators. The callback then saw a new
+    line with that separator still in the text, because ``rstrip`` only
+    removes ``\\n`` and ``\\r``. A trailing ``\\r`` stays in the remainder
+    so the next chunk can finish a CRLF instead of emitting a line early.
+    """
+    lines: list[str] = []
+    start = 0
+    index = 0
+    limit = len(pending)
+    while index < limit:
+        char = pending[index]
+        if char == "\n":
+            lines.append(pending[start : index + 1])
+            index += 1
+            start = index
+            continue
+        if char == "\r":
+            if index + 1 == limit:
+                break
+            end = index + 2 if pending[index + 1] == "\n" else index + 1
+            lines.append(pending[start:end])
+            index = end
+            start = index
+            continue
+        index += 1
+    return lines, pending[start:]
+
+
 def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT_STDERR_TAIL_CHARS, name: str = "stderr-drain") -> StderrTail | None:
     """Continuously drain a child stderr pipe into a bounded :class:`StderrTail`.
 
@@ -447,7 +519,8 @@ class AsyncProcess:
         self.stdout_cb = stdout_cb
         self.stderr_cb = stderr_cb
         self.on_exit_cb = on_exit_cb
-        self.process: Optional[subprocess.Popen[str]] = None
+        # Pipes stay binary. text=True is ignored; see the popen kwargs below.
+        self.process: Optional[subprocess.Popen[Any]] = None
 
         # Copy: setdefault must not mutate the caller's dict.
         self._popen_kwargs: dict[str, Any] = dict(popen_kwargs)
@@ -455,13 +528,19 @@ class AsyncProcess:
             self._popen_kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
-        self._popen_kwargs.setdefault("text", True)
-        self._popen_kwargs.setdefault("bufsize", 1)  # Line buffered
-        # UnicodeDecodeError is a ValueError, and _read_stream treats ValueError
-        # as "pipe closed". Strict decoding used to kill the reader and drop the tail.
-        if self._popen_kwargs.get("text"):
-            self._popen_kwargs.setdefault("encoding", "utf-8")
-            self._popen_kwargs.setdefault("errors", "replace")
+        # What was wrong: text=True was documented as keeping the caller's
+        # encoding, but _read_stream reads the binary buffer and decodes
+        # UTF-8. A TextIOWrapper plus that read desyncs the two buffers.
+        # No AsyncProcess caller passes text=True (the tunnel uses the
+        # binary default). Force binary pipes. encoding, errors, or
+        # universal_newlines would still open text mode after text=False.
+        if self._popen_kwargs.get("text") or self._popen_kwargs.get("universal_newlines") or self._popen_kwargs.get("encoding") or self._popen_kwargs.get("errors"):
+            log.debug("AsyncProcess forces binary pipes; text mode and encoding arguments are ignored")
+        self._popen_kwargs["text"] = False
+        self._popen_kwargs.pop("encoding", None)
+        self._popen_kwargs.pop("errors", None)
+        self._popen_kwargs.pop("universal_newlines", None)
+        self._popen_kwargs.setdefault("bufsize", 0)
 
         self._stdout_thread: BackgroundHandle | None = None
         self._stderr_thread: BackgroundHandle | None = None
@@ -474,28 +553,42 @@ class AsyncProcess:
     def start(self) -> None:
         """Starts the process and its monitoring threads."""
         if self.process is not None and self.process.poll() is None:
-            # A second start() used to leak the previous Popen.
+            # A second start() used to leak the previous Popen. terminate()
+            # returns before the child is dead so it cannot join callback
+            # threads on this stack. Wait here, without those joins.
+            old = self.process
             self.terminate()
+            try:
+                old.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                log.warning("Previous process still alive after terminate")
         try:
-            self.process = subprocess.Popen(self.args, **self._popen_kwargs)
+            proc: subprocess.Popen[Any] = subprocess.Popen(self.args, **self._popen_kwargs)
         except Exception as e:
             log.exception("Failed to start process: %s", self.args)
             from plugin.framework.errors import ToolExecutionError
 
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
 
-        if self.process.stdout and self.stdout_cb:
-            self._stdout_thread = run_in_background(self._read_stream, self.process.stdout, self.stdout_cb, name=f"asyncproc-out-{self.process.pid}", dedicated=True)
-        elif self.process.stdout:
+        self.process = proc
+        stdout_thread: BackgroundHandle | None = None
+        stderr_thread: BackgroundHandle | None = None
+        if proc.stdout and self.stdout_cb:
+            stdout_thread = run_in_background(self._read_stream, proc.stdout, self.stdout_cb, name=f"asyncproc-out-{proc.pid}", dedicated=True)
+        elif proc.stdout:
             # Drain it silently to avoid deadlocks
-            self._stdout_thread = run_in_background(self._drain_stream, self.process.stdout, name=f"asyncproc-outdrain-{self.process.pid}", dedicated=True)
+            stdout_thread = run_in_background(self._drain_stream, proc.stdout, name=f"asyncproc-outdrain-{proc.pid}", dedicated=True)
 
-        if self.process.stderr and self.stderr_cb:
-            self._stderr_thread = run_in_background(self._read_stream, self.process.stderr, self.stderr_cb, name=f"asyncproc-err-{self.process.pid}", dedicated=True)
-        elif self.process.stderr:
-            self._stderr_thread = run_in_background(self._drain_stream, self.process.stderr, name=f"asyncproc-errdrain-{self.process.pid}", dedicated=True)
+        if proc.stderr and self.stderr_cb:
+            stderr_thread = run_in_background(self._read_stream, proc.stderr, self.stderr_cb, name=f"asyncproc-err-{proc.pid}", dedicated=True)
+        elif proc.stderr:
+            stderr_thread = run_in_background(self._drain_stream, proc.stderr, name=f"asyncproc-errdrain-{proc.pid}", dedicated=True)
 
-        self._wait_thread = run_in_background(self._wait_for_exit, name=f"asyncproc-wait-{self.process.pid}", dedicated=True)
+        self._stdout_thread = stdout_thread
+        self._stderr_thread = stderr_thread
+        # Pass this child and these readers. _wait_for_exit must not read
+        # self.process later: a second start() replaces them.
+        self._wait_thread = run_in_background(self._wait_for_exit, proc, stdout_thread, stderr_thread, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
 
     def _read_stream(self, stream: Any, callback: Any) -> None:
         # ``for line in stream`` blocks in readline. A child that writes a long
@@ -509,11 +602,7 @@ class AsyncProcess:
         try:
             for chunk in _iter_decoded_chunks(stream):
                 pending += chunk
-                lines = pending.splitlines(keepends=True)
-                if lines and not lines[-1].endswith(("\n", "\r")):
-                    pending = lines.pop()
-                else:
-                    pending = ""
+                lines, pending = _split_on_newlines(pending)
                 for line in lines:
                     try:
                         callback(line.rstrip("\n\r"))
@@ -540,10 +629,50 @@ class AsyncProcess:
             except OSError:
                 pass
 
-    def _wait_for_exit(self) -> None:
-        if self.process is None:
+    def _join_handles(self, handles: tuple[BackgroundHandle | None, ...], timeout: float | None = 1.0) -> None:
+        """Join reader threads unless this stack is that thread.
+
+        ``timeout`` is forwarded to ``join``. None would wait until the
+        reader returns. ``_reap`` and ``_wait_for_exit`` keep a bound so a
+        pipe a grandchild inherited cannot block forever. A reader that
+        finishes within the bound still delivers its trailing line first.
+        """
+        for handle in handles:
+            if handle is None:
+                continue
+            # Future-backed handles are not this thread. join() still
+            # raises from a wa-bg-* worker so the pool cannot deadlock.
+            if handle.is_current_thread():
+                continue
+            handle.join(timeout=timeout)
+
+    def _close_child_pipes(self) -> None:
+        proc = self.process
+        if proc is None:
             return
-        rc = self.process.wait()
+        for stream in (proc.stdout, proc.stderr, proc.stdin):
+            if stream is None:
+                continue
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+    def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None) -> None:
+        # What was wrong: this read self.process and the reader handles at
+        # wait time. start() can run again and point those at a new child,
+        # so the first wait thread blocked on that child and fired
+        # on_exit_cb for its exit as well. _reap already captures the
+        # handles it was given. Why: wait and join only this call's child.
+        rc = proc.wait()
+        # What was wrong: this join used timeout=None. A grandchild that
+        # inherited stdout or stderr never closes the pipe, so the readers
+        # never see EOF, on_exit_cb never runs, and this thread leaks. How:
+        # the join was unbounded so a trailing line without a newline could
+        # not lose to the exit callback. Why: a bounded join still delivers
+        # that line when the readers finish in time, and on_exit_cb still
+        # runs when they do not. _reap uses the same 1s bound.
+        self._join_handles((stdout_thread, stderr_thread), timeout=1.0)
         args = self.args
         if isinstance(args, str):
             preview = args
@@ -558,23 +687,48 @@ class AsyncProcess:
             except Exception:
                 log.exception("Error in on_exit_cb for process")
 
-    def terminate(self, timeout: float = 5.0) -> None:
-        """Standard graceful termination -> SIGKILL."""
-        if not self.process:
-            return
-        if self.process.poll() is None:
-            self.process.terminate()
+    def _reap(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float) -> None:
+        """Wait, then SIGKILL, off the caller stack. See terminate().
+
+        Handles are captured at terminate() time. A later start() replaces
+        self.process; this reaper must not wait on that new child.
+        """
+        if proc.poll() is None:
             try:
-                self.process.wait(timeout=timeout)
+                proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-                # start() calls terminate() on the caller, including the UI
-                # thread. wait() with no timeout blocked there if the child
-                # ignored SIGKILL (uninterruptible sleep).
                 try:
-                    self.process.wait(timeout=timeout)
+                    proc.kill()
+                except OSError:
+                    pass
+                # A stuck SIGKILL (uninterruptible sleep) must not block forever.
+                try:
+                    proc.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
                     log.warning("Process still alive after kill (timeout=%ss)", timeout)
-        for handle in (self._stdout_thread, self._stderr_thread, self._wait_thread):
-            if handle is not None:
-                handle.join(timeout=1.0)
+        self._join_handles((stdout_thread, stderr_thread, wait_thread))
+
+    def terminate(self, timeout: float = 5.0) -> None:
+        """Signal the child and return. Reap on a dedicated thread.
+
+        What was wrong: terminate() waited up to 5s twice, then joined the
+        stdout, stderr, and wait threads. MCP tunnel stop calls this while
+        holding the lock those line callbacks need, including from the UI
+        thread, so LibreOffice froze. A callback that called terminate joined
+        itself. Why: signal the child, close its pipes so reads return, and
+        reap after the caller can drop its lock. The timed wait stays on the
+        reaper so a stuck SIGKILL cannot block forever.
+        """
+        proc = self.process
+        if proc is None:
+            return
+        stdout_thread = self._stdout_thread
+        stderr_thread = self._stderr_thread
+        wait_thread = self._wait_thread
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                log.debug("terminate: process already gone", exc_info=True)
+        self._close_child_pipes()
+        run_in_background(self._reap, proc, stdout_thread, stderr_thread, wait_thread, timeout, name="asyncproc-reap", dedicated=True)

@@ -38,16 +38,13 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    import threading
     from collections.abc import Generator
-
-    from com.sun.star.awt import FocusEvent, MouseEvent
-    from com.sun.star.lang import EventObject
 
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER, EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.thread_guard import main_thread_only, on_main_thread
@@ -55,6 +52,9 @@ from plugin.framework.thread_guard import main_thread_only, on_main_thread
 log = logging.getLogger("writeragent.context")
 
 _fallback_ctx = None
+# id(target) -> (target, proxy). Holding the target keeps the id from being reused.
+_component_context_proxies: dict[int, tuple[Any, Any]] = {}
+_logged_component_context_fallback = False
 # Set by main.py / main_core.py bootstrap; auto-detected from installed packages when unset.
 _package_extension_id: str | None = None
 
@@ -62,6 +62,9 @@ _package_extension_id: str | None = None
 _KNOWN_EXTENSION_IDS = (EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT, EXTENSION_ID_LIBREHARPER)
 
 _is_libreharper_cache: bool | None = None
+
+# Process image does not change. None means not computed yet (False is a real answer).
+_desktop_create_unsafe: bool | None = None
 
 # uno.bin / unopkg register helpers have no VCL. Creating Desktop there SEGVs
 # (issue #768). pythonloader often rewrites sys.argv, so also read /proc.
@@ -99,16 +102,17 @@ def _linux_process_tokens() -> list[str]:
     return tokens
 
 
-def desktop_create_is_unsafe() -> bool:
-    """True in uno.bin / unopkg helpers that have no VCL.
+def reset_desktop_create_is_unsafe_for_tests() -> None:
+    """Drop the cached no-VCL answer.
 
-    ``createInstanceWithContext("com.sun.star.frame.Desktop")`` and
-    ``getValueByName(theDesktop)`` on that ctx take SolarMutexGuard →
-    GetYieldMutex and SEGV (issue #768). GUI soffice already has Desktop.
-
-    Do not trust ``sys.argv`` alone: pythonloader inside
-    ``uno.bin --singleaccept`` often leaves argv as ``['']`` or a .py path.
+    ``desktop_create_is_unsafe`` reads argv and ``/proc`` once. Tests patch
+    those inputs and must clear the cache or they see the previous process.
     """
+    global _desktop_create_unsafe
+    _desktop_create_unsafe = None
+
+
+def _desktop_create_is_unsafe_now() -> bool:
     argv = [str(arg) for arg in sys.argv]
     if argv and _basename_is_uno_helper(argv[0]):
         return True
@@ -121,6 +125,29 @@ def desktop_create_is_unsafe() -> bool:
     if any(_basename_is_uno_helper(token) for token in proc_tokens):
         return True
     return _tokens_have_singleaccept(proc_tokens)
+
+
+def desktop_create_is_unsafe() -> bool:
+    """True in uno.bin / unopkg helpers that have no VCL.
+
+    ``createInstanceWithContext("com.sun.star.frame.Desktop")`` and
+    ``getValueByName(theDesktop)`` on that ctx take SolarMutexGuard →
+    GetYieldMutex and SEGV (issue #768). GUI soffice already has Desktop.
+
+    Do not trust ``sys.argv`` alone: pythonloader inside
+    ``uno.bin --singleaccept`` often leaves argv as ``['']`` or a .py path.
+
+    What was wrong: ``get_desktop`` called this on every lookup, and each
+    call re-read ``/proc/self/exe``, ``comm``, and ``cmdline``. How: nothing
+    remembered the first answer. Why: the process image does not change, so
+    the first result is cached. Tests that patch argv or
+    ``_linux_process_tokens`` call ``reset_desktop_create_is_unsafe_for_tests``.
+    """
+    global _desktop_create_unsafe
+    if _desktop_create_unsafe is not None:
+        return _desktop_create_unsafe
+    _desktop_create_unsafe = _desktop_create_is_unsafe_now()
+    return _desktop_create_unsafe
 
 
 def is_libreharper() -> bool:
@@ -197,6 +224,8 @@ def product_display_name(ctx: Any | None = None) -> str:
     """User-visible product name for dialog titles (LibrePy vs WriterAgent)."""
     if resolve_package_extension_id(ctx) == EXTENSION_ID_LIBREPY:
         return "LibrePy"
+    if is_libreharper():
+        return "LibreHarper"
     return "WriterAgent"
 
 
@@ -218,6 +247,32 @@ def _guard_returned_uno(obj: Any) -> Any:
     return guard_uno(obj)
 
 
+def _stable_component_context(ctx: Any) -> Any:
+    """Return one object for this component context.
+
+    What was wrong: every ``get_ctx()`` call ran ``_wrap_uno``, which builds
+    a new ``_UnoThreadGuardProxy``. Under GUARD_ON, ``get_ctx() is get_ctx()``
+    was False. The release stub returns the raw object, so identity holds.
+    How: the bootstrap context is one long-lived PyUNO object and the proxy
+    was not remembered.
+    Why: a context that is already a guard proxy is returned as that object.
+    Otherwise one proxy is cached per target. Mocks and guard-off returns
+    stay the raw object, which is already stable. QueueExecutor still
+    unwraps before it stores a context; that compare is on the raw target.
+    """
+    from plugin.framework.thread_guard import _UnoThreadGuardProxy
+
+    if ctx is None or isinstance(ctx, _UnoThreadGuardProxy):
+        return ctx
+    slot = _component_context_proxies.get(id(ctx))
+    if slot is not None and slot[0] is ctx:
+        return slot[1]
+    wrapped = _guard_returned_uno(ctx)
+    if isinstance(wrapped, _UnoThreadGuardProxy):
+        _component_context_proxies[id(ctx)] = (ctx, wrapped)
+    return wrapped
+
+
 @main_thread_only
 def get_ctx() -> Any:
     """Return the UNO component context.
@@ -232,17 +287,26 @@ def get_ctx() -> Any:
     # We prefer the explicitly set _fallback_ctx (which holds the remote connection context)
     # to prevent standalone runs from trying to use the local PyUNO context.
     if _fallback_ctx is not None:
-        return _guard_returned_uno(_fallback_ctx)
+        return _stable_component_context(_fallback_ctx)
     try:
         import uno
 
         if hasattr(uno, "getComponentContext"):
             ctx = uno.getComponentContext()
             if ctx is not None:
-                return _guard_returned_uno(ctx)
+                # Bootstrap-less unit tests still need this branch. Log once:
+                # a non-extension context can lack VCL and segfault on Desktop.
+                global _logged_component_context_fallback
+                if not _logged_component_context_fallback:
+                    _logged_component_context_fallback = True
+                    log.error(
+                        "get_ctx: no extension fallback; using uno.getComponentContext() "
+                        "(set_fallback_ctx was not called)"
+                    )
+                return _stable_component_context(ctx)
     except ImportError:
         pass
-    return _guard_returned_uno(_fallback_ctx)
+    return _stable_component_context(_fallback_ctx)
 
 
 from plugin.framework.errors import DocumentDisposedError, check_disposed, safe_call, UnoObjectError
@@ -272,10 +336,12 @@ def get_desktop(ctx: Any | None = None) -> Any:
         log.debug("get_desktop skipped: no-VCL helper process (issue #768)")
         return None
     ctx = ctx or get_ctx()
-    assert ctx is not None
+    if ctx is None:
+        return None
     ctx_any = cast("Any", ctx)
     smgr = get_service_manager(ctx_any)
-    assert smgr is not None
+    if smgr is None:
+        return None
     desktop = cast("Any", smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
     return _guard_returned_uno(desktop)
 
@@ -302,7 +368,21 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
 
     hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
     doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
-    clear_writer_body(doc)
+    # What was wrong: a failed clear still returned the scratch Writer, so the
+    # default-template text this function exists to drop was handed to the
+    # caller. How: clear_writer_body logs and returns False on a non-disposal
+    # error, and this ignored that. Why: an already-empty body is False too,
+    # so only a leftover non-empty string is a failure. Disposal still raises.
+    if not clear_writer_body(doc):
+        try:
+            leftover = doc.getText().getString()
+        except Exception as e:
+            _reraise_document_disposed(e, "Writer")
+            log.debug("new_blank_writer: body unreadable after clear", exc_info=True)
+            return None
+        if (leftover or "").strip():
+            log.debug("new_blank_writer: default template text survived clear_writer_body")
+            return None
     # Other document lookups wrap the model so a later off-thread use is
     # caught by the dev thread guard. This factory used to return it raw.
     return _guard_returned_uno(doc)
@@ -325,6 +405,13 @@ def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
     raise DocumentDisposedError(str(exc) or "UNO object was disposed", object_type=object_type) from exc
 
 
+# What was wrong: clear_writer_body is a public UNO entry and touched the
+# document with no thread check. A raw model reached PyUNO off the main
+# thread. How: sibling getters use @main_thread_only and this helper did not.
+# Why: the decorator raises before any attribute access when the guard is on.
+# In-tree callers already pass a guarded doc on the main thread; the
+# decorator does not unwrap that argument.
+@main_thread_only
 def clear_writer_body(doc: Any) -> bool:
     """Empty *doc* of everything a template can put in it. True when something was removed.
 
@@ -474,7 +561,9 @@ def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) 
         import uno
 
         return str(uno.fileUrlToSystemPath(url))
-    return url
+    # A vnd.sun.star.extension:// URL is not a filesystem path. Callers join
+    # this with os.path; returning the URL made that join look like a file.
+    return ""
 
 
 @main_thread_only
@@ -484,8 +573,6 @@ def get_toolkit(ctx: Any | None = None) -> Any:
     if ctx is None:
         return None
     try:
-        from typing import cast
-
         ctx_any = cast("Any", ctx)
         smgr = get_service_manager(ctx_any)
         if smgr is None:
@@ -497,354 +584,17 @@ def get_toolkit(ctx: Any | None = None) -> Any:
         return None
 
 
-# Sidebar query field: restore here after RichTextControl setFocus, not
-# getFocusWindow() (often the Send button after a click, or the transcript).
-# Stock Toolkit has no getFocusWindow (PyUNO hasattr lies → always None).
-_default_focus_restore = None
-_restore_query_after_scroll = True
-_stream_focus_trackers: list[Any] = []
-# The query focus listener, separate from leave-query and document-click
-# entries in _stream_focus_trackers. Those other entries stay after the
-# sidebar closes; keying "already installed" on the whole list meant a
-# reopened panel never got focusGained.
-_query_focus_listener: Any = None
-# (query control, listener). One focus listener per Ask field. A second
-# sidebar must not be skipped because the first window's listener is live.
-_query_focus_bindings: list[tuple[Any, Any]] = []
-# (control, mouse listener, focus listener). Leave-query listeners used to
-# accumulate: disposing() was a no-op and every install attached again.
-_leave_query_bindings: list[tuple[Any, Any, Any]] = []
-# (controller, handler). One click handler per document controller, not one
-# for the process: the first sidebar used to subscribe only the document that
-# was current at install time.
-_doc_click_bindings: list[tuple[Any, Any]] = []
-
-
-def set_default_focus_restore(control: Any) -> None:
-    """Pin focus restore to the chat query field (or None on panel dispose)."""
-    global _default_focus_restore
-    _default_focus_restore = control
-
-
-def clear_default_focus_restore_if(control: Any) -> None:
-    """Clear the restore pin only when it still points at *control*.
-
-    What was wrong: every sidebar dispose set the pin to None, including a
-    second window closing while another sidebar's query field was the pin.
-    """
-    global _default_focus_restore
-    if control is not None and _default_focus_restore is control:
-        _default_focus_restore = None
-
-
-def note_user_wants_query() -> None:
-    """Mark Ask/instruct as the restore target after a stream SelectAll.
-
-    Called from _do_send next to query.setFocus(), and from query focusGained.
-    """
-    global _restore_query_after_scroll
-    _restore_query_after_scroll = True
-
-
-def note_user_left_query() -> None:
-    """Stop restoring Ask/instruct after stream SelectAll.
-
-    Bug: ``restore_query_if_user_still_there()`` runs on every stream chunk and
-    calls ``query.setFocus()``. That aborts an in-flight Stop click so GTK/VCL
-    never delivers ``ActionEvent`` (Packet B1: Stop looked enabled, ramble ran
-    to word199, no ``STOP_CLICKED`` in the log). Sidebar Stop/Clear/other
-    controls call this on mouseEntered/mousePressed/focusGained — earlier than
-    ActionEvent — so later chunks no-op the restore and the click can finish.
-    Writer page clicks use the same flag (document ``XMouseClickHandler``).
-    """
-    global _restore_query_after_scroll
-    if not _restore_query_after_scroll:
-        return
-    _restore_query_after_scroll = False
-    log.debug("stream focus: left query")
-
-
-def restore_query_if_user_still_there(query: Any = None) -> None:
-    """After a stream SelectAll, put the caret back in Ask/instruct unless the user left.
-
-    *query* is that panel's Ask field. Stream chunks pass it so a second
-    sidebar's pin does not steal setFocus. Callers without a control still
-    use the process-wide pin.
-    """
-    if not _restore_query_after_scroll:
-        return
-    q = query if query is not None else _default_focus_restore
-    if q is None or not hasattr(q, "setFocus"):
-        return
-    try:
-        q.setFocus()
-        log.debug("restore_query_if_user_still_there")
-    except Exception as e:
-        log.debug("restore_query_if_user_still_there: %s", e)
-
-
-def _current_document_controller(ctx: Any) -> Any:
-    try:
-        # Same no-VCL fail-soft as get_desktop (issue #768). Do not create
-        # Desktop via ServiceManager here — that bypassed the choke point.
-        desktop = get_desktop(ctx)
-        if desktop is None:
-            return None
-        comp = desktop.getCurrentComponent()
-        if comp is None:
-            return None
-        return comp.getCurrentController()
-    except Exception as e:
-        log.debug("document controller: %s", e)
-        return None
-
-
-def _release_leave_query_binding(control: Any, mouse: Any, focus: Any) -> None:
-    """Drop Stop/Clear/Send listeners so a disposed control is not pinned."""
-    try:
-        if mouse is not None and control is not None and hasattr(control, "removeMouseListener"):
-            control.removeMouseListener(mouse)
-    except Exception as e:
-        log.debug("removeMouseListener: %s", e)
-    try:
-        if focus is not None and control is not None and hasattr(control, "removeFocusListener"):
-            control.removeFocusListener(focus)
-    except Exception as e:
-        log.debug("removeFocusListener: %s", e)
-    _leave_query_bindings[:] = [row for row in _leave_query_bindings if row[1] is not mouse and row[2] is not focus]
-    for listener in (mouse, focus):
-        if listener is None:
-            continue
-        try:
-            _stream_focus_trackers.remove(listener)
-        except ValueError:
-            pass
-
-
-def _attach_leave_query_listeners(control: Any) -> None:
-    """Stop restoring Ask/instruct when the user targets this sidebar control.
-
-    Document page clicks are handled by ``XMouseClickHandler``; sidebar Stop
-    is not on that path. mouseEntered is earlier than ActionEvent.
-
-    What was wrong: disposing() returned immediately and every later install
-    attached another pair, so Stop/Clear/Send accumulated listeners.
-    Why: skip a control already tracked, and remove the listeners on dispose.
-    """
-    if control is None:
-        return
-    for existing, _mouse, _focus in _leave_query_bindings:
-        if existing is control:
-            return
-    try:
-        import unohelper
-        from com.sun.star.awt import XFocusListener, XMouseListener
-    except ImportError:
-        return
-
-    class _LeaveQueryFocus(unohelper.Base, XFocusListener):
-        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-            _release_leave_query_binding(control, mouse_track, self)
-
-        def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
-            return
-
-        def focusGained(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
-            note_user_left_query()
-            log.debug("stream focus: sidebar control")
-
-    class _LeaveQueryMouse(unohelper.Base, XMouseListener):
-        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-            _release_leave_query_binding(control, self, focus_track)
-
-        def mousePressed(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
-            note_user_left_query()
-
-        def mouseReleased(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
-            return
-
-        def mouseEntered(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
-            note_user_left_query()
-
-        def mouseExited(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
-            return
-
-    mouse_track: Any = None
-    focus_track: Any = None
-    try:
-        if hasattr(control, "addMouseListener"):
-            mouse_track = _LeaveQueryMouse()
-            control.addMouseListener(mouse_track)
-            _stream_focus_trackers.append(mouse_track)
-        if hasattr(control, "addFocusListener"):
-            focus_track = _LeaveQueryFocus()
-            control.addFocusListener(focus_track)
-            _stream_focus_trackers.append(focus_track)
-        if mouse_track is not None or focus_track is not None:
-            _leave_query_bindings.append((control, mouse_track, focus_track))
-    except Exception as e:
-        log.debug("leave-query listeners: %s", e)
-
-
-def _release_doc_click_binding(controller: Any, handler: Any) -> None:
-    """Drop a document click handler so a closed controller is not pinned."""
-    try:
-        if controller is not None and hasattr(controller, "removeMouseClickHandler"):
-            controller.removeMouseClickHandler(handler)
-    except Exception as e:
-        log.debug("removeMouseClickHandler: %s", e)
-    _doc_click_bindings[:] = [pair for pair in _doc_click_bindings if pair[1] is not handler]
-    try:
-        _stream_focus_trackers.remove(handler)
-    except ValueError:
-        pass
-
-
-def _ensure_document_click_handler(ctx: Any) -> None:
-    """Page click on the current document calls ``note_user_left_query``.
-
-    What was wrong: the ``XMouseClickHandler`` was added once, to whichever
-    controller was current the first time a sidebar installed, and never
-    removed. How it happened: ``install_stream_focus_tracker`` returned as
-    soon as ``_stream_focus_trackers`` was non-empty, so a later document
-    never subscribed. Why this fixes it: every install attaches a handler to
-    the controller that is current now (and skips one that already has it).
-    ``disposing`` removes it, so a closed document is not kept alive.
-    """
-    try:
-        import unohelper
-        from com.sun.star.awt import XMouseClickHandler
-    except ImportError:
-        return
-
-    try:
-        controller = _current_document_controller(ctx)
-        if controller is None or not hasattr(controller, "addMouseClickHandler"):
-            return
-        for existing, _handler in _doc_click_bindings:
-            if uno_same(existing, controller):
-                return
-
-        class _DocClick(unohelper.Base, XMouseClickHandler):
-            def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-                _release_doc_click_binding(controller, self)
-
-            def mousePressed(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
-                note_user_left_query()
-                log.debug("stream focus: document click")
-                return False
-
-            def mouseReleased(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
-                return False
-
-        handler = _DocClick()
-        controller.addMouseClickHandler(handler)
-        _doc_click_bindings.append((controller, handler))
-        _stream_focus_trackers.append(handler)
-    except Exception as e:
-        log.debug("document click handler: %s", e)
-
-
-def _drop_query_focus_listener(listener: Any) -> None:
-    """Forget the query listener once its control is disposed."""
-    global _query_focus_listener
-    control = None
-    kept: list[tuple[Any, Any]] = []
-    for ctrl, bound in _query_focus_bindings:
-        if bound is listener:
-            control = ctrl
-            continue
-        kept.append((ctrl, bound))
-    _query_focus_bindings[:] = kept
-    if control is not None:
-        try:
-            if hasattr(control, "removeFocusListener"):
-                control.removeFocusListener(listener)
-        except Exception as e:
-            log.debug("removeFocusListener: %s", e)
-    if listener is not None and _query_focus_listener is listener:
-        _query_focus_listener = kept[-1][1] if kept else None
-    try:
-        _stream_focus_trackers.remove(listener)
-    except ValueError:
-        pass
-
-
-def _attach_query_focus_listener(query: Any) -> None:
-    """focusGained on this Ask field keeps caret restore. One listener per control."""
-    global _query_focus_listener
-    if query is None or not hasattr(query, "addFocusListener"):
-        return
-    for existing, _listener in _query_focus_bindings:
-        if existing is query:
-            return
-    try:
-        import unohelper
-        from com.sun.star.awt import XFocusListener
-    except ImportError:
-        return
-
-    class _QueryFocus(unohelper.Base, XFocusListener):
-        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-            _drop_query_focus_listener(self)
-
-        def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
-            return
-
-        def focusGained(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
-            note_user_wants_query()
-            log.debug("stream focus: query")
-
-    try:
-        q_track = _QueryFocus()
-        query.addFocusListener(q_track)
-        _stream_focus_trackers.append(q_track)
-        _query_focus_bindings.append((query, q_track))
-        _query_focus_listener = q_track
-    except Exception as e:
-        log.debug("query focus listener: %s", e)
-
-
-def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_controls: Any = None) -> None:
-    """Query focusGained → keep restoring. Document / sidebar pointer → stop.
-
-    Window focus listeners miss in-frame query→page clicks (same top-level).
-    Writer's XUserInputInterception mouse handler sees the page click.
-    Sidebar Stop/Clear/other widgets are not on that handler — pass them as
-    *leave_query_controls* so stream ``query.setFocus()`` does not steal the
-    click (Packet B1).
-
-    What was wrong: a second sidebar replaced the process-wide focus pin and
-    returned without a focusGained listener, because the first window's
-    listener was still set. Stream chunks then called setFocus on the other
-    window's Ask field. Why: attach a listener per query control, and leave
-    the pin to set_default_focus_restore. The streaming widget passes its
-    own query into restore.
-    """
-    _attach_query_focus_listener(query)
-    for ctrl in leave_query_controls or ():
-        if ctrl is not None and ctrl is not query:
-            _attach_leave_query_listeners(ctrl)
-    _ensure_document_click_handler(ctx)
-    log.debug("install_stream_focus_tracker n=%d", len(_stream_focus_trackers))
-
-
-def _focus_restore_target(explicit: Any = None) -> Any:
-    if explicit is not None:
-        return explicit
-    return _default_focus_restore
-
-
 @contextmanager
 def focus_preserved(ctx: Any, restore: Any = None) -> Generator[None, None, None]:
     """Restore focus after a block that may steal it (RichTextControl reveal).
 
-    If *restore* or :func:`set_default_focus_restore` is set, that control is
-    focused on exit (the query field). Otherwise the toolkit focus window at
-    entry is restored — which is wrong after Send-button clicks.
+    *restore* is the query field of the panel that is running this block.
+    There is no process-wide pin: a second window's stream must not call
+    ``setFocus`` here. When *restore* is omitted, the toolkit focus window
+    at entry is restored — which is the Send button after a click, so
+    callers that own an Ask field pass it.
     """
-    pinned = _focus_restore_target(restore)
-    saved = pinned
+    saved = restore
     if saved is None:
         try:
             tk = get_toolkit(ctx)
@@ -896,19 +646,19 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     return pumped
 
 
+# One in-flight secondary-idle post. ``_SECONDARY_IDLE_RESERVING`` covers the
+# window inside ``post_to_main_thread`` before the callable is visible on the
+# queue. The stored callable is cleared on the next tick once it is no longer
+# scheduled, so a drop is not sticky.
+_SECONDARY_IDLE_RESERVING = object()
+_secondary_idle_lock = threading.Lock()
+_secondary_idle_posted: object | None = None
+
+
 def _post_secondary_idle(ctx: Any) -> None:
     """Enqueue one PE2I tick on the VCL thread. Must not run PE2I on the waiter."""
+    global _secondary_idle_posted
     from plugin.framework.queue_executor import default_executor, post_to_main_thread
-
-    # What was wrong: each 75ms tick posted another marshal item, so a 15s
-    # wait could enqueue ~200 no-op pumps ahead of a real execute_on_main_thread.
-    # How it happened: wait_while_pumping called this on every poll whether or
-    # not the previous pump was still sitting in the work queue.
-    # Why this change: skip while default_executor's queue is non-empty. One
-    # outstanding pump is enough. qsize() is not a sticky flag — if post()
-    # drops the callback the queue stays empty and the next tick tries again.
-    if default_executor._work_queue.qsize() != 0:
-        return
 
     def _pump() -> None:
         # QueueExecutor.post can fall back onto the caller when AsyncCallback
@@ -917,7 +667,39 @@ def _post_secondary_idle(ctx: Any) -> None:
             return
         process_events_to_idle(ctx, force=False)
 
-    post_to_main_thread(_pump)
+    with _secondary_idle_lock:
+        posted = _secondary_idle_posted
+        if posted is _SECONDARY_IDLE_RESERVING:
+            return
+        if posted is not None and default_executor.callable_is_scheduled(posted):
+            return
+        # What was wrong: each 75ms tick could enqueue another no-op pump, and
+        # the guard for that skipped the post whenever ``pending_work_count()``
+        # was non-zero. How: that count is the whole process-wide marshal
+        # queue. A leftover item from another test (pytest-xdist) or unrelated
+        # UI work looked like "our pump is already queued", so a Dummy-*
+        # linguistic wait never posted. The lint then ran out its own timeout
+        # (CI: ``posts["n"] == 0``, slow result elapsed_ms=2000). Why: coalesce
+        # only this pump. ``post`` dropping the callable, or a test double that
+        # does not enqueue it, leaves nothing scheduled, so the next tick tries
+        # again.
+        _secondary_idle_posted = _SECONDARY_IDLE_RESERVING
+
+    try:
+        post_to_main_thread(_pump)
+    except Exception:
+        with _secondary_idle_lock:
+            if _secondary_idle_posted is _SECONDARY_IDLE_RESERVING:
+                _secondary_idle_posted = None
+        raise
+
+    with _secondary_idle_lock:
+        if _secondary_idle_posted is not _SECONDARY_IDLE_RESERVING:
+            return
+        if default_executor.callable_is_scheduled(_pump):
+            _secondary_idle_posted = _pump
+        else:
+            _secondary_idle_posted = None
 
 
 def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
@@ -928,8 +710,10 @@ def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, pol
     Off the main thread (Writer ``doProofreading`` linguistic workers are
     ``Dummy-*``, not VCL) PE2I is **posted** to the main thread — never called
     on the waiter. Calling PE2I on Dummy-21 popped a UNO thread-violation
-    dialog every poll tick (the wait loop from #778). Drain-owner wait loops
-    must keep using :func:`~plugin.framework.queue_executor.pump_ui_idle` /
+    dialog every poll tick (the wait loop from #778). Repeated off-main ticks
+    coalesce to one outstanding secondary-idle pump; other marshal items do
+    not count. Drain-owner wait loops must keep using
+    :func:`~plugin.framework.queue_executor.pump_ui_idle` /
     ``run_blocking_in_thread``, not this helper.
 
     Default *poll_sec* is 75ms (stay inside 50–100ms; same band as the
@@ -988,17 +772,13 @@ def normalize_doc_url(url: Any) -> str:
     return s
 
 
-def get_runtime_uid(model: Any) -> str:
-    """Stable per-session id for an open component.
+def _read_runtime_uid(model: Any) -> str:
+    """RuntimeUID ladder with no thread check.
 
-    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
-    documents, so it can address a document that has no file on disk yet.
-    Returns "" if unavailable.
-
-    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
-    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
-    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
-    cannot masquerade as a real uid.
+    File Open ``XFilter.filter`` runs on Dummy-2 (detect reload on Dummy-3),
+    not ``threading.main_thread()``. Notebook ``_doc_key`` must use this so
+    the guard on ``get_runtime_uid`` does not make ``filter()`` return False.
+    Same acceptance rules as ``get_runtime_uid``: plain ``str`` / ``int`` only.
     """
     for accessor in (lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None, lambda m: getattr(m, "RuntimeUID", None), lambda m: m.getPropertyValue("RuntimeUID")):
         try:
@@ -1012,6 +792,30 @@ def get_runtime_uid(model: Any) -> str:
         except Exception:
             continue
     return ""
+
+
+@main_thread_only
+def get_runtime_uid(model: Any) -> str:
+    """Stable per-session id for an open component.
+
+    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
+    documents, so it can address a document that has no file on disk yet.
+    Returns "" if unavailable.
+
+    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
+    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
+    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
+    cannot masquerade as a real uid.
+
+    What was wrong: every accessor sat in ``except Exception``, so an
+    off-thread call swallowed ``assert_main_thread``'s ``RuntimeError`` and
+    returned ``""`` (an untitled document with no id). How: the same ladder
+    ``uno_same`` used before it was decorated. Why: ``@main_thread_only``
+    raises before the loop when the guard is on. On-thread disposal still
+    returns ``""``. Callers that LibreOffice invokes on Dummy-N (notebook
+    File Open) use ``_read_runtime_uid`` instead of this guard.
+    """
+    return _read_runtime_uid(model)
 
 
 # What was wrong: off-thread, proxy __eq__ raises RuntimeError from
@@ -1103,14 +907,45 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         # Real UNO hasMoreElements() is bool. A MagicMock is always truthy,
         # so ``while enum.hasMoreElements()`` spun the main thread in pytest.
         # Same guard as get_open_documents.
-        while enum is not None:
+        # What was wrong: ``while enum is not None`` never ended the loop.
+        # How: nothing in the body assigns ``enum = None``; the exits are
+        # ``break``. Why: ``while True`` matches those breaks.
+        # Same ceiling as the paragraph walks in html_import and format.
+        # Open desktops are far smaller; the cap only matters when
+        # hasMoreElements() never goes false.
+        walk_limit = 200000
+        seen = 0
+        while True:
             try:
                 more = enum.hasMoreElements()
-            except Exception:
+            except Exception as e:
+                # What was wrong: a disposed desktop enumeration broke the
+                # loop and the caller was told the document was not open.
+                # How: this except swallowed DisposedException before the
+                # outer handler could re-raise it. Why: disposal of the
+                # enumeration is re-raised. A fetched element that then
+                # raises is skipped below; a failed nextElement stops.
+                _reraise_document_disposed(e, "Desktop")
                 break
             if more is not True and more != 1:
                 break
-            elem = enum.nextElement()
+            seen += 1
+            if seen > walk_limit:
+                log.debug("resolve_document_by_url stopped at walk cap")
+                break
+            try:
+                elem = enum.nextElement()
+            except Exception as e:
+                # What was wrong: this failure ``continue``d while
+                # hasMoreElements() stayed true. How: UNO does not always
+                # advance the enumeration when nextElement fails, so the
+                # loop never saw a false hasMoreElements and froze the
+                # main thread. Why: stop, as html_import and format do on
+                # a failed nextElement. A model fetched successfully that
+                # then raises is still skipped below.
+                _reraise_document_disposed(e, "Desktop")
+                log.debug("resolve_document_by_url nextElement error: %s", type(e).__name__)
+                break
             try:
                 model = None
                 if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
@@ -1130,14 +965,13 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                         return (_guard_returned_uno(model), doc_type)
             except Exception as e:
                 # One dead window must not hide the rest of the desktop.
-                # Disposal of the enumeration itself is the outer handler.
-                logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
+                log.debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
     except DocumentDisposedError:
         raise
     except Exception as e:
         _reraise_document_disposed(e, "Desktop")
-        logging.getLogger(__name__).exception("resolve_document_by_url enumeration error")
+        log.exception("resolve_document_by_url enumeration error")
     return (None, None)
 
 
@@ -1152,7 +986,7 @@ def get_document_from_frame(frame: Any) -> Any:
         return None
     from plugin.framework.errors import suppress_disposed
 
-    with suppress_disposed("resolve document from frame", logger=logging.getLogger(__name__)):
+    with suppress_disposed("resolve document from frame", logger=log):
         check_disposed(frame, "Frame")
         controller = frame.getController()
         if not controller:

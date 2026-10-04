@@ -193,6 +193,13 @@ class TestGuardUnoBoundaries:
         assert (locale) == ("en_US")
         mock_get_ctx.assert_not_called()
 
+    def test_get_lo_locale_passed_ctx_off_main_returns_default(self) -> None:
+        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+            from plugin.framework.i18n import get_lo_locale
+
+            locale = get_lo_locale(MagicMock())
+        assert locale == "en_US"
+
     def test_office_model_from_desktop_element_wraps_controller_model(self) -> None:
         model = MagicMock(name="model")
         ctrl = MagicMock()

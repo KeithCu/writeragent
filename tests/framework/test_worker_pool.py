@@ -1,5 +1,5 @@
 from plugin.framework.errors import WorkerPoolError
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 import time
 import subprocess
@@ -66,8 +66,8 @@ def test_async_process_init():
     assert ap.args == ["ls", "-l"]
     assert ap._popen_kwargs["stdout"] == subprocess.PIPE
     assert ap._popen_kwargs["stderr"] == subprocess.PIPE
-    assert ap._popen_kwargs["text"] is True
-    assert ap._popen_kwargs["bufsize"] == 1
+    assert ap._popen_kwargs["text"] is False
+    assert ap._popen_kwargs["bufsize"] == 0
     assert ap.is_running is False
 
 def test_async_process_start_success():
@@ -163,6 +163,79 @@ def test_async_process_wait_for_exit_callback_error():
     ap._wait_thread.join(timeout=2)
     # The error should be caught and logged, not crash
     assert ap.is_running is False
+
+def test_async_process_terminate_does_not_join_on_caller():
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"])
+    ap.start()
+    caller = threading.current_thread()
+
+    def slow_join(self, timeout=None):
+        assert threading.current_thread() is not caller
+        time.sleep(0.05)
+
+    try:
+        with patch.object(BackgroundHandle, "join", slow_join):
+            started = time.monotonic()
+            ap.terminate()
+            assert time.monotonic() - started < 0.4
+    finally:
+        if ap.process is not None and ap.process.poll() is None:
+            ap.process.kill()
+            ap.process.wait(timeout=3)
+
+
+def test_async_process_exit_callback_sees_trailing_stdout():
+    lines: list[str] = []
+    saw: list[list[str]] = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def on_line(line: str) -> None:
+        started.set()
+        assert release.wait(timeout=2)
+        lines.append(line)
+
+    def on_exit(rc: int) -> None:
+        saw.append(list(lines))
+
+    script = "import sys; sys.stdout.write('hello'); sys.stdout.flush()"
+    ap = AsyncProcess([sys.executable, "-c", script], stdout_cb=on_line, on_exit_cb=on_exit)
+    ap.start()
+    assert started.wait(timeout=2)
+    time.sleep(0.2)
+    release.set()
+    assert ap._wait_thread is not None
+    ap._wait_thread.join(timeout=3)
+    assert saw == [["hello"]]
+
+
+def test_wait_for_exit_delivers_callback_when_reader_never_ends():
+    """A reader blocked on an inherited pipe must not skip on_exit_cb."""
+    exits: list[int] = []
+    ap = AsyncProcess(["dummy"], on_exit_cb=exits.append)
+    release = threading.Event()
+    reader = run_in_background(lambda: release.wait(30), dedicated=True, name="held-pipe")
+    proc = MagicMock()
+    proc.wait.return_value = 3
+    done = threading.Event()
+
+    def run() -> None:
+        try:
+            ap._wait_for_exit(proc, reader, None)
+        finally:
+            done.set()
+
+    waiter = threading.Thread(target=run, daemon=True)
+    waiter.start()
+    try:
+        assert done.wait(3), "on_exit_cb blocked on a reader that never saw EOF"
+        assert exits == [3]
+        assert reader.is_alive()
+    finally:
+        release.set()
+        reader.join(timeout=2)
+        waiter.join(timeout=2)
+
 
 def test_async_process_terminate():
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(10)"])
@@ -392,6 +465,40 @@ def test_reset_background_pool_creates_new_executor():
     reset_background_pool_for_tests()
 
 
+def test_reset_background_pool_while_job_submits_does_not_deadlock(monkeypatch: pytest.MonkeyPatch):
+    """Joining the pool under _pool_lock deadlocks a job that calls run_in_background."""
+    import plugin.framework.worker_pool as worker_pool
+
+    reset_background_pool_for_tests(max_workers=1)
+    entered = threading.Event()
+    joining = threading.Event()
+    nested = threading.Event()
+    real_join = worker_pool._join_pool_workers
+
+    def wrapped(threads: list[threading.Thread]) -> None:
+        joining.set()
+        real_join(threads)
+
+    monkeypatch.setattr(worker_pool, "_join_pool_workers", wrapped)
+
+    def job() -> None:
+        entered.set()
+        assert joining.wait(3)
+        run_in_background(lambda: nested.set(), name="nested-from-pool-job").join(timeout=2)
+
+    run_in_background(job, name="holds-pool-worker")
+    assert entered.wait(2)
+    reset_thread = threading.Thread(target=lambda: reset_background_pool_for_tests(max_workers=1), daemon=True)
+    reset_thread.start()
+    reset_thread.join(3)
+    try:
+        assert not reset_thread.is_alive(), "reset_background_pool_for_tests deadlocked on _pool_lock"
+        assert nested.is_set()
+    finally:
+        if not reset_thread.is_alive():
+            reset_background_pool_for_tests()
+
+
 def test_background_pool_max_workers_default_and_env(monkeypatch: pytest.MonkeyPatch):
     reset_background_pool_for_tests()
     monkeypatch.delenv("WRITERAGENT_BG_POOL_WORKERS", raising=False)
@@ -476,6 +583,32 @@ class TestReadStreamStripsNewlines:
         ap._read_stream(stream, received.append)
         assert received == ["hello"]
 
+    def test_non_newline_separators_stay_in_the_line(self):
+        # splitlines() would break on these and leave the separator in the text.
+        ap = AsyncProcess(["dummy"])
+        received = []
+        stream = self._make_stream(["a\vb\fc\u2028d\u2029e\n"])
+        ap._read_stream(stream, received.append)
+        assert received == ["a\vb\fc\u2028d\u2029e"]
+
+    def test_crlf_split_across_chunks(self):
+        class _Parts:
+            def __init__(self) -> None:
+                self._parts = ["hel\r", "\nlo\n"]
+
+            def read(self, _n: int) -> str:
+                if not self._parts:
+                    return ""
+                return self._parts.pop(0)
+
+            def close(self) -> None:
+                return None
+
+        ap = AsyncProcess(["dummy"])
+        received = []
+        ap._read_stream(_Parts(), received.append)
+        assert received == ["hel", "lo"]
+
 
 def test_stderr_drain_short_read_before_eof():
     """A buffered pipe must surface a short burst while the child is still alive.
@@ -537,6 +670,31 @@ def test_stderr_drain_joins_split_utf8():
     assert received == ["é"]
 
 
+def test_shutdown_joins_worker_past_one_slice(monkeypatch: pytest.MonkeyPatch):
+    """One 5s join used to return while the in-flight job was still running."""
+    monkeypatch.setattr("plugin.framework.worker_pool._POOL_SHUTDOWN_JOIN_SLICE_SEC", 0.05)
+    pool = _DaemonWorkPool(1)
+    started = threading.Event()
+    release = threading.Event()
+
+    def job() -> None:
+        started.set()
+        release.wait(2.0)
+
+    pool.submit(job)
+    assert started.wait(1.0)
+    releaser = threading.Thread(target=lambda: (time.sleep(0.2), release.set()), daemon=True)
+    releaser.start()
+    try:
+        pool.shutdown(wait=True, cancel_futures=True)
+        # Before release.set() in finally: a single short join would still
+        # see the worker blocked in release.wait.
+        assert all(not thread.is_alive() for thread in pool._threads)
+    finally:
+        release.set()
+        releaser.join(timeout=1.0)
+
+
 def test_concurrent_submit_during_shutdown_does_not_hang():
     pool = _DaemonWorkPool(1)
     errors: list[str] = []
@@ -582,4 +740,194 @@ def test_async_process_does_not_mutate_caller_kwargs():
     kwargs: dict[str, object] = {"close_fds": True}
     AsyncProcess(["dummy"], **kwargs)
     assert kwargs == {"close_fds": True}
+
+
+def test_async_process_forces_binary_pipes():
+    """text=True used to keep encoding while the reader still decoded UTF-8 bytes."""
+    ap = AsyncProcess(["dummy"], text=True, encoding="latin-1", errors="strict", universal_newlines=True)
+    assert ap._popen_kwargs["text"] is False
+    assert "encoding" not in ap._popen_kwargs
+    assert "errors" not in ap._popen_kwargs
+    assert "universal_newlines" not in ap._popen_kwargs
+
+
+def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The first wait thread must report the child it was started for.
+
+    _wait_for_exit used to read self.process at wait time. A second start()
+    replaced that child, so the first waiter blocked on the new process and
+    delivered its exit.
+    """
+    from collections.abc import Callable
+
+    scheduled: list[tuple[Callable[..., None], tuple[object, ...], str | None]] = []
+
+    def capture(func: Callable[..., None], *args: object, name: str | None = None, **_kwargs: object) -> BackgroundHandle:
+        scheduled.append((func, args, name))
+        return BackgroundHandle()
+
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", capture)
+
+    exits: list[int] = []
+    first = None
+    second = None
+    ap = AsyncProcess(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout_cb=lambda _line: None,
+        on_exit_cb=exits.append,
+    )
+    try:
+        ap.start()
+        first = ap.process
+        assert first is not None
+        first_waits = [row for row in scheduled if row[2] and str(row[2]).startswith("asyncproc-wait")]
+        assert len(first_waits) == 1
+
+        ap.start()
+        second = ap.process
+        assert second is not None and second is not first
+        assert second.poll() is None
+        assert first.returncode is not None
+
+        func, args, _name = first_waits[0]
+        errors: list[BaseException] = []
+
+        def run_wait() -> None:
+            try:
+                func(*args)
+            except BaseException as exc:
+                errors.append(exc)
+
+        waiter = threading.Thread(target=run_wait)
+        waiter.start()
+        waiter.join(1.0)
+        blocked = waiter.is_alive()
+        if blocked and second.poll() is None:
+            second.kill()
+            waiter.join(2.0)
+        assert not blocked, "first wait thread blocked on the replacement child"
+        assert errors == []
+        assert second.poll() is None
+        assert exits == [first.returncode]
+    finally:
+        for proc in (first, second, ap.process):
+            if proc is None or proc.poll() is not None:
+                continue
+            proc.kill()
+            proc.wait(timeout=5)
+
+
+def test_is_current_thread_is_false_for_pooled_handle() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    handle_ready = threading.Event()
+    seen: list[bool] = []
+    box: dict[str, BackgroundHandle] = {}
+
+    def work() -> None:
+        assert handle_ready.wait(2)
+        seen.append(box["handle"].is_current_thread())
+        started.set()
+        release.wait(2)
+
+    handle = run_in_background(work, dedicated=True, name="self-check")
+    box["handle"] = handle
+    handle_ready.set()
+    assert started.wait(2)
+    assert seen == [True]
+    assert handle.is_current_thread() is False
+    release.set()
+    handle.join(timeout=2)
+
+    from concurrent.futures import Future
+
+    fut: Future[None] = Future()
+    assert BackgroundHandle(future=fut).is_current_thread() is False
+    fut.cancel()
+
+
+def test_join_handles_skips_its_own_dedicated_thread() -> None:
+    ap = AsyncProcess(["dummy"])
+    done = threading.Event()
+    ready = threading.Event()
+    errors: list[BaseException] = []
+    box: dict[str, BackgroundHandle] = {}
+
+    def reader() -> None:
+        assert ready.wait(2)
+        try:
+            ap._join_handles((box["handle"],), timeout=0.2)
+        except BaseException as exc:
+            errors.append(exc)
+        done.set()
+
+    handle = run_in_background(reader, dedicated=True, name="reader-self")
+    box["handle"] = handle
+    ready.set()
+    assert done.wait(2)
+    assert errors == []
+    handle.join(timeout=1)
+
+
+def test_join_handles_future_from_pool_thread_still_raises() -> None:
+    from concurrent.futures import Future
+
+    ap = AsyncProcess(["dummy"])
+    fut: Future[None] = Future()
+    handle = BackgroundHandle(future=fut)
+    errors: list[BaseException | None] = []
+
+    def run() -> None:
+        threading.current_thread().name = "wa-bg-9"
+        try:
+            ap._join_handles((handle,), timeout=0.2)
+        except RuntimeError as exc:
+            errors.append(exc)
+        else:
+            errors.append(None)
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(1)
+    fut.cancel()
+    assert not worker.is_alive()
+    assert errors and isinstance(errors[0], RuntimeError)
+    assert "deadlock" in str(errors[0])
+
+
+def test_run_in_background_keeps_submit_time_send_cancellation():
+    """A dedicated job keeps the contextvar copied at submit.
+
+    Setting a new scope on the caller after the job has started must not
+    change what get_current_send_cancellation returns inside that job.
+    """
+    from plugin.framework.queue_executor import (
+        SendCancellation,
+        _current_send_cancellation,
+        get_current_send_cancellation,
+    )
+
+    old = SendCancellation()
+    new = SendCancellation()
+    previous = get_current_send_cancellation()
+    started = threading.Event()
+    release = threading.Event()
+    seen = {}
+
+    def job():
+        started.set()
+        assert release.wait(timeout=2)
+        seen["scope"] = get_current_send_cancellation()
+
+    _current_send_cancellation.set(old)
+    try:
+        handle = run_in_background(job, name="ctx-scope", dedicated=True)
+        assert started.wait(timeout=2)
+        _current_send_cancellation.set(new)
+        release.set()
+        handle.join(timeout=2)
+    finally:
+        _current_send_cancellation.set(previous)
+
+    assert seen["scope"] is old
 
