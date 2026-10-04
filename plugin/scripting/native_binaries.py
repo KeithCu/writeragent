@@ -227,8 +227,15 @@ def run_vec_pack_download(
     on_status: Callable[[str], None],
     *,
     include_header: bool = True,
+    bind_host: bool = True,
 ) -> bool:
-    """Download the platform-specific Cython pack binary from contrib/vec_pack on GitHub."""
+    """Download the platform-specific Cython pack binary from contrib/vec_pack on GitHub.
+
+    ``bind_host`` (default) calls ``ensure_downloaded_audio_on_path`` and
+    ``invalidate_host_cython_accelerator`` on the caller before returning.
+    LibrePy Settings passes False: that probe runs off the VCL thread, and the
+    listener binds on the main thread instead.
+    """
     import platform
     import sysconfig
 
@@ -276,11 +283,12 @@ def run_vec_pack_download(
         expected_sha256=_VEC_PACK_SHA256[pack_name],
     )
 
-    ensure_downloaded_audio_on_path()
-    # Drop stale in-process module after replace so the next load binds the new inode.
-    from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
+    if bind_host:
+        ensure_downloaded_audio_on_path()
+        # Drop stale in-process module after replace so the next load binds the new inode.
+        from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
 
-    invalidate_host_cython_accelerator()
+        invalidate_host_cython_accelerator()
     if include_header:
         on_display("\nCython accelerator binary installed successfully.\n")
     return True
