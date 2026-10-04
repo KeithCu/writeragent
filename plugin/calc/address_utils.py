@@ -214,3 +214,20 @@ def format_address(col: int, row: int) -> str:
         Cell address (e.g. "A1", "AB10").
     """
     return f"{index_to_column(col)}{row + 1}"
+
+def parse_output_anchor(output_range: str) -> tuple[int, int]:
+    """Column and row where a generated report should start.
+
+    What was wrong: ``output_range.rsplit(".", 1)[-1]`` treated the last dot
+    as the sheet separator. A quoted or dotted name (``'Q1.Sales'!B2``) was
+    handed to ``parse_address`` still prefixed, and a range address
+    (``Sheet1.A1:Sheet1.C10`` or ``$A$1:$C$5``) resolved to the end cell or
+    to a token ``parse_address`` rejects.
+
+    ``split_sheet_prefix`` keeps quoted names, dots inside quotes, and both
+    ``.`` and ``!``. The write starts at the first cell, with ``$`` locks
+    removed, then ``parse_address``.
+    """
+    cell_part = split_sheet_prefix(output_range)[1]
+    anchor = cell_part.replace("$", "").split(":", 1)[0].strip()
+    return parse_address(anchor)

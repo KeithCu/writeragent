@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBaseDummy
-from plugin.calc.address_utils import parse_address, split_sheet_prefix
+from plugin.calc.address_utils import parse_address, split_sheet_prefix, parse_output_anchor
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import resolve_cell_address
 from plugin.scripting.analysis import HELPER_NAMES
@@ -43,23 +43,6 @@ except ImportError:
 
 log = logging.getLogger("writeragent.calc")
 
-
-def _output_anchor(output_range: str) -> tuple[int, int]:
-    """Column and row where an analysis report should start.
-
-    What was wrong: ``output_range.rsplit(".", 1)[-1]`` treated the last dot
-    as the sheet separator. A quoted or dotted name (``'Q1.Sales'!B2``) was
-    handed to ``parse_address`` still prefixed, and a range address
-    (``Sheet1.A1:Sheet1.C10`` or ``$A$1:$C$5``) resolved to the end cell or
-    to a token ``parse_address`` rejects.
-
-    ``split_sheet_prefix`` keeps quoted names, dots inside quotes, and both
-    ``.`` and ``!``. The write starts at the first cell, with ``$`` locks
-    removed, then ``parse_address``.
-    """
-    cell_part = split_sheet_prefix(output_range)[1]
-    anchor = cell_part.replace("$", "").split(":", 1)[0].strip()
-    return parse_address(anchor)
 
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
@@ -442,7 +425,7 @@ class AnalyzeDataTool(ToolBaseDummy):
             anchor_ref = output_range
 
             def _write() -> None:
-                col, row = _output_anchor(anchor_ref)
+                col, row = parse_output_anchor(anchor_ref)
                 insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
 
             try:
