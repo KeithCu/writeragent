@@ -6,9 +6,12 @@
 
 Per-document persistence stores sentence results in user-defined document properties
 and keeps a process-local map keyed by LibreOffice ``aDocumentIdentifier`` (often a
-small integer per open doc, not ``RuntimeUID``). ``get_persistence(ctx, doc_id, model=...)``
-binds that id to the Writer model on first ``doProofreading``; ``OnUnload`` / dispose
-removes map entries so instances can be garbage-collected.
+small integer per open doc, not ``RuntimeUID``). The first ``doProofreading`` resolves
+the Writer model from the desktop (current text component, or the open Writer this
+call is for) and passes it to ``get_persistence(ctx, doc_id, model=...)``. The model
+is not read back from this map. A later call does not replace a bound model or reload
+udprops over live edits. ``OnUnload`` / dispose removes map entries so instances can
+be garbage-collected.
 
 L2 rows are keyed by CharLocale and sentence fingerprint (schema v4). v2 and v3
 blobs have no locale; those rows load under a legacy bucket and adopt the first
@@ -777,19 +780,29 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
 
         found_range = None
         try:
-            if start_pos > 0 and view_cursor:
+            # What was wrong: the paragraph-relative cursor was built only when
+            # start_pos > 0. n_start is the sentence offset inside the proofread
+            # paragraph, so 0 is its first sentence, not "search from the caret".
+            # findNext from the view cursor then retagged a different copy of the
+            # same sentence. How: the guard treated 0 as "no offset".
+            # Why: offset 0 still selects from the start of that paragraph.
+            # start_pos > 0 still moves, then expands, on the same cursor.
+            if view_cursor is not None and start_pos >= 0:
                 text_obj = model.getText()
                 doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())
                 if hasattr(doc_cursor, "gotoStartOfParagraph"):
                     doc_cursor.gotoStartOfParagraph(False)
-                    doc_cursor.goRight(start_pos, False)
+                    if start_pos > 0:
+                        doc_cursor.goRight(start_pos, False)
                     doc_cursor.goRight(len(sentence_text), True)
                     if doc_cursor.getString() == sentence_text:
                         found_range = doc_cursor
         except Exception:
             pass
 
-        if not found_range and view_cursor:
+        # Caret-relative findNext is for a positive offset whose paragraph
+        # selection did not match. Offset 0 must not search forward from the caret.
+        if not found_range and view_cursor and start_pos > 0:
             found_range = model.findNext(view_cursor.getStart(), search_desc)
 
         if not found_range:

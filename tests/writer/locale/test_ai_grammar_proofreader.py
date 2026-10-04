@@ -850,6 +850,119 @@ class TestTypingIntegration:
         mock_bind.assert_called_once_with(pr.ctx, "test-doc")
 
 
+def _writer_model() -> MagicMock:
+    model = MagicMock()
+    model.supportsService.side_effect = lambda service: service == "com.sun.star.text.TextDocument"
+    return model
+
+
+def test_ensure_persistence_bound_passes_current_text_component() -> None:
+    """The linguistic id is not a model lookup. Bind the desktop's Writer."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    writer = _writer_model()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = writer
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None) as mock_load,
+        ):
+            proofreader._ensure_persistence_bound(ctx, "2")
+            again_loads = mock_load.call_count
+            proofreader._ensure_persistence_bound(ctx, "2")
+        bound = gp.get_persistence(ctx, "2")
+        assert bound is not None
+        assert bound._model is writer
+        assert mock_load.call_count == again_loads
+        desktop.getComponents.assert_not_called()
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
+def test_ensure_persistence_bound_uses_only_open_writer() -> None:
+    """Current component is not Writer; the single open Writer is this call."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    writer = _writer_model()
+    calc = MagicMock()
+    calc.supportsService.return_value = False
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.side_effect = [writer]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = calc
+    desktop.getComponents.return_value = comps
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "4")
+        bound = gp.get_persistence(ctx, "4")
+        assert bound is not None
+        assert bound._model is writer
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
+def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
+    """Several open Writers and a non-RuntimeUID key is not a bind."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    first = _writer_model()
+    second = _writer_model()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [first, second]
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.framework.uno_context.get_runtime_uid", return_value=""),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "2")
+        assert "2" not in gp.grammar_registry.doc_persistence_instances
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
+def test_ensure_persistence_bound_returns_when_no_writer() -> None:
+    """No model is not an error, and it must not register an unbound instance."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = False
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "9")
+        assert gp.get_document_model_for_id(ctx, "9") is None
+        assert "9" not in gp.grammar_registry.doc_persistence_instances
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
 def test_proofreader_broadcast_proofread_again_notifies_listeners(
     mock_config_fixture, mock_locale_fixture
 ) -> None:

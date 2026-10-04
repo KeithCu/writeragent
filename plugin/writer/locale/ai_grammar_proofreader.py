@@ -119,16 +119,153 @@ def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
     return execute_on_main_thread(fn, *args, **kwargs)
 
 
+_TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
+
+
+def _is_text_document(model: Any) -> bool:
+    """True only when UNO reports a Writer model.
+
+    ``supportsService`` on a ``MagicMock`` is truthy but not ``True``. Treating
+    that as a document would bind a fake model during unit tests.
+    """
+    if model is None:
+        return False
+    try:
+        supports = getattr(model, "supportsService", None)
+        if not callable(supports):
+            return False
+        return supports(_TEXT_DOCUMENT_SERVICE) is True
+    except Exception:
+        return False
+
+
+def _writer_from_desktop_element(elem: Any) -> Any | None:
+    """Writer model for a desktop component or the frame that holds one."""
+    if _is_text_document(elem):
+        return elem
+    try:
+        get_controller = getattr(elem, "getController", None)
+        if not callable(get_controller):
+            return None
+        controller = get_controller()
+        if controller is None:
+            return None
+        get_model = getattr(controller, "getModel", None)
+        if not callable(get_model):
+            return None
+        model = get_model()
+    except Exception:
+        return None
+    return model if _is_text_document(model) else None
+
+
+def _open_writer_models(desktop: Any) -> list[Any]:
+    """Open Writer models. Stops if the enumeration is not a real boolean."""
+    writers: list[Any] = []
+    try:
+        comps = desktop.getComponents()
+        enum = comps.createEnumeration() if comps is not None else None
+    except Exception:
+        return writers
+    if enum is None:
+        return writers
+    # Real ``hasMoreElements()`` is bool (or 1). A MagicMock stays truthy forever
+    # and would spin the main thread, same guard as ``resolve_document_by_url``.
+    seen = 0
+    while seen < 64:
+        try:
+            more = enum.hasMoreElements()
+        except Exception:
+            break
+        if more is not True and more != 1:
+            break
+        seen += 1
+        try:
+            elem = enum.nextElement()
+        except Exception:
+            break
+        model = _writer_from_desktop_element(elem)
+        if model is not None:
+            writers.append(model)
+    return writers
+
+
+def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
+    """Writer model this proofreading call is for, or None.
+
+    ``aDocumentIdentifier`` is the persistence map key. It is often a small
+    integer, not ``RuntimeUID``, so the model cannot be loaded from that map.
+    Prefer the desktop's current text component. Otherwise use the open Writer
+    whose ``RuntimeUID`` is *doc_id*, or the only open Writer. Several Writers
+    and no id match is not a guess.
+    """
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return None
+    from plugin.framework.uno_context import get_desktop, get_runtime_uid
+
+    try:
+        desktop = get_desktop(ctx)
+    except Exception:
+        log.debug("[grammar] persistence bind: desktop unavailable", exc_info=True)
+        return None
+    if desktop is None:
+        return None
+    try:
+        current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+    except Exception:
+        log.debug("[grammar] persistence bind: current component unavailable", exc_info=True)
+        current = None
+    if _is_text_document(current):
+        return current
+    try:
+        writers = _open_writer_models(desktop)
+    except Exception:
+        log.debug("[grammar] persistence bind: open Writer scan failed", exc_info=True)
+        return None
+    if not writers:
+        return None
+    for model in writers:
+        try:
+            uid = get_runtime_uid(model)
+        except Exception:
+            uid = ""
+        if uid and uid == doc_id:
+            return model
+    if len(writers) == 1:
+        return writers[0]
+    return None
+
+
 def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
-    """Bind ``DocumentPersistence`` to the Writer model (loads udprops when available)."""
+    """Bind ``DocumentPersistence`` to the Writer model being proofread.
+
+    What was wrong: this asked ``get_document_model_for_id`` for the model.
+    That helper only returns ``p._model`` when a ``DocumentPersistence`` for
+    the id is already in the map, so the first ``doProofreading`` always got
+    None and returned. Udprops never loaded and save listeners never
+    registered. ``doProofreading`` calls this only when the map has no model,
+    so that lookup cannot succeed.
+    How: nothing else passed the open Writer into ``get_persistence``. The
+    linguistic id stayed an unbound map key.
+    Why: resolve the Writer on this main thread and pass that model in. A
+    second call sees a bound model and does not replace it or reload udprops
+    over live edits. No model → return without raising.
+    """
     if not doc_id:
         return
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
-    model = get_document_model_for_id(ctx, doc_id)
-    if model is None:
+    if get_document_model_for_id(ctx, doc_id) is not None:
         return
-    get_persistence(ctx, doc_id, model=model)
+    try:
+        model = _resolve_proofread_writer_model(ctx, doc_id)
+        if model is None:
+            return
+        get_persistence(ctx, doc_id, model=model)
+    except Exception:
+        log.exception("[grammar] persistence bind failed")
 
 
 def _add_doc_ignored_rule(p: Any, value: str) -> None:
