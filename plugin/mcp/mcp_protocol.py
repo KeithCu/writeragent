@@ -1121,6 +1121,8 @@ class MCPProtocolHandler:
         registry is marshalled to the main thread from there.
         """
         with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+            if callable(prepared.context.stop_checker) and prepared.context.stop_checker() is True:
+                return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None) -> Any:

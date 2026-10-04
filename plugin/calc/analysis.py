@@ -429,6 +429,9 @@ class AnalyzeDataTool(ToolBaseDummy):
             anchor_ref = output_range
 
             def _write() -> None:
+                stop_checker = getattr(ctx, "stop_checker", None)
+                if callable(stop_checker) and stop_checker() is True:
+                    return
                 sheet, col, row = _output_anchor(anchor_ref)
                 insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
