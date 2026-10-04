@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 """Calc chart management tools: list, info, create, edit, delete.
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
@@ -285,6 +285,16 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
     return None
 
 
+# com.sun.star.chart.ChartLegend.Alignment. Not ChartLegendAlignment.
+_CHART_LEGEND_POSITION_ENUM = "com.sun.star.chart.ChartLegendPosition"
+_LEGEND_POSITION_MEMBER = {
+    "top": "TOP",
+    "bottom": "BOTTOM",
+    "left": "LEFT",
+    "right": "RIGHT",
+}
+
+
 # Shared parameters for Create and Edit
 CHART_PROPERTIES = {
     "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
@@ -373,6 +383,8 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
             log.exception("Setting Y axis title failed")
 
     # 5. Legend
+    # offapi ChartLegend.Alignment is ChartLegendPosition (NONE/LEFT/TOP/RIGHT/BOTTOM).
+    # There is no ChartLegendAlignment type.
     has_legend = kwargs.get("has_legend")
     if has_legend is not None:
         chart_doc.HasLegend = has_legend
@@ -380,22 +392,20 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
 
     legend_pos = kwargs.get("legend_position")
     if legend_pos and chart_doc.HasLegend:
-        try:
-            pos_map = {
-                "none": None,
-                "top": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "TOP"),
-                "bottom": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "BOTTOM"),
-                "left": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "LEFT"),
-                "right": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "RIGHT"),
-            }
-            if legend_pos in pos_map:
-                if legend_pos == "none":
-                    chart_doc.HasLegend = False
-                else:
-                    chart_doc.getLegend().Alignment = pos_map[legend_pos]
-                log.debug("Set legend position: %s", legend_pos)
-        except (ImportError, AttributeError):
-            log.exception("ChartLegendAlignment enum not available")
+        if legend_pos == "none":
+            chart_doc.HasLegend = False
+            log.debug("Set legend position: none")
+        elif legend_pos in _LEGEND_POSITION_MEMBER:
+            # What was wrong: this called uno.Enum("...ChartLegendAlignment", ...).
+            # How: that type is not in the API, so uno.Enum raises
+            # com.sun.star.uno.RuntimeException. The handler only caught
+            # ImportError and AttributeError, which let it escape after the
+            # chart had already been inserted.
+            # Why: Alignment is ChartLegendPosition. If this still fails, the
+            # create path removes the chart it just inserted.
+            member = _LEGEND_POSITION_MEMBER[legend_pos]
+            chart_doc.getLegend().Alignment = uno.Enum(_CHART_LEGEND_POSITION_ENUM, member)
+            log.debug("Set legend position: %s", legend_pos)
 
     # 6. Background Color
     bg_color = kwargs.get("bg_color")
@@ -508,6 +518,43 @@ def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
 
     except Exception as e:
         log.exception("Failed to apply chart data arrays: %s", e)
+
+
+def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
+    """Remove a chart inserted before a later create step failed.
+
+    What was wrong: ``manage_charts`` create returned an error after the chart
+    was already in the document, so the sheet, text, or slide kept a chart the
+    caller was told did not exist.
+    How: ``legend_position`` called ``uno.Enum`` for ``ChartLegendAlignment``.
+    That type is not in the UNO API, so ``uno.Enum`` raises
+    ``com.sun.star.uno.RuntimeException``. The legend handler only caught
+    ``ImportError`` and ``AttributeError``, and the create handler did not
+    remove the chart it had just inserted. The same window exists for any
+    property set that fails after the insert (diagram, title, legend).
+    Why: delete this insert before the error is returned. A failed delete is
+    logged and does not replace the original error.
+    """
+    try:
+        remove()
+    except Exception:
+        log.exception("Failed to remove chart %r after a create error", name)
+
+
+def _drop_writer_chart_insert(doc: Any, text: Any, chart_obj: Any, name: str) -> None:
+    """Remove a Writer chart embedded before a later create step failed."""
+
+    def _remove() -> None:
+        try:
+            text.removeTextContent(chart_obj)
+        except Exception:
+            objects = doc.getEmbeddedObjects()
+            if objects.hasByName(name):
+                objects.removeByName(name)
+            else:
+                raise
+
+    _drop_failed_chart_insert(_remove, name)
 
 
 def _format_chart_exception_msg(e: Exception) -> str:
@@ -918,13 +965,18 @@ class UpsertChart(ToolBaseDummy):
         charts = sheet.getCharts()
         charts.addNewByName(name, rect, (addr,), has_header, has_header)
 
-        chart_obj = charts.getByName(name)
-        chart_doc = _chart_document_from_host(chart_obj)
-        if not chart_doc:
-            return self._tool_error("Cannot access chart content.")
-        chart_doc.setDiagram(chart_doc.createInstance(service))
-
-        _apply_chart_styling(chart_doc, **kwargs)
+        try:
+            chart_obj = charts.getByName(name)
+            chart_doc = _chart_document_from_host(chart_obj)
+            if not chart_doc:
+                _drop_failed_chart_insert(lambda: charts.removeByName(name), name)
+                return self._tool_error("Cannot access chart content.")
+            chart_doc.setDiagram(chart_doc.createInstance(service))
+            _apply_chart_styling(chart_doc, **kwargs)
+        except Exception:
+            # Insert already committed. Drop it so the error return is not an orphan chart.
+            _drop_failed_chart_insert(lambda: charts.removeByName(name), name)
+            raise
         # _process_events() causes a hang in tests
         return {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
 
@@ -1074,7 +1126,11 @@ class UpsertChart(ToolBaseDummy):
             except Exception:
                 log.exception("Failed to set chart diagram")
 
-            _apply_chart_styling(chart_doc, **kwargs)
+            try:
+                _apply_chart_styling(chart_doc, **kwargs)
+            except Exception:
+                _drop_writer_chart_insert(doc, text, chart_obj, name)
+                raise
         else:
             log.error("Could not obtain chart model after retries. Chart might be empty/invisible.")
 
@@ -1113,20 +1169,25 @@ class UpsertChart(ToolBaseDummy):
         # Draw/Impress: add OLE2 shape first, then CLSID (chart2 OLE GUID); chart lives on .Model
         shape = doc.createInstance("com.sun.star.drawing.OLE2Shape")
         page.add(shape)
+        name = ""
         try:
-            shape.setSize(uno.createUnoStruct("com.sun.star.awt.Size", Width=rect.Width, Height=rect.Height))
-            shape.setPosition(uno.createUnoStruct("com.sun.star.awt.Point", X=rect.X, Y=rect.Y))
-        except Exception as e:
-            log.debug("Failed to set Draw shape size/pos: %s", e)
-        shape.CLSID = CHART_CLSID_DRAW_OLE
+            try:
+                shape.setSize(uno.createUnoStruct("com.sun.star.awt.Size", Width=rect.Width, Height=rect.Height))
+                shape.setPosition(uno.createUnoStruct("com.sun.star.awt.Point", X=rect.X, Y=rect.Y))
+            except Exception as e:
+                log.debug("Failed to set Draw shape size/pos: %s", e)
+            shape.CLSID = CHART_CLSID_DRAW_OLE
 
-        name = f"Chart_{page.getCount()}"
-        shape.Name = name
+            name = f"Chart_{page.getCount()}"
+            shape.Name = name
 
-        chart_doc = _chart_document_from_host(shape)
-        if chart_doc:
-            chart_doc.setDiagram(chart_doc.createInstance(service))
-            _apply_chart_styling(chart_doc, **kwargs)
+            chart_doc = _chart_document_from_host(shape)
+            if chart_doc:
+                chart_doc.setDiagram(chart_doc.createInstance(service))
+                _apply_chart_styling(chart_doc, **kwargs)
+        except Exception:
+            _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
+            raise
 
         _process_events(ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
