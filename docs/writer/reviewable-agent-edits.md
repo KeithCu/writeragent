@@ -39,10 +39,12 @@ What is implemented today (not every Writer mutation tool):
 | Other Writer tools (comments, images, …) | No | No | No |
 
 Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
-`WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before `setString` and
-before changing `RecordChanges`, and the menu shows a message. The redlines stay as they are.
-A selection with no Insert/Delete redlines keeps the previous rewrite, including an empty model
-result (the cleared range is not written back to the original text).
+`WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
+before `RecordChanges` changes, and before the first `setString`, and the menu shows a message.
+The redlines stay as they are. A selection with no Insert/Delete redlines keeps the rewrite.
+Edit selection clears the range while tokens stream. If the model returns no text,
+`WriterStreamedRewriteSession.finish()` writes the original back and does not record an empty
+replacement. Whitespace the model actually sent is kept.
 
 `table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
 removing every row), so the table would vanish unreviewable. It selects the table and dispatches

@@ -1177,7 +1177,8 @@ def refuse_tracked_insert_or_delete(text_range: Any) -> None:
     Why this raise: both session constructors call it before the undo context,
     before ``RecordChanges`` is changed, and before the first ``setString``, so the
     redlines stay untouched even if the menu wrapper is skipped. A range with no
-    Insert/Delete keeps the previous rewrite path, including an empty model result.
+    Insert/Delete keeps the rewrite path. An empty model result restores the
+    original text and does not record a deletion.
     """
     if range_has_tracked_insert_or_delete(text_range):
         log.warning(
@@ -1257,8 +1258,10 @@ class WriterStreamedRewriteSession:
     """Manage a streamed Writer edit that collapses to one tracked change.
 
     Refuses with :class:`TrackedChangesInSelection` before any write when the range
-    already contains a tracked Insert or Delete. An empty model result is not a
-    special case: ``finish`` still does not restore ``original_text`` on its own.
+    already contains a tracked Insert or Delete. ``finish()`` with an empty
+    ``generated_text`` puts ``original_text`` back and records nothing. Characters
+    the model actually sent, including whitespace, still collapse as one tracked
+    change when recording is on.
     """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Edit selection"
@@ -1316,6 +1319,28 @@ class WriterStreamedRewriteSession:
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
         try:
+            # __init__ clears the range (RecordChanges already off) before any
+            # token, so each chunk can paint the whole replacement. Thinking-only
+            # output is dropped by do_edit_selection and never appended, so
+            # generated_text stays "". The old early return left that clear in
+            # place when tracking was off. When tracking was on, the collapse
+            # below did setString(original) then setString(""), which records a
+            # tracked deletion of the whole selection. Put the original back
+            # while tracking is still off, restore the user's RecordChanges, and
+            # do not record an empty replacement. Whitespace the model sent is
+            # truthy, so it stays on the collapse path.
+            if not self.generated_text:
+                try:
+                    self.text_range.setString(self.original_text)
+                except Exception:
+                    log.exception("streamed rewrite: empty result could not restore the original text")
+                if self.was_recording:
+                    try:
+                        self.doc.setPropertyValue("RecordChanges", True)
+                    except Exception:
+                        log.exception("streamed rewrite: empty result could not restore RecordChanges")
+                return None
+
             if not (self.was_recording or self.track_reviewable):
                 return None
 
