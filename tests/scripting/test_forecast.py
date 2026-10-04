@@ -263,3 +263,17 @@ def test_forecast_date_origin_honored():
     df_1904 = result_1904["tables"][0]["rows"]
     fdate_1904 = df_1904[0][0]
     assert str(fdate_1904).startswith("2026-08-20")
+
+def test_insert_forecast_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.forecast import insert_forecast_result_into_calc
+    class MockCtx:
+        def stop_checker(self):
+            return True
+
+    doc = None
+    ctx = MockCtx()
+    result = {"status": "ok", "result": "val"}
+
+    # Normally this would raise or do something. We just check if it returns 0.
+    res = insert_forecast_result_into_calc(doc, ctx, result)
+    assert res == 0

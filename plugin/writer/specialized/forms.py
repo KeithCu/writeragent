@@ -462,9 +462,13 @@ class FormGenerate(ToolWriterFormBase):
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
 
+    def is_async(self) -> bool:
+        return True
+
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.llm_client import LlmClient
+        from plugin.framework.thread_guard import on_main_thread
 
         description = kwargs.get("description")
         config = get_api_config()
@@ -489,6 +493,8 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         messages = [{"role": "system", "content": instructions}, {"role": "user", "content": f"Generate a {description}"}]
 
         try:
+            assert not on_main_thread(), "FormGenerate LLM call must not run on the UI thread"
+
             # Get the full document from LLM
             content = client.chat_completion_sync(messages, max_tokens=2048)
 

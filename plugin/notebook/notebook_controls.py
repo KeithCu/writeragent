@@ -528,6 +528,10 @@ def _record_listener_keys(lis: Any, survivor_keys: set[tuple[str, str]], survivo
 
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return
     global _listener_refs, _wired_keys, _wired_form_docs
     with _lock:
         refs = list(_listener_refs)
@@ -594,10 +598,16 @@ class NotebookRunButtonListener(BaseActionListener):
     def _resolve_doc(self) -> Any | None:
         from plugin.framework.uno_context import resolve_document_by_url
 
-        if self._doc_url:
-            doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
-            if doc is not None:
-                return doc
+        from plugin.framework.thread_guard import on_main_thread
+
+        is_main = on_main_thread()
+        if is_main and self._doc_url:
+            try:
+                doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
+                if doc is not None:
+                    return doc
+            except Exception:
+                pass
         # Prefer a live wrapper before enumerating the desktop (unit tests and
         # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
         weak = getattr(self, "_doc_weak", None)
@@ -605,16 +615,24 @@ class NotebookRunButtonListener(BaseActionListener):
             ref_doc = weak()
             if ref_doc is not None:
                 return ref_doc
-        if self._runtime_uid:
-            doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
-            if doc is not None:
-                return doc
-        from plugin.framework.uno_context import get_active_document
+        if is_main and self._runtime_uid:
+            try:
+                doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
+                if doc is not None:
+                    return doc
+            except Exception:
+                pass
+        if is_main:
+            from plugin.framework.uno_context import get_active_document
+            try:
+                active = get_active_document(self._ctx)
+                if active is not None and _doc_key(active) == self._doc_key_val:
+                    return active
+            except Exception:
+                pass
+            return None
 
-        active = get_active_document(self._ctx)
-        if active is not None and _doc_key(active) == self._doc_key_val:
-            return active
-        return None
+        return True
 
     def on_action_performed(self, rEvent: Any) -> None:
         doc = self._resolve_doc()
@@ -655,11 +673,13 @@ class NotebookFormContainerListener(BaseContainerListener):
     _form_listener: NotebookFormRunListener
     _doc_key_val: str
     _form_level: bool
+    _container: Any
 
-    def __init__(self, form_listener: NotebookFormRunListener) -> None:
+    def __init__(self, form_listener: NotebookFormRunListener, container: Any) -> None:
         self._form_listener = form_listener
         self._doc_key_val = form_listener._doc_key_val
         self._form_level = False
+        self._container = container
         # Not a per-button listener. prune_dead_listeners used to treat the
         # missing attribute as a button key and raise AttributeError.
         self._hex_id: str | None = None
@@ -712,20 +732,44 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
                 forms = doc.getDrawPage().getForms()
             except Exception:
                 forms = None
-        if forms is None or getattr(forms, "getCount", lambda: 0)() < 1:
+        if forms is None:
             return None, None
-        form = forms.getByIndex(0)
-        fc = None
-        if hasattr(controller, "getFormController"):
-            fc = controller.getFormController(form)
-        if fc is None:
-            access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
-            if access is not None:
-                fc = access.getFormController(form)
-        if fc is None:
+        count = getattr(forms, "getCount", lambda: 0)()
+        if count < 1:
             return None, None
-        container = fc.getContainer() if hasattr(fc, "getContainer") else None
-        return fc, container
+
+        target_form = None
+        for i in range(count):
+            form = forms.getByIndex(i)
+            # check for elements with nb_run_ prefix
+            has_nb = False
+            elem_count = getattr(form, "getCount", lambda: 0)()
+            for j in range(elem_count):
+                elem = form.getByIndex(j)
+                name = getattr(elem, "Name", "")
+                if name and name.startswith("nb_run_"):
+                    has_nb = True
+                    break
+            if has_nb:
+                target_form = form
+                break
+
+        if target_form is None and count > 0:
+            target_form = forms.getByIndex(0)  # fallback
+
+        if target_form is not None:
+            fc = None
+            if hasattr(controller, "getFormController"):
+                fc = controller.getFormController(target_form)
+            if fc is None:
+                access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
+                if access is not None:
+                    fc = access.getFormController(target_form)
+            if fc is not None:
+                container = fc.getContainer() if hasattr(fc, "getContainer") else None
+                if container is not None:
+                    return fc, container
+        return None, None
     except Exception:
         log.debug("notebook controls: form controller lookup failed", exc_info=True)
         return None, None
@@ -786,19 +830,30 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     prune_dead_listeners()
     doc_key = _doc_key(doc)
     ensure_form_design_mode_off(doc)
-    with _lock:
-        if doc_key in _wired_form_docs:
-            log.debug("notebook controls: form listener already attached doc=%s", doc_key)
-            return 1
-        _wired_form_docs.add(doc_key)
-
     t0 = time.monotonic()
     _fc, container = _form_and_container(doc)
     if container is None:
-        with _lock:
-            _wired_form_docs.discard(doc_key)
         log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
+
+    from plugin.framework.uno_context import uno_same
+    already_wired = False
+    with _lock:
+        for lis in _listener_refs:
+            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
+                try:
+                    if uno_same(ctx, lis._container, container):
+                        already_wired = True
+                        break
+                except Exception:
+                    already_wired = True  # fallback to just assuming it's the same if uno_same fails
+                    break
+
+    if already_wired:
+        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
+        return 1
+
+
 
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
@@ -810,7 +865,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     except Exception:
         log.debug("notebook controls: getControls attach failed", exc_info=True)
 
-    container_lis: NotebookFormContainerListener | None = NotebookFormContainerListener(listener)
+    container_lis: NotebookFormContainerListener | None = NotebookFormContainerListener(listener, container)
     try:
         container.addContainerListener(container_lis)
     except Exception:
@@ -821,6 +876,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         _listener_refs.append(listener)
         if container_lis is not None:
             _listener_refs.append(container_lis)
+        _wired_form_docs.add(doc_key)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1

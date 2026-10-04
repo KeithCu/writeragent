@@ -444,6 +444,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _panel_teardown: bool
     _mcp_event_bus: Any
     _turn: Any
+    _last_mcp_turn: Any | None
 
     def __init__(
         self,
@@ -508,6 +509,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
         # The queue, stripper, and document model live on ``_turn``.
         self._turn = None
+        self._last_mcp_turn = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
@@ -1052,6 +1054,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
         try:
+            from plugin.chatbot.tool_loop_actions import current_turn
+
+            self._last_mcp_turn = current_turn(self)
             from plugin.framework.logging import format_tool_call_for_display
 
             fmt_str = format_tool_call_for_display(tool, args, method)
@@ -1068,9 +1073,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self._panel_teardown or self.ctx is None:
             return
 
+        try:
+            from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+            last_turn = getattr(self, "_last_mcp_turn", None)
+            if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                return
+        except Exception:
+            pass
+
         def _update_ui() -> None:
             if self._panel_teardown or self.ctx is None:
                 return
+            try:
+                from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+                last_turn = getattr(self, "_last_mcp_turn", None)
+                if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                    return
+            except Exception:
+                pass
             try:
                 from plugin.framework.logging import format_tool_result_for_display
 
@@ -1440,6 +1460,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 scope = getattr(self, "_send_cancellation", None)
                 if scope is not None:
                     scope.cancel()
+
+                # Clear audio path so an aborted send doesn't attach this recording to the next one
+                if hasattr(self, "audio_wav_path") and self.audio_wav_path:
+                    self.audio_wav_path = None
+
                 self._stop_requested_fallback = True
                 self._kill_inflight_stt()
                 from plugin.doc.peer_message import drop_listener_queue
@@ -1551,7 +1576,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
-                        if get_config_bool_safe("audio.tts_enabled"):
+                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
                             from plugin.chatbot.tool_loop_actions import session_for_turn
 
                             spoken = session_for_turn(self)
@@ -1560,49 +1585,47 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                 if last_msg.get("role") == "assistant" and last_msg.get("content"):
                                     from plugin.chatbot.tool_loop_actions import _STOP_LINE
                                     content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
-                                    if not content_to_speak.strip():
-                                        return
+                                    if content_to_speak.strip():
+                                        from plugin.audio.tts_service import speak_text_async, is_speaking
 
-                                    from plugin.audio.tts_service import speak_text_async, is_speaking
+                                        # Restore the send-complete status after download/fallback lines.
+                                        prior_status = self._terminal_status or "Ready"
 
-                                    # Restore the send-complete status after download/fallback lines.
-                                    prior_status = self._terminal_status or "Ready"
+                                        def _on_tts_status(message: str) -> None:
+                                            # Speech runs on a worker; the status control is a UNO widget.
+                                            def _apply() -> None:
+                                                self._set_status(message)
 
-                                    def _on_tts_status(message: str) -> None:
-                                        # Speech runs on a worker; the status control is a UNO widget.
-                                        def _apply() -> None:
-                                            self._set_status(message)
+                                            try:
+                                                self.queue_executor.post(_apply)
+                                            except Exception:
+                                                log.debug("TTS status post failed", exc_info=True)
 
-                                        try:
-                                            self.queue_executor.post(_apply)
-                                        except Exception:
-                                            log.debug("TTS status post failed", exc_info=True)
+                                        def _on_speech_complete() -> None:
+                                            def _disable_stop() -> None:
+                                                if not getattr(self, "_send_busy", False):
+                                                    if self.stop_control and self.stop_control.getModel():
+                                                        with suppress_disposed("disable stop after speech", logger=log):
+                                                            self.stop_control.getModel().Enabled = False
+                                                    # A sticky restart may already be capturing; Ready would hide it.
+                                                    if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
+                                                        self._set_status(hands_free_status_text())
+                                                    else:
+                                                        self._set_status(_(prior_status))
+                                            self.queue_executor.post(_disable_stop)
 
-                                    def _on_speech_complete() -> None:
-                                        def _disable_stop() -> None:
-                                            if not getattr(self, "_send_busy", False):
-                                                if self.stop_control and self.stop_control.getModel():
-                                                    with suppress_disposed("disable stop after speech", logger=log):
-                                                        self.stop_control.getModel().Enabled = False
-                                                # A sticky restart may already be capturing; Ready would hide it.
-                                                if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
-                                                    self._set_status(hands_free_status_text())
-                                                else:
-                                                    self._set_status(_(prior_status))
-                                        self.queue_executor.post(_disable_stop)
-
-                                    speak_text_async(
-                                        content_to_speak,
-                                        on_complete=_on_speech_complete,
-                                        on_status=_on_tts_status,
-                                        # Sentence breaks use BreakIterator on this UI
-                                        # thread. The audio worker only receives the list.
-                                        ctx=self.ctx,
-                                    )
-                                    if is_speaking():
-                                        if self.stop_control and self.stop_control.getModel():
-                                            with suppress_disposed("enable stop for speech", logger=log):
-                                                self.stop_control.getModel().Enabled = True
+                                        speak_text_async(
+                                            content_to_speak,
+                                            on_complete=_on_speech_complete,
+                                            on_status=_on_tts_status,
+                                            # Sentence breaks use BreakIterator on this UI
+                                            # thread. The audio worker only receives the list.
+                                            ctx=self.ctx,
+                                        )
+                                        if is_speaking():
+                                            if self.stop_control and self.stop_control.getModel():
+                                                with suppress_disposed("enable stop for speech", logger=log):
+                                                    self.stop_control.getModel().Enabled = True
                     except Exception as e:
                         log.debug("TTS playback trigger: %s", e)
                     self._flush_sticky_restart()

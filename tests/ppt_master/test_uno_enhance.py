@@ -179,7 +179,7 @@ def test_apply_transition_failure_is_not_ok(tmp_path: Path):
     assert result["status"] == "error"
     assert result["applied"] == 1
     assert notes.text == "Cue"
-    assert "TransitionType" not in slide.props
+    assert "Effect" not in slide.props
     assert "bad type" in result["message"]
 
 
@@ -193,7 +193,7 @@ def test_apply_notes_and_transition_both_count(tmp_path: Path):
 
     assert result == {"status": "ok", "applied": 2}
     assert notes.text == "Cue"
-    assert slide.props["TransitionType"] == 4
+    assert slide.props["Effect"] == 4
 
 
 def test_apply_skips_notes_on_non_impress(tmp_path: Path):

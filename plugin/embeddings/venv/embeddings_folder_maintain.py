@@ -138,6 +138,7 @@ def _ingest_rows(
     build_vectors: bool,
     search_mode: str = "embeddings",
     fill_vector_gaps: bool = False,
+    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     db_path = str(corpus_db_path(listing_root))
     meta_path = str(corpus_meta_path(listing_root))
@@ -154,6 +155,7 @@ def _ingest_rows(
             build_fts=build_fts,
             build_vectors=True,
             fill_vector_gaps=True,
+            heartbeat_fn=heartbeat_fn,
         )
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
@@ -165,6 +167,7 @@ def _ingest_rows(
             delete_keys=delete_keys,
             build_fts=build_fts,
             build_vectors=build_vectors,
+            heartbeat_fn=heartbeat_fn,
         )
 
     if build_vectors:
@@ -176,6 +179,7 @@ def _ingest_rows(
             delete_keys=list(delete_keys or []),
             build_fts=build_fts,
             build_vectors=True,
+            heartbeat_fn=heartbeat_fn,
         )
     conn = connect_corpus_db(db_path)
     try:
@@ -226,7 +230,6 @@ def _cold_build(
             }
         )
         if not rows:
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
         result = _ingest_rows(
@@ -236,6 +239,7 @@ def _cold_build(
             build_fts=build_fts,
             build_vectors=build_vectors,
             search_mode=search_mode,
+            heartbeat_fn=hb.force,
         )
         file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
         hb.force(
@@ -287,13 +291,38 @@ def _incremental_refresh(
     files_touched = 0
     total = len(files)
 
+    current_urls = {entry.url for entry in files}
+    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+    indexed_urls = get_all_indexed_urls(db_path)
+
+    for url in indexed_urls:
+        if url in current_urls:
+            continue
+        to_index, to_delete = diff_chunk_rows(db_path, url, [])
+        if to_delete:
+            file_name = url.split("/")[-1] if "/" in url else url
+            hb.force({"phase": "delete", "file": file_name, "keys": len(to_delete)})
+            _ingest_rows(
+                listing_root,
+                embedding_model,
+                [],
+                delete_keys=to_delete,
+                build_fts=build_fts,
+                build_vectors=build_vectors,
+                search_mode=search_mode,
+                heartbeat_fn=hb.force,
+            )
+            deleted += len(to_delete)
+        remove_file_from_index(db_path, url)
+        files_touched += 1
+
     for index, entry in enumerate(files):
         hb.ping({"phase": "scan", "file": entry.name, "index": index, "total": total})
         if not file_is_stale(db_path, entry.url, entry.modified):
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
         paragraph_count, chunks = _extract_file_chunks(entry)
-        to_index, to_delete = diff_chunk_rows(db_path, chunks)
+        to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
         hb.force(
             {
                 "phase": "extract",
@@ -303,6 +332,8 @@ def _incremental_refresh(
                 "mode": "incremental",
             }
         )
+        if not chunks and not to_delete:
+            continue
         if to_delete:
             hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
             _ingest_rows(
@@ -313,9 +344,10 @@ def _incremental_refresh(
                 build_fts=build_fts,
                 build_vectors=build_vectors,
                 search_mode=search_mode,
+                heartbeat_fn=hb.force,
             )
             deleted += len(to_delete)
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
+
         if to_index:
             phase = "embed" if build_vectors else "index"
             result = _ingest_rows(
@@ -325,6 +357,7 @@ def _incremental_refresh(
                 build_fts=build_fts,
                 build_vectors=build_vectors,
                 search_mode=search_mode,
+                heartbeat_fn=hb.force,
             )
             file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
             hb.force(
@@ -337,10 +370,12 @@ def _incremental_refresh(
                     "mode": "incremental",
                 }
             )
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             indexed += len(to_index)
             files_touched += 1
-        elif not to_delete:
+
+        if to_delete or to_index:
+            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
+        else:
             mark_file_indexed(db_path, entry.url, entry.modified)
             files_touched += 1
 
@@ -384,6 +419,7 @@ def _incremental_refresh(
                 build_vectors=True,
                 search_mode=search_mode,
                 fill_vector_gaps=True,
+                heartbeat_fn=hb.force,
             )
 
     db_path_final = corpus_db_path(listing_root, create_parent=False)
@@ -443,7 +479,7 @@ def maintain_folder_corpus(
             return maintain_folder_zvec(
                 root,
                 model,
-                mode=mode,
+                mode=resolved_mode,
                 heartbeat_fn=heartbeat_fn,
                 hb=hb,
             )
@@ -452,7 +488,7 @@ def maintain_folder_corpus(
         return maintain_folder_lancedb(
             root,
             model,
-            mode=mode,
+            mode=resolved_mode,
             heartbeat_fn=heartbeat_fn,
             hb=hb,
         )

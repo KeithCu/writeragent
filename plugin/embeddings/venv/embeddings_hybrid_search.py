@@ -55,7 +55,13 @@ def hybrid_corpus_search(
 
     conn = connect_corpus_db(str(db_path))
     try:
-        fts_hits = fts_corpus_search(conn, query, k=fetch_k, near_slop=near_slop)
+        fts_hits = fts_corpus_search(
+            conn,
+            query,
+            k=fetch_k,
+            near_slop=near_slop,
+            doc_url_filter=doc_url_filter,
+        )
         vec_hits = vec0_search(
             conn,
             query_vec,
@@ -64,11 +70,6 @@ def hybrid_corpus_search(
             doc_url_filter=doc_url_filter,
         )
         load_embeddings_for_candidates(conn, vec_hits, model=model)
-
-        if doc_url_filter:
-            allowed = str(doc_url_filter)
-            fts_hits = [h for h in fts_hits if str(h.get("doc_url") or "") == allowed]
-            vec_hits = [h for h in vec_hits if str(h.get("doc_url") or "") == allowed]
 
         fused = merge_hybrid_hits(fts_hits, vec_hits, k=fetch_k, rrf_k=rrf_k)
         fused = expand_candidates_to_parent_paragraphs(str(db_path), fused)

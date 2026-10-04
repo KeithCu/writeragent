@@ -67,7 +67,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
             try:
                 page = pages.getByIndex(idx)
                 if "type" in trans:
-                    page.setPropertyValue("TransitionType", int(trans["type"]))
+                    page.setPropertyValue("Effect", int(trans["type"]))
                 applied += 1
             except Exception as exc:
                 # A dead document must not look like a successful apply.

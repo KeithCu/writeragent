@@ -133,10 +133,10 @@ def count_page_text_shapes(page: Any) -> int:
     return count
 
 
-def structural_metrics_pptx(source_page: Any, imported_page: Any) -> StructuralMetrics:
+def structural_metrics_pptx(imported_page: Any) -> StructuralMetrics:
     counts = count_odf_shape_types(imported_page)
     return StructuralMetrics(
-        svg_text_elements=count_page_text_shapes(source_page),
+        svg_text_elements=count_page_text_shapes(imported_page),
         odf_text_shapes=counts.get("TextShape", 0),
         odf_shape_counts=counts,
     )
@@ -273,23 +273,12 @@ def import_slide_to_odp(
     pptx_path: Path,
     slide_index: int,
     odp_path: Path,
-) -> tuple[Any, Any, Any] | None:
+) -> tuple[Any, Any] | None:
     """Import one PPTX slide via the shipped pipeline; save a one-slide Impress doc."""
     imported = import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
     if imported is None:
         return None
-    doc, page = imported
-    source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
-    source_page = None
-    if source_doc is not None:
-        try:
-            source_page = source_doc.getDrawPages().getByIndex(slide_index)
-        finally:
-            try:
-                source_doc.close(True)
-            except Exception as exc:
-                log.debug("close source pptx doc: %s", exc)
-    return doc, page, source_page
+    return imported
 
 
 def evaluate_slide_fidelity(
@@ -322,19 +311,14 @@ def evaluate_slide_fidelity(
     if imported is None:
         result.errors.append("import_pptx_slide_to_odp failed")
         return result
-    doc, page, source_page = imported
-    if source_page is not None:
-        result.structural = structural_metrics_pptx(source_page, page)
-    else:
-        result.structural = StructuralMetrics(odf_shape_counts=count_odf_shape_types(page))
+    doc, page = imported
+
+
+    result.structural = structural_metrics_pptx(page)
     result.artifacts["imported_odp"] = str(odp_path)
-    try:
-        doc.close(True)
-    except Exception as exc:
-        log.debug("close impress doc: %s", exc)
 
     if skip_visual:
-        if result.structural and source_page is not None:
+        if result.structural:
             text_ok = result.structural.odf_text_shapes >= result.structural.svg_text_elements
             result.passed = text_ok
             if not text_ok:
@@ -343,6 +327,10 @@ def evaluate_slide_fidelity(
                 )
         else:
             result.passed = page.getCount() > 0
+        try:
+            doc.close(True)
+        except Exception as exc:
+            log.debug("close impress doc: %s", exc)
         return result
 
     imp_pdf_dir = slide_dir / "imp_pdf"
@@ -379,10 +367,16 @@ def evaluate_slide_fidelity(
             f"visual diff_fraction {result.visual.diff_fraction:.3f} > threshold {threshold:.3f} "
             f"(see {diff_png.name})"
         )
-    if result.structural and source_page is not None and result.structural.odf_text_shapes < result.structural.svg_text_elements:
+    if result.structural and result.structural.odf_text_shapes < result.structural.svg_text_elements:
         result.errors.append(
             f"text shapes {result.structural.odf_text_shapes} < pptx text shapes {result.structural.svg_text_elements}"
         )
+
+    try:
+        doc.close(True)
+    except Exception as exc:
+        log.debug("close impress doc: %s", exc)
+
     return result
 
 

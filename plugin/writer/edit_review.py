@@ -1314,7 +1314,10 @@ class WriterStreamedRewriteSession:
         if not chunk:
             return
         self.generated_text += chunk
-        self.text_range.setString(self.generated_text)
+        try:
+            self.text_range.setString(self.generated_text)
+        except Exception as e:
+            raise RuntimeError(f"Failed to append chunk: {e}") from e
 
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
@@ -1494,7 +1497,7 @@ class WriterStreamedAppendSession:
         try:
             self.text_range.setString(self.original_text + self.appended_text)
         except Exception:
-            logging.getLogger(__name__).debug("streamed append: chunk apply failed", exc_info=True)
+            raise RuntimeError("streamed append: chunk apply failed")
 
     def finish(self) -> str | None:
         """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
