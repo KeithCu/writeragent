@@ -1846,3 +1846,18 @@ def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
     assert nested["inner_exists"] is True
     assert not outer.exists()
     assert panel._stt_inflight is False
+
+class TestSTTClientReset:
+    def test_transcribe_builds_fresh_client(self) -> None:
+        host = DummyChatbotPanel()
+        host.client = MagicMock()
+        host.client.api_key = "old-key"
+
+        with (
+            patch("plugin.chatbot.send_handlers.get_api_config") as mock_get_config,
+            patch("plugin.chatbot.send_handlers.LlmClient") as mock_llm_client,
+            patch("plugin.chatbot.send_handlers.run_blocking_in_thread") as mock_run,
+            patch("plugin.chatbot.send_handlers.capture_send_stop", return_value=(MagicMock(), lambda: False))
+        ):
+            host._transcribe_audio("fake.wav", "stt-model")
+            assert mock_llm_client.called
