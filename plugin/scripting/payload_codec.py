@@ -434,48 +434,9 @@ _deal_numeric_cell_ok = (
 )
 
 
-def _deal_envelope_value_ok(val: object, *, depth: int) -> bool:
-    """Size-capped nests; leaves (scalars, bytes, numpy, dates) are not expanded.
-
-    Detectors must still return False on garbage dicts, so values are not
-    restricted to ascii tokens — only nested list/dict size is capped.
-    """
-    if depth > 10:
-        return False
-    if type(val) is str:
-        return str_bounded(val, DEAL_MAX_SOURCE)
-    if type(val) is list:
-        return len(val) <= DEAL_MAX_SHAPE_DIM and all(
-            _deal_envelope_value_ok(item, depth=depth + 1) for item in val
-        )
-    if type(val) is dict:
-        return _deal_dict_ok_at(val, depth=depth + 1)
-    return True
-
-
-def _deal_dict_ok_at(obj: object, *, depth: int) -> bool:
-    if not isinstance(obj, dict):
-        return True
-    if len(obj) > DEAL_MAX_SHAPE_DIM:
-        return False
-    for k, v in obj.items():
-        if type(k) is str:
-            if not str_bounded(k, DEAL_MAX_TOKEN):
-                return False
-        elif type(k) is int:
-            if abs(k) > DEAL_MAX_ARGV:
-                return False
-        else:
-            return False
-        if not _deal_envelope_value_ok(v, depth=depth):
-            return False
-    return True
-
-
 def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
     """Short top-level key cap for the CrossHair table only.
 
-    _deal_dict_ok_at deep-walks nested dicts and caps them at DEAL_MAX_SHAPE_DIM.
     Real split_grid.strings maps have thousands of cell entries (Gemini AFC: 7588);
     do not deep-walk. Detectors are already crosshair: off. The short table still
     rejects a dict wider than SHAPE_DIM (4) so the domain stays closed.
@@ -1134,7 +1095,7 @@ def _flatten_append_cell_slow(
                     column_states[c] = 1
             else:
                 buf_append(nan)
-                strings[idx] = cast("str", val) if t is str else str(val)
+                strings[idx] = cast("str", val) if isinstance(val, str) else str(val)
             return
         tname = t.__name__
         if tname.startswith("bool"):
@@ -1148,7 +1109,7 @@ def _flatten_append_cell_slow(
         elif tname.startswith("float"):
             buf_append(float(cast("Any", val)))
             column_states[c] = 3
-        elif t is not str:
+        elif not isinstance(val, str):
             # Bugfix: the fast path and Cython ``_flatten_cell`` float() a
             # Decimal or Fraction. This branch runs only after an earlier cell
             # set has_non_numeric, and it used to str() those values, so the
@@ -1260,7 +1221,7 @@ def _flatten_grid_to_components(
             if val is None:
                 buf_append(nan)
                 column_has_none[c] = True
-            elif t is str:
+            elif isinstance(val, str):
                 has_non_numeric = True
                 _append_cell_slow(val, c, idx)
             elif not has_non_numeric:
@@ -1295,7 +1256,9 @@ def _flatten_grid_to_components(
         use_stdlib = True
         if fast_flatten_grid_2d is not None:
             try:
-                buf, strings, column_states, column_has_none, has_non_numeric = fast_flatten_grid_2d(grid_2d, ncols)
+                buf, strings, column_states, column_has_none, has_non_numeric = fast_flatten_grid_2d(
+                    [list(row) if type(row) is tuple else row for row in grid_2d], ncols
+                )
                 use_stdlib = False
             except Exception as e:
                 log.debug("payload_codec: Cython accelerator failed, falling back to stdlib: %s", e)

@@ -1371,3 +1371,50 @@ def test_is_calc_range_payload_matches_calc_range_module(value: object) -> None:
     assert calc_range_is is payload_codec.is_calc_range_payload
     assert payload_codec.is_calc_range_payload(value) is calc_range_is(value)
 
+
+def test_host_pack_data_tuple_rows() -> None:
+    # ensure it doesn't crash cython accelerator due to PyList_GET_ITEM on tuple
+    grid = [(1.0, 2.0), (3.0, 4.0)]
+    try:
+        from plugin.scripting import payload_codec
+        orig_2d = payload_codec.fast_flatten_grid_2d
+
+        payload_codec._CYTHON_ACCELERATOR_DISABLED = False
+        payload_codec.fast_flatten_grid_2d = None
+        payload_codec.load_cython_accelerator()
+
+        # Will crash if bug is present
+        wire = host_pack_data(grid, force="always")
+
+        # Verify it packed properly
+        assert is_split_grid(wire)
+        arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+        assert shape == [2, 2]
+    finally:
+        payload_codec.fast_flatten_grid_2d = orig_2d
+
+def test_host_pack_data_numpy_str() -> None:
+    np = pytest.importorskip("numpy")
+    grid = [["0123", np.str_("0123")]]
+
+    from plugin.scripting import payload_codec
+    orig_2d = payload_codec.fast_flatten_grid_2d
+
+    try:
+        # stdlib test
+        payload_codec.fast_flatten_grid_2d = None
+        arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+        assert str_map[0] == "0123"
+        assert str_map[1] == "0123"
+
+        # accel test
+        payload_codec._CYTHON_ACCELERATOR_DISABLED = False
+        payload_codec.fast_flatten_grid_2d = None
+        payload_codec.load_cython_accelerator()
+
+        if payload_codec.fast_flatten_grid_2d is not None:
+            arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+            assert str_map[0] == "0123"
+            assert str_map[1] == "0123"
+    finally:
+        payload_codec.fast_flatten_grid_2d = orig_2d
