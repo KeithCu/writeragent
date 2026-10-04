@@ -187,7 +187,7 @@ def test_web_research_approval_missing_queue_does_not_run_search():
     registry, old_main = _install_fake_main_registry()
     try:
         with patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True):
-            out = execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
+            execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
             called_ctx = registry.execute.call_args[0][1]
             approval_result = called_ctx.approval_callback("query", "web_research", {})
             assert approval_result == (False, None)
