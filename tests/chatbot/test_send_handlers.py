@@ -1854,9 +1854,9 @@ class TestSTTClientReset:
         host.client.api_key = "old-key"
 
         with (
-            patch("plugin.chatbot.send_handlers.get_api_config") as mock_get_config,
+            patch("plugin.chatbot.send_handlers.get_api_config"),
             patch("plugin.chatbot.send_handlers.LlmClient") as mock_llm_client,
-            patch("plugin.chatbot.send_handlers.run_blocking_in_thread") as mock_run,
+            patch("plugin.chatbot.send_handlers.run_blocking_in_thread"),
             patch("plugin.chatbot.send_handlers.capture_send_stop", return_value=(MagicMock(), lambda: False))
         ):
             host._transcribe_audio("fake.wav", "stt-model")
