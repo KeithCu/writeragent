@@ -577,13 +577,13 @@ class NotebookRunButtonListener(BaseActionListener):
             self._doc_url = str(doc.getURL() or "")
         except Exception:
             self._doc_url = ""
-        from plugin.framework.uno_context import get_runtime_uid
+        from plugin.framework.uno_context import _read_runtime_uid
 
         # Untitled Writer docs have an empty URL. Hidden native tests (and a
         # notebook that is not Desktop.getCurrentComponent) then failed
         # get_active_document; PyUNO wrappers usually cannot be weakref'd, so
         # ▶ looked wired but actionPerformed returned "document gone".
-        self._runtime_uid = get_runtime_uid(doc) or ""
+        self._runtime_uid = _read_runtime_uid(doc) or ""
         try:
             import weakref
 
