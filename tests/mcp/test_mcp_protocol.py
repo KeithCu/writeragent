@@ -55,6 +55,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
             return _Tool()
 
         def execute(self, name, context, **kwargs):
+            assert "bypass_thread_guard" not in kwargs
             return {"status": "ok"}
 
     class _FakeMainThread:
@@ -164,6 +165,41 @@ def _handler(doc, tool):
     return MCPProtocolHandler(_Services(registry, doc))
 
 
+def _watch_execute_safe(handler, *, record_safe: bool = True):
+    """Fail if MCP passes bypass_thread_guard. Optionally count execute_safe entries.
+
+    record_safe=False leaves tool.execute_safe as the real method so callers can
+    identify it as the registry runner (the marshal tests).
+    """
+    registry = handler.tool_registry
+    real_execute = registry.execute
+    seen: list[dict] = []
+
+    def execute(tool_name, ctx, *args, **kwargs):
+        assert args == ()
+        assert "bypass_thread_guard" not in kwargs
+        tool = registry.get(tool_name)
+        safe_calls: list[dict] = []
+        original_safe = None
+        if record_safe and tool is not None:
+            original_safe = tool.execute_safe
+
+            def execute_safe(ctx, **tool_kwargs):
+                safe_calls.append(dict(tool_kwargs))
+                return original_safe(ctx, **tool_kwargs)
+
+            tool.execute_safe = execute_safe
+        try:
+            return real_execute(tool_name, ctx, *args, **kwargs)
+        finally:
+            seen.append({"kwargs": dict(kwargs), "execute_safe": len(safe_calls)})
+            if original_safe is not None and tool is not None:
+                tool.execute_safe = original_safe
+
+    registry.execute = execute
+    return seen
+
+
 def _payload(result):
     if isinstance(result, dict) and "content" in result:
         return json.loads(result["content"][0]["text"])
@@ -176,9 +212,11 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
 
     What was wrong: the key bound to ToolRegistry.execute's keyword-only flag,
     which calls tool.execute and skips the disposed-document check.
+    MCP must drop the key and must not pass the keyword at all.
     """
     tool = _SyncProbe()
     handler = _handler(_DisposedDoc(), tool)
+    seen = _watch_execute_safe(handler)
     args = {"bypass_thread_guard": bypass, "note": "keep"}
 
     direct = handler._execute_long_running("sync_probe", dict(args), document_url="file:///gone.odt")
@@ -195,28 +233,37 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
     assert debug["code"] == "DOCUMENT_DISPOSED"
     assert backpressure["code"] == "DOCUMENT_DISPOSED"
     assert tool.body_calls == []
+    assert seen and all(call["execute_safe"] == 1 for call in seen)
+    assert all("bypass_thread_guard" not in call["kwargs"] for call in seen)
+    assert all(call["kwargs"].get("note") == "keep" for call in seen)
 
 
 def test_tools_call_keeps_real_arguments_when_stripping_bypass():
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)
+    seen = _watch_execute_safe(handler)
     result = handler._execute_long_running("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
     assert result["status"] == "ok"
     assert result["note"] == "keep"
     assert tool.body_calls == [{"note": "keep"}]
+    assert seen == [{"kwargs": {"note": "keep"}, "execute_safe": 1}]
 
 
 def test_long_running_bypass_still_marshals_to_the_main_thread():
-    """Sync long-running tools/call must not run the body on the HTTP worker.
+    """Sync tools/call must marshal execute_safe, not call tool.execute on the worker.
 
-    bypass_thread_guard=True used to call tool.execute on that worker.
+    A client bypass value used to call tool.execute on that worker. MCP must not pass the keyword.
     """
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)
+    seen = _watch_execute_safe(handler, record_safe=False)
     marshalled = []
 
     def fake_marshal(fn):
         marshalled.append(threading.current_thread().name)
+        free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
+        runner = free["runner"]
+        assert getattr(runner, "__func__", None) is ToolBase.execute_safe
         return {"status": "ok", "marshalled": True}
 
     box = {}
@@ -232,16 +279,22 @@ def test_long_running_bypass_still_marshals_to_the_main_thread():
     assert marshalled == ["http-worker"]
     assert tool.body_calls == []
     assert _payload(box["result"])["marshalled"] is True
+    assert seen and all("bypass_thread_guard" not in call["kwargs"] for call in seen)
+    assert all(set(call["kwargs"]) <= {"note"} for call in seen)
 
 
 def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
     tool = _SyncProbe()
     tool.long_running = False
     handler = _handler(_LiveDoc(), tool)
+    seen = _watch_execute_safe(handler, record_safe=False)
     marshalled = []
 
     def fake_marshal(fn):
         marshalled.append("marshal")
+        free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
+        runner = free["runner"]
+        assert getattr(runner, "__func__", None) is ToolBase.execute_safe
         return {"status": "ok", "marshalled": True}
 
     box = {}
@@ -259,6 +312,8 @@ def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
     assert tool.body_calls == []
     assert box["debug"]["marshalled"] is True
     assert box["direct"]["marshalled"] is True
+    assert len(seen) == 2
+    assert all("bypass_thread_guard" not in call["kwargs"] for call in seen)
 
 
 class _NoHeaders:
@@ -401,6 +456,59 @@ def test_http_server_stop_ends_sse_keepalive():
             client.close()
         if srv is not None:
             srv.stop()
+
+
+def test_async_long_running_uses_execute_safe_without_bypass_keyword():
+    """is_async tools are the long-running path and still use execute_safe."""
+
+    class _AsyncProbe(ToolBase):
+        name = "async_probe"
+        description = "probe"
+        parameters = {"type": "object", "properties": {"note": {"type": "string"}}}
+        uno_services = None
+        doc_types = None
+        requires_document = True
+        long_running = True
+        timeout = 30
+
+        def __init__(self):
+            self.body_calls: list[dict] = []
+
+        def is_async(self):
+            return True
+
+        def execute(self, ctx, **kwargs):
+            self.body_calls.append(dict(kwargs))
+            return {"status": "ok", "note": kwargs.get("note")}
+
+    tool = _AsyncProbe()
+    handler = _handler(_LiveDoc(), tool)
+    seen = _watch_execute_safe(handler)
+    marshalled = []
+
+    def fail_marshal(fn):
+        marshalled.append(fn)
+        raise AssertionError("is_async MCP tool must not be marshalled to the main thread")
+
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fail_marshal):
+        result = handler._execute_long_running("async_probe", {"bypass_thread_guard": False, "note": "keep"}, document_url="file:///live.odt")
+
+    assert marshalled == []
+    assert result["status"] == "ok"
+    assert result["note"] == "keep"
+    assert tool.body_calls == [{"note": "keep"}]
+    assert seen == [{"kwargs": {"note": "keep"}, "execute_safe": 1}]
+
+
+def test_long_running_flag_without_is_async_stays_on_backpressure():
+    """long_running=True is not a second path that passes bypass_thread_guard."""
+    tool = _SyncProbe()
+    tool.long_running = True
+    handler = _handler(_LiveDoc(), tool)
+    with patch.object(handler, "_execute_long_running", side_effect=AssertionError("long_running flag must not select the worker path")) as mock_lr, patch.object(handler, "_execute_with_backpressure", return_value={"status": "ok"}) as mock_bp:
+        handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True}})
+    assert mock_bp.called
+    assert not mock_lr.called
 
 
 def test_async_tools_are_long_running():
