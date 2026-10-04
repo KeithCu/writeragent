@@ -280,6 +280,8 @@ Missing packages fail when code imports them (no import pre-check at executor in
 
 Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scripting/import_policy.py)` (whitelist in `[sandbox.py](../plugin/scripting/sandbox.py)`). It always leads with a **sandbox context prefix** before module lists so models know they are in an AST **Python sandbox** inside a **same-user** venv subprocess (not LibreOffice/UNO). Host pickle frames reconstruct builtin types only.
 
+`writeragent.X` is the script alias for `plugin.X` (`AliasImporter`). It is allowed only when `plugin.X` is on `VENV_AUTHORIZED_IMPORTS`, or that exact alias is listed (`writeragent.vision`, `writeragent.scripting.duckdb_sql`). A blanket `writeragent.*` is not used: it loaded `plugin.framework.config` and `LlmClient`. `duckdb` / `duckdb.*` stay on the list. `plugin.scripting.duckdb_sql` stays off it.
+
 
 | Category                                              | Modules                                                                                                                                                                                                                                                                   |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

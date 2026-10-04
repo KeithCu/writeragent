@@ -233,12 +233,21 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
 
     if base_cell and base_cell.strip():
         prefix, address = split_sheet_prefix(base_cell.strip())
-        if prefix and hasattr(doc, "getSheets"):
-            sheets = doc.getSheets()
-            for idx in range(sheets.getCount()):
-                if sheets.getByIndex(idx).getName() == prefix:
-                    sheet_idx = idx
-                    break
+        if prefix:
+            # What was wrong: an unknown sheet left sheet_idx at the default
+            # (usually 0), so a relative name was anchored on the wrong sheet.
+            # How: the scan broke only on a match and ignored a finished loop.
+            # Why: a prefix that names no sheet is an error, same as a bad cell.
+            found = False
+            if hasattr(doc, "getSheets"):
+                sheets = doc.getSheets()
+                for idx in range(sheets.getCount()):
+                    if sheets.getByIndex(idx).getName() == prefix:
+                        sheet_idx = idx
+                        found = True
+                        break
+            if not found:
+                raise ValueError("No sheet named '%s'." % prefix)
 
         # This will raise ValueError if invalid, instead of silently returning 0,0 (A1)
         col_idx, row_idx = parse_address(address)
@@ -399,7 +408,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
             "name": {"type": "string", "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces."},
             "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)')."},
             "scope": {"type": "string", "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1')."},
-            "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0."},
+            "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
         },
         "required": ["name", "content"],
@@ -456,7 +465,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
             "new_name": {"type": "string", "description": "New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces."},
             "content": {"type": "string", "description": "New formula or range address content."},
             "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."},
-            "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates."},
+            "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
         },
         "required": ["name"],

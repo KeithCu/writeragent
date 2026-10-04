@@ -101,3 +101,23 @@ def test_validate_sandbox_ast_rejects_global() -> None:
     err = validate_sandbox_ast(module, list(BASE_BUILTIN_MODULES))
     assert err is not None
     assert "Global" in err
+
+
+def test_validate_sandbox_ast_writeragent_star_does_not_allow_secrets() -> None:
+    """A passed-in writeragent.* must not authorize config or LlmClient."""
+    allowed = ["writeragent.*", "plugin.scripting.analysis", "duckdb", "duckdb.*"]
+    config_err = validate_sandbox_ast(ast.parse("import writeragent.framework.config"), allowed)
+    assert config_err is not None
+    assert "writeragent.framework.config" in config_err
+    llm_err = validate_sandbox_ast(
+        ast.parse("from writeragent.framework.client.llm_client import LlmClient"),
+        allowed,
+    )
+    assert llm_err is not None
+    assert "llm_client" in llm_err
+    assert validate_sandbox_ast(
+        ast.parse("from writeragent.scripting.analysis import run_analysis"),
+        allowed,
+    ) is None
+    assert validate_sandbox_ast(ast.parse("import duckdb"), allowed) is None
+    assert validate_sandbox_ast(ast.parse("import duckdb.functional"), allowed) is None

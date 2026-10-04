@@ -7,7 +7,7 @@
 
 from unittest.mock import MagicMock
 
-from plugin.calc.comments import _annotation_text, _split_cell_sheet
+from plugin.calc.comments import _annotation_date, _annotation_text, _split_cell_sheet
 
 
 def test_annotation_text_uses_get_string_when_present():
@@ -59,11 +59,10 @@ def test_split_cell_sheet_conflict_raises():
         assert "Summary" in str(e)
         assert "Other" in str(e)
 
-def test_list_cell_comments_serializes_uno_date():
+def _list_one_comment(date_value):
+    """Run list_cell_comments against one mocked annotation."""
     import json
     from plugin.calc.comments import ListCellComments
-    from unittest.mock import MagicMock
-
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -72,7 +71,6 @@ def test_list_cell_comments_serializes_uno_date():
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
 
-    # Setup doc to return our sheet
     # list_cell_comments resolves sheet via resolve_sheet
     def get_sheet_by_name(name):
         return sheet
@@ -101,6 +99,29 @@ def test_list_cell_comments_serializes_uno_date():
     sheet.getAnnotations.return_value = annotations
 
     cell_ann = MagicMock()
+    cell_ann.getDate.return_value = date_value
+    cell_ann.getString.return_value = "Test comment"
+
+    cell = MagicMock()
+    cell.getAnnotation.return_value = cell_ann
+    sheet.getCellByPosition.return_value = cell
+
+    res = ListCellComments().execute(ctx, sheet="Sheet1")
+    json.dumps(res)
+    return res
+
+
+def test_list_cell_comments_keeps_formatted_date_string():
+    # XSheetAnnotation.getDate() is a formatted string, not a DateTime struct.
+    # Treating it as a struct dropped every date (attribute access failed).
+    res = _list_one_comment("10/24/2023 12:30 PM")
+
+    assert res["status"] == "ok"
+    assert res["comments"][0]["date"] == "10/24/2023 12:30 PM"
+    assert res["comments"][0]["text"] == "Test comment"
+
+
+def test_list_cell_comments_formats_datetime_struct_fallback():
     class DummyDateTime:
         Year = 2023
         Month = 10
@@ -108,21 +129,18 @@ def test_list_cell_comments_serializes_uno_date():
         Hours = 12
         Minutes = 30
 
-    cell_ann.getDate.return_value = DummyDateTime()
-    cell_ann.getString.return_value = "Test comment"
-
-    cell = MagicMock()
-    cell.getAnnotation.return_value = cell_ann
-    sheet.getCellByPosition.return_value = cell
-
-    tool = ListCellComments()
-    res = tool.execute(ctx, sheet="Sheet1")
-
-    assert res["status"] == "ok"
+    res = _list_one_comment(DummyDateTime())
     assert res["comments"][0]["date"] == "2023-10-24 12:30"
 
-    # Verify json.dumps works on the result without errors
-    try:
-        json.dumps(res)
-    except TypeError:
-        assert False, "ListCellComments result is not JSON serializable"
+
+def test_annotation_date_string_struct_and_empty():
+    class DateOnly:
+        Year = 2023
+        Month = 1
+        Day = 2
+
+    assert _annotation_date("2023-10-24 12:30") == "2023-10-24 12:30"
+    assert _annotation_date("") == ""
+    assert _annotation_date(DateOnly()) == "2023-01-02"
+    assert _annotation_date(None) == ""
+    assert _annotation_date(object()) == ""

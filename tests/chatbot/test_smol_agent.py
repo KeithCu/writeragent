@@ -104,6 +104,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         query_control=query_control,
         _in_librarian_mode=in_librarian_mode,
         _terminal_status="Ready",
+        _stt_inflight=False,
         _set_status=MagicMock(),
         _get_document_model=MagicMock(return_value=object()),
         _append_response=MagicMock(),

@@ -207,6 +207,8 @@ These are **two different problems**. The old “Forms ✅ Complete” row only 
 - `form_list_controls` / `form_edit_control` / `form_delete_control` address by **name** (index remains). Optional `page` on Draw/Impress.
 - List/edit expose checkbox/radio **State** (0/1/2). When `index` is omitted, `name` is the lookup; `new_name` renames. `index` + `name` still means rename (older callers).
 - Shared registration stays `ToolWriterFormBase` ∪ `ToolDrawFormBase`. No Draw-only fork.
+- `form_create` and `form_generate` return `status: error` (per-field payloads in `details.results`) when any field fails. A finished batch stays `status: ok`.
+- Calc label and spacer text is appended only to an empty or text cell. A formula or number in the active cell is not passed through `getString()` + `setString()`, which would replace it with literal text.
 
 ----
 

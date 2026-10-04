@@ -327,6 +327,123 @@ def test_parse_whisper_stdout() -> None:
         stt_service.parse_whisper_stdout("")
 
 
+def test_run_cmd_returns_child_stdout() -> None:
+    completed = stt_service._run_cmd([sys.executable, "-c", "print('hello-stt')"], 30)
+    assert completed is not None
+    assert completed.returncode == 0
+    assert "hello-stt" in completed.stdout
+
+
+def test_run_cmd_stop_kills_child_and_does_not_wait_out_timeout() -> None:
+    """Stop must kill the child. The 900s bound is not the wait when Stop is set."""
+    import os
+    import time
+
+    started = {"pid": 0}
+
+    def _on_spawn(proc: subprocess.Popen[str]) -> None:
+        started["pid"] = proc.pid
+
+    def _stop() -> bool:
+        return started["pid"] != 0
+
+    t0 = time.monotonic()
+    with pytest.raises(stt_service.SttStopped):
+        stt_service._run_cmd(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            10,
+            stop_checker=_stop,
+            on_spawn=_on_spawn,
+        )
+    assert time.monotonic() - t0 < 5
+    pid = started["pid"]
+    assert pid > 0
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        if time.monotonic() >= deadline:
+            raise AssertionError("STT child %s was still alive after Stop" % pid)
+        time.sleep(0.05)
+
+
+def test_stop_on_captured_scope_kills_only_that_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+
+    from plugin.framework.queue_executor import SendCancellation
+
+    first = SendCancellation()
+    second = SendCancellation()
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 5150
+            self.returncode: int | None = None
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("")
+            self.killed = False
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self.returncode is None:
+                second.cancel()
+                assert self.killed is False
+                first.cancel()
+                assert self.killed is True
+                raise subprocess.TimeoutExpired(cmd="whisper", timeout=0.2)
+            return self.returncode
+
+    monkeypatch.setattr(stt_service.subprocess, "Popen", lambda *_a, **_k: _Proc())
+    with pytest.raises(stt_service.SttStopped):
+        stt_service._run_cmd(
+            [sys.executable, "-c", "pass"],
+            10,
+            stop_checker=first.is_cancelled,
+            cancel_scope=first,
+        )
+
+
+def test_transcribe_forwards_stop_checker_to_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(stt_service, "uses_local_stt", lambda: False)
+    client = MagicMock()
+    client.transcribe_audio.return_value = "from endpoint"
+
+    def _checker() -> bool:
+        return False
+
+    assert stt_service.transcribe("/tmp/a.wav", client=client, model="whisper-1", stop_checker=_checker) == "from endpoint"
+    client.transcribe_audio.assert_called_once_with("/tmp/a.wav", model="whisper-1", stop_checker=_checker)
+
+
+def test_transcribe_forwards_stop_checker_to_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(stt_service, "uses_local_stt", lambda: True)
+    monkeypatch.setattr(stt_service, "get_stt_local_model", lambda: "base")
+    seen: dict[str, object] = {}
+
+    def _local(wav: str, model: str, on_status: object, **kwargs: object) -> str:
+        del wav, model, on_status
+        seen.update(kwargs)
+        return "local"
+
+    monkeypatch.setattr(stt_service, "_transcribe_local", _local)
+    def _checker() -> bool:
+        return False
+
+    scope = object()
+    assert stt_service.transcribe("/tmp/a.wav", stop_checker=_checker, cancel_scope=scope) == "local"
+    assert seen["stop_checker"] is _checker
+    assert seen["cancel_scope"] is scope
+
+
 def test_child_script_missing_package_is_json() -> None:
     """The venv entry reports a missing import as JSON and does not touch the network."""
     import importlib.util

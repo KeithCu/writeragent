@@ -1107,9 +1107,15 @@ class CellManipulator:
             target = result_range(c1, r1, rows, cols)
 
         # Rewriting the same array formula in place is an update.
+        # What was wrong: the old array was cleared before this scan, so a
+        # refusal ("Nothing was written") had already deleted it.
+        # How: setArrayFormula("") ran, then an occupied target cell raised.
+        # Why: cells inside the array being replaced are not "occupied", and
+        # the clear runs only after the new target is accepted.
         existing = self._array_block(sheet, c1, r1)
+        replaced_box: tuple[int, int, int, int] | None = None
         if existing is not None and (existing.StartColumn, existing.StartRow) == (c1, r1):
-            sheet.getCellRangeByPosition(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow).setArrayFormula("")
+            replaced_box = (int(existing.StartColumn), int(existing.StartRow), int(existing.EndColumn), int(existing.EndRow))
 
         t_c1, t_r1, t_c2, t_r2 = target
         occupied: list[tuple[int, int]] = []
@@ -1117,12 +1123,17 @@ class CellManipulator:
             for col in range(t_c1, t_c2 + 1):
                 if (col, row) == (c1, r1):
                     continue
+                if replaced_box is not None and replaced_box[0] <= col <= replaced_box[2] and replaced_box[1] <= row <= replaced_box[3]:
+                    continue
                 cell = sheet.getCellByPosition(col, row)
                 if cell.getFormula() or cell.getString():
                     occupied.append((col, row))
         if occupied:
             block_c, block_r = occupied[0]
             raise CalcError("The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere." % (block_name(*target), len(occupied), "%s%d" % (index_to_column(block_c), block_r + 1)))
+
+        if replaced_box is not None:
+            sheet.getCellRangeByPosition(*replaced_box).setArrayFormula("")
 
         rng = sheet.getCellRangeByPosition(*target)
         rng.setArrayFormula(formula)

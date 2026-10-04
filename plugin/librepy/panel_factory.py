@@ -5,7 +5,8 @@
 """LibrePy Python sidebar panel (Calc + Writer) — UNO factory + XDL shell.
 
 Follows the ChatPanel pattern: XUIElement creates the panel in getRealInterface()
-via ContainerWindowProvider + XDL. No chat imports.
+via ContainerWindowProvider + XDL, on the VCL thread. Deck close cleans up
+through the root window listener, not XUIElement.dispose. No chat imports.
 """
 
 from __future__ import annotations
@@ -58,6 +59,21 @@ def _get_arg(args: Any, name: str) -> Any:
         if hasattr(pv, "Name") and pv.Name == name:
             return pv.Value
     return None
+
+
+def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """Run *fn* on the VCL thread.
+
+    URP dispatch calls ``PythonPanelElement.getRealInterface`` off the VCL
+    thread (Dummy-N). ``get_extension_url`` is ``@main_thread_only``. Creating
+    the AWT window off-main is a UNO thread violation and leaves black menus.
+    """
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
+
+    if on_main_thread():
+        return fn(*args, **kwargs)
+    return execute_on_main_thread(fn, *args, **kwargs)
 
 
 def _ensure_paths(ctx: Any) -> None:
@@ -152,16 +168,34 @@ class PythonPanelElement(unohelper.Base, XUIElement):
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
         if not self.toolpanel:
             try:
-                _ensure_paths(self.ctx)
-                root_window = self._getOrCreatePanelRootWindow()
-                self.toolpanel = PythonToolPanel(root_window, self.xParentWindow, self.ctx)
-                from plugin.librepy.python_sidebar import PythonSidebarController
+                # Dummy-N URP getRealInterface: hop path init + window create
+                # (get_extension_url is @main_thread_only) onto the VCL thread.
+                # Off-main AWT creation is a UNO thread violation and leaves
+                # black menus.
+                def _create_panel() -> None:
+                    _ensure_paths(self.ctx)
+                    root_window = self._getOrCreatePanelRootWindow()
+                    self.toolpanel = PythonToolPanel(root_window, self.xParentWindow, self.ctx)
+                    from plugin.librepy.python_sidebar import PythonSidebarController
 
-                self.controller = PythonSidebarController(self.ctx, root_window, self.xFrame)
-                self.toolpanel.resize_listener = getattr(self.controller, "resize_listener", None)
-                log.info("[LIBREPY FIRST LAYOUT] root_w=%d (initial size on app start / sidebar show)", root_window.getPosSize().Width)
+                    self.controller = PythonSidebarController(self.ctx, root_window, self.xFrame)
+                    self.toolpanel.resize_listener = getattr(self.controller, "resize_listener", None)
+                    log.info("[LIBREPY FIRST LAYOUT] root_w=%d (initial size on app start / sidebar show)", root_window.getPosSize().Width)
+
+                _run_on_main_thread(_create_panel)
             except Exception as e:
+                # What was wrong: toolpanel was assigned before the controller
+                # finished. A later failure left the half-built panel latched,
+                # so the next getRealInterface returned it and never retried.
                 log.exception("PythonPanel getRealInterface failed")
+                self.toolpanel = None
+                controller = self.controller
+                self.controller = None
+                if controller is not None:
+                    try:
+                        controller.disposing()
+                    except Exception:
+                        log.debug("LibrePy sidebar cleanup after failed create", exc_info=True)
                 raise UnoObjectError("Failed to create LibrePy Python sidebar panel", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
         return cast("XInterface", cast("object", self.toolpanel))
@@ -174,7 +208,18 @@ class PythonPanelElement(unohelper.Base, XUIElement):
             ctx = get_ctx()
         provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
         self.m_panelRootWindow = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
-        if self.m_panelRootWindow and hasattr(self.m_panelRootWindow, "setVisible"):
+        if not self.m_panelRootWindow:
+            # What was wrong: a null window was returned and then latched on a
+            # PythonToolPanel. How: ContainerWindowProvider returns null when
+            # the XDL URL cannot be loaded, and the caller treated that as a
+            # panel. Why: raise before anything is published so the next
+            # getRealInterface can retry.
+            log.error("LibrePy createContainerWindow returned no window url=%s", dialog_url)
+            raise UnoObjectError(
+                "LibrePy createContainerWindow returned no window",
+                details={"dialog_url": dialog_url},
+            )
+        if hasattr(self.m_panelRootWindow, "setVisible"):
             with suppress_disposed("setVisible", logger=log):
                 self.m_panelRootWindow.setVisible(True)
         with suppress_disposed("constrain panel", logger=log):
@@ -185,11 +230,15 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         return self.m_panelRootWindow
 
     def disposing(self, Source: Any = None) -> None:
+        # LibreOffice does not call this. PythonPanelElement is XUIElement
+        # only, not XComponent, so the sidebar dispose query fails. Deck
+        # close runs PythonSidebarController.disposing from the root window
+        # listener. This remains the explicit teardown of that same controller.
         try:
             if self.controller is not None:
                 self.controller.disposing()
         except Exception:
-            pass
+            log.debug("LibrePy sidebar element dispose failed", exc_info=True)
         self.controller = None
 
 

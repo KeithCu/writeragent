@@ -23,13 +23,58 @@ _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
 _MAX_PRECEDENT_CELLS = 10_000
 
 
+def _sheet_name(sheet: Any) -> str:
+    getter = getattr(sheet, "getName", None)
+    if not callable(getter):
+        return ""
+    try:
+        name = getter()
+    except Exception:
+        return ""
+    return name if isinstance(name, str) else ""
+
+
+def _address_on_sheet(sheet: Any, col: int, row: int) -> str:
+    """Cell address, qualified with the sheet when its name is known.
+
+    Cross-sheet precedents used to be emitted as a bare ``A1`` read from the
+    formula's sheet. The sheet name makes ``Sheet2.A1`` distinct from ``A1``.
+    """
+    local = format_address(col, row)
+    name = _sheet_name(sheet)
+    if not name:
+        return local
+    if any(ch in name for ch in " .!'"):
+        return "'%s'!%s" % (name.replace("'", "''"), local)
+    return "%s.%s" % (name, local)
+
+
+def _sheet_for_precedent(doc: Any, fallback: Any, sheet_index: Any) -> Any:
+    """Spreadsheet named by ``CellRangeAddress.Sheet``.
+
+    What was wrong: ``queryPrecedents`` carries a sheet index, and the walk
+    snapshotted the formula's sheet anyway. ``=Data.A1`` reported the
+    formula sheet's A1.
+    How: ``addr.Sheet`` was ignored.
+    Why: ``getSheets().getByIndex`` is the sheet that index names. A missing
+    index (callers that only have the formula sheet) keeps *fallback*.
+    """
+    if doc is None or sheet_index is None:
+        return fallback
+    try:
+        return doc.getSheets().getByIndex(int(sheet_index))
+    except Exception:
+        log.debug("Could not resolve precedent sheet %s", sheet_index, exc_info=True)
+        return fallback
+
+
 def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
     cell = sheet.getCellByPosition(col, row)
     from com.sun.star.table import CellContentType
 
     ctype = cell.getType()
     type_name = CellInspector._cell_type_name(ctype)
-    addr = format_address(col, row)
+    addr = _address_on_sheet(sheet, col, row)
     snapshot: dict[str, Any] = {"address": addr, "type": type_name}
 
     try:
@@ -51,12 +96,14 @@ def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
     return snapshot
 
 
-def _precedents_via_formula_query(sheet: Any, col: int, row: int) -> dict[str, Any]:
+def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = None) -> dict[str, Any]:
     """Build a lightweight precedent list when ``FormulaDepChain`` UNO is unavailable.
 
     Precedent ranges are expanded to cell snapshots up to
     ``_MAX_PRECEDENT_CELLS``. ``truncated`` is true when the cap stopped
-    the walk (for example a whole-column ``SUM``).
+    the walk (for example a whole-column ``SUM``). ``doc`` resolves
+    ``CellRangeAddress.Sheet`` so a cross-sheet precedent is read from
+    that sheet. Without ``doc``, ranges are read from *sheet*.
     """
     try:
         from com.sun.star.sheet import XFormulaQuery
@@ -77,12 +124,14 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int) -> dict[str, A
         if ranges is None:
             return {"source": "formula_query", "precedents": precedents, "truncated": False}
         for addr in ranges.getRangeAddresses():
+            # Sheet 0 is a real sheet. Only a missing index means "this sheet".
+            prec_sheet = _sheet_for_precedent(doc, sheet, getattr(addr, "Sheet", None))
             for r in range(addr.StartRow, addr.EndRow + 1):
                 for c in range(addr.StartColumn, addr.EndColumn + 1):
                     if len(precedents) >= _MAX_PRECEDENT_CELLS:
                         truncated = True
                         break
-                    precedents.append(_cell_snapshot(sheet, c, r))
+                    precedents.append(_cell_snapshot(prec_sheet, c, r))
                 if truncated:
                     break
             if truncated:
@@ -129,7 +178,7 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
             log.debug("getCommandValues(%s) failed", _FORMULA_DEP_CHAIN_CMD, exc_info=True)
 
     if not chain:
-        chain = _precedents_via_formula_query(sheet, col, row)
+        chain = _precedents_via_formula_query(sheet, col, row, doc)
 
     if chain is not None:
         chain.setdefault("cell", address.upper())

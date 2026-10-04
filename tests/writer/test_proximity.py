@@ -171,3 +171,37 @@ def test_navigate_missing_bookmark_raises():
     doc.getBookmarks = lambda: _Bookmarks()
     with pytest.raises(ToolExecutionError, match="Bookmark '_mcp_stale' not found"):
         prox.navigate_heading(doc, "bookmark:_mcp_stale", "next")
+
+
+def test_navigate_stale_bookmark_does_not_use_paragraph_zero():
+    doc, prox = _nav_stack(
+        [
+            ElementStub("Alpha", outline_level=1),
+            ElementStub("Beta", outline_level=1),
+        ]
+    )
+
+    class _Anchor:
+        def getStart(self):
+            raise RuntimeError("stale anchor")
+
+        def getString(self):
+            return ""
+
+    class _Mark:
+        def getAnchor(self):
+            return _Anchor()
+
+    class _Bookmarks:
+        def hasByName(self, _name):
+            return True
+
+        def getByName(self, _name):
+            return _Mark()
+
+        def getElementNames(self):
+            return ["_mcp_stale"]
+
+    doc.getBookmarks = lambda: _Bookmarks()
+    with pytest.raises(ToolExecutionError, match="Bookmark '_mcp_stale' anchor is not in the document"):
+        prox.navigate_heading(doc, "bookmark:_mcp_stale", "next")
