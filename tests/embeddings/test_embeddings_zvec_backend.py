@@ -95,3 +95,16 @@ def test_maintain_zvec_cold_proceeds(tmp_path):
         assert out["mode"] == "zvec"
     except Exception as e:
         assert "Zvec backend selected but the 'zvec' package is not importable" in str(e)
+
+def test_zvec_clear_cache_invalidates():
+    """Verify zvec_clear_cache pops an item from _COLL_CACHE."""
+    from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache, _COLL_CACHE
+
+    test_path = "/tmp/fake_collection"
+    _COLL_CACHE[test_path] = "fake_collection_obj"
+
+    assert test_path in _COLL_CACHE
+
+    zvec_clear_cache(test_path)
+
+    assert test_path not in _COLL_CACHE
