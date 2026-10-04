@@ -169,10 +169,33 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
                     from plugin.framework.queue_executor import execute_on_main_thread
 
+                    # What was wrong: the plot landed on the front window, and a
+                    # failed insert still said "plot(s) inserted". How: doc= was
+                    # omitted (egress used getCurrentComponent) and the call's
+                    # silent return was treated as success. Why: pass ctx.doc,
+                    # and only report inserted after the main-thread call returns.
+                    inserted = 0
+                    failure: Exception | None = None
                     for img in images:
-                        execute_on_main_thread(insert_image_result_on_sheet, ctx.ctx, img)
-                    out["message"] = f"{len(images)} plot(s) inserted on active sheet"
-                    out["image_inserted"] = True
+                        try:
+                            execute_on_main_thread(insert_image_result_on_sheet, ctx.ctx, img, doc=ctx.doc)
+                        except Exception as exc:
+                            log.warning("run_venv_python_script: plot insert failed: %s", exc)
+                            failure = exc
+                            break
+                        inserted += 1
+                    if failure is not None and inserted == 0:
+                        out["status"] = "error"
+                        out["image_inserted"] = False
+                        out["plot_error"] = str(failure)
+                        out["message"] = f"Plot was not inserted: {failure}"
+                    elif failure is not None:
+                        out["image_inserted"] = True
+                        out["plot_error"] = str(failure)
+                        out["message"] = f"{inserted} of {len(images)} plot(s) inserted on active sheet"
+                    else:
+                        out["message"] = f"{len(images)} plot(s) inserted on active sheet"
+                        out["image_inserted"] = True
                 return out
 
         return res

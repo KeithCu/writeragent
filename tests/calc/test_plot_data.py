@@ -41,6 +41,30 @@ def test_plot_data_happy_path(mock_run, mock_main_thread, calc_ctx):
     mock_run.assert_called_once()
 
 
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.scripting.viz.run_trusted_viz")
+def test_plot_data_insert_failure_is_not_success(mock_run, mock_main_thread, calc_ctx):
+    mock_run.return_value = {
+        "status": "ok",
+        "helper": "quick_plot",
+        "title": "Quick plot",
+        "image": {"__wa_payload__": "image", "format": "png", "data": b"x"},
+    }
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    with patch(
+        "plugin.calc.viz.insert_viz_result_into_doc",
+        side_effect=RuntimeError("target sheet has no DrawPage"),
+    ):
+        tool = PlotDataTool()
+        result = tool.execute(calc_ctx, helper="quick_plot", data_range="Sheet1.A1:C10")
+
+    assert result["status"] == "error"
+    assert result.get("image_inserted") is False
+    assert "not inserted" in result["message"]
+    assert result["message"] != "Plot inserted on active sheet"
+
+
 def test_plot_data_requires_helper(calc_ctx):
     tool = PlotDataTool()
     result = tool.execute(calc_ctx, data_range="A1:B2")
