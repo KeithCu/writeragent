@@ -90,3 +90,7 @@ def test_ensure_project_pptx_builds_when_missing(mock_build, tmp_path: Path):
     assert path == built
     assert err is None
     mock_build.assert_called_once()
+
+def test_export_presentation_project_is_async():
+    from plugin.ppt_master.tools import ExportPresentationProject
+    assert ExportPresentationProject().is_async() is True

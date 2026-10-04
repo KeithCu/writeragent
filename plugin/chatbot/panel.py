@@ -1440,6 +1440,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 scope = getattr(self, "_send_cancellation", None)
                 if scope is not None:
                     scope.cancel()
+
+                # Clear audio path so an aborted send doesn't attach this recording to the next one
+                if hasattr(self, "audio_wav_path") and self.audio_wav_path:
+                    self.audio_wav_path = None
+
                 self._stop_requested_fallback = True
                 self._kill_inflight_stt()
                 from plugin.doc.peer_message import drop_listener_queue
@@ -1551,7 +1556,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
-                        if get_config_bool_safe("audio.tts_enabled"):
+                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
                             from plugin.chatbot.tool_loop_actions import session_for_turn
 
                             spoken = session_for_turn(self)
@@ -1561,7 +1566,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                     from plugin.chatbot.tool_loop_actions import _STOP_LINE
                                     content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
                                     if content_to_speak.strip():
-
                                         from plugin.audio.tts_service import speak_text_async, is_speaking
 
                                         # Restore the send-complete status after download/fallback lines.
@@ -1589,7 +1593,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                                     else:
                                                         self._set_status(_(prior_status))
                                             self.queue_executor.post(_disable_stop)
-
                                         speak_text_async(
                                             content_to_speak,
                                             on_complete=_on_speech_complete,
