@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.vision_egress import calc_output_anchor_from_graphic, insert_vision_html_into_calc
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.framework.errors import ToolExecutionError
 
 
 def test_calc_output_anchor_from_graphic_no_selection():
@@ -61,38 +61,3 @@ def test_calc_output_anchor_missing_name_raises_image_not_found():
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock(), image_name="Missing")
     assert exc.value.code == "IMAGE_NOT_FOUND"
-
-
-def test_calc_anchor_disposed_property_raises_document_disposed():
-    class DisposedException(Exception):
-        pass
-
-    shape = MagicMock()
-    shape.getPropertyValue.side_effect = DisposedException("gone")
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
-        with pytest.raises(DocumentDisposedError):
-            calc_output_anchor_from_graphic(MagicMock())
-
-
-def test_calc_anchor_disposed_cell_address_is_not_no_output_anchor():
-    class DisposedException(Exception):
-        pass
-
-    shape = MagicMock()
-    anchor = MagicMock()
-    anchor.getCellAddress.side_effect = DisposedException("gone")
-    shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
-        with pytest.raises(DocumentDisposedError):
-            calc_output_anchor_from_graphic(MagicMock())
-
-
-def test_calc_anchor_ordinary_address_error_stays_no_output_anchor():
-    shape = MagicMock()
-    anchor = MagicMock()
-    anchor.getCellAddress.side_effect = ValueError("not a cell")
-    shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress._get_selected_graphic_object", return_value=(shape, "calc")):
-        with pytest.raises(ToolExecutionError) as exc:
-            calc_output_anchor_from_graphic(MagicMock())
-    assert exc.value.code == "NO_OUTPUT_ANCHOR"

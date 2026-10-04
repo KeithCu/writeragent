@@ -83,26 +83,27 @@ class SearchNearbyFiles(ToolBase):
 
         file_subset = kwargs.get("file_subset")
 
-        from plugin.doc.document_research_grep import resolve_grep_candidates
-        from plugin.embeddings.embeddings_cache import (
-            index_is_empty,
-            resolve_index_context,
-            zvec_collection_looks_populated,
-            zvec_collection_path,
-            lancedb_collection_looks_populated,
-            lancedb_collection_path,
-        )
-        from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
-        from plugin.embeddings.embedding_client import get_embedding_model
-        from plugin.embeddings.embeddings_service import hybrid_search
-        from plugin.framework.config import get_config
-        import pathlib
+        def _run() -> dict[str, Any]:
+            from plugin.doc.document_research_grep import resolve_grep_candidates
+            from plugin.embeddings.embeddings_cache import (
+                index_is_empty,
+                resolve_index_context,
+                zvec_collection_looks_populated,
+                zvec_collection_path,
+                lancedb_collection_looks_populated,
+                lancedb_collection_path,
+            )
+            from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
+            from plugin.embeddings.embedding_client import get_embedding_model
+            from plugin.embeddings.embeddings_service import hybrid_search
+            from plugin.framework.config import get_config
 
-        def _resolve_context() -> dict[str, Any]:
             folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
             if folder_key is None or db_path is None or meta_path is None:
-                return {"error": listing_root or "No folder context"}
+                resolve_err = listing_root or "No folder context"
+                return {"status": "error", "message": resolve_err}
 
+            # Mode-aware empty check for zvec/lancedb side-by-side stores
             mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
             looks_empty = False
             if mode == "zvec":
@@ -116,7 +117,13 @@ class SearchNearbyFiles(ToolBase):
 
             if looks_empty:
                 ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
-                return {"empty": True, "folder_key": folder_key}
+                return {
+                    "status": "indexing",
+                    "hits": [],
+                    "folder_key": folder_key,
+                    "stale": True,
+                    "message": "Folder index is building in the background. Retry search_nearby_files shortly.",
+                }
 
             allowed_urls: set[str] | None = None
             if file_subset:
@@ -126,81 +133,45 @@ class SearchNearbyFiles(ToolBase):
                     file_subset=str(file_subset),
                 )
                 if err:
-                    return {"error": err}
-                allowed_urls = set()
-                for c in candidates:
-                    url = str(c.get("url") or "")
-                    if not url:
-                        path = c.get("path")
-                        if path:
-                            url = pathlib.Path(path).as_uri()
-                    if url:
-                        allowed_urls.add(url)
+                    return {"status": "error", "message": err}
+                allowed_urls = {str(c.get("url") or "") for c in candidates if c.get("url")}
 
+            model = get_embedding_model()
+            # For zvec/lancedb, pass corresponding collection path in the db_path slot
+            search_path: str
             if mode == "zvec":
                 search_path = str(zvec_collection_path(listing_root, create_parent=True))
             elif mode == "lancedb":
                 search_path = str(lancedb_collection_path(listing_root, create_parent=True))
             else:
                 search_path = str(db_path)
+            try:
+                result = hybrid_search(
+                    ctx.ctx,
+                    search_path,
+                    str(query),
+                    k,
+                    model=model,
+                    near_slop=near_slop,
+                )
+            except Exception as exc:
+                log.exception("search_nearby_files failed")
+                return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
 
+            hits = list(result.get("hits") or [])
+            if allowed_urls is not None:
+                hits = [h for h in hits if h.get("doc_url") in allowed_urls]
+
+            ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
             return {
-                "search_path": search_path,
+                "status": "ok",
+                "hits": hits,
                 "folder_key": folder_key,
-                "allowed_urls": allowed_urls,
+                "stale": False,
             }
 
         from plugin.framework.thread_guard import on_main_thread
 
         if on_main_thread():
-            context_result = _resolve_context()
-        else:
-            context_result = execute_on_main_thread(_resolve_context)
-
-        if "error" in context_result:
-            return {"status": "error", "message": context_result["error"]}
-
-        if context_result.get("empty"):
-            return {
-                "status": "indexing",
-                "hits": [],
-                "folder_key": context_result["folder_key"],
-                "stale": True,
-                "message": "Folder index is building in the background. Retry search_nearby_files shortly.",
-            }
-
-        search_path = context_result["search_path"]
-        allowed_urls = context_result["allowed_urls"]
-        model = get_embedding_model()
-
-        try:
-            result = hybrid_search(
-                ctx.ctx,
-                search_path,
-                str(query),
-                k,
-                model=model,
-                near_slop=near_slop,
-            )
-        except Exception as exc:
-            log.exception("search_nearby_files failed")
-            return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
-
-        def _wakeup() -> None:
-            ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
-
-        if on_main_thread():
-            _wakeup()
-        else:
-            execute_on_main_thread(_wakeup)
-
-        hits = list(result.get("hits") or [])
-        if allowed_urls is not None:
-            hits = [h for h in hits if h.get("doc_url") in allowed_urls]
-
-        return {
-            "status": "ok",
-            "hits": hits,
-            "folder_key": context_result["folder_key"],
-            "stale": False,
-        }
+            return _run()
+        return execute_on_main_thread(_run)

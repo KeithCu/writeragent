@@ -461,7 +461,7 @@ class SendHandlersMixin:
                 res = get_tools().execute("image_generate", tctx, bypass_thread_guard=False, **image_args)
                 if isinstance(res, dict) and res.get("status") == "error":
                     log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
-                result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
+                result = json.dumps(res) if isinstance(res, dict) else str(res)
                 data = safe_json_loads(result, default={})
                 if isinstance(data, dict):
                     note = data.get("message", data.get("status", "done"))
@@ -835,7 +835,7 @@ class SendHandlersMixin:
                             "suggested_user_name": getattr(self, "_librarian_suggested_user_name", None),
                         },
                     )
-                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -871,7 +871,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text, "topic": topic},
                     )
-                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -911,7 +911,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text, "topic": topic},
                     )
-                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -951,7 +951,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text, "topic": topic},
                     )
-                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -990,7 +990,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text},
                     )
-                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -1015,7 +1015,7 @@ class SendHandlersMixin:
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 else:
                     res = get_tools().execute("web_research", tctx, bypass_thread_guard=False, **{"query": query_text, "history_text": history_text})
-                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):

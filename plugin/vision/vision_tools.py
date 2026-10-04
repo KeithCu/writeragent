@@ -9,8 +9,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcVisionBase
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
+from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
 if TYPE_CHECKING:
@@ -48,8 +49,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Sub-agent / async tools run off the UI thread; use ctx.doc_type (no UNO) here.
-        # Do not marshal this whole call: venv OCR can take ~120s and would freeze the UI.
-        # run_and_insert_vision_for_selection marshals only the UNO export/insert parts.
+        # run_and_insert_vision_for_selection is marshaled to the main thread below.
         if ctx.doc_type not in _VISION_DOC_TYPES:
             return self._tool_error(_("Vision OCR requires a Writer or Calc document."), code="VISION_ERROR")
 
@@ -65,9 +65,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             return run_and_insert_vision_for_selection(ctx.ctx, doc, helper="extract_structure", params=params_dict or None, insert_into_document=insert_into_document)
 
         try:
-            result = _run()
-        except DocumentDisposedError:
-            raise
+            result = execute_on_main_thread(_run)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "VISION_ERROR"))
         except Exception as exc:
@@ -90,7 +88,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                 }
             return self._tool_error(message, code=code, vision_result=result, **partial_fields)
 
-        out: dict[str, Any] = {
+        out = {
             "status": "ok",
             "helper": "extract_structure",
             "full_text": str(result.get("full_text") or ""),

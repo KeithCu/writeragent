@@ -9,17 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.vision.vision_common import HELPER_NAMES, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
-
-
-def _reraise_if_disposed(exc: BaseException) -> None:
-    """Disposed UNO is a closed document, not a generic vision failure."""
-    if is_disposed_exception(exc):
-        raise DocumentDisposedError("Document disposed during vision insert", object_type="vision") from exc
 
 
 def is_vision_result(value: Any) -> bool:
@@ -66,7 +60,6 @@ def _focus_writer_frame(controller: Any) -> None:
         if window is not None and hasattr(window, "setFocus"):
             window.setFocus()
     except Exception as ex:
-        _reraise_if_disposed(ex)
         log.debug("prepare_vision_writer_insert: frame focus failed: %s", ex)
 
 
@@ -77,7 +70,6 @@ def _collapse_writer_view_cursor(controller: Any, position: Any) -> None:
         view_cursor.gotoRange(position, False)
         controller.select(view_cursor)
     except Exception as ex:
-        _reraise_if_disposed(ex)
         log.debug("prepare_vision_writer_insert: view cursor collapse failed: %s", ex)
 
 
@@ -110,8 +102,8 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     graphic_name = ""
     try:
         graphic_name = str(resolved.getName() or "")
-    except Exception as ex:
-        _reraise_if_disposed(ex)
+    except Exception:
+        pass
     if name and not graphic_name:
         graphic_name = name
     graphics_before = len(list_graphic_objects(doc))
@@ -130,7 +122,6 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
             dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
     except Exception as ex:
-        _reraise_if_disposed(ex)
         log.debug("prepare_vision_writer_insert: early escape failed: %s", ex)
 
     try:
@@ -148,7 +139,6 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     except ToolExecutionError:
         raise
     except Exception as ex:
-        _reraise_if_disposed(ex)
         raise ToolExecutionError(_("Could not position insert after the image: %s") % ex, code="VISION_ERROR") from ex
 
     _collapse_writer_view_cursor(controller, cursor.getStart())
@@ -162,7 +152,6 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
                 dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
                 _collapse_writer_view_cursor(controller, cursor.getStart())
         except Exception as ex:
-            _reraise_if_disposed(ex)
             log.debug("prepare_vision_writer_insert: escape fallback failed: %s", ex)
 
     if graphic_name and get_graphic_object_by_name(doc, graphic_name) is None:

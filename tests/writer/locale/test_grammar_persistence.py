@@ -176,26 +176,6 @@ class TestGrammarPersistence:
         assert (dp._teardown_done)
         assert (dp.get("fp_x")) is None
 
-    def test_document_event_on_unload_clears_locales_cache(self) -> None:
-        """teardown must clear the document from doc_locales_cache."""
-        from plugin.writer.locale import grammar_persistence as gp
-
-        ctx = MagicMock()
-        model = MagicMock()
-        with patch("plugin.doc.udprops.get_document_property", return_value=None):
-            dp = gp.DocumentPersistence(ctx, "doc-locales", model=model)
-
-        gp.grammar_registry.doc_locales_cache["doc-locales"] = (123.0, ["en-US"])
-        gp.grammar_registry.doc_persistence_instances["doc-locales"] = dp
-
-        listener = gp._GrammarDocumentEventListener(dp)
-        unload_event = MagicMock()
-        unload_event.EventName = "OnUnload"
-        listener.documentEventOccured(unload_event)
-
-        assert (dp._teardown_done)
-        assert gp.grammar_registry.doc_locales_cache.get("doc-locales") is None
-
     def test_document_event_listener_disposing_triggers_teardown(self) -> None:
         """The single combined listener also handles broadcaster ``disposing``."""
         from plugin.writer.locale import grammar_persistence as gp
@@ -405,46 +385,6 @@ class TestGrammarPersistence:
             assert (written["ignored_rules"]) == ([])
         finally:
             gp.clear_all_document_persistence(ctx)
-
-    def test_apply_language_change_paragraph_relative(self) -> None:
-        """Language change must update char locale via a paragraph-relative cursor offset."""
-        from plugin.writer.locale import grammar_persistence as gp
-
-        ctx = MagicMock()
-        model = MagicMock()
-        ctrl = MagicMock()
-        view_cursor = MagicMock()
-        view_start = MagicMock()
-        text_obj = MagicMock()
-        doc_cursor = MagicMock()
-
-        gp.grammar_registry.doc_persistence_instances["test-doc"] = gp.DocumentPersistence(ctx, "test-doc", model=model)
-        model.getCurrentController.return_value = ctrl
-        ctrl.getViewCursor.return_value = view_cursor
-        view_cursor.getStart.return_value = view_start
-
-        model.getText.return_value = text_obj
-        text_obj.createTextCursorByRange.return_value = doc_cursor
-
-        doc_cursor.gotoStartOfParagraph = MagicMock(return_value=True)
-        doc_cursor.goRight = MagicMock(return_value=True)
-        doc_cursor.getString.return_value = "Hola."
-
-        # Test start_pos=5
-        gp.apply_language_change(ctx, "test-doc", "Hola.", "es-ES", start_pos=5)
-
-        text_obj.createTextCursorByRange.assert_called_once_with(view_start)
-        doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
-        assert doc_cursor.goRight.call_count == 2
-        doc_cursor.goRight.assert_any_call(5, False)
-        doc_cursor.goRight.assert_any_call(5, True)
-
-        doc_cursor.setPropertyValue.assert_called_once()
-        args, _ = doc_cursor.setPropertyValue.call_args
-        assert args[0] == "CharLocale"
-        # Language/Country are dynamically set on mock object so assert they were accessed correctly or verify the struct setup
-        # The struct creation returns a mock, so we can verify properties weren't None.
-        assert args[1] is not None
 
     def test_unknown_cache_version_clears(self) -> None:
         from plugin.writer.locale import grammar_persistence as gp

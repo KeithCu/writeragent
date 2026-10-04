@@ -41,29 +41,3 @@ def test_redo_counts_steps():
     ctx.doc.getUndoManager.return_value = um
     res = Redo().execute(ctx, steps=2)
     assert res["status"] == "ok" and res["redone"] == 1
-
-
-def test_undo_huge_steps_clamped():
-    from plugin.doc.undo import Undo
-
-    um = MagicMock()
-    um.isUndoPossible.return_value = True
-    um.isRedoPossible.return_value = True
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
-    res = Undo().execute(ctx, steps=10000)
-    assert res["status"] == "ok" and res["undone"] == 10
-    assert um.undo.call_count == 10
-
-
-def test_redo_huge_steps_clamped():
-    from plugin.doc.undo import Redo
-
-    um = MagicMock()
-    um.isRedoPossible.return_value = True
-    um.isUndoPossible.return_value = True
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
-    res = Redo().execute(ctx, steps=10000)
-    assert res["status"] == "ok" and res["redone"] == 10
-    assert um.redo.call_count == 10

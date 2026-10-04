@@ -1177,4 +1177,4 @@ class MCPProtocolHandler:
 
     def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""
-        write_http_json(handler, status, data, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
+        write_http_json(handler, status, data, extra_headers=_send_mcp_response_headers)

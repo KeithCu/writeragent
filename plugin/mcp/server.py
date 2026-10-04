@@ -365,15 +365,9 @@ class HttpServer:
                 import ssl
 
                 ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-                try:
-                    ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
-                    if self._server:
-                        self._server.socket = ssl_ctx.wrap_socket(self._server.socket, server_side=True)
-                except Exception:
-                    if self._server:
-                        self._server.server_close()
-                        self._server = None
-                    raise
+                ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+                if self._server:
+                    self._server.socket = ssl_ctx.wrap_socket(self._server.socket, server_side=True)
             else:
                 log.warning("use_ssl is True but no certificates provided. Disabling TLS.")
                 self.use_ssl = False

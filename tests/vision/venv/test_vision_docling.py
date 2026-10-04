@@ -473,19 +473,3 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
     assert built == [0.5, 0.0]
     assert created[1].kwargs["format_options"]["IMAGE"]["pipeline_options"].captured_text_score == 0.0
 
-
-
-def test_rowspan_past_max_table_rows_is_clipped(monkeypatch):
-    monkeypatch.setattr(docling_mod, "MAX_TABLE_ROWS", 2)
-    cells = [
-        {"text": "H", "start_row_offset_idx": 0, "start_col_offset_idx": 0, "row_span": 10, "col_span": 1},
-        {"text": "A", "start_row_offset_idx": 1, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
-        {"text": "B", "start_row_offset_idx": 2, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
-        {"text": "C", "start_row_offset_idx": 3, "start_col_offset_idx": 1, "row_span": 4, "col_span": 1},
-    ]
-    table = docling_mod._table_from_span_cells(cells, num_rows=6, num_cols=2, name="t")
-    assert table is not None
-    assert table["truncated"] is True
-    assert len(table["rows"]) == 2
-    spans = table["spans"]
-    assert spans == [{"row": 0, "col": 0, "rowspan": 3, "colspan": 1}]

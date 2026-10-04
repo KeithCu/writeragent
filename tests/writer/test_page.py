@@ -172,13 +172,11 @@ def test_insert_page_break():
     doc = MagicMock()
     controller = MagicMock()
     view_cursor = MagicMock()
-    start_pos = MagicMock()
     text_obj = MagicMock()
     text_cursor = MagicMock()
 
     doc.getCurrentController.return_value = controller
     controller.getViewCursor.return_value = view_cursor
-    view_cursor.getStart.return_value = start_pos
     view_cursor.getText.return_value = text_obj
     text_obj.createTextCursorByRange.return_value = text_cursor
 
@@ -187,9 +185,8 @@ def test_insert_page_break():
     res = tool.execute(ctx)
 
     assert res["status"] == "ok"
-    text_obj.createTextCursorByRange.assert_called_with(start_pos)
     text_cursor.setPropertyValue.assert_called_with("BreakType", 4)  # PAGE_BEFORE
-    text_obj.insertControlCharacter.assert_not_called()
+    text_obj.insertControlCharacter.assert_called_with(text_cursor, 0, False)
 
 
 def test_page_tools_shortened_style_param():

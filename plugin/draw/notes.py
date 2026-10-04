@@ -27,18 +27,12 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
-
-        actual_idx = page_idx if page_idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            bridge = DrawBridge(ctx.doc)
-            actual_idx = bridge.get_active_page_index()
-
-        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
+        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         notes_shape = find_notes_shape(page.getNotesPage())
         notes_text = ""
         if notes_shape is not None:
             notes_text = notes_shape.getString() or ""
-        return {"status": "ok", "page": actual_idx, "notes": notes_text}
+        return {"status": "ok", "page": page_idx, "notes": notes_text}
 
 
 class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
@@ -60,13 +54,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         append = kwargs.get("append", False)
 
         page_idx = kwargs.get("page")
-
-        actual_idx = page_idx if page_idx is not None else ctx.active_page_index
-        if actual_idx is None:
-            bridge = DrawBridge(ctx.doc)
-            actual_idx = bridge.get_active_page_index()
-
-        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
+        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         notes_shape = find_notes_shape(page.getNotesPage())
         if notes_shape is None:
             return self._tool_error("No notes page available.")
@@ -76,4 +64,4 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
                 text = existing + "\n" + text
         notes_shape.setString(text)
 
-        return {"status": "ok", "page": actual_idx, "message": "Speaker notes updated."}
+        return {"status": "ok", "page": page_idx, "message": "Speaker notes updated."}

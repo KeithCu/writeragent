@@ -451,25 +451,12 @@ def _table_from_span_cells(
         width = max(len(r) for r in data_rows)
         columns = [f"col_{i + 1}" for i in range(width)]
     limited = data_rows[:MAX_TABLE_ROWS]
-    # Header is grid row 0; kept body rows are 1..len(limited). A rowspan that
-    # continues past that last kept row used to survive and the Calc insert
-    # merged through the truncation note appended under the table.
-    last_kept = len(limited)
-    kept_spans: list[dict[str, int]] = []
-    for span in spans:
-        row = span["row"]
-        if row < 0 or row > last_kept:
-            continue
-        rowspan = int(span["rowspan"])
-        colspan = int(span["colspan"])
-        max_rowspan = last_kept - row + 1
-        if rowspan > max_rowspan:
-            rowspan = max_rowspan
-        if rowspan <= 1 and colspan <= 1:
-            continue
-        if rowspan != span["rowspan"]:
-            span = {**span, "rowspan": rowspan}
-        kept_spans.append(span)
+    # Drop spans that land only in truncated body rows.
+    kept_spans = [
+        span
+        for span in spans
+        if span["row"] == 0 or span["row"] - 1 < len(limited)
+    ]
     return {
         "name": name,
         "columns": columns,
