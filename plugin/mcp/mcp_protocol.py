@@ -39,10 +39,10 @@ if TYPE_CHECKING:
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
-from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error, safe_json_loads
+from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
-from plugin.mcp.server import forget_sse_keepalive, note_sse_keepalive, write_http_empty, write_http_json
+from plugin.mcp.server import forget_sse_keepalive, note_sse_keepalive, read_json_body, write_http_empty, write_http_json
 from plugin.mcp.mcp_state import MCPState, MCPStateStr, EventKind, MCPEvent, ParseRequestEffect, ExecuteToolEffect, StreamResponseEffect, SendErrorEffect, next_state
 from plugin.mcp import wire_types
 
@@ -1153,27 +1153,17 @@ class MCPProtocolHandler:
         return None
 
     def _read_body(self, handler: Any) -> Any:
-        """Read and parse JSON body from an HTTP handler."""
-        content_length = int(handler.headers.get("Content-Length", 0))
-        if content_length < 0:
-            from plugin.framework.errors import AgentParsingError, format_error_payload
+        """Read and parse JSON body from an HTTP handler.
 
-            log.warning("Invalid negative Content-Length: %s", content_length)
-            err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
-            self._send_json(handler, 400, format_error_payload(err))
+        Same cap and socket-timeout failure as ``GenericRequestHandler._read_body``.
+        The two entry points used to each call ``rfile.read(content_length)``.
+        """
+        data, rejected = read_json_body(handler)
+        if rejected is not None:
+            status, err = rejected
+            self._send_json(handler, status, format_error_payload(err))
             return None
-        if content_length == 0:
-            return {}
-        raw = handler.rfile.read(content_length).decode("utf-8")
-        data = safe_json_loads(raw, default=None, strict=True)
-        if data is None and raw.strip():
-            log.warning("Invalid JSON body: %s", raw[:200])
-            from plugin.framework.errors import AgentParsingError, format_error_payload
-
-            err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
-            self._send_json(handler, 400, format_error_payload(err))
-            return None
-        return data if data is not None else {}
+        return data
 
     def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""

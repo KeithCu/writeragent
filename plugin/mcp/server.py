@@ -37,10 +37,11 @@ import json
 import logging
 import socket
 import socketserver
+import sys
 import threading
 import weakref
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
@@ -51,6 +52,18 @@ if TYPE_CHECKING:
     from plugin.mcp.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.framework.http_server")
+
+# MCP JSON-RPC bodies are tool arguments, not file uploads. A few MiB is
+# enough for a document slice and small enough that one request cannot
+# force a multi-gigabyte allocation in the ThreadingMixIn worker.
+MCP_HTTP_MAX_BODY_BYTES = 4 * 1024 * 1024
+
+# rfile.read blocks forever when BaseHTTPRequestHandler.timeout is None.
+# A client that sends Content-Length and then stalls held one request
+# thread until the process exited. 30s fails that read closed. SSE
+# keepalive waits in select(), which does not follow this socket timeout,
+# so a long GET /mcp is not cut off by it.
+MCP_HTTP_SOCKET_TIMEOUT_SEC = 30.0
 
 
 def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:
@@ -91,6 +104,64 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
             flush()
         except Exception:
             pass
+
+
+def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]:
+    """Parse a JSON object body, or ``(None, (status, error))`` when it is refused.
+
+    The caller writes the error response. Negative Content-Length stays 400.
+    A length above :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read.
+    A socket timeout while reading a body that is under the cap is 408.
+    An empty body is ``{}`` and does not touch ``rfile``.
+    """
+    from plugin.framework.errors import AgentParsingError
+
+    raw_length = handler.headers.get("Content-Length", 0)
+    try:
+        content_length = int(raw_length)
+    except (TypeError, ValueError):
+        err = AgentParsingError("Invalid Content-Length in HTTP request", details={"length": raw_length})
+        return None, (400, err)
+    if content_length < 0:
+        # What was wrong: BaseHTTPRequestHandler / rfile.read treats a
+        # negative size as "read until EOF". A client sent Content-Length: -1
+        # and the worker blocked until the socket closed.
+        # Why: reject before any read. Same check as before this cap existed.
+        log.warning("Invalid negative Content-Length: %s", content_length)
+        err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
+        return None, (400, err)
+    if content_length == 0:
+        return {}, None
+    if content_length > MCP_HTTP_MAX_BODY_BYTES:
+        # What was wrong: the handler trusted Content-Length and called
+        # rfile.read(content_length) with no ceiling and no socket timeout.
+        # A huge length pinned the worker on the allocation, and a stalled
+        # body pinned it forever.
+        # Why: refuse the length before the read. The handler/server timeout
+        # covers a stall whose declared length is still under the cap.
+        log.warning("Rejecting oversized Content-Length: %s", content_length)
+        err = AgentParsingError("HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, details={"length": content_length, "max": MCP_HTTP_MAX_BODY_BYTES})
+        return None, (413, err)
+    try:
+        raw_bytes = handler.rfile.read(content_length)
+    except TimeoutError:
+        log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
+        err = AgentParsingError("Timed out reading HTTP body", details={"length": content_length})
+        return None, (408, err)
+    if isinstance(raw_bytes, str):
+        raw = raw_bytes
+    else:
+        try:
+            raw = bytes(raw_bytes).decode("utf-8")
+        except UnicodeDecodeError:
+            err = AgentParsingError("HTTP body is not UTF-8", details={"length": content_length})
+            return None, (400, err)
+    data = safe_json_loads(raw, default=None, strict=True)
+    if data is None and raw.strip():
+        log.warning("Invalid JSON body: %s", raw[:200])
+        err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
+        return None, (400, err)
+    return (data if data is not None else {}), None
 
 
 def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> None:
@@ -222,9 +293,37 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
     daemon_threads: bool = True
 
+    def get_request(self) -> tuple[Any, Any]:
+        """Accept one connection and bound how long a later recv may block.
+
+        Handler.setup also applies GenericRequestHandler.timeout. Setting it
+        here covers the window before setup, including a client that connects
+        and never sends a request line.
+        """
+        conn, addr = super().get_request()
+        try:
+            conn.settimeout(MCP_HTTP_SOCKET_TIMEOUT_SEC)
+        except OSError:
+            pass
+        return conn, addr
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """A stalled read is a closed request, not a traceback on the console."""
+        _typ, exc, _tb = sys.exc_info()
+        if isinstance(exc, TimeoutError):
+            host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
+            log.info("HTTP read timed out from %s", host)
+            return
+        super().handle_error(request, client_address)
+
 
 class GenericRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler that dispatches to registered routes."""
+
+    # Applied in StreamRequestHandler.setup to the accepted socket.
+    # ClassVar matches StreamRequestHandler.timeout so this stays a class
+    # attribute (a bare annotation is treated as an instance variable).
+    timeout: ClassVar[float | None] = MCP_HTTP_SOCKET_TIMEOUT_SEC
 
     route_registry: HttpRouteRegistry | None = None  # set by HttpServer.start()
 
@@ -288,26 +387,14 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             self._send_json(500, format_error_payload(e))
 
     def _read_body(self) -> Any:
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length < 0:
-            from plugin.framework.errors import AgentParsingError, format_error_payload
+        data, rejected = read_json_body(self)
+        if rejected is not None:
+            from plugin.framework.errors import format_error_payload
 
-            log.warning("Invalid negative Content-Length: %s", content_length)
-            err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
-            self._send_json(400, format_error_payload(err))
+            status, err = rejected
+            self._send_json(status, format_error_payload(err))
             return None
-        if content_length == 0:
-            return {}
-        raw = self.rfile.read(content_length).decode("utf-8")
-        data = safe_json_loads(raw, default=None, strict=True)
-        if data is None and raw.strip():
-            from plugin.framework.errors import AgentParsingError, format_error_payload
-
-            log.warning("Invalid JSON body: %s", raw[:200])
-            err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
-            self._send_json(400, format_error_payload(err))
-            return None
-        return data if data is not None else {}
+        return data
 
     def _send_json(self, status: int, data: Any) -> None:
         write_http_json(self, status, data)

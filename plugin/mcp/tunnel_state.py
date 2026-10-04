@@ -212,8 +212,11 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
             new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None)
             return FsmTransition(new_state, effects)
 
-        # Fatal errors: auth error or binary missing — do not retry
+        # Fatal errors: auth error or binary missing — do not retry.
+        # Same reset as retry exhaustion: the CLI may already have installed
+        # a Funnel/serve rule before the line we treat as auth failure.
         if auth_error:
+            effects.append(TerminateProcessEffect(provider=state.provider))
             new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=auth_error, desired_running=False)
             return FsmTransition(new_state, effects)
 
@@ -227,8 +230,16 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
             new_state = dataclasses.replace(state, status=TunnelStatus.RECONNECTING, public_url=None, retry_count=attempt, last_error=err_msg)
             return FsmTransition(new_state, effects)
         else:
-            # Max retries exhausted
+            # What was wrong: retry exhaustion returned FAILED with no effects.
+            # Tailscale post_stop (funnel reset / serve reset) only ran from
+            # TerminateProcessEffect, which START and STOP emit. The process
+            # is already dead here — _on_exit cleared it before this event —
+            # but funnel/serve config lives on tailscaled and kept forwarding
+            # the local MCP port while desired_running was false.
+            # Why: name the provider that owned the session, same as stop.
+            # The effect handler resets even when the subprocess is gone.
             err_msg = "tunnel disconnected; failed to reconnect after %s attempts (code %s)" % (state.max_retries, rc)
+            effects.append(TerminateProcessEffect(provider=state.provider))
             new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=err_msg, desired_running=False)
             return FsmTransition(new_state, effects)
 

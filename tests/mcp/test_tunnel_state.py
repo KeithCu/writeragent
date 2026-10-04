@@ -170,6 +170,11 @@ def test_process_exited_exhausts_max_retries():
     assert tr.state.desired_running is False
     assert "failed to reconnect after 4 attempts (code 2)" in (tr.state.last_error or "")
     assert not any(isinstance(e, ScheduleRetryTimerEffect) for e in tr.effects)
+    # Funnel/serve config outlives the process. Giving up must reset the
+    # provider that owned the session, same as stop/switch.
+    term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)]
+    assert len(term) == 1
+    assert term[0].provider == "ngrok"
 
 
 def test_process_exited_auth_error_fails_immediately_without_retry():
@@ -190,6 +195,9 @@ def test_process_exited_auth_error_fails_immediately_without_retry():
     assert tr.state.desired_running is False
     assert tr.state.last_error == "ngrok authtoken required or invalid"
     assert not any(isinstance(e, ScheduleRetryTimerEffect) for e in tr.effects)
+    term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)]
+    assert len(term) == 1
+    assert term[0].provider == "ngrok"
 
 
 def test_retry_timer_expired_starts_process_when_desired_running():
