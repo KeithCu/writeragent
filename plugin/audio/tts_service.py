@@ -297,7 +297,7 @@ def stop_speech() -> None:
         from plugin.audio.kokoro_pool import get_kokoro_inflight_token
         cancel_token = get_kokoro_inflight_token()
     except Exception:
-        pass
+        log.debug("Failed to get Kokoro inflight token", exc_info=True)
 
     def _bg_cleanup() -> None:
         _terminate_proc(play)
