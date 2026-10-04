@@ -1858,7 +1858,7 @@ def test_endpoint_and_native_do_not_split():
 
 
 def test_stop_speech_kokoro_race_generation():
-    from plugin.audio.tts_service import stop_speech, _begin_utterance
+    from plugin.audio.tts_service import stop_speech
 
     with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
         bg_tasks = []

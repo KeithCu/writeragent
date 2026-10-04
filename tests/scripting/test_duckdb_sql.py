@@ -960,3 +960,18 @@ def test_is_sql_result_long_message_is_bool():
     assert is_sql_result({"status": "error", "code": "DUCKDB_ERROR", "message": message}) is True
     header = "SELECT 1;\n" * 400
     assert parse_sql_script_header(header) is None
+
+
+import pytest
+def test_insert_sql_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.duckdb_sql import insert_sql_result_into_calc
+    class MockCtx:
+        def stop_checker(self):
+            return True
+
+    doc = None
+    ctx = MockCtx()
+    result = {"status": "ok", "result": "val"}
+
+    res = insert_sql_result_into_calc(doc, ctx, result)
+    assert res == 0

@@ -209,6 +209,10 @@ class SearchDialog:
                         setattr(e, "Consume", True)
                 except Exception:
                     pass
+                btn_search = dlg.getControl("BtnSearch")
+                if btn_search and not btn_search.getModel().Enabled:
+                    # Search is already in progress
+                    return
                 owner._run_search(dlg)
 
         enter_listener = _SearchEnterKeyListener()
@@ -365,6 +369,7 @@ class SearchDialog:
                     k,
                     model=model,
                     near_slop=10,
+                    doc_url_filter=None,
                 )
                 hits = list(result.get("hits") or [])
                 execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
@@ -412,8 +417,7 @@ class SearchDialog:
                 from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import _folder_search_mode
-
-                from plugin.embeddings.embeddings_indexer import _try_enqueue, _clear_enqueue
+                from plugin.embeddings.embeddings_indexer import _clear_enqueue, _try_enqueue
 
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:
@@ -425,8 +429,12 @@ class SearchDialog:
                     return
 
                 if not _try_enqueue(_folder_key):
-                    self._update_rebuild_ui(_("An index operation is already in progress."), enable_rebuild_btn=True)
+                    self._update_rebuild_ui(
+                        _("An index operation is already in progress."),
+                        enable_rebuild_btn=True,
+                    )
                     return
+
                 try:
                     # Clear local cache files to force a full cold index rebuild
                     clear_folder_cache(listing_root)
@@ -477,18 +485,20 @@ class SearchDialog:
                             del hb_data[file]
 
                     # Use the service function (mocked in tests) to rebuild the cache
-                    embeddings_service.maintain_folder_index(
-                        ctx,
-                        listing_root,
-                        model=model,
-                        mode="cold",
-                        search_mode=_folder_search_mode(),
-                        heartbeat_fn=heartbeat_fn,
-                    )
-                    self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
-                except Exception as exc:
-                    log.exception("maintain_folder_index failed during rebuild")
-                    self._update_rebuild_ui(_("Rebuild failed: ") + str(exc), enable_rebuild_btn=True)
+                    try:
+                        embeddings_service.maintain_folder_index(
+                            ctx,
+                            listing_root,
+                            model=model,
+                            mode="cold",
+                            search_mode=_folder_search_mode(),
+                            heartbeat_fn=heartbeat_fn,
+                        )
+                        self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
+                    except Exception as exc:
+                        log.exception("maintain_folder_index failed during rebuild")
+                        self._update_rebuild_ui(_("Rebuild failed: ") + str(exc), enable_rebuild_btn=True)
+
                 finally:
                     _clear_enqueue(_folder_key)
 
