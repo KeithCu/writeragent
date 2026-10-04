@@ -1920,3 +1920,53 @@ def test_stream_queue_helpers_parameterize_queue() -> None:
     assert "Queue[Any]" in str(stopped.parameters["q"].annotation)
     drain = inspect.signature(run_async_worker_with_drain)
     assert "Queue[Any]" in str(drain.parameters["worker_fn"].annotation)
+
+def test_run_stream_drain_loop_error_clears_defer_next_tool_exit():
+    """A recovered ERROR clears defer_next_tool_exit so it does not drop later replacement worker batches."""
+    q = queue.Queue()
+    q.put((StreamQueueKind.NEXT_TOOL,))
+    q.put((StreamQueueKind.STATUS, "boom"))
+
+    toolkit = DummyToolkit()
+    job_done = [False]
+    applied = []
+
+    batch_counter = [0]
+    original_process = toolkit.processEventsToIdle
+
+    def mock_processEventsToIdle():
+        original_process()
+        c = batch_counter[0]
+        batch_counter[0] += 1
+        if c == 0:
+            q.put((StreamQueueKind.STATUS, "replacement1"))
+        elif c == 1:
+            q.put((StreamQueueKind.STATUS, "replacement2"))
+            q.put((StreamQueueKind.STREAM_DONE, "replacement-done"))
+
+    toolkit.processEventsToIdle = mock_processEventsToIdle
+
+    def on_stream_done(item):
+        return True
+
+    def on_error(e):
+        return True
+
+    def on_status(t):
+        if t == "boom":
+            raise ValueError("boom")
+        applied.append(t)
+
+    run_stream_drain_loop(
+        q,
+        toolkit,
+        job_done,
+        apply_chunk_fn=lambda t, i: None,
+        on_stream_done=on_stream_done,
+        on_stopped=lambda: None,
+        on_error=on_error,
+        on_status_fn=on_status
+    )
+
+    assert "replacement1" in applied
+    assert "replacement2" in applied
