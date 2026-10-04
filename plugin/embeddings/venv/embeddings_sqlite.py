@@ -522,8 +522,8 @@ def vec0_search(
 
     limit = min(max(int(k), 1), count)
     q = np.asarray(query_vec, dtype=np.float32)
-    rows = conn.execute(
-        f"""
+
+    sql = f"""
         SELECT
             v.chunk_id,
             v.distance,
@@ -534,15 +534,19 @@ def vec0_search(
         JOIN chunks c ON c.chunk_id = v.chunk_id
         WHERE v.embedding MATCH ?
           AND k = ?
-        ORDER BY v.distance
-        """,
-        (q, limit),
-    ).fetchall()
+    """
+    params: list[Any] = [q, limit]
+
+    if doc_url_filter:
+        sql += " AND v.chunk_id IN (SELECT chunk_id FROM chunks WHERE doc_url = ?)"
+        params.append(doc_url_filter)
+
+    sql += " ORDER BY v.distance"
+
+    rows = conn.execute(sql, tuple(params)).fetchall()
 
     candidates: list[dict[str, Any]] = []
     for row in rows:
-        if doc_url_filter and str(row["doc_url"] or "") != doc_url_filter:
-            continue
         dist = float(row["distance"] or 0.0)
         score = max(0.0, 1.0 - dist)
         candidates.append(
@@ -565,12 +569,14 @@ def fts_corpus_search(
     *,
     k: int = 10,
     near_slop: int = 10,
+    doc_url_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
     from plugin.embeddings.venv.folder_fts import build_match_query, strip_fts_snippet_markers
 
     limit = max(1, min(int(k or 10), 50))
     match_expr = build_match_query(str(query or ""), near_slop=near_slop)
+
     sql = """
         SELECT
             p.rowid AS chunk_id,
@@ -581,11 +587,18 @@ def fts_corpus_search(
         FROM passages p
         JOIN chunks c ON c.chunk_id = p.rowid
         WHERE passages MATCH ?
-        ORDER BY score
-        LIMIT ?
     """
+    params: list[Any] = [match_expr]
+
+    if doc_url_filter:
+        sql += " AND c.doc_url = ?"
+        params.append(doc_url_filter)
+
+    sql += " ORDER BY score LIMIT ?"
+    params.append(limit)
+
     try:
-        rows = conn.execute(sql, (match_expr, limit)).fetchall()
+        rows = conn.execute(sql, tuple(params)).fetchall()
     except _conn_operational_error(conn) as exc:
         log.debug("FTS corpus search failed for %r: %s", match_expr, exc)
         return []

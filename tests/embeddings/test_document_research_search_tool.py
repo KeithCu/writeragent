@@ -43,12 +43,11 @@ def test_search_embeddings_does_not_block_main_thread_for_rpc():
                         "plugin.embeddings.embeddings_cache.resolve_index_context",
                         return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
                     ):
-                        with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                            with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
-                                with patch("plugin.framework.config.get_config", return_value="zvec"):
-                                        with patch("plugin.embeddings.embeddings_cache.zvec_collection_looks_populated", return_value=True):
-                                            with patch("plugin.embeddings.embeddings_service.knn_search", return_value={"hits": []}) as rpc_mock:
-                                                result = tool.execute(ctx, query="budget figures")
+                        with patch("plugin.framework.config.get_config", return_value="sqlite"):
+                            with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
+                                with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
+                                    with patch("plugin.embeddings.embeddings_service.knn_search", return_value={"hits": []}) as rpc_mock:
+                                        result = tool.execute(ctx, query="budget figures")
 
     assert result.get("status") == "ok"
     rpc_mock.assert_called_once()
