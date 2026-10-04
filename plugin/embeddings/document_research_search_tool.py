@@ -50,6 +50,8 @@ class SearchEmbeddings(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        if ctx.stop_checker and ctx.stop_checker():
+            return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
 
@@ -85,29 +87,50 @@ class SearchEmbeddings(ToolBase):
 
         def _resolve_context() -> dict[str, Any]:
             folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
-            if folder_key is None or db_path is None or meta_path is None:
-                return {"error": listing_root or "No folder context"}
+            return {
+                "folder_key": folder_key,
+                "db_path": db_path,
+                "meta_path": meta_path,
+                "listing_root": listing_root
+            }
 
-            mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-            looks_empty = False
-            if mode == "zvec":
-                zpath = zvec_collection_path(listing_root, create_parent=False)
-                looks_empty = not zvec_collection_looks_populated(zpath)
-            elif mode == "lancedb":
-                lpath = lancedb_collection_path(listing_root, create_parent=False)
-                looks_empty = not lancedb_collection_looks_populated(lpath)
-            else:
-                looks_empty = index_is_empty(meta_path, db_path)
+        from plugin.framework.thread_guard import on_main_thread
+        if on_main_thread():
+            ctx_data = _resolve_context()
+        else:
+            ctx_data = execute_on_main_thread(_resolve_context)
 
-            # A model change must not knn-search the previous vec table. That
-            # table is empty, partial, or the wrong dimension until cold rebuild.
-            if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
-                looks_empty = True
+        folder_key = ctx_data["folder_key"]
+        db_path = ctx_data["db_path"]
+        meta_path = ctx_data["meta_path"]
+        listing_root = ctx_data["listing_root"]
 
-            if looks_empty:
+        if folder_key is None or db_path is None or meta_path is None:
+            return {"status": "error", "message": listing_root or "No folder context"}
+
+        mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
+        looks_empty = False
+        if mode == "zvec":
+            zpath = zvec_collection_path(listing_root, create_parent=False)
+            looks_empty = not zvec_collection_looks_populated(zpath)
+        elif mode == "lancedb":
+            lpath = lancedb_collection_path(listing_root, create_parent=False)
+            looks_empty = not lancedb_collection_looks_populated(lpath)
+        else:
+            looks_empty = index_is_empty(meta_path, db_path)
+
+        if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
+            looks_empty = True
+
+        if looks_empty:
+            def _wakeup() -> None:
                 ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
-                return {"empty": True, "folder_key": folder_key}
-
+            if on_main_thread():
+                _wakeup()
+            else:
+                execute_on_main_thread(_wakeup)
+            context_result = {"empty": True, "folder_key": folder_key}
+        else:
             if mode == "zvec":
                 search_path = str(zvec_collection_path(listing_root, create_parent=True))
             elif mode == "lancedb":
@@ -115,19 +138,23 @@ class SearchEmbeddings(ToolBase):
             else:
                 search_path = str(db_path)
 
-            return {"search_path": search_path, "folder_key": folder_key}
-
-        from plugin.framework.thread_guard import on_main_thread
-
-        if on_main_thread():
-            context_result = _resolve_context()
-        else:
-            context_result = execute_on_main_thread(_resolve_context)
+            context_result = {
+                "search_path": search_path,
+                "folder_key": folder_key,
+            }
 
         if "error" in context_result:
             return {"status": "error", "message": context_result["error"]}
 
         if context_result.get("empty"):
+            from plugin.embeddings.embeddings_indexer import get_failed_indexing_message
+            failed_msg = get_failed_indexing_message(context_result["folder_key"])
+            if failed_msg:
+                return {
+                    "status": "error",
+                    "message": f"Background indexing failed: {failed_msg}",
+                    "folder_key": context_result["folder_key"],
+                }
             return {
                 "status": "indexing",
                 "hits": [],
