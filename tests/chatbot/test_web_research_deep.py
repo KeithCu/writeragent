@@ -1,5 +1,8 @@
 # WriterAgent - tests for deep web research (adaptive loop + orchestrator)
 
+import threading
+import time
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +11,7 @@ from plugin.chatbot.web_research_deep import (
     ResearchProgress,
     _ResearchAccumulator,
     _process_one_sub_query,
+    _run_sub_queries_parallel,
     assess_research_coverage,
     parse_assessment_response,
     parse_follow_up_questions_response,
@@ -828,3 +832,117 @@ def test_user_stopped_during_sub_query_or_synthesis_is_not_cached(tmp_path):
         else:
             assert "synth" not in parent.kinds
             assert all("synth" not in worker.kinds for worker in workers)
+
+
+def _alive_deep_threads():
+    return [thread for thread in threading.enumerate() if thread.name.startswith("deep-research") and thread.is_alive()]
+
+
+def _run_parallel(queries, run_web_agent, stop_checker, *, concurrency, llm_chat=None):
+    if llm_chat is None:
+        def llm_chat(_messages, _max_tokens):
+            raise AssertionError("extraction started")
+
+    return _run_sub_queries_parallel(
+        queries,
+        run_web_agent=run_web_agent,
+        llm_chat=llm_chat,
+        stop_checker=stop_checker,
+        acc=_ResearchAccumulator(),
+        max_sub_queries=5,
+        concurrency=concurrency,
+        progress=ResearchProgress(),
+        status_callback=None,
+        on_progress=None,
+    )
+
+
+def test_stop_cancels_sub_query_that_has_not_started():
+    calls = []
+    stop = {"on": False}
+
+    def run_web_agent(query, _goal, _history):
+        calls.append(query)
+        stop["on"] = True
+        return "context"
+
+    result = _run_parallel(
+        [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
+        run_web_agent,
+        lambda: stop["on"],
+        concurrency=1,
+    )
+    assert result["code"] == "USER_STOPPED"
+    assert calls == ["q1"]
+    assert _alive_deep_threads() == []
+
+
+def test_stop_joins_the_running_pool_worker():
+    """A sibling already inside run_web_agent must finish before Stop returns.
+
+    The parent leaves as_completed when the first future completes after
+    Stop. cancel_futures does not stop that sibling. It sleeps, then
+    returns because it sees the same checker. The join waits for that.
+    """
+    entered = threading.Event()
+    stop = {"on": False}
+    finished = {"q2": False}
+
+    def run_web_agent(query, _goal, _history):
+        if query == "q2":
+            entered.set()
+            while not stop["on"]:
+                time.sleep(0.01)
+            time.sleep(0.35)
+            finished["q2"] = True
+            return "ctx2"
+        assert entered.wait(timeout=2)
+        stop["on"] = True
+        return "ctx1"
+
+    result = _run_parallel(
+        [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
+        run_web_agent,
+        lambda: stop["on"],
+        concurrency=2,
+    )
+    assert result["code"] == "USER_STOPPED"
+    assert finished["q2"] is True
+    assert _alive_deep_threads() == []
+
+
+def test_stop_join_is_bounded_when_a_worker_ignores_the_checker(monkeypatch):
+    """A worker stuck in HTTP must not hold Stop for the full request.
+
+    The function returns while that thread is still alive. The test then
+    releases it so the non-daemon pool thread does not outlive the process.
+    """
+    monkeypatch.setattr("plugin.chatbot.web_research_deep._STOP_POOL_JOIN_SEC", 0.2)
+    entered = threading.Event()
+    release = threading.Event()
+    stop = {"on": False}
+
+    def run_web_agent(query, _goal, _history):
+        if query == "stuck":
+            entered.set()
+            release.wait(timeout=3)
+            return "late"
+        assert entered.wait(timeout=2)
+        stop["on"] = True
+        return "fast"
+
+    try:
+        result = _run_parallel(
+            [{"query": "fast", "researchGoal": "g1"}, {"query": "stuck", "researchGoal": "g2"}],
+            run_web_agent,
+            lambda: stop["on"],
+            concurrency=2,
+        )
+        alive = _alive_deep_threads()
+        assert result["code"] == "USER_STOPPED"
+        assert alive
+    finally:
+        release.set()
+        for thread in _alive_deep_threads():
+            thread.join(timeout=2)
+    assert _alive_deep_threads() == []

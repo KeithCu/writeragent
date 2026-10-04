@@ -1077,3 +1077,61 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
         send._append_response("\n[Stopped by user]\n")
         send._append_response(" late")
     mock_set.assert_not_called()
+
+
+def test_tool_worker_keeps_spawn_scope_after_next_send():
+    """execute_fn must use the scope captured at spawn, not the panel field."""
+    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+
+    host = FakeHost()
+    old = SendCancellation()
+    host._send_cancellation = old
+    calls = []
+
+    def resolve():
+        scope = host._send_cancellation
+        calls.append(scope)
+        return bind_send_stop_checker(scope, lambda: False)
+
+    host.resolve_stop_checker = resolve
+    host._active_execute_tool_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    seen = {}
+    registry, old_main = _install_fake_main_registry()
+
+    def registry_execute(_name, ctx, **_kwargs):
+        seen["scope"] = ctx.send_cancellation
+        seen["checker"] = ctx.stop_checker
+        return {"status": "ok"}
+
+    registry.execute.side_effect = registry_execute
+    started = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+            interpreter.execute(
+                SpawnToolWorkerEffect(
+                    call_id="call_old",
+                    func_name="apply_document_content",
+                    func_args_str="{}",
+                    func_args={"content": "hi"},
+                    is_async=True,
+                )
+            )
+        assert calls == [old]
+        new = SendCancellation()
+        old.cancel()
+        host._send_cancellation = new
+
+        def boom():
+            calls.append(host._send_cancellation)
+            raise AssertionError("resolve_stop_checker inside worker")
+
+        host.resolve_stop_checker = boom
+        started[0]()
+    finally:
+        _restore_main(old_main)
+
+    assert calls == [old]
+    assert seen["scope"] is old
+    assert seen["checker"]() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False
