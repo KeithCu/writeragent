@@ -639,6 +639,8 @@ def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
 def test_calc_bridge_targets_active_sheet():
     from plugin.draw.bridge import DrawBridge
     doc = MagicMock()
+    del doc.getDrawPages
+    del doc.getDrawPage
     # It will hit CalcBridge, so we need to set it up such that it returns a sheet
     sheets = MagicMock()
     sheet = MagicMock()
@@ -648,5 +650,6 @@ def test_calc_bridge_targets_active_sheet():
     doc.getSheets.return_value = sheets
     doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
     doc.getCurrentController.return_value.ActiveSheet = sheet
+    del doc.getCurrentController.return_value.getCurrentPage
     bridge = DrawBridge(doc)
     assert bridge.get_active_page() is page
