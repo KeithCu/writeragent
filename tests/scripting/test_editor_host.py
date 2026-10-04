@@ -95,6 +95,55 @@ def test_editor_script_picker_error_send_failure_stays_in_dispatch():
     assert pe.executor.execute.called
 
 
+def test_editor_save_exception_sends_error_frame():
+    """A save failure must still be reported when the error frame can be sent."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.register_session(
+        launch_mod.EditorSessionState(
+            session_id="s1",
+            mode="calc_cell",
+            target={"cell": "A1"},
+            on_save=MagicMock(side_effect=RuntimeError("document disposed")),
+        )
+    )
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+    pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert sent and sent[0]["type"] == "error"
+    assert "document disposed" in sent[0]["message"]
+    assert "RuntimeError" in sent[0]["traceback"]
+
+
+def test_editor_save_error_send_failure_stays_in_dispatch():
+    """A failed save error frame must not escape and tear down the reader."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.register_session(
+        launch_mod.EditorSessionState(
+            session_id="s1",
+            mode="calc_cell",
+            target={"cell": "A1"},
+            on_save=MagicMock(side_effect=RuntimeError("document disposed")),
+        )
+    )
+
+    def _send(message, *, session=None):
+        raise ValueError("payload exceeds 16MB")
+
+    pe.send = _send  # type: ignore[method-assign]
+    pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert pe.executor.execute.called
+
+
 def test_launch_monaco_editor_reuses_running_process():
     ctx = MagicMock()
     sent_messages: list[dict] = []
@@ -1052,6 +1101,72 @@ def test_terminate_persistent_editor_resets_run_script_doc_under_lock():
         pe.focused_id = None
         pe.run_script_doc = None
         pe.run_script_doc_url = None
+
+
+def test_handle_disconnect_clears_run_script_document():
+    """Unexpected editor exit must drop the launch document the picker targets."""
+    editor = PersistentEditor()
+    editor.ctx = MagicMock()
+    editor.executor = MagicMock()
+    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    closed: list[str] = []
+    editor.register_session(
+        launch_mod.EditorSessionState(
+            "sid",
+            "run_script",
+            {"script_name": "demo"},
+            on_closed=lambda: closed.append("closed"),
+        )
+    )
+    editor.run_script_doc = object()
+    editor.run_script_doc_url = "file:///demo"
+
+    with patch.object(launch_mod, "set_active_session") as set_active:
+        editor._handle_disconnect()
+
+    assert closed == ["closed"]
+    assert editor.sessions == {}
+    assert editor.focused_id is None
+    assert editor.run_script_doc is None
+    assert editor.run_script_doc_url is None
+    set_active.assert_called_once_with(None)
+
+
+def test_handle_disconnect_keeps_replacement_launch_document():
+    """A session registered from on_closed keeps the launch document it set."""
+    editor = PersistentEditor()
+    editor.ctx = MagicMock()
+    editor.executor = MagicMock()
+    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    replacement_doc = object()
+
+    def _closed() -> None:
+        editor.register_session(
+            launch_mod.EditorSessionState("new", "run_script", {"script_name": "other"})
+        )
+        editor.run_script_doc = replacement_doc
+        editor.run_script_doc_url = "file:///new"
+
+    editor.register_session(
+        launch_mod.EditorSessionState(
+            "old",
+            "run_script",
+            {"script_name": "demo"},
+            on_closed=_closed,
+        )
+    )
+    editor.run_script_doc = object()
+    editor.run_script_doc_url = "file:///old"
+
+    with patch.object(launch_mod, "set_active_session") as set_active:
+        editor._handle_disconnect()
+
+    assert "old" not in editor.sessions
+    assert "new" in editor.sessions
+    assert editor.focused_id == "new"
+    assert editor.run_script_doc is replacement_doc
+    assert editor.run_script_doc_url == "file:///new"
+    set_active.assert_not_called()
 
 
 def test_venv_path_change_clears_webview_probe_failure_cache():
