@@ -320,6 +320,7 @@ class SearchDialog:
         def _do_background_search() -> None:
             try:
                 from plugin.framework.constants import folder_search_enabled
+                from plugin.embeddings.embeddings_cache import query_blocked_for_model
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
@@ -344,6 +345,12 @@ class SearchDialog:
 
                 mode = _folder_search_mode()
                 search_path = _ready_search_path(mode, listing_root, meta_path, db_path)
+                model = ""
+                if search_path is not None:
+                    model = get_embedding_model()
+                    # Do not query a vec store built for a different model.
+                    if mode != "fts" and query_blocked_for_model(meta_path, model):
+                        search_path = None
                 if search_path is None:
                     execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
                     self._update_results_ui(
@@ -353,7 +360,6 @@ class SearchDialog:
                     )
                     return
 
-                model = get_embedding_model()
                 result = hybrid_search(
                     ctx,
                     search_path,

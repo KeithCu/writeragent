@@ -5,12 +5,12 @@
 """Trusted venv folder corpus maintenance: ODF extract + unified corpus.db (FTS + vec0)."""
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any, Callable, Literal
 
 from plugin.embeddings.embeddings_cache import (
+    _load_meta_object,
     clear_folder_cache,
     corpus_db_path,
     corpus_meta_path,
@@ -88,21 +88,24 @@ def _resolve_mode(
     *,
     build_vectors: bool,
 ) -> MaintainMode:
-    if mode != "auto":
-        return mode
     meta_path = corpus_meta_path(listing_root, create_parent=False)
     db_path = corpus_db_path(listing_root, create_parent=False)
-    if index_is_empty(meta_path, db_path):
-        return "cold"
+    # Model change must cold-rebuild even when the caller asked for incremental.
+    # Staying incremental rewrites embedding_model onto a vec table that is
+    # empty, partial, or still the previous dimension.
     if build_vectors and needs_cold_rebuild(meta_path, embedding_model):
         return "cold"
-    meta = {}
-    if meta_path.is_file():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            meta = {}
-    if str(meta.get("schema_version", "")) != EMBEDDINGS_SCHEMA_VERSION:
+    if mode != "auto":
+        return mode
+    if index_is_empty(meta_path, db_path):
+        return "cold"
+    loaded = _load_meta_object(meta_path)
+    if loaded is None:
+        # Unreadable or non-object meta is not a schema mismatch. A mismatch
+        # here would cold-wipe the corpus. #1153 stopped the decode-error wipe;
+        # a JSON list still crashed on .get or looked like the wrong version.
+        return "incremental"
+    if str(loaded.get("schema_version", "")) != EMBEDDINGS_SCHEMA_VERSION:
         return "cold"
     return "incremental"
 
@@ -323,7 +326,8 @@ def _incremental_refresh(
             mark_file_indexed(db_path, entry.url, entry.modified)
             files_touched += 1
 
-    # Vector alignment check: ensure all chunks in DB are embedded for the active model
+    # Same-model gaps only. A different embedding model never reaches here:
+    # _resolve_mode cold-rebuilds so search does not query a wrong-dim table.
     if build_vectors:
         has_missing = False
         conn = connect_corpus_db(db_path)
@@ -403,19 +407,24 @@ def maintain_folder_corpus(
     hb = _HeartbeatThrottle(heartbeat_fn)
     hb.force({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode})
 
-    if str(search_mode or "").strip().lower() == "zvec":
-        # Zvec is a full replacement store (dense + FTS + hybrid native). Side-by-side with sqlite corpus.
-        from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
+    backend = str(search_mode or "").strip().lower()
+    if backend in ("zvec", "lancedb"):
+        # These stores ignore MaintainMode and reopen the existing collection.
+        # Its vector dimension is fixed at create time. A cold resolution
+        # (model change, empty, schema) must delete that store first or the
+        # next query hits the previous dimension.
+        if resolved_mode == "cold":
+            clear_folder_cache(root)
+        if backend == "zvec":
+            from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 
-        return maintain_folder_zvec(
-            root,
-            model,
-            mode=mode,
-            heartbeat_fn=heartbeat_fn,
-            hb=hb,
-        )
-
-    if str(search_mode or "").strip().lower() == "lancedb":
+            return maintain_folder_zvec(
+                root,
+                model,
+                mode=mode,
+                heartbeat_fn=heartbeat_fn,
+                hb=hb,
+            )
         from plugin.embeddings.venv.embeddings_lancedb import maintain_folder_lancedb
 
         return maintain_folder_lancedb(

@@ -6,10 +6,28 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 from plugin.embeddings.embeddings_fs import ParagraphChunk, WriterFileEntry
 from plugin.embeddings.venv import embeddings_folder_maintain as maintain
+
+
+def _write_populated_meta(listing, model: str) -> None:
+    base = listing / "writeragent_embeddings"
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "corpus.db").write_text("sqlite", encoding="utf-8")
+    (base / "corpus_meta.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "6",
+                "embedding_model": model,
+                "chunk_count": "4",
+                "dim": "384",
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _chunk(doc_url: str, para_index: int, text: str) -> ParagraphChunk:
@@ -102,3 +120,70 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
     ingest_mock.assert_not_called()
     sync_mock.assert_called_once()
     assert result["indexed_paragraphs"] == 0
+
+
+def test_model_change_forces_cold_even_when_incremental(tmp_path):
+    _write_populated_meta(tmp_path, "old-model")
+    with (
+        patch.object(maintain, "guess_indexable_paths", return_value=[]),
+        patch.object(maintain, "_cold_build", return_value={"mode": "cold"}) as cold,
+        patch.object(maintain, "_incremental_refresh") as incremental,
+    ):
+        result = maintain.maintain_folder_corpus(
+            str(tmp_path),
+            embedding_model="new-model",
+            search_mode="embeddings",
+            mode="incremental",
+        )
+    cold.assert_called_once()
+    incremental.assert_not_called()
+    assert result["mode"] == "cold"
+
+
+def test_resolve_mode_model_change_and_non_dict_meta(tmp_path):
+    _write_populated_meta(tmp_path, "old-model")
+    assert maintain._resolve_mode(str(tmp_path), "old-model", "auto", build_vectors=True) == "incremental"
+    assert maintain._resolve_mode(str(tmp_path), "new-model", "incremental", build_vectors=True) == "cold"
+    assert maintain._resolve_mode(str(tmp_path), "new-model", "auto", build_vectors=False) == "incremental"
+
+    meta = tmp_path / "writeragent_embeddings" / "corpus_meta.json"
+    meta.write_text("[]", encoding="utf-8")
+    assert maintain._resolve_mode(str(tmp_path), "new-model", "auto", build_vectors=True) == "incremental"
+
+
+def test_zvec_model_change_clears_collection_before_maintain(tmp_path):
+    _write_populated_meta(tmp_path, "old-model")
+    with (
+        patch(
+            "plugin.embeddings.venv.embeddings_zvec.maintain_folder_zvec",
+            return_value={"mode": "zvec"},
+        ) as zvec,
+        patch.object(maintain, "clear_folder_cache") as clear,
+    ):
+        maintain.maintain_folder_corpus(
+            str(tmp_path),
+            embedding_model="new-model",
+            search_mode="zvec",
+            mode="auto",
+        )
+    clear.assert_called_once_with(str(tmp_path))
+    zvec.assert_called_once()
+
+
+def test_zvec_same_model_does_not_clear(tmp_path):
+    _write_populated_meta(tmp_path, "old-model")
+    with (
+        patch(
+            "plugin.embeddings.venv.embeddings_zvec.maintain_folder_zvec",
+            return_value={"mode": "zvec"},
+        ) as zvec,
+        patch.object(maintain, "clear_folder_cache") as clear,
+    ):
+        maintain.maintain_folder_corpus(
+            str(tmp_path),
+            embedding_model="old-model",
+            search_mode="zvec",
+            mode="auto",
+        )
+    clear.assert_not_called()
+    zvec.assert_called_once()

@@ -233,3 +233,11 @@ def test_load_vec_extension_names_pysqlite3_when_loader_missing():
 
     with pytest.raises(ImportError, match="pysqlite3"):
         embeddings_sqlite._load_vec_extension(_Conn())
+
+
+def test_dim_from_meta_path_ignores_non_dict(tmp_path):
+    meta = tmp_path / "corpus_meta.json"
+    meta.write_text("[]", encoding="utf-8")
+    assert embeddings_sqlite._dim_from_meta_path(str(meta)) is None
+    meta.write_text('{"dim": "384"}', encoding="utf-8")
+    assert embeddings_sqlite._dim_from_meta_path(str(meta)) == 384
