@@ -371,11 +371,16 @@ def grep_nearby_files(
 
     subset_norm = str(file_subset).strip() if file_subset else None
 
-    candidates, truncated_files, list_err = resolve_grep_candidates(
-        ctx,
-        active_model,
-        file_subset=subset_norm,
-    )
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    def _resolve() -> tuple[list[FileEntry], bool, str | None]:
+        return resolve_grep_candidates(
+            ctx,
+            active_model,
+            file_subset=subset_norm,
+        )
+
+    candidates, truncated_files, list_err = execute_on_main_thread(_resolve)
     if list_err:
         return {"status": "error", "message": list_err}
 
@@ -404,7 +409,11 @@ def grep_nearby_files(
             status_callback(f"Grep: {name} ({idx + 1}/{len(candidates)})...")
 
         target = url if url.startswith("file://") else path
-        model, doc_type, open_err, opened_for_document_research = open_document_for_read(ctx, target)
+
+        def _open() -> tuple[Any | None, str | None, str | None, bool]:
+            return open_document_for_read(ctx, target)
+
+        model, doc_type, open_err, opened_for_document_research = execute_on_main_thread(_open)
         files_scanned += 1
 
         if model is None or doc_type is None:
@@ -414,17 +423,21 @@ def grep_nearby_files(
 
         per_file_limit = min(DEFAULT_GREP_MAX_RESULTS_PER_FILE, DEFAULT_GREP_MAX_TOTAL_RESULTS - total_snippets)
         try:
-            matches, match_count, partial, search_err = _search_opened_document(
-                model,
-                doc_type,
-                services,
-                pattern,
-                regex=regex,
-                case_sensitive=case_sensitive,
-                max_results_per_file=per_file_limit,
-            )
+            def _search() -> tuple[list[dict[str, Any]], int, bool, str | None]:
+                return _search_opened_document(
+                    model,
+                    doc_type,
+                    services,
+                    pattern,
+                    regex=regex,
+                    case_sensitive=case_sensitive,
+                    max_results_per_file=per_file_limit,
+                )
+            matches, match_count, partial, search_err = execute_on_main_thread(_search)
         finally:
-            close_document_research_document(model, opened_for_document_research=opened_for_document_research)
+            def _close() -> None:
+                close_document_research_document(model, opened_for_document_research=opened_for_document_research)
+            execute_on_main_thread(_close)
 
         _process_events_if_available(ctx)
 
