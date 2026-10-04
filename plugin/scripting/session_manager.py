@@ -408,7 +408,7 @@ def record_active_calc_session(
                 for stale in [
                     other
                     for other in _RECORDED_CALC_SESSION_IDS
-                    if other != session_id and str(other).startswith("calc:unsaved:")
+                    if other != session_id and isinstance(other, str) and other.startswith("calc:unsaved:")
                 ]:
                     _RECORDED_CALC_SESSION_IDS.discard(stale)
                     _drop_session_snapshot_locked(stale)
@@ -416,7 +416,7 @@ def record_active_calc_session(
                 for stale in [
                     other
                     for other in _RECORDED_CALC_SESSION_IDS
-                    if str(other).startswith("calc:unsaved:")
+                    if isinstance(other, str) and other.startswith("calc:unsaved:")
                 ]:
                     _RECORDED_CALC_SESSION_IDS.discard(stale)
                     _drop_session_snapshot_locked(stale)
@@ -602,7 +602,7 @@ def _workbook_session_key(doc: Any) -> str:
             return str(existing)
     except Exception:
         pass
-    new_id = str(uuid.uuid4())
+    new_id = f"unsaved:{uuid.uuid4()}"
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)
         # Bugfix: set_document_property returns without writing when the

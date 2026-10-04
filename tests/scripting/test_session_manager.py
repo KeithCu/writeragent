@@ -698,7 +698,7 @@ def test_workbook_session_key_returns_id_when_property_sticks() -> None:
         patch("plugin.scripting.session_manager.set_document_property", side_effect=_set),
     ):
         key = session_manager._workbook_session_key(mock_doc)
-    uuid_mod.UUID(key)
+    uuid_mod.UUID(key.replace("unsaved:", ""))
     assert stored[session_manager.PYTHON_WORKBOOK_SESSION_PROP] == key
 
 
@@ -807,3 +807,23 @@ def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
 
 
 
+
+def test_save_notes_new_session_id_reset_on_unload():
+    from unittest.mock import MagicMock, patch
+    import plugin.scripting.session_manager as session_manager
+    from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+    from plugin.tests.testing_utils import CalcDocStub
+
+    ctx = MagicMock()
+    doc = CalcDocStub(props={"RuntimeUID": "uid-save"}, url="")
+    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+        with patch("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", side_effect=["calc:unsaved:uuid-1", "calc:file:///saved.ods"]):
+            with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+                mock_reset.return_value = {"status": "ok"}
+                ensure_calc_workbook_unload_resets_python(ctx, doc)
+                doc.url = "file:///saved.ods"
+                ensure_calc_workbook_unload_resets_python(ctx, doc)
+                assert len(doc._document_event_listeners) == 1
+                doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
+    reset_ids = {call.args[1] for call in mock_reset.call_args_list}
+    assert reset_ids == {"calc:unsaved:uuid-1", "calc:file:///saved.ods"}

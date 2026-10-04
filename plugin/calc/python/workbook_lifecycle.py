@@ -238,11 +238,21 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 continue
             try:
                 res = reset_python_session(self._ctx, sid)
-                if res.get("status") != "ok":
+                if isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY":
+                    # Fall back to doing it in the background if the worker is busy to avoid deadlocks.
+                    def do_retry(retry_sid=sid):
+                        import time
+                        time.sleep(0.5)
+                        try:
+                            reset_python_session(self._ctx, retry_sid)
+                        except Exception:
+                            pass
+                    from plugin.framework.worker_pool import run_in_background
+                    run_in_background(do_retry, name="reset_python_session_retry", daemon=True)
+                elif isinstance(res, dict) and res.get("status") != "ok":
                     log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
             except Exception:
                 log.debug("python_workbook_lifecycle: reset on unload raised", exc_info=True)
-
     def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str, *, reset_sessions: bool) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:

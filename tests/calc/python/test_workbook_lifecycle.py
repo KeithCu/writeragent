@@ -218,4 +218,27 @@ def test_note_during_teardown_resets_late_session():
     assert not worker.is_alive()
     assert seen[0] == "calc:wb-1"
     assert "calc:file:///saved.ods" in seen
+
+def test_unload_resets_worker_when_busy():
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-busy", doc_url="")
+
+    seen = []
+    def mock_reset_side_effect(_ctx, sid):
+        seen.append(sid)
+        if len(seen) == 1:
+            return {"status": "error", "code": "WORKER_REENTRY"}
+        return {"status": "ok"}
+
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", side_effect=mock_reset_side_effect):
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run_in_background:
+            listener.on_document_event(MagicMock(EventName="OnUnload"))
+            # Initial call
+            assert len(seen) == 1
+            # Ensure background fallback was scheduled
+            mock_run_in_background.assert_called_once()
+            callback = mock_run_in_background.call_args[0][0]
+            with patch("time.sleep"):
+                callback()
+            assert len(seen) == 2
     assert listener._teardown_done is True
