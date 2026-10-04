@@ -247,8 +247,6 @@ def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False) ->
         sd.SearchCaseSensitive = case_sens
         found = doc.findFirst(sd)
         while found is not None:
-            if len(ranges) >= _MAX_SEARCH_REPLACEMENTS:
-                return ranges
             ranges.append(found)
             found = find_next_after_match(doc, found, sd)
         if ranges:
@@ -396,8 +394,6 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                     if not all_matches:
                         return result_range
                     matched_ranges.append(result_range)
-                    if len(matched_ranges) >= _MAX_SEARCH_REPLACEMENTS:
-                        return matched_ranges
                 except Exception:
                     log.debug("Failed creating combined XTextRange", exc_info=True)
 
@@ -637,7 +633,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
         return doc.findFirst(sd)
     out: list[Any] = []
     found = doc.findFirst(sd)
-    while found is not None and len(out) < _MAX_SEARCH_REPLACEMENTS:
+    while found is not None:
         out.append(found)
         found = find_next_after_match(doc, found, sd)
     return out

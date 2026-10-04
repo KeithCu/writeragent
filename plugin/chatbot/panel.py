@@ -444,6 +444,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _panel_teardown: bool
     _mcp_event_bus: Any
     _turn: Any
+    _last_mcp_turn: Any | None
 
     def __init__(
         self,
@@ -508,6 +509,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
         # The queue, stripper, and document model live on ``_turn``.
         self._turn = None
+        self._last_mcp_turn = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
@@ -1052,6 +1054,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
         try:
+            from plugin.chatbot.tool_loop_actions import current_turn
+
+            self._last_mcp_turn = current_turn(self)
             from plugin.framework.logging import format_tool_call_for_display
 
             fmt_str = format_tool_call_for_display(tool, args, method)
@@ -1068,9 +1073,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self._panel_teardown or self.ctx is None:
             return
 
+        try:
+            from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+            last_turn = getattr(self, "_last_mcp_turn", None)
+            if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                return
+        except Exception:
+            pass
+
         def _update_ui() -> None:
             if self._panel_teardown or self.ctx is None:
                 return
+            try:
+                from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+                last_turn = getattr(self, "_last_mcp_turn", None)
+                if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                    return
+            except Exception:
+                pass
             try:
                 from plugin.framework.logging import format_tool_result_for_display
 
@@ -1556,7 +1576,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
-                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
+                        from plugin.chatbot.tool_loop_actions import running_turn
+
+                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped" and running_turn(self) is not None:
                             from plugin.chatbot.tool_loop_actions import session_for_turn
 
                             spoken = session_for_turn(self)

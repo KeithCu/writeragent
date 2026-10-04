@@ -89,15 +89,16 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
 def test_unload_clears_in_memory_spill_state():
     import plugin.calc.python.function as python_function
 
-    python_function.SPILL_REGISTRY[("file:///gone.ods", "Sheet1", 0, 0)] = [(0, 1)]
-    python_function.LOADED_DOCUMENTS.add("file:///gone.ods")
+    python_function.SPILL_REGISTRY.clear()
+    python_function.SPILL_REGISTRY[("key-spill", "Sheet1", 0, 0)] = [(0, 1)]
+    python_function.LOADED_DOCUMENTS.add("key-spill")
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:file:///gone.ods", "key-spill", doc_url="file:///gone.ods")
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
-    assert ("file:///gone.ods", "Sheet1", 0, 0) not in python_function.SPILL_REGISTRY
-    assert "file:///gone.ods" not in python_function.LOADED_DOCUMENTS
+    assert ("key-spill", "Sheet1", 0, 0) not in python_function.SPILL_REGISTRY
+    assert "key-spill" not in python_function.LOADED_DOCUMENTS
 
 
 def test_unload_clears_in_memory_geometric_state():

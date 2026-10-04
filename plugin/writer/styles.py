@@ -644,6 +644,9 @@ class ApplyStyle(FrameworkToolBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
+    def is_async(self) -> bool:
+        return True
+
     # Maps family to the UNO property that holds the style name.
     _PROPERTY_MAP: ClassVar[dict[str, str]] = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
 
@@ -757,7 +760,12 @@ class ApplyStyle(FrameworkToolBase):
                 ranges = [ranges[occ]]
             applied = 0
             reports = []
+
+            stop_checker = getattr(ctx, "stop_checker", None)
+
             for found in ranges:
+                if stop_checker and stop_checker():
+                    return self._tool_error("Tool stopped by user before applying style to all matches.")
                 try:
                     ftext = found.getText()
                     c = ftext.createTextCursorByRange(found.getStart())
@@ -1038,8 +1046,9 @@ class StyleCreate(ToolWriterStyleBase):
             if actual_parent:
                 try:
                     new_style.setParentStyle(actual_parent)
-                except Exception:
+                except Exception as e:
                     log.warning("Failed to set parent_style '%s' on new style", actual_parent, exc_info=True)
+                    return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}")
 
             # Apply properties
             applied_font = None
@@ -1057,7 +1066,8 @@ class StyleCreate(ToolWriterStyleBase):
                 except Exception:
                     log.warning("Failed to set property %s on new style", prop_name, exc_info=True)
 
-            # Register style
+            # Register before conditional rules so a failed ParaStyleConditions
+            # write can remove the half-created style instead of leaving it.
             style_family.insertByName(style_name, new_style)
 
             # Apply conditional rules

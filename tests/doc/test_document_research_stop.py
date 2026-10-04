@@ -18,21 +18,36 @@ def test_delegate_read_document_closes_when_stopped(
     mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
     mock_open.return_value = (opened_model, "calc", None, True)
 
+    from plugin.framework.queue_executor import _current_send_cancellation
+
     def mock_run_on_main(fn):
-        if "lambda" in fn.__name__:
-            raise SendCancelled("Stopped")
+        if fn.__name__ == "_do_close":
+            if _current_send_cancellation.get() is not None:
+                raise SendCancelled("Stopped")
+            else:
+                return fn()
         return fn()
 
     with patch("plugin.doc.document_research_specialized._run_on_main", side_effect=mock_run_on_main):
-        tool = DelegateReadDocument()
-        ctx = MagicMock()
-        ctx.doc = MagicMock()
-        ctx.ctx = MagicMock()
-        r = ToolRegistry(services={})
-        ctx.services = {"tools": r}
-        ctx.stop_checker = MagicMock(return_value=True)
+        # Bind a dummy scope so _current_send_cancellation.get() is not None initially
+        token = _current_send_cancellation.set(MagicMock())
+        try:
+            tool = DelegateReadDocument()
+            r = ToolRegistry(services={})
+            ctx = ToolContext(
+                doc=MagicMock(),
+                ctx=MagicMock(),
+                doc_type="calc",
+                services={"tools": r},
+                stop_checker=MagicMock(return_value=True),
+            )
 
-        tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+            res = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+            assert res["status"] == "error"
+            assert res["code"] == "USER_STOPPED"
+            assert "stopped by user" in res["message"]
+        finally:
+            _current_send_cancellation.reset(token)
 
     mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
 
@@ -49,22 +64,32 @@ def test_grep_nearby_files_closes_when_stopped(
     mock_resolve.return_value = ([MagicMock(path="/tmp/Budget.ods", url="file:///tmp/Budget.ods", entry_type="file", name="Budget.ods")], False, None)
     mock_open.return_value = (opened_model, "calc", None, True)
 
+    from plugin.framework.queue_executor import _current_send_cancellation
+
     def mock_execute_on_main(fn, *args, **kwargs):
         if fn.__name__ == "_close":
+            if _current_send_cancellation.get() is not None:
+                raise SendCancelled("Stopped")
+            else:
+                return fn(*args, **kwargs)
+        if fn.__name__ == "_search":
             raise SendCancelled("Stopped")
         return fn(*args, **kwargs)
 
     with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute_on_main):
-        ctx = MagicMock()
-        ctx.doc = MagicMock()
-        ctx.ctx = MagicMock()
-        ctx.services = {}
-        ctx.stop_checker = MagicMock(return_value=True)
-        ctx.caller = MagicMock()
-
+        token = _current_send_cancellation.set(MagicMock())
         try:
-            grep_nearby_files(ctx, opened_model, {}, "pattern")
-        except SendCancelled:
-            pass
+            ctx = MagicMock()
+            ctx.doc = MagicMock()
+            ctx.ctx = MagicMock()
+            ctx.services = {}
+            # Do not stop early before opening so that the finally path is reached
+            ctx.stop_checker = MagicMock(return_value=False)
+            ctx.caller = MagicMock()
+
+            res = grep_nearby_files(ctx, opened_model, {}, "pattern")
+            assert res == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+        finally:
+            _current_send_cancellation.reset(token)
 
     mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
