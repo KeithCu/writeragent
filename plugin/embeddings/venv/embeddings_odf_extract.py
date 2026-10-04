@@ -16,9 +16,10 @@ __all__ = ["extract_draw_pages", "extract_calc_rows"]
 # --- Impress/Draw (.odp/.odg) extract helpers ---
 
 def _paragraph_plain_text(paragraph: Any) -> str:
-    if paragraph.firstChild is not None and hasattr(paragraph.firstChild, "data"):
-        return str(paragraph.firstChild.data or "").strip()
-    return str(paragraph) if paragraph is not None else ""
+    from odf.teletype import extractText
+    if paragraph is not None:
+        return extractText(paragraph).strip()
+    return ""
 
 
 def _is_descendant_of(element: Any, ancestor: Any) -> bool:

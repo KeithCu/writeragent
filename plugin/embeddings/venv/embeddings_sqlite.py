@@ -747,6 +747,21 @@ def mark_file_indexed_in_db(
     conn.commit()
 
 
+
+def get_all_indexed_urls_in_db(conn: sqlite3.Connection) -> list[str]:
+    """Return a list of all doc_url entries in indexed_files."""
+    rows = conn.execute("SELECT doc_url FROM indexed_files").fetchall()
+    return [str(row["doc_url"] or "") for row in rows]
+
+
+def remove_file_from_index_in_db(conn: sqlite3.Connection, doc_url: str) -> None:
+    """Remove a file's freshness metadata from the index."""
+    doc_url = str(doc_url or "")
+    conn.execute("DELETE FROM indexed_files WHERE doc_url = ?", (doc_url,))
+    conn.execute("DELETE FROM indexed_paragraphs WHERE doc_url = ?", (doc_url,))
+    conn.commit()
+
+
 def diff_chunk_rows_in_db(
     conn: sqlite3.Connection,
     doc_url: str,
@@ -759,18 +774,17 @@ def diff_chunk_rows_in_db(
     seen: set[tuple[str, int, int, int]] = set()
 
     stored: dict[tuple[int, int, int], str] = {}
-    doc_url = str(doc_url or "")
     if doc_url:
-        rows = conn.execute(
-            """
-            SELECT para_index, char_start, char_end, content_hash
-            FROM chunks WHERE doc_url = ?
-            """,
-            (doc_url,),
-        ).fetchall()
-        for row in rows:
-            locator = (int(row["para_index"]), int(row["char_start"]), int(row["char_end"]))
-            stored[locator] = str(row["content_hash"] or "")
+            rows = conn.execute(
+                """
+                SELECT para_index, char_start, char_end, content_hash
+                FROM chunks WHERE doc_url = ?
+                """,
+                (doc_url,),
+            ).fetchall()
+            for row in rows:
+                locator = (int(row["para_index"]), int(row["char_start"]), int(row["char_end"]))
+                stored[locator] = str(row["content_hash"] or "")
 
     for chunk in chunks:
         if not isinstance(chunk, ParagraphChunk):
@@ -783,18 +797,21 @@ def diff_chunk_rows_in_db(
             continue
         to_index.append(chunk_to_index_row(chunk))
 
+    if not chunks:
+        doc_url_for_delete = doc_url
+    else:
+        doc_url_for_delete = chunks[0].doc_url
     to_delete: list[dict[str, Any]] = []
-    if doc_url:
-        for (para_index, char_start, char_end), _stored_hash in stored.items():
-            if (doc_url, para_index, char_start, char_end) not in seen:
-                to_delete.append(
-                    {
-                        "doc_url": doc_url,
-                        "para_index": para_index,
-                        "char_start": char_start,
-                        "char_end": char_end,
-                    }
-                )
+    for (para_index, char_start, char_end), _stored_hash in stored.items():
+        if (doc_url_for_delete, para_index, char_start, char_end) not in seen:
+            to_delete.append(
+                {
+                    "doc_url": doc_url_for_delete,
+                    "para_index": para_index,
+                    "char_start": char_start,
+                    "char_end": char_end,
+                }
+            )
 
     return to_index, to_delete
 
@@ -867,6 +884,7 @@ __all__ = [
     "ensure_schema",
     "file_is_stale_in_db",
     "fts_corpus_search",
+    "get_all_indexed_urls_in_db",
     "get_file_index_info",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
@@ -874,6 +892,7 @@ __all__ = [
     "paragraph_body_for_locator",
     "paragraph_bodies_for_locators",
     "rebuild_fts_corpus_index",
+    "remove_file_from_index_in_db",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",

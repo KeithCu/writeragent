@@ -789,6 +789,8 @@ class PythonWorkerManager:
         on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
         python_tool_domain: str | None = None,
         script_session_id: str | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        cancellation_scope: Any | None = None,
     ) -> dict[str, Any]:
         """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
 
@@ -826,6 +828,8 @@ class PythonWorkerManager:
                 on_heartbeat=on_heartbeat,
                 python_tool_domain=python_tool_domain,
                 script_session_id=script_session_id,
+                stop_checker=stop_checker,
+                cancellation_scope=cancellation_scope,
             )
         finally:
             self._release_io()
@@ -1354,6 +1358,8 @@ def run_code_in_user_venv(
     heartbeat_grace_sec: int | None = None,
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
     action: str | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    cancellation_scope: Any | None = None,
 ) -> Dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
 
@@ -1397,6 +1403,8 @@ def run_code_in_user_venv(
         action=action,
         python_tool_domain=python_tool_domain,
         script_session_id=script_session_id,
+        stop_checker=stop_checker,
+        cancellation_scope=cancellation_scope,
     )
 
 
