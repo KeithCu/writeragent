@@ -885,6 +885,34 @@ class TestTtsStopInteraction:
                 listener._run_send_drain()
         speak.assert_not_called()
 
+    def test_stop_line_teardown_drops_turn(self) -> None:
+        listener = _make_send_listener()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, False, False, False, True),
+            tool_loop=MagicMock(),
+            audio=AudioRecorderState(status="idle"),
+        )
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+        listener.sidebar_state.tool_loop.messages = [{"role": "assistant", "content": _STOP_LINE}]
+        with (
+            patch("plugin.audio.tts_service.speak_text_async") as speak,
+            patch("plugin.audio.tts_service.is_speaking", return_value=False),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop_turn,
+            patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick,
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.sidebar_state.tool_loop),
+        ):
+            listener._terminal_status = "Ready"
+            listener._send_cancellation = None
+            listener._panel_teardown = False
+            listener._sync_has_text_from_query = MagicMock()
+            listener.dispatch = MagicMock()
+            listener._run_send_drain()
+
+        speak.assert_not_called()
+        mock_drop_turn.assert_called_once_with(listener)
+        mock_kick.assert_called_once()
+
     def test_stop_button_stops_speech_when_speaking(self) -> None:
         send_listener = MagicMock()
         send_listener._approval_event = None

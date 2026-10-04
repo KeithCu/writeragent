@@ -617,8 +617,8 @@ def test_recreated_view_skips_rewire_if_container_changes():
     # New container
     new_container = MagicMock()
 
-    # uno_same will return True if containers match
-    def mock_uno_same(c, a, b):
+    # uno_same takes two arguments (a, b)
+    def mock_uno_same(a, b):
         return a is b
 
     with (

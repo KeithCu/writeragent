@@ -26,8 +26,10 @@ from plugin.framework.thread_guard import background
 import json
 import logging
 import os
+import queue
 import subprocess
 import threading
+import time
 from typing import Any, cast
 
 from plugin.framework.errors import ToolExecutionError
@@ -63,6 +65,8 @@ class ACPConnection:
     _request_id: int
     _running: bool
     _notify_callback: Any
+    _write_queue: queue.Queue[tuple[str, Any, bytes | None]]
+    _writer_started: bool
 
     def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> None:
         self._cmd_line = cmd_line
@@ -77,6 +81,8 @@ class ACPConnection:
         self._running = False
         self._notifications: list[Any] = []  # queue of notification dicts
         self._notify_callback = None
+        self._write_queue = queue.Queue()
+        self._writer_started = False
 
     def start(self) -> None:
         """Spawn the ACP subprocess."""
@@ -130,30 +136,77 @@ class ACPConnection:
         if proc is None:
             return
 
-        # terminate() is fast. wait() can sit for the full timeout, which
-        # froze the UI thread. Signal the child here so a second stop still
-        # sees one terminate, and only the wait/kill runs off this thread.
-        try:
-            if proc.stdin:
-                proc.stdin.close()
-        except Exception:
-            pass
+        # What was wrong: commit 5f90e5b89 put stdin writes and stdin.close() back
+        # on the calling thread, so a full or blocked pipe buffer froze the UI.
+        # Prior to 5f90e5b89, writes were sent to run_in_background while stop()
+        # called proc.terminate() immediately, racing and killing the child before
+        # session/cancel was sent.
+        # Why this change: sequence writes and stop through a background FIFO queue.
+        # session/cancel and permission responses flush before proc.stdin.close()
+        # and proc.terminate() run off-thread. A fallback watchdog forces terminate()
+        # if a wedged pipe blocks writes, preventing UI freezes while eliminating the race.
+        self._enqueue_write("stop", proc, None)
 
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-
-        def _wait_then_kill() -> None:
+        def _watchdog_terminate() -> None:
+            time.sleep(0.5)
             try:
-                proc.wait(timeout=3)
+                if proc and proc.poll() is None:
+                    proc.terminate()
             except Exception:
+                pass
+
+        run_in_background(_watchdog_terminate, name="acp-stop-watchdog", dedicated=True)
+
+    def _enqueue_write(self, action: str, proc: Any, data: bytes | None) -> None:
+        with self._lock:
+            self._write_queue.put((action, proc, data))
+            if not self._writer_started:
+                self._writer_started = True
+                run_in_background(self._writer_drain_loop, name="acp-writer", dedicated=True)
+
+    @background
+    def _writer_drain_loop(self) -> None:
+        while True:
+            try:
+                item = self._write_queue.get(timeout=0.2)
+            except queue.Empty:
+                with self._lock:
+                    if not self._running and self._write_queue.empty():
+                        self._writer_started = False
+                        break
+                continue
+
+            action, proc, data = item
+            if action == "write":
                 try:
-                    proc.kill()
+                    stdin = proc.stdin if proc is not None else None
+                    if stdin and data is not None:
+                        stdin.write(data)
+                        stdin.flush()
                 except Exception:
                     pass
-
-        run_in_background(_wait_then_kill, name="acp-stop", dedicated=True)
+            elif action == "stop":
+                try:
+                    if proc and proc.stdin:
+                        proc.stdin.close()
+                except Exception:
+                    pass
+                try:
+                    if proc:
+                        proc.terminate()
+                except Exception:
+                    pass
+                if proc:
+                    try:
+                        proc.wait(timeout=3)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                with self._lock:
+                    self._writer_started = False
+                break
 
     @property
     def is_alive(self) -> bool:
@@ -222,22 +275,17 @@ class ACPConnection:
 
     def send_notification(self, method: str, params: Any = None) -> None:
         """Send a JSON-RPC notification (no response expected)."""
-        if not self.is_alive:
+        proc = self._proc
+        if proc is None or proc.poll() is not None:
             return
         msg = {"jsonrpc": _JSONRPC_VERSION, "method": method, "params": params or {}}
         line = json.dumps(msg) + "\n"
-        proc = self._proc
-        try:
-            stdin = proc.stdin if proc is not None else None
-            if stdin:
-                stdin.write(line.encode("utf-8"))
-                stdin.flush()
-        except Exception:
-            pass
+        self._enqueue_write("write", proc, line.encode("utf-8"))
 
     def send_response(self, msg_id: Any, result: Any = None, error: Any = None) -> None:
         """Send a JSON-RPC response to a request from the agent."""
-        if not self.is_alive:
+        proc = self._proc
+        if proc is None or proc.poll() is not None:
             return
         msg = {"jsonrpc": _JSONRPC_VERSION, "id": msg_id}
         if error is not None:
@@ -246,14 +294,7 @@ class ACPConnection:
             msg["result"] = result or {}
 
         line = json.dumps(msg) + "\n"
-        proc = self._proc
-        try:
-            stdin = proc.stdin if proc is not None else None
-            if stdin:
-                stdin.write(line.encode("utf-8"))
-                stdin.flush()
-        except Exception:
-            log.exception("Failed to send response")
+        self._enqueue_write("write", proc, line.encode("utf-8"))
 
     def set_notification_callback(self, callback: Any) -> None:
         """Set a callback(method, params, msg_id) for incoming notifications."""

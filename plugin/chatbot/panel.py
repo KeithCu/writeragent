@@ -1585,77 +1585,83 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # when disposing had just cancelled that scope, so a late reader
             # saw None on a dead panel.
             # Why: drop the field only while the panel is still alive.
-            if not self._panel_teardown:
-                self._send_cancellation = None
-                if self._terminal_status == "Error":
-                    self.clear_pending_audio_wav()
-                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                else:
-                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                    self._sync_has_text_from_query()
-                    if self._terminal_status:
-                        self._set_status(_(self._terminal_status))
-                    try:
-                        from plugin.framework.config import get_config_bool_safe
-                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status == "Ready":
-                            from plugin.chatbot.tool_loop_actions import session_for_turn
+            try:
+                if not self._panel_teardown:
+                    self._send_cancellation = None
+                    if self._terminal_status == "Error":
+                        self.clear_pending_audio_wav()
+                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                    else:
+                        self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                        self._sync_has_text_from_query()
+                        if self._terminal_status:
+                            self._set_status(_(self._terminal_status))
+                        try:
+                            from plugin.framework.config import get_config_bool_safe
+                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status == "Ready":
+                                from plugin.chatbot.tool_loop_actions import session_for_turn
 
-                            spoken = session_for_turn(self)
-                            if spoken and spoken.messages:
-                                last_msg = spoken.messages[-1]
-                                if last_msg.get("role") == "assistant" and last_msg.get("content"):
-                                    from plugin.chatbot.tool_loop_actions import _STOP_LINE
-                                    content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
-                                    if content_to_speak.strip():
-                                        from plugin.audio.tts_service import speak_text_async, is_speaking
+                                spoken = session_for_turn(self)
+                                if spoken and spoken.messages:
+                                    last_msg = spoken.messages[-1]
+                                    if last_msg.get("role") == "assistant" and last_msg.get("content"):
+                                        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+                                        content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
+                                        if content_to_speak.strip():
+                                            from plugin.audio.tts_service import speak_text_async, is_speaking
 
-                                        # Restore the send-complete status after download/fallback lines.
-                                        prior_status = self._terminal_status or "Ready"
+                                            # Restore the send-complete status after download/fallback lines.
+                                            prior_status = self._terminal_status or "Ready"
 
-                                        def _on_tts_status(message: str) -> None:
-                                            # Speech runs on a worker; the status control is a UNO widget.
-                                            def _apply() -> None:
-                                                self._set_status(message)
+                                            def _on_tts_status(message: str) -> None:
+                                                # Speech runs on a worker; the status control is a UNO widget.
+                                                def _apply() -> None:
+                                                    self._set_status(message)
 
-                                            try:
-                                                self.queue_executor.post(_apply)
-                                            except Exception:
-                                                log.debug("TTS status post failed", exc_info=True)
+                                                try:
+                                                    self.queue_executor.post(_apply)
+                                                except Exception:
+                                                    log.debug("TTS status post failed", exc_info=True)
 
-                                        def _on_speech_complete() -> None:
-                                            def _disable_stop() -> None:
-                                                if not getattr(self, "_send_busy", False):
-                                                    if self.stop_control and self.stop_control.getModel():
-                                                        with suppress_disposed("disable stop after speech", logger=log):
-                                                            self.stop_control.getModel().Enabled = False
-                                                    # A sticky restart may already be capturing; Ready would hide it.
-                                                    if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
-                                                        self._set_status(hands_free_status_text())
-                                                    else:
-                                                        self._set_status(_(prior_status))
-                                            self.queue_executor.post(_disable_stop)
+                                            def _on_speech_complete() -> None:
+                                                def _disable_stop() -> None:
+                                                    if not getattr(self, "_send_busy", False):
+                                                        if self.stop_control and self.stop_control.getModel():
+                                                            with suppress_disposed("disable stop after speech", logger=log):
+                                                                self.stop_control.getModel().Enabled = False
+                                                        # A sticky restart may already be capturing; Ready would hide it.
+                                                        if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
+                                                            self._set_status(hands_free_status_text())
+                                                        else:
+                                                            self._set_status(_(prior_status))
+                                                self.queue_executor.post(_disable_stop)
 
-                                        speak_text_async(
-                                            content_to_speak,
-                                            on_complete=_on_speech_complete,
-                                            on_status=_on_tts_status,
-                                            # Sentence breaks use BreakIterator on this UI
-                                            # thread. The audio worker only receives the list.
-                                            ctx=self.ctx,
-                                        )
-                                        if is_speaking():
-                                            if self.stop_control and self.stop_control.getModel():
-                                                with suppress_disposed("enable stop for speech", logger=log):
-                                                    self.stop_control.getModel().Enabled = True
-                    except Exception as e:
-                        log.debug("TTS playback trigger: %s", e)
-                    self._flush_sticky_restart()
-            from plugin.chatbot.tool_loop_actions import drop_turn
-            from plugin.doc.peer_message import kick_pending_peer_starts
+                                            speak_text_async(
+                                                content_to_speak,
+                                                on_complete=_on_speech_complete,
+                                                on_status=_on_tts_status,
+                                                # Sentence breaks use BreakIterator on this UI
+                                                # thread. The audio worker only receives the list.
+                                                ctx=self.ctx,
+                                            )
+                                            if is_speaking():
+                                                if self.stop_control and self.stop_control.getModel():
+                                                    with suppress_disposed("enable stop for speech", logger=log):
+                                                        self.stop_control.getModel().Enabled = True
+                        except Exception as e:
+                            log.debug("TTS playback trigger: %s", e)
+                        self._flush_sticky_restart()
+            finally:
+                # What was wrong: commit 588704555 returned early when content_to_speak was empty,
+                # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
+                # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
+                # finally so no early return or TTS exception can leak active_turns.
+                from plugin.chatbot.tool_loop_actions import drop_turn
+                from plugin.doc.peer_message import kick_pending_peer_starts
 
-            # Spoken text was copied above. Later callbacks must not find this turn.
-            drop_turn(self)
-            kick_pending_peer_starts()
+                # Spoken text was copied above. Later callbacks must not find this turn.
+                drop_turn(self)
+                kick_pending_peer_starts()
 
     def _get_doc_type_str(self, model: Any) -> str:
         from plugin.doc.doc_type import doc_type_title_for_label

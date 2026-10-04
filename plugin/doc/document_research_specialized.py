@@ -184,7 +184,9 @@ class DelegateReadDocument(ToolBase):
                 _run_on_main(_do_close)
             except (SendCancelled, TimeoutError, RuntimeError):
                 from plugin.framework.queue_executor import post_to_main_thread
-                post_to_main_thread(_do_close)
+                # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
+                # this close during queue processing or cancel_pending_work.
+                post_to_main_thread(_do_close, bound_scope=None)
 
         if isinstance(result, dict) and result.get("status") == "error":
             return result

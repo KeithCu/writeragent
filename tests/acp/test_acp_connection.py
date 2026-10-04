@@ -587,6 +587,12 @@ def test_stop_flushes_before_terminate():
     conn.send_notification("session/cancel", {})
     conn.stop()
 
+    import time
+    for _ in range(50):
+        if "terminate" in events:
+            break
+        time.sleep(0.01)
+
     assert "write" in events, "write was never called"
     assert "terminate" in events, "terminate was never called"
     assert events.index("write") < events.index("terminate")

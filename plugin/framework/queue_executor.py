@@ -869,7 +869,7 @@ class QueueExecutor:
         item = self._enqueue_work(fn, args, kwargs, blocking=True, bound_scope=bound_scope)
         return self._wait_for_result(item, timeout)
 
-    def post(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+    def post(self, fn: Callable[..., Any], *args: Any, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> None:
         """Post function to main thread without waiting for its result.
 
         Unlike execute, this does not return a result. Used for UI updates
@@ -912,13 +912,14 @@ class QueueExecutor:
                 if not self._await_pending_slot_locked():
                     log.warning("marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, tag)
                     raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
-                self._pending_posts.append((fn, args, kwargs, get_current_send_cancellation()))
+                scope = get_current_send_cancellation() if bound_scope is _SCOPE_UNSET else bound_scope
+                self._pending_posts.append((fn, args, kwargs, scope))
                 log.debug("marshal route=post_pending fn=%s %s", fn_label, tag)
                 return
 
         self._flush_pending_posts()
         log.debug("marshal route=post_enqueue fn=%s %s", fn_label, tag)
-        self._enqueue_work(fn, args, kwargs, blocking=False)
+        self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=bound_scope)
 
 
 # We can keep a global default instance to mimic the old main_thread behavior
@@ -926,14 +927,14 @@ class QueueExecutor:
 default_executor = QueueExecutor()
 
 
-def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, **kwargs: Any) -> Any:
+def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> Any:
     """Legacy helper: Use default_executor.execute instead."""
-    return default_executor.execute(fn, *args, timeout=timeout, **kwargs)
+    return default_executor.execute(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
 
 
-def post_to_main_thread(fn: Any, *args: Any, **kwargs: Any) -> None:
+def post_to_main_thread(fn: Any, *args: Any, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> None:
     """Legacy helper: Use default_executor.post instead."""
-    return default_executor.post(fn, *args, **kwargs)
+    return default_executor.post(fn, *args, bound_scope=bound_scope, **kwargs)
 
 
 def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor | None = None) -> None:

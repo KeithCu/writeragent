@@ -842,7 +842,9 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         for lis in _listener_refs:
             if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
                 try:
-                    if uno_same(ctx, lis._container, container):
+                    # uno_same takes 2 arguments: (a, b). Passing ctx caused TypeError which was
+                    # caught by except Exception and erroneously marked already_wired=True.
+                    if uno_same(lis._container, container):
                         already_wired = True
                         break
                 except Exception:

@@ -486,7 +486,9 @@ def grep_nearby_files(
                 execute_on_main_thread(_close)
             except (SendCancelled, TimeoutError, RuntimeError):
                 from plugin.framework.queue_executor import post_to_main_thread
-                post_to_main_thread(_close)
+                # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
+                # this close during queue processing or cancel_pending_work.
+                post_to_main_thread(_close, bound_scope=None)
 
         _process_events_if_available(ctx)
 
