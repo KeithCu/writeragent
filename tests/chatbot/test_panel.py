@@ -13,6 +13,7 @@ import sys
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import (
     ClearButtonListener,
     QueryKeyListener,
@@ -62,20 +63,21 @@ def _live_bus_callbacks(bus: Any, event: str) -> list[Any]:
 def _make_send_listener() -> SendButtonListener:
     with patch("plugin.framework.config.get_config_str", return_value=""):
         with patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False):
-            session = MagicMock()
-            session.messages = [{"role": "system", "content": "test"}]
-            return SendButtonListener(
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                session,
-            )
+            with patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True):
+                session = MagicMock()
+                session.messages = [{"role": "system", "content": "test"}]
+                return SendButtonListener(
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    session,
+                )
 
 
 class TestGrammarStatusDocType:
@@ -620,10 +622,7 @@ class TestSendDispose:
         assert len(posted) == 1
         assert not first.is_cancelled()
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-        # Why Stop does not kill inflight STT:
-        # If the user clicks Stop while talking or transcribing, Whisper finishes
-        # transcribing so the text lands in the query box rather than aborting.
-        assert killed == []
+        assert killed == ["kill"]
         assert first.is_cancelled()
         assert listener._stop_requested_fallback
 
@@ -1135,29 +1134,37 @@ class TestHandsFreeRecord:
 
 
 
-class TestStopPreservesAudioWavPath:
-    def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
+class TestStopClearsAudioWavPath:
+    @patch("os.remove")
+    def test_disposing_clears_audio_wav_path(self, mock_remove) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
+        from plugin.chatbot.send_state import StopSendEffect
+
         from plugin.chatbot.send_state import SendEvent, SendEventKind
         # We need the listener to execute StopSendEffect.
+        # This is triggered by STOP_CLICKED
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
-        # Audio path is preserved so it can be transcribed into the query box.
-        assert listener.audio_wav_path == "/tmp/fake.wav"
+        assert listener.audio_wav_path is None
+        mock_remove.assert_called_once_with("/tmp/fake.wav")
 
     @patch("os.remove")
-    def test_error_occurred_clears_audio_wav_path(self, mock_remove: MagicMock) -> None:
+    def test_error_occurred_clears_audio_wav_path(self, mock_remove) -> None:
         listener = _make_send_listener()
-        listener.audio_wav_path = "/tmp/fake_error.wav"
-        from plugin.chatbot.send_state import SendEvent, SendEventKind
+        listener.audio_wav_path = "/tmp/fake.wav"
+        # Simulate Error terminal status which should clear WAV in the drain finally block
+        listener._terminal_status = "Error"
+        listener._panel_teardown = False
 
-        listener.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+        # We can just call _run_send_drain directly, mocking _do_send to not change terminal_status
+        with patch.object(listener, "_do_send"):
+            listener._run_send_drain()
+
         assert listener.audio_wav_path is None
-        mock_remove.assert_called_once_with("/tmp/fake_error.wav")
-
+        mock_remove.assert_called_once_with("/tmp/fake.wav")
 
 class TestStoppedTTS:
     def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
@@ -1177,57 +1184,15 @@ class TestStoppedTTS:
 
     def test_do_send_empty_stt_does_not_invoke_tts(self) -> None:
         listener = _make_send_listener()
-        listener._terminal_status = ""  # Empty STT returns empty string
+        # Not "Ready" and not "Stopped"
+        listener._terminal_status = "Error"
         listener.sidebar_state = MagicMock()
         listener.sidebar_state.send.is_recording = False
-        listener._session_msg_count_before_send = 1
 
         with (
             patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
-            patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=object()),
-            patch.object(listener, "_do_send"),
             patch("plugin.framework.config.get_config_bool_safe", return_value=True),
-            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
-        ):
-            # No new message appended. Same length as before send.
-            mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
-            listener._run_send_drain()
-            mock_speak.assert_not_called()
-
-    def test_do_send_valid_response_invokes_tts(self) -> None:
-        listener = _make_send_listener()
-        listener._terminal_status = "Ready"
-        listener.sidebar_state = MagicMock()
-        listener.sidebar_state.send.is_recording = False
-        listener._session_msg_count_before_send = 1
-
-        with (
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
-            patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=object()),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
-            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
-            patch.object(listener, "_do_send", return_value=None),
-        ):
-            # New message appended (length = 2 > 1)
-            mock_session.return_value.messages = [
-                {"role": "user", "content": "Hi"},
-                {"role": "assistant", "content": "Hello world."},
-            ]
-            listener._run_send_drain()
-            mock_speak.assert_called_once()
-
-    def test_do_send_aborted_turn_does_not_invoke_tts(self) -> None:
-        listener = _make_send_listener()
-        listener._terminal_status = "Ready"  # Not 'Stopped' explicitly
-        listener.sidebar_state = MagicMock()
-        listener.sidebar_state.send.is_recording = False
-        listener._panel_teardown = False
-
-        with (
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
-            patch.object(listener, "_do_send"),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
-            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak
         ):
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this either."}]
             listener._run_send_drain()

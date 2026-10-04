@@ -66,14 +66,13 @@ def quick_plot(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
-    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Default line or bar chart from numeric columns."""
     plt = _require_matplotlib("quick_plot")
     if plt is None:
         return _missing_package_error("quick_plot", "matplotlib")
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     try:
         numeric = _numeric_columns(df, y_cols)
@@ -108,7 +107,6 @@ def plot_data(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
-    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Plot from numeric grid using a small chart spec dict."""
     plt = _require_matplotlib("plot_data")
@@ -116,7 +114,7 @@ def plot_data(
         return _missing_package_error("plot_data", "matplotlib")
 
     spec = dict(spec or {})
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     chart_type = str(spec.get("chart_type") or "line").lower()
     x_col = spec.get("x")
@@ -173,14 +171,13 @@ def correlation_heatmap(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
-    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Heatmap of pairwise numeric correlations."""
     plt = _require_matplotlib("correlation_heatmap")
     if plt is None:
         return _missing_package_error("correlation_heatmap", "matplotlib")
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     numeric = df.select_dtypes(include="number")
     if numeric.shape[1] < 2:
@@ -218,14 +215,13 @@ def time_series_plot(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
-    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Line plot for a date-indexed series with optional forecast overlay and bands."""
     plt = _require_matplotlib("time_series_plot")
     if plt is None:
         return _missing_package_error("time_series_plot", "matplotlib")
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     if date_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown date column {date_col!r}", helper="time_series_plot")
@@ -248,8 +244,7 @@ def time_series_plot(
         plot_cols.append(upper_col)
 
     series = df[plot_cols].copy()
-    from plugin.scripting.venv.coerce import convert_to_datetime
-    dates_all = cast(pd.Series, convert_to_datetime(series[date_col], date_origin=date_origin, errors="coerce"))
+    dates_all = cast(pd.Series, pd.to_datetime(series[date_col], errors="coerce"))
     if dates_all.isna().all():
         return _error_result("INVALID_DATES", "Could not parse date column.", helper="time_series_plot")
 
@@ -304,8 +299,7 @@ def time_series_plot(
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
     sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    date_origin = str(context.get("date_origin", "1899-12-30"))
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint, "date_origin": date_origin}
+    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
 
     if name == "quick_plot":
         return quick_plot(data, x_col=params.get("x_col"), y_cols=params.get("y_cols"), **common)

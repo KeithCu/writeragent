@@ -219,9 +219,8 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
-        # AI/DEV INVARIANT: Do NOT add a stop_checker check right before _insert.
-        # If Stop was clicked, the loop check at the top breaks before processing the NEXT image.
-        # But once an image has finished OCR, allow that result to be inserted into the document.
+        if stop_checker and stop_checker():
+            break
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
             def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:

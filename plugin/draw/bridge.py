@@ -209,13 +209,7 @@ class DrawBridge:
         pages = self.get_pages()
         source = pages.getByIndex(index)
         # DrawingDocument / PresentationDocument implement XDrawPageDuplicator.
-        try:
-            new_page = self.doc.duplicate(source)
-            if new_page is None:
-                return None
-        except Exception as exc:
-            log.warning("duplicate_slide failed: %s", exc)
-            return None
+        new_page = self.doc.duplicate(source)
         if switch:
             self.set_current_page_index(index + 1)
         return new_page
