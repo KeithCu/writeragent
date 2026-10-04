@@ -1137,8 +1137,6 @@ class TestStopClearsAudioWavPath:
     def test_disposing_clears_audio_wav_path(self) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
-        from plugin.chatbot.send_state import StopSendEffect
-
         from plugin.chatbot.send_state import SendEvent, SendEventKind
         # We need the listener to execute StopSendEffect.
         # This is triggered by STOP_CLICKED
@@ -1147,6 +1145,17 @@ class TestStopClearsAudioWavPath:
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
         assert listener.audio_wav_path is None
+
+    @patch("os.remove")
+    def test_error_occurred_clears_audio_wav_path(self, mock_remove: MagicMock) -> None:
+        listener = _make_send_listener()
+        listener.audio_wav_path = "/tmp/fake_error.wav"
+        from plugin.chatbot.send_state import SendEvent, SendEventKind
+
+        listener.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+        assert listener.audio_wav_path is None
+        mock_remove.assert_called_once_with("/tmp/fake_error.wav")
+
 
 class TestStoppedTTS:
     def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
@@ -1164,6 +1173,47 @@ class TestStoppedTTS:
             listener._run_send_drain()
             mock_speak.assert_not_called()
 
+    def test_do_send_empty_stt_does_not_invoke_tts(self) -> None:
+        listener = _make_send_listener()
+        listener._terminal_status = ""  # Empty STT returns empty string
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+        listener._session_msg_count_before_send = 1
+
+        with (
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
+            patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=object()),
+            patch.object(listener, "_do_send"),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
+        ):
+            # No new message appended. Same length as before send.
+            mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
+            listener._run_send_drain()
+            mock_speak.assert_not_called()
+
+    def test_do_send_valid_response_invokes_tts(self) -> None:
+        listener = _make_send_listener()
+        listener._terminal_status = "Ready"
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+        listener._session_msg_count_before_send = 1
+
+        with (
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
+            patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=object()),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
+            patch.object(listener, "_do_send", return_value=None),
+        ):
+            # New message appended (length = 2 > 1)
+            mock_session.return_value.messages = [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": "Hello world."},
+            ]
+            listener._run_send_drain()
+            mock_speak.assert_called_once()
+
     def test_do_send_aborted_turn_does_not_invoke_tts(self) -> None:
         listener = _make_send_listener()
         listener._terminal_status = "Ready"  # Not 'Stopped' explicitly
@@ -1175,7 +1225,7 @@ class TestStoppedTTS:
             patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
             patch.object(listener, "_do_send"),
             patch("plugin.framework.config.get_config_bool_safe", return_value=True),
-            patch("plugin.audio.tts_service.speak_text_async") as mock_speak
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
         ):
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this either."}]
             listener._run_send_drain()
