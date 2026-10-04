@@ -394,6 +394,7 @@ def test_unqualified_name_prefers_sheet_local_shadow():
     glob.setContent.assert_not_called()
 
     glob_edit = NamedRangeEdit().execute(ctx, name="Total", scope="global", content="$Sheet1.$D$1")
+    assert glob_edit["status"] == "ok"
     glob.setContent.assert_called_once_with("$Sheet1.$D$1")
 
     deleted = NamedRangeDelete().execute(ctx, name="Total")
