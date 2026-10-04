@@ -299,16 +299,23 @@ def stop_speech() -> None:
     except Exception:
         pass
 
+    # What was wrong: commit b67049ba1 moved _terminate_proc(play) into _bg_cleanup,
+    # so stop_speech returned while the audio player process was still alive.
+    # How it happened: all cleanup was bundled into run_in_background.
+    # Why this change: terminate the player (and synth processes) on the calling thread
+    # immediately so the next utterance cannot overlap with the previous one.
+    # Temp-file unlinking remains in the background.
+    _terminate_proc(play)
+    for proc in synths:
+        _terminate_proc(proc)
+    if cancel_token is not None:
+        try:
+            from plugin.audio.kokoro_pool import cancel_kokoro_inflight
+            cancel_kokoro_inflight(cancel_token)
+        except Exception:
+            log.debug("Kokoro cancel failed", exc_info=True)
+
     def _bg_cleanup() -> None:
-        _terminate_proc(play)
-        for proc in synths:
-            _terminate_proc(proc)
-        if cancel_token is not None:
-            try:
-                from plugin.audio.kokoro_pool import cancel_kokoro_inflight
-                cancel_kokoro_inflight(cancel_token)
-            except Exception:
-                log.debug("Kokoro cancel failed", exc_info=True)
         paths: list[str] = []
         if queue_ref is not None:
             paths.extend(queue_ref.drain())

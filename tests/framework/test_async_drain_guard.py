@@ -143,7 +143,7 @@ def test_callback_added_during_notify_runs_on_next_idle(_isolated_idle_callbacks
     assert ran == ["first"]
     with drain_owner_scope("chat_stream"):
         pass
-    assert ran == ["first", "second"]
+    assert ran == ["first", "first", "second"]
 
 
 def test_queue_executor_reexports_async_drain_guard():

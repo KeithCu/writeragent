@@ -813,7 +813,13 @@ class MCPProtocolHandler:
         tool = self.tool_registry.get(tool_name)
         if tool:
             tier = getattr(tool, "tier", "core")
-            if mode == "direct_flat":
+            # What was wrong: mode != "direct_flat" used MCP_DELEGATE_EXCLUDE_TIERS,
+            # which excludes "specialized" tools. In direct_discovery mode,
+            # find_tools advertises specialized tools, but invoking them failed here.
+            # How it happened: only direct_flat was checked when setting exclude_tiers.
+            # Why this change: direct_discovery also allows calling specialized tools
+            # directly; only specialized_control and chat are excluded.
+            if mode in ("direct_flat", "direct_discovery"):
                 exclude_tiers = MCP_DIRECT_FLAT_EXCLUDE_TIERS
             else:
                 exclude_tiers = MCP_DELEGATE_EXCLUDE_TIERS
