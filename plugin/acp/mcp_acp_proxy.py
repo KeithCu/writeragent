@@ -86,8 +86,23 @@ class MCPACPProxy(AgentBackend):
         try:
             response = requests.post(self._mcp_url, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
-            return response.json()
+            # What was wrong: response.json() raises JSONDecodeError (a
+            # ValueError) on a non-JSON 200 body. That is not a
+            # RequestException on every requests build, so it escaped the
+            # handler below and crashed the turn. A JSON value that is not
+            # an object (null, array, number) also makes `"result" in result`
+            # raise TypeError in the caller. Why: parse the body here and
+            # return the same error dict as a transport failure.
+            from plugin.framework.errors import safe_json_loads
+
+            parsed = safe_json_loads(response.text, default=None, strict=True)
+            if not isinstance(parsed, dict):
+                raise ValueError("MCP server returned a non-JSON response")
+            return parsed
         except requests.exceptions.RequestException as e:
+            log.exception("MCP call failed")
+            return {"error": {"code": -32000, "message": str(e)}}
+        except ValueError as e:
             log.exception("MCP call failed")
             return {"error": {"code": -32000, "message": str(e)}}
 
