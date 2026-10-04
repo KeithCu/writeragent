@@ -46,6 +46,7 @@ from plugin.audio.voice_catalog import (
 from plugin.framework.config import (
     get_api_key_for_endpoint,
     get_config,
+    get_config_int_safe,
     get_config_str,
     set_config,
 )
@@ -291,21 +292,32 @@ def stop_speech() -> None:
         temps = list(_tracked_temps)
         _tracked_temps.clear()
         _reply_misaki_ready.clear()
-    _terminate_proc(play)
-    for proc in synths:
-        _terminate_proc(proc)
+    cancel_token: object | None = None
     try:
-        from plugin.audio.kokoro_pool import cancel_kokoro_inflight
-
-        cancel_kokoro_inflight()
+        from plugin.audio.kokoro_pool import get_kokoro_inflight_token
+        cancel_token = get_kokoro_inflight_token()
     except Exception:
-        log.debug("Kokoro cancel failed", exc_info=True)
-    paths: list[str] = []
-    if queue_ref is not None:
-        paths.extend(queue_ref.drain())
-    paths.extend(temps)
-    for path in paths:
-        _unlink_quiet(path)
+        pass
+
+    def _bg_cleanup() -> None:
+        _terminate_proc(play)
+        for proc in synths:
+            _terminate_proc(proc)
+        if cancel_token is not None:
+            try:
+                from plugin.audio.kokoro_pool import cancel_kokoro_inflight
+                cancel_kokoro_inflight(cancel_token)
+            except Exception:
+                log.debug("Kokoro cancel failed", exc_info=True)
+        paths: list[str] = []
+        if queue_ref is not None:
+            paths.extend(queue_ref.drain())
+        paths.extend(temps)
+        for path in paths:
+            _unlink_quiet(path)
+
+    from plugin.framework.worker_pool import run_in_background
+    run_in_background(_bg_cleanup)
 
 
 def _begin_utterance() -> int:
@@ -1101,7 +1113,7 @@ def _resolve_tts_voice(model: str, voice: str) -> str:
         voice = "alloy"
     if "kokoro" in model.lower():
         v_low = voice.lower()
-        if re.match(r"^[abefhjz][fm]_", v_low):
+        if re.match(r"^[abefhijpz][fm]_", v_low):
             return voice
         return _KOKORO_VOICES.get(v_low, _KOKORO_FALLBACK_VOICE)
     return voice
@@ -1208,19 +1220,6 @@ _PCM_RATE_RE = re.compile(r"rate\s*=\s*(\d+)", re.IGNORECASE)
 _DEFAULT_PCM_RATE = 24000
 
 
-def _response_content_type(resp: Any) -> str:
-    """Content-Type from a urllib response, or empty when the mock has none."""
-    headers = getattr(resp, "headers", None)
-    getter = getattr(headers, "get", None)
-    if not callable(getter):
-        return ""
-    try:
-        value = getter("Content-Type")
-    except Exception:
-        return ""
-    return value if isinstance(value, str) else ""
-
-
 def _content_type_is_pcm(content_type: str) -> bool:
     low = (content_type or "").lower()
     return "audio/pcm" in low or "audio/l16" in low
@@ -1312,46 +1311,62 @@ def _speech_failure_message(code: int, body: str) -> str:
     return _("Speech request failed.")
 
 
+def _speech_read_timeout() -> float:
+    """Settings read budget. Connect stays on the shared short timeout."""
+    timeout = get_config_int_safe("request_timeout")
+    if timeout <= 0:
+        return 120.0
+    return float(timeout)
+
+
 def _post_audio_speech(
     url: str,
     headers: dict[str, str],
     payload: dict[str, Any],
+    *,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[bytes | None, str, int, str]:
-    """POST one speech clip.
+    """POST one speech clip on the shared HTTP transport.
 
     Returns ``(audio, content_type, http_code, error_body)``. ``error_body`` is
-    empty on success. The body is the raw response text so format detection and
-    the status line can both show it.
+    empty on success. Failures are the transport's redacted message so a
+    provider that echoes the API key does not land in the status line or the log.
+
+    What was wrong: this used ``urlopen(..., timeout=30)``, so connect waited
+    the whole read budget, Stop during DNS did nothing, and the raw error body
+    was logged. Why: catalog and chat already share ``LlmHttpTransport``.
     """
     import json
-    import urllib.error
-    import urllib.request
+
+    from plugin.framework.client.http_transport import public_target
+    from plugin.framework.client.requests import sync_request
+    from plugin.framework.errors import NetworkError
 
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            code = getattr(resp, "status", None)
-            http_code = code if isinstance(code, int) else 200
-            return resp.read(), _response_content_type(resp), http_code, ""
-    except urllib.error.HTTPError as exc:
-        err_body = ""
+        result = sync_request(
+            url,
+            data=data,
+            headers=headers,
+            parse_json=False,
+            method="POST",
+            timeout=_speech_read_timeout(),
+            stop_checker=stop_checker,
+            include_meta=True,
+        )
+        return result.body, result.content_type, int(result.status or 200), ""
+    except NetworkError as exc:
+        details = exc.details if isinstance(exc.details, dict) else {}
+        code_raw = details.get("status")
         try:
-            raw = exc.read()
-            if isinstance(raw, bytes):
-                err_body = raw.decode("utf-8", errors="replace")
-            elif isinstance(raw, str):
-                err_body = raw
-        except Exception:
-            err_body = ""
-        code = int(getattr(exc, "code", 0) or 0)
-        if not err_body:
-            err_body = str(exc)
-        log.error("TTS HTTP error %d from %s: %s | Response: %s", code, url, exc, err_body)
-        return None, "", code, err_body
-    except Exception as exc:
-        log.exception("TTS error from %s: %s", url, exc)
-        return None, "", 0, str(exc)
+            code = int(code_raw) if code_raw is not None else 0
+        except (TypeError, ValueError):
+            code = 0
+        # The transport already redacted credentials in exc.message.
+        message = str(exc)
+        if getattr(exc, "code", None) != "STOPPED":
+            log.error("TTS HTTP error %s from %s: %s", code, public_target(url), message)
+        return None, "", code, message
 
 
 def _download_endpoint_speech(
@@ -1426,7 +1441,11 @@ def _download_endpoint_speech(
             "Requesting TTS from %s (model=%s, voice=%s, format=%s, text_len=%d)",
             url, payload["model"], eff_voice, response_format, len(text),
         )
-        audio_bytes, content_type, code, err_body = _post_audio_speech(url, headers, payload)
+        audio_bytes, content_type, code, err_body = _post_audio_speech(
+            url, headers, payload, stop_checker=lambda: _playback_blocked(generation)
+        )
+        if _playback_blocked(generation):
+            return None
         if err_body and not tried_alt:
             alt = _alternate_tts_response_format(err_body, response_format)
             if alt and alt != response_format:
@@ -1598,14 +1617,16 @@ def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) 
                 os.makedirs(os.path.dirname(voices_s), exist_ok=True)
                 log.info("Downloading Kokoro voices to %s...", voices_s)
                 urllib.request.urlretrieve(
-                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}", voices_s
+                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}", voices_s + ".tmp"
                 )
+                os.replace(voices_s + ".tmp", voices_s)
             if needs_model:
                 os.makedirs(os.path.dirname(model_s), exist_ok=True)
                 log.info("Downloading Kokoro ONNX model to %s...", model_s)
                 urllib.request.urlretrieve(
-                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}", model_s
+                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}", model_s + ".tmp"
                 )
+                os.replace(model_s + ".tmp", model_s)
         except Exception as e:
             failed = True
             log.warning("Could not auto-download Kokoro models: %s", e)
@@ -1651,11 +1672,13 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
             _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
             log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_s)
             req_onnx = urllib.request.Request(onnx_url, headers={"User-Agent": "WriterAgent/1.0"})
-            with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_s, "wb") as f_out:
+            with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_s + ".tmp", "wb") as f_out:
                 shutil.copyfileobj(resp, f_out)
+            os.replace(voice_s + ".tmp", voice_s)
             req_json = urllib.request.Request(json_url, headers={"User-Agent": "WriterAgent/1.0"})
-            with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_s, "wb") as f_out:
+            with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_s + ".tmp", "wb") as f_out:
                 shutil.copyfileobj(resp, f_out)
+            os.replace(json_s + ".tmp", json_s)
             _clear_tts_status(on_status)
             return voice_s
         except Exception as e:
@@ -1697,8 +1720,10 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
             fallback_short = _voice_short_name(_PIPER_FALLBACK_VOICE)
             _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
         log.info("Downloading Piper default voice model to %s...", default_voice_s)
-        urllib.request.urlretrieve(f"{base_url}/{rel_onnx}", default_voice_s)
-        urllib.request.urlretrieve(f"{base_url}/{rel_json}", default_json_s)
+        urllib.request.urlretrieve(f"{base_url}/{rel_onnx}", default_voice_s + ".tmp")
+        os.replace(default_voice_s + ".tmp", default_voice_s)
+        urllib.request.urlretrieve(f"{base_url}/{rel_json}", default_json_s + ".tmp")
+        os.replace(default_json_s + ".tmp", default_json_s)
         _clear_tts_status(on_status)
         return default_voice_s
     except Exception as e:
