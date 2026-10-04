@@ -22,6 +22,7 @@ from plugin.framework.config import get_config_int, get_config_str, get_current_
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.errors import format_error_message
+from plugin.framework.async_stream import BlockingWaitStopped
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.chatbot.selection import create_validated_client, prompt_for_edit_instructions, stream_completion
@@ -34,6 +35,28 @@ from plugin.writer.edit_review import (
     refuse_tracked_insert_or_delete,
     review_recording_enabled,
 )
+
+
+
+def _raise_if_stop_checker(ctx: Any) -> None:
+    """Fail closed before a chunk lands when Stop is already set.
+
+    ``BlockingWaitStopped`` is the same type ``run_blocking_in_thread`` raises.
+    A checker that returns true, or that itself raises, becomes that exception
+    so extend/edit do not append after Stop. Network reads still abort inside
+    ``stream_completion``; this only gates the chunk already handed to apply.
+    """
+    stop_checker = getattr(ctx, "stop_checker", None)
+    if not callable(stop_checker):
+        return
+    try:
+        stopped = stop_checker()
+    except BlockingWaitStopped:
+        raise
+    except Exception as exc:
+        raise BlockingWaitStopped("Stopped (stop_checker failed)") from exc
+    if stopped:
+        raise BlockingWaitStopped("Stopped by user")
 
 
 def _stop_for_tracked_changes(ctx: Any, title: str, text_range: Any) -> bool:
@@ -82,13 +105,8 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         track_reviewable=review_recording_enabled(ctx),
     )
 
-    # AI/DEV INVARIANT: Do NOT add stop_checker checks or raise exceptions here.
-    # When the user clicks Stop, we want to immediately stop reading new packets/tokens
-    # from the network (handled in run_stream_completion_async), but chunks already
-    # in hand MUST land in the document. Raising an exception inside apply_chunk is
-    # fragile: it triggers on_error(), pops an error dialog, and calls abort_and_restore(),
-    # rolling back the user's edit. Let the in-flight chunk land cleanly.
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
+        _raise_if_stop_checker(ctx)
         if not is_thinking:
             session.append_chunk(chunk_text)
 
@@ -131,13 +149,8 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         track_reviewable=review_recording_enabled(ctx),
     )
 
-    # AI/DEV INVARIANT: Do NOT add stop_checker checks or raise exceptions here.
-    # When the user clicks Stop, we want to immediately stop reading new packets/tokens
-    # from the network (handled in run_stream_completion_async), but chunks already
-    # in hand MUST land in the document. Raising an exception inside apply_chunk is
-    # fragile: it triggers on_error(), pops an error dialog, and calls abort_and_restore(),
-    # rolling back the user's edit. Let the in-flight chunk land cleanly.
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
+        _raise_if_stop_checker(ctx)
         if not is_thinking:
             session.append_chunk(chunk_text)
 
