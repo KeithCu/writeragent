@@ -369,13 +369,14 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
 
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
-# Key: (doc identity, sheet_name, formula_row, formula_col)
-# Identity is the file URL when the workbook has one. Every unsaved book
-# reports getURL()==""; those use workbook_lifecycle._lifecycle_key
-# (RuntimeUID), never "". LOADED_DOCUMENTS uses the same identity.
+# Key: (lifecycle id, sheet_name, formula_row, formula_col)
+# Identity is always workbook_lifecycle._lifecycle_key (RuntimeUID), including
+# saved books. A file URL changes on Save-As and would orphan registry rows.
+# "" is never a shared key. LOADED_DOCUMENTS uses the same identity.
 # Value: list of (spilled_row, spilled_col) coordinates
 SPILL_REGISTRY: dict[tuple[str, str, int, int], list[tuple[int, int]]] = {}
 LOADED_DOCUMENTS: set[str] = set()
+_SPILL_REGISTRY_LOCK = threading.RLock()
 _PENDING_SPILL_LOCK = threading.Lock()
 _PENDING_SPILL_TIMERS: list[tuple[str, threading.Timer]] = []
 
@@ -514,8 +515,9 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
                             log.debug("Failed to inspect formula cell %r", key, exc_info=True)
 
                 if to_remove:
-                    for key in to_remove:
-                        SPILL_REGISTRY.pop(key, None)
+                    with _SPILL_REGISTRY_LOCK:
+                        for key in to_remove:
+                            SPILL_REGISTRY.pop(key, None)
                     if doc is not None:
                         save_spill_registry_for_doc(doc)
         except Exception:
@@ -526,24 +528,17 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
 
 
 def _spill_registry_doc_key(doc: Any) -> str:
-    """File URL for a saved workbook; lifecycle id when ``getURL()`` is empty.
+    """Always return the lifecycle id (RuntimeUID) for SPILL_REGISTRY keys.
 
     Bugfix: every unsaved book reports ``getURL() == ""``. Keying
     ``SPILL_REGISTRY`` and ``LOADED_DOCUMENTS`` on ``""`` mixed their spill
     cells, made the second book skip load, and let save write every untitled
-    row into whichever book was saving. ``sheet_modify._doc_identity`` and
-    ``formula_locator_cache.document_cache_key`` already use
-    ``workbook_lifecycle._lifecycle_key`` (RuntimeUID) for that reason.
-    Saved books keep the file URL so existing registry keys stay stable.
+    row into whichever book was saving.
+    Bugfix 2: previously saved books kept the file URL. Save-As changes the
+    URL without re-keying existing registry entries, so those rows are orphaned.
+    Using the lifecycle id for every book keeps them matchable across Save-As.
     ``""`` is never returned as a shared key when a lifecycle id exists.
     """
-    url = ""
-    try:
-        url = getattr(doc, "getURL", lambda: "")() or ""
-    except Exception:
-        url = ""
-    if url:
-        return str(url)
     if doc is None:
         return ""
     try:
@@ -570,15 +565,16 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         # key is per workbook. Do not file those rows under "" (every untitled book).
         if not doc_key:
             return
-        for key, value in data.items():
-            parts = key.split(":")
-            if len(parts) == 2:
-                sheet_name, coords = parts
-                row_col = coords.split(",")
-                if len(row_col) == 2:
-                    frow, fcol = int(row_col[0]), int(row_col[1])
-                    spill_coords = [(int(r), int(c)) for r, c in value]
-                    SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = spill_coords
+        with _SPILL_REGISTRY_LOCK:
+            for key, value in data.items():
+                parts = key.split(":")
+                if len(parts) == 2:
+                    sheet_name, coords = parts
+                    row_col = coords.split(",")
+                    if len(row_col) == 2:
+                        frow, fcol = int(row_col[0]), int(row_col[1])
+                        spill_coords = [(int(r), int(c)) for r, c in value]
+                        SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = spill_coords
     except Exception:
         log.exception("Failed to load spill registry from document property")
 
@@ -593,10 +589,11 @@ def save_spill_registry_for_doc(doc: Any) -> None:
         if not doc_key:
             return
         doc_spills = {}
-        for key, value in SPILL_REGISTRY.items():
-            k_url, sheet_name, frow, fcol = key
-            if k_url == doc_key:
-                doc_spills[f"{sheet_name}:{frow},{fcol}"] = value
+        with _SPILL_REGISTRY_LOCK:
+            for key, value in SPILL_REGISTRY.items():
+                k_url, sheet_name, frow, fcol = key
+                if k_url == doc_key:
+                    doc_spills[f"{sheet_name}:{frow},{fcol}"] = value
         new_val = json.dumps(doc_spills)
         set_document_property(doc, "WriterAgentSpillRegistry", new_val)
         actual = get_document_property(doc, "WriterAgentSpillRegistry", "")
@@ -604,6 +601,32 @@ def save_spill_registry_for_doc(doc: Any) -> None:
             log.warning("Spill registry write back mismatch: expected %r, got %r", new_val, actual)
     except Exception:
         log.exception("Failed to save spill registry to document property")
+
+
+def rename_spill_registry_sheet(doc: Any, old_sheet_name: str, new_sheet_name: str) -> None:
+    """Update SPILL_REGISTRY keys when a sheet is renamed."""
+    doc_key = _spill_registry_doc_key(doc)
+    if not doc_key:
+        return
+    with _SPILL_REGISTRY_LOCK:
+        for key in list(SPILL_REGISTRY.keys()):
+            if key[0] == doc_key and key[1] == old_sheet_name:
+                spills = SPILL_REGISTRY.pop(key)
+                new_key = (doc_key, new_sheet_name, key[2], key[3])
+                SPILL_REGISTRY[new_key] = spills
+    save_spill_registry_for_doc(doc)
+
+
+def delete_spill_registry_sheet(doc: Any, sheet_name: str) -> None:
+    """Remove SPILL_REGISTRY keys when a sheet is deleted."""
+    doc_key = _spill_registry_doc_key(doc)
+    if not doc_key:
+        return
+    with _SPILL_REGISTRY_LOCK:
+        for key in list(SPILL_REGISTRY.keys()):
+            if key[0] == doc_key and key[1] == sheet_name:
+                SPILL_REGISTRY.pop(key, None)
+    save_spill_registry_for_doc(doc)
 
 
 def _coerce_spill_value(val: Any, null_dt: datetime.date) -> tuple[Any, dict[str, Any]]:
@@ -762,8 +785,28 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
 
             reg_key = (live_key, sheet_name, formula_row, formula_col)
 
+            # Re-check occupancy. The synchronous check can miss a value typed
+            # during the 0.1s debounce. #SPILL! can no longer be returned, but
+            # the write must not clobber that cell. Drop our old spill and stop.
+            num_rows = len(grid)
+            num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
+            with _SPILL_REGISTRY_LOCK:
+                previous_spills = list(SPILL_REGISTRY.get(reg_key, []))
+            prev_spill_set = set(previous_spills)
+            if _check_spill_collisions(sheet, formula_row, formula_col, num_rows, num_cols, prev_spill_set):
+                for r, c in previous_spills:
+                    if (r, c) != (formula_row, formula_col):
+                        try:
+                            cell = sheet.getCellByPosition(c, r)
+                            cell.clearContents(23)
+                        except Exception:
+                            pass
+                with _SPILL_REGISTRY_LOCK:
+                    SPILL_REGISTRY[reg_key] = []
+                save_spill_registry_for_doc(doc)
+                return
+
             # 1. Clear previously spilled cells
-            previous_spills = SPILL_REGISTRY.get(reg_key, [])
             for r, c in previous_spills:
                 if (r, c) != (formula_row, formula_col):
                     try:
@@ -774,10 +817,9 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
                         pass
 
             # 2. Determine bounds
-            num_rows = len(grid)
-            num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
             if num_rows == 0 or num_cols == 0:
-                SPILL_REGISTRY[reg_key] = []
+                with _SPILL_REGISTRY_LOCK:
+                    SPILL_REGISTRY[reg_key] = []
                 save_spill_registry_for_doc(doc)
                 return
 
@@ -826,7 +868,8 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
                         continue
                     new_spills.append((formula_row + r_offset, formula_col + c_offset))
 
-            SPILL_REGISTRY[reg_key] = new_spills
+            with _SPILL_REGISTRY_LOCK:
+                SPILL_REGISTRY[reg_key] = new_spills
             save_spill_registry_for_doc(doc)
 
             # 5. Apply NumberFormats for any temporal cells (dates, datetimes, times, durations)
@@ -961,12 +1004,40 @@ def _off_main_may_auto_spill(doc: Any | None) -> bool:
     return recorded_calc_session_count() <= 1
 
 
+def _check_spill_collisions(sheet: Any, formula_row: int, formula_col: int, num_rows: int, num_cols: int, prev_spill_set: set[tuple[int, int]]) -> bool:
+    """Return True when the spill footprint hits a non-empty cell outside the previous spill."""
+    try:
+        from com.sun.star.table.CellContentType import EMPTY
+    except ImportError:
+        EMPTY = cast("Any", 0)
+
+    for r_idx in range(num_rows):
+        for c_idx in range(num_cols):
+            if r_idx == 0 and c_idx == 0:
+                continue
+            target_r = formula_row + r_idx
+            target_c = formula_col + c_idx
+            if target_r >= 1048576 or target_c >= 1024:
+                log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
+                return True
+            if (target_r, target_c) == (formula_row, formula_col):
+                continue
+            if (target_r, target_c) in prev_spill_set:
+                continue
+            cell = sheet.getCellByPosition(target_c, target_r)
+            cell_type = cell.getType()
+            if cell_type != EMPTY:
+                log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
+                return True
+    return False
+
+
 def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> str | tuple[str, str, int, int] | None:
     """Locate the unique formula origin and check spill collisions (UNO / UI thread).
 
     Returns ``"#SPILL!"`` on collision, ``(doc identity, sheet_name, row, col)`` when the
     neighbor write should proceed, or ``None`` when the origin is not unique.
-    The identity is the file URL, or the lifecycle id when ``getURL()`` is empty.
+    The identity is the lifecycle id, stable across Save-As.
     """
     located = locate_formula_cell_in_doc(ctx, target_doc, code)
     if located is None:
@@ -995,34 +1066,14 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     num_rows = len(grid_to_spill)
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (doc_key, sheet_name, formula_row, formula_col)
-    previous_spills = SPILL_REGISTRY.get(reg_key, [])
+    with _SPILL_REGISTRY_LOCK:
+        previous_spills = list(SPILL_REGISTRY.get(reg_key, []))
     prev_spill_set = set(previous_spills)
 
     log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
 
-    try:
-        from com.sun.star.table.CellContentType import EMPTY
-    except ImportError:
-        EMPTY = cast("Any", 0)
-
-    for r_idx in range(num_rows):
-        for c_idx in range(num_cols):
-            if r_idx == 0 and c_idx == 0:
-                continue
-            target_r = formula_row + r_idx
-            target_c = formula_col + c_idx
-            if target_r >= 1048576 or target_c >= 1024:
-                log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
-                return "#SPILL!"
-            if (target_r, target_c) == (formula_row, formula_col):
-                continue
-            if (target_r, target_c) in prev_spill_set:
-                continue
-            cell = sheet.getCellByPosition(target_c, target_r)
-            cell_type = cell.getType()
-            if cell_type != EMPTY:
-                log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
-                return "#SPILL!"
+    if _check_spill_collisions(sheet, formula_row, formula_col, num_rows, num_cols, prev_spill_set):
+        return "#SPILL!"
     return (doc_key, sheet_name, formula_row, formula_col)
 
 
@@ -1397,12 +1448,14 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
         # sweeping on "" would drop every other untitled book. Exact match
         # on this lifecycle id only.
         LOADED_DOCUMENTS.discard(lifecycle_key)
-        for key in [k for k in SPILL_REGISTRY if k[0] == lifecycle_key]:
-            SPILL_REGISTRY.pop(key, None)
+        with _SPILL_REGISTRY_LOCK:
+            for key in [k for k in SPILL_REGISTRY if k[0] == lifecycle_key]:
+                SPILL_REGISTRY.pop(key, None)
     if doc_url:
         LOADED_DOCUMENTS.discard(doc_url)
-        for key in [k for k in SPILL_REGISTRY if k[0] == doc_url]:
-            SPILL_REGISTRY.pop(key, None)
+        with _SPILL_REGISTRY_LOCK:
+            for key in [k for k in SPILL_REGISTRY if k[0] == doc_url]:
+                SPILL_REGISTRY.pop(key, None)
         for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == doc_url]:
             SHEET_MODIFY_LISTENERS.pop(skey, None)
     clear_python_addin_cache()
