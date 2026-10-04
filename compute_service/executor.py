@@ -7,14 +7,14 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import sys
 import threading
 from typing import Any
 
 # Ensure repo root is on sys.path to resolve plugin.* imports
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
@@ -24,6 +24,8 @@ from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 
 # Per-session locks so concurrent shared-kernel requests do not race LocalPythonExecutor.
+# If a worker process is killed mid-reset, release_session_lock may not be reached,
+# leaving at most one stale Lock per dead session; cleared on next worker respawn.
 _SESSION_RUN_LOCKS: dict[str, threading.Lock] = {}
 _SESSION_RUN_LOCKS_GUARD = threading.Lock()
 
@@ -52,15 +54,26 @@ def release_session_lock(session_id: str) -> None:
 def clamp_timeout_sec(timeout_sec: float | int | None, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     if timeout_sec is None:
         return default_timeout_sec
+    # In Python, bool is a subclass of int (isinstance(True, int) is True). Reject booleans.
+    if isinstance(timeout_sec, bool):
+        return default_timeout_sec
+    # In Python, int(float('inf')) raises OverflowError, which does not inherit from ValueError.
+    # Non-finite floats (inf/nan) must fall back to default_timeout_sec.
+    if isinstance(timeout_sec, float) and not math.isfinite(timeout_sec):
+        return default_timeout_sec
     try:
         sec = int(timeout_sec)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default_timeout_sec
     return max(1, min(max_timeout_sec, sec))
 
 
 def timeout_ms_to_sec(timeout_ms: Any, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)):
+        return default_timeout_sec
+    # +Infinity is a float that passes ``> 0`` and then OverflowError in int().
+    # Multipart meta rejects it; this keeps a direct caller from escaping the handler.
+    if isinstance(timeout_ms, float) and not math.isfinite(timeout_ms):
         return default_timeout_sec
     if timeout_ms <= 0:
         return default_timeout_sec

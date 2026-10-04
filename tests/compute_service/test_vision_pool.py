@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import base64
 import json
-import socket
+import os
+import sys
 import threading
 import time
 import urllib.error
@@ -15,20 +16,18 @@ from unittest.mock import patch
 
 import pytest
 
-from compute_service.config import ComputeSettings
+from compute_service.config import ComputeSettings, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
 from compute_service.vision_pool import (
     VisionProcessPool,
     get_vision_pool,
     shutdown_vision_pool,
 )
-from compute_service.vision_worker import _handle_request
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from compute_service.vision_worker import _FILE_READ_MAX_BYTES, _handle_request, _read_allowed_image
 
 
-def get_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from tests.compute_service.conftest import get_free_port
 
 
 # Minimal 1x1 PNG base64 for testing
@@ -41,6 +40,87 @@ _TINY_PNG_B64 = (
 def cleanup_vision_pool():
     yield
     shutdown_vision_pool()
+
+
+def test_vision_pool_uses_compute_frame_cap() -> None:
+    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=0))
+    assert pool.max_payload_bytes == COMPUTE_MAX_PAYLOAD_BYTES
+    pool.shutdown()
+
+
+def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
+    """The child loop must use the same 33 MiB cap as the parent pool.
+
+    A frame between the 16 MiB stdio default and COMPUTE_MAX_PAYLOAD_BYTES
+    used to fail the child read. A result over 16 MiB broke the child loop
+    and the host saw EMPTY_RESPONSE.
+    """
+    import io
+
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
+    from compute_service.vision_worker import main
+
+    blob = b"v" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)
+    assert DEFAULT_MAX_PAYLOAD_BYTES < len(blob) < COMPUTE_MAX_PAYLOAD_BYTES
+    stdin_buf = io.BytesIO()
+    write_pickle_frame(stdin_buf, {"blob": blob}, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    stdin_buf.seek(0)
+    stdout_buf = io.BytesIO()
+
+    class _MockStdin:
+        buffer = stdin_buf
+
+    class _MockStdout:
+        buffer = stdout_buf
+
+    monkeypatch.setattr("sys.stdin", _MockStdin())
+    monkeypatch.setattr("sys.stdout", _MockStdout())
+    seen: dict[str, int] = {}
+
+    def handle(req: dict) -> dict:
+        seen["n"] = len(req.get("blob") or b"")
+        return {"status": "ok", "blob": req["blob"]}
+
+    monkeypatch.setattr("compute_service.vision_worker._handle_request", handle)
+    assert main() == 0
+    assert seen["n"] == len(blob)
+
+    stdout_buf.seek(0)
+    ready = read_pickle_frame(stdout_buf, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    assert isinstance(ready, dict)
+    assert ready.get("status") == "ready"
+    result = read_pickle_frame(stdout_buf, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    assert isinstance(result, dict)
+    assert result.get("status") == "ok"
+    assert len(result.get("blob") or b"") == len(blob)
+
+
+def _hide_proc_fd(monkeypatch, platform: str) -> None:
+    """Pretend ``/proc/self/fd`` is not a symlink to the opened file.
+
+    macOS and Windows ``realpath`` that path as the literal string. Patching
+    the platform and that realpath lets the portable branch run on Linux.
+    """
+    monkeypatch.setattr("compute_service.config.sys.platform", platform)
+    real_realpath = os.path.realpath
+
+    def realpath(path, *args, **kwargs):
+        text = os.fspath(path)
+        normalized = text.replace("\\", "/")
+        if normalized.startswith("/proc/") and "/fd/" in normalized:
+            return text
+        return real_realpath(path, *args, **kwargs)
+
+    monkeypatch.setattr("compute_service.config.os.path.realpath", realpath)
+
+
+def test_vision_file_read_is_capped(tmp_path) -> None:
+    path = tmp_path / "big.bin"
+    path.write_bytes(b"x" * (_FILE_READ_MAX_BYTES + 1))
+    data, err = _read_allowed_image(str(path), (str(tmp_path),), "ocr-big")
+    assert data is None
+    assert err is not None
+    assert err["code"] == "FILE_TOO_LARGE"
 
 
 class TestVisionPoolSupervisor:
@@ -57,11 +137,34 @@ class TestVisionPoolSupervisor:
         assert not pool.is_enabled()
         assert len(pool.workers) == 0
 
+    def test_get_vision_pool_singleton_and_reset(self) -> None:
+        p1 = get_vision_pool()
+        p2 = get_vision_pool()
+        assert p1 is p2
+        shutdown_vision_pool()
+        p3 = get_vision_pool()
+        assert p3 is not p1
+        shutdown_vision_pool()
+
+    def test_pool_rejects_malformed_base64(self) -> None:
+        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            res = pool.execute(helper="extract_text", image_b64="!!!not_valid_b64!!!", req_id="bad-b64")
+            assert res.get("id") == "bad-b64"
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_BASE64"
+            assert "Base64 decode failed" in res.get("error", "")
+            # Worker was not leased, so tasks_executed remains 0
+            assert pool.workers[0].tasks_executed == 0
+        finally:
+            pool.shutdown()
+
     def test_pool_lifecycle(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             assert pool.is_enabled()
             assert len(pool.workers) == 1
+            assert pool.workers[0].recover_on_timeout
             # Execute simple text extraction helper on tiny PNG
             res = pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-1")
             assert res.get("id") == "v-1"
@@ -159,6 +262,95 @@ class TestVisionPoolSupervisor:
         assert ok.get("status") == "ok"
         assert run.call_args.kwargs["image"] == b"png-bytes"
 
+    def test_symlink_swapped_between_check_and_open_is_not_read(self, tmp_path) -> None:
+        """A name that was inside the allowlist can point outside before open.
+
+        The allowlist check returns, then the directory entry is replaced.
+        Opening that path must not return the bytes outside the prefix.
+        """
+        self._assert_swap_before_open_is_denied(tmp_path)
+
+    # test_symlink_swapped_before_open_is_denied_without_proc removed because non-Linux check is explicitly skipped to avoid name-based TOCTOU.
+
+
+    def _assert_swap_before_open_is_denied(self, tmp_path) -> None:
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(b"secret-bytes")
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        inside = allowed / "img.png"
+        inside.write_bytes(b"ok-bytes")
+        real_open = os.open
+        swapped = {"done": False}
+
+        def open_after_swap(path: str, flags: int, *args, **kwargs):
+            if not swapped["done"] and os.path.basename(str(path)) == "img.png":
+                swapped["done"] = True
+                os.remove(path)
+                os.symlink(outside, path)
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("compute_service.config.os.open", side_effect=open_after_swap):
+            data, err = _read_allowed_image(str(inside), [str(allowed)], "race")
+        assert swapped["done"] is True
+        assert data != b"secret-bytes"
+        assert err is not None
+        assert err.get("code") == "FILE_PATH_DENIED"
+
+    def test_proc_fd_rejects_inode_after_name_is_restored(self, tmp_path) -> None:
+        """Restoring the directory entry after open must not hide the inode.
+
+        realpath of the path string would then see an inside file and allow
+        the read. ``/proc/self/fd`` still names the outside inode ``open``
+        returned. This is the Linux check the portable fallback does not have.
+        """
+        if not sys.platform.startswith("linux"):
+            pytest.skip("/proc/self/fd inode check")
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(b"secret-bytes")
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        inside = allowed / "img.png"
+        inside.write_bytes(b"ok-bytes")
+        real_open = os.open
+        state = {"phase": "before"}
+
+        def open_swap_then_restore(path: str, flags: int, *args, **kwargs):
+            if state["phase"] == "before" and os.path.basename(str(path)) == "img.png":
+                state["phase"] = "opening"
+                os.remove(path)
+                os.symlink(outside, path)
+                fd = real_open(path, flags, *args, **kwargs)
+                os.remove(path)
+                restored = real_open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+                os.write(restored, b"ok-bytes")
+                os.close(restored)
+                state["phase"] = "done"
+                return fd
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("compute_service.config.os.open", side_effect=open_swap_then_restore):
+            data, err = read_allowlisted_file(str(inside), [str(allowed)], max_bytes=1024)
+        assert state["phase"] == "done"
+        assert data != b"secret-bytes"
+        assert err is not None
+        assert err.get("code") == "FILE_PATH_DENIED"
+
+    @pytest.mark.parametrize("platform", ["darwin", "win32"])
+    def test_allowlisted_read_works_without_proc_fd(self, tmp_path, monkeypatch, platform: str) -> None:
+        """An allowlisted file must be readable when ``/proc/self/fd`` is not the file.
+
+        On macOS and Windows, realpath of that node is the literal string and
+        the prefix check denied every path. The stub runs on Linux so this
+        does not need a macOS or Windows runner.
+        """
+        _hide_proc_fd(monkeypatch, platform)
+        img = tmp_path / "ok.png"
+        img.write_bytes(b"png-bytes")
+        data, err = read_allowlisted_file(str(img), [str(tmp_path)], max_bytes=1024)
+        assert err is None
+        assert data == b"png-bytes"
+
     def test_worker_crash_recovery(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=10)
         try:
@@ -196,6 +388,7 @@ class TestVisionHttpEndpoint:
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+        shutdown_vision_pool()
 
     def _post(self, url: str, payload: dict, headers: dict | None = None) -> tuple[int, dict]:
         req_headers = {"Content-Type": "application/json"}
@@ -310,5 +503,126 @@ class TestVisionHttpEndpoint:
             server.shutdown()
             server.server_close()
             thread.join(timeout=3)
+
+
+def _delay_worker(tmp_path):
+    """Stdio worker that sleeps for ``delay`` seconds, then answers with its pid."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    script = tmp_path / "delay_worker.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import os, sys, time",
+                f"sys.path.insert(0, {str(repo)!r})",
+                "from compute_service.worker_base import run_worker_stdio_loop",
+                "def handle(req):",
+                "    time.sleep(float(req.get('delay') or 0))",
+                "    return {'status': 'ok', 'pid': os.getpid()}",
+                "if __name__ == '__main__':",
+                "    raise SystemExit(run_worker_stdio_loop(handle))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return script
+
+
+def test_vision_timeout_reuses_same_process(tmp_path) -> None:
+    """A late frame is discarded and the same process serves the next call.
+
+    Formula timeouts SIGKILL. Vision keeps the process because the model is
+    already loaded; the pipe stays leased until that one frame arrives.
+    """
+    from compute_service.worker_base import BaseProcessPool
+
+    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Vision worker", recover_on_timeout=True)
+    try:
+        worker = pool.lease_any(2)
+        assert worker is not None
+        assert worker.process is not None
+        pid = worker.process.pid
+        res = worker.execute({"delay": 0.45}, timeout_sec=0.3)
+        assert res.get("code") == "EXECUTION_TIMEOUT"
+        assert worker.is_alive()
+        assert worker.process is not None
+        assert worker.process.pid == pid
+        pool.release_worker(worker)
+
+        again = pool.lease_any(2)
+        assert again is worker
+        nxt = again.execute({"delay": 0}, timeout_sec=2)
+        assert nxt.get("status") == "ok"
+        assert nxt.get("pid") == pid
+        assert again.did_respawn is False
+        pool.release_worker(again)
+    finally:
+        pool.shutdown()
+
+
+def test_vision_timeout_kills_when_late_frame_never_arrives(tmp_path) -> None:
+    """A second timeout still kills a call that never writes its frame."""
+    from compute_service.worker_base import BaseProcessPool
+
+    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Vision worker", recover_on_timeout=True)
+    try:
+        worker = pool.lease_any(2)
+        assert worker is not None
+        assert worker.process is not None
+        pid = worker.process.pid
+        res = worker.execute({"delay": 30}, timeout_sec=0.2)
+        assert res.get("code") == "EXECUTION_TIMEOUT"
+        pool.release_worker(worker)
+
+        again = pool.lease_any(2)
+        assert again is worker
+        nxt = again.execute({"delay": 0}, timeout_sec=2)
+        assert nxt.get("status") == "ok"
+        assert nxt.get("pid") != pid
+        assert again.did_respawn is True
+        pool.release_worker(again)
+    finally:
+        pool.shutdown()
+
+
+def test_vision_worker_empty_bytes_not_missing_source() -> None:
+    """An empty byte string must not be misclassified as a missing image source."""
+    from compute_service.vision_worker import _handle_request
+
+    res = _handle_request({"id": "empty-bytes", "image_bytes": b""})
+    assert res.get("code") != "MISSING_IMAGE_SOURCE"
+
+
+def test_vision_pool_execute_accepts_bytearray() -> None:
+    """image_b64 may be passed as a bytearray and should be converted to bytes."""
+    from unittest.mock import MagicMock
+
+    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1))
+    try:
+        mock_worker = MagicMock()
+        mock_worker.defer_release.return_value = False
+        mock_worker.tasks_executed = 0
+        payload_received = None
+
+        def fake_exec(payload, timeout_sec):
+            nonlocal payload_received
+            payload_received = payload
+            return {"status": "ok"}
+
+        mock_worker.execute.side_effect = fake_exec
+        with pool._cond:
+            pool._idle = {mock_worker}
+
+        data = bytearray(b"dummy image bytes")
+        res = pool.execute(helper="test", image_b64=data, req_id="bytearray-test")
+        assert res.get("status") == "ok"
+        assert payload_received is not None
+        assert payload_received["image_bytes"] == b"dummy image bytes"
+        assert isinstance(payload_received["image_bytes"], bytes)
+    finally:
+        pool.shutdown()
+
 
 

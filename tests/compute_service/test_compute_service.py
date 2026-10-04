@@ -13,14 +13,17 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from compute_service.config import ComputeSettings, ConfigError, load_settings
 from compute_service.executor import clamp_timeout_sec, execute_code, timeout_ms_to_sec
-from compute_service.json_egress import sanitize_for_strict_json, to_dumb_json_value
+from compute_service.formula_pool import shutdown_formula_pool
+from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from compute_service.server import create_wsgi_app
-from compute_service.config import ComputeSettings, load_settings
+from compute_service.vision_pool import shutdown_vision_pool
 
 
 def _wsgi_post(
@@ -60,18 +63,7 @@ def _wsgi_post(
     parsed = json.loads(out.decode("utf-8")) if out else {}
     return status_holder[0], header_holder, parsed
 from plugin.version import EXTENSION_VERSION
-
-
-def get_free_port() -> int:
-    # Use AF_INET6 to bind if possible, fallback to AF_INET
-    try:
-        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))
-            return s.getsockname()[1]
-    except OSError:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))
-            return s.getsockname()[1]
+from tests.compute_service.conftest import get_free_port
 
 
 @pytest.fixture(scope="module")
@@ -79,8 +71,10 @@ def compute_server_info():
     port = get_free_port()
     from compute_service.server import WSGIDualStackServer
 
-    # Keyless loopback — matches local-dev default.
-    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port))
+    # Keyless loopback — matches local-dev default. Extra workers so the
+    # shared sessions this module keeps do not occupy every process;
+    # isolated calls are not allowed to run on those processes.
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=4))
     server = WSGIDualStackServer("", port)
     server.set_app(app)
 
@@ -91,6 +85,10 @@ def compute_server_info():
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
+    # The first /v1/execute builds the process-global pool. Stop it here so
+    # a later module on this worker does not reuse those children.
+    shutdown_formula_pool()
+    shutdown_vision_pool()
 
 
 @pytest.fixture(scope="module")
@@ -140,12 +138,78 @@ class TestJsonEgressUnit:
         assert len(out) == 10
         assert out[0] == list(range(12))
 
+    def test_nested_image_is_not_copied_into_result(self) -> None:
+        img = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+        out = normalize_execute_response({"status": "ok", "result": {"title": "t", "plot": img}, "stdout": ""})
+        assert out["status"] == "ok"
+        images = out.get("images") or []
+        assert len(images) == 1
+        assert images[0]["format"] == "png"
+        assert images[0]["data_b64"]
+        assert out["result"] == {"title": "t", "plot": None}
+        assert "data_b64" not in json.dumps(out["result"])
+
+    def test_image_past_finder_depth_stays_inline(self) -> None:
+        """find_image_payloads stops at depth 12. A deeper plot must not become null.
+
+        drop used to be a bool: any listed image nulled every image, including
+        ones the finder never returned, so those plots vanished from both
+        result and images. Depth is counted from the result root. The value
+        under ``buried`` is one level down, so 12 wrappers put the plot at
+        depth 13 (missed) and 11 wrappers put it at depth 12 (listed).
+        """
+        from plugin.scripting.payload_codec import find_image_payloads
+
+        def _wrap(obj: dict[str, Any], levels: int) -> dict[str, Any]:
+            wrapped = obj
+            for _idx in range(levels):
+                wrapped = {"n": wrapped}
+            return wrapped
+
+        shallow = {"__wa_payload__": "image", "format": "png", "data": b"shallow"}
+        deep = {"__wa_payload__": "image", "format": "png", "data": b"deep-png"}
+        missed = _wrap(deep, 12)
+        listed_nest = _wrap(deep, 11)
+        missed_tree = {"plot": shallow, "buried": missed}
+        listed_tree = {"plot": shallow, "buried": listed_nest}
+        assert [img["data"] for img in find_image_payloads(missed_tree)] == [b"shallow"]
+        assert [img["data"] for img in find_image_payloads(listed_tree)] == [b"shallow", b"deep-png"]
+
+        out = normalize_execute_response({"status": "ok", "result": missed_tree, "stdout": ""})
+        assert len(out.get("images") or []) == 1
+        assert out["result"]["plot"] is None
+        node = out["result"]["buried"]
+        for _idx in range(12):
+            assert isinstance(node, dict)
+            node = node["n"]
+        assert node.get("format") == "png"
+        assert node.get("data_b64")
+
+        listed = normalize_execute_response({"status": "ok", "result": listed_tree, "stdout": ""})
+        assert len(listed.get("images") or []) == 2
+        leaf = listed["result"]["buried"]
+        for _idx in range(11):
+            leaf = leaf["n"]
+        assert leaf is None
+
+    def test_unlisted_image_dict_is_not_nulled(self) -> None:
+        """A plot the finder did not return stays in result when another plot is listed."""
+        listed = {"__wa_payload__": "image", "format": "png", "data": b"png"}
+        # str data fails is_image_payload, so find_image_payloads skips it.
+        unlisted = {"__wa_payload__": "image", "format": "png", "data": "not-bytes"}
+        out = normalize_execute_response({"status": "ok", "result": {"a": listed, "b": unlisted}, "stdout": ""})
+        assert len(out.get("images") or []) == 1
+        assert out["result"]["a"] is None
+        assert out["result"]["b"] == {"format": "png", "data_b64": "not-bytes"}
+
 
 class TestTimeoutHelpers:
     def test_timeout_ms_rounds_up(self) -> None:
         assert timeout_ms_to_sec(1500) == 2
         assert timeout_ms_to_sec(1000) == 1
         assert timeout_ms_to_sec(0) == 30
+        assert timeout_ms_to_sec(float("inf")) == 30
+        assert timeout_ms_to_sec(float("-inf")) == 30
         assert clamp_timeout_sec(99999) == 600
 
 
@@ -240,6 +304,226 @@ class TestComputeHttp:
             assert data["status"] == "healthy"
             assert data["service"] == "python-compute"
             assert data["version"] == EXTENSION_VERSION
+
+    def test_health_answers_while_listener_thread_is_blocked(self) -> None:
+        """A cell holds the only listener thread. /health must still return.
+
+        The old path peeked the socket and, on a miss, queued the probe on
+        the same pool the cell occupies.
+        """
+        from compute_service.server import WSGIDualStackServer
+
+        port = get_free_port()
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs):
+            started.set()
+            assert hold.wait(timeout=10)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
+
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn)
+        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.15)
+        poster: threading.Thread | None = None
+        try:
+            def _post() -> None:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/execute",
+                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    assert resp.status == 200
+
+            poster = threading.Thread(target=_post)
+            poster.start()
+            assert started.wait(timeout=5)
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
+                assert resp.status == 200
+                assert json.loads(resp.read().decode())["status"] == "healthy"
+        finally:
+            hold.set()
+            if poster is not None:
+                poster.join(timeout=5)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_health_never_starved_when_worker_semaphore_is_saturated(self) -> None:
+        """When calculation requests saturate the worker semaphore, /health must still respond immediately.
+
+        The worker semaphore limits concurrent worker-waiting requests to worker count via
+        non-blocking admission before request bodies are read. Requests waiting for a worker
+        do not hold HTTP listener threads, guaranteeing that spare listener threads remain
+        strictly free for health probes even when incoming requests exceed pool thread capacity.
+        """
+        from compute_service.server import WSGIDualStackServer
+
+        port = get_free_port()
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            started.set()
+            assert hold.wait(timeout=10)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
+
+        # 1 worker, semaphore size 1. Total server pool threads = max(4, 1 + 2) = 4.
+        sem = threading.Semaphore(1)
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.15)
+        posters: list[threading.Thread] = []
+        results: list[list[Any]] = [[] for _ in range(6)]
+        try:
+            def _post(out_list: list[Any]) -> None:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/execute",
+                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        out_list.append((resp.status, json.loads(resp.read().decode())))
+                except urllib.error.HTTPError as exc:
+                    out_list.append((exc.code, json.loads(exc.read().decode())))
+                except Exception as exc:
+                    out_list.append((599, str(exc)))
+
+            # Six posters, one worker permit. Listener threads are max(4, 1 + 2) = 4,
+            # so extra accepts queue instead of pinning every thread. Health must still
+            # return, and the five executes that miss the permit must 503.
+            for idx in range(6):
+                p = threading.Thread(target=_post, args=(results[idx],))
+                p.start()
+                posters.append(p)
+
+            assert started.wait(timeout=5)
+            # The active calculation is still held. Verify that /health responds immediately (<0.5s).
+            t0 = time.perf_counter()
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
+                t_elapsed = time.perf_counter() - t0
+                assert resp.status == 200
+                assert json.loads(resp.read().decode())["status"] == "healthy"
+                assert t_elapsed < 0.5, f"/health took too long: {t_elapsed:.3f}s"
+
+            # The permit is taken inside the handler, before the body is read, and only
+            # by routes that wait on a worker. Releasing the in-flight execute first
+            # let accepts still sitting in the backlog or the listener queue take that
+            # permit and return 200 (CI: six 200s, no WORKER_POOL_BUSY). One of the six
+            # calls is inside execute and cannot finish until hold is set, so the other
+            # five responses have to arrive as 503s while the permit is still held.
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and sum(1 for item in results if item) < 5:
+                time.sleep(0.01)
+            shed = [item[0] for item in results if item]
+            assert len(shed) >= 5, f"overflow was not rejected while the worker was held: {results!r}"
+            assert all(status == 503 and isinstance(body, dict) and body.get("code") == "WORKER_POOL_BUSY" for status, body in shed)
+        finally:
+            hold.set()
+            for p in posters:
+                p.join(timeout=5)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        # 1 active calculation succeeded (200), and 5 excess requests received fast 503 WORKER_POOL_BUSY
+        statuses = [r[0][0] for r in results if r]
+        assert statuses.count(200) == 1
+        assert statuses.count(503) == 5
+        busy_codes = [r[0][1].get("code") for r in results if r and r[0][0] == 503]
+        assert all(c == "WORKER_POOL_BUSY" for c in busy_codes)
+
+    def test_slow_upload_rejected_fast_when_workers_busy(self) -> None:
+        """When workers are busy, incoming requests are rejected before reading the body.
+
+        A slow client streaming a large request body does not occupy an HTTP listener
+        thread or block /health when all workers are leased.
+        """
+        from compute_service.server import WSGIDualStackServer
+
+        port = get_free_port()
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            started.set()
+            assert hold.wait(timeout=10)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
+
+        sem = threading.Semaphore(1)
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.15)
+        poster: threading.Thread | None = None
+        try:
+            def _post() -> None:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/execute",
+                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=15):
+                        pass
+                except Exception:
+                    pass
+
+            poster = threading.Thread(target=_post)
+            poster.start()
+            assert started.wait(timeout=5)
+
+            # Send headers with Content-Length: 1000000 but send no body data.
+            # Because semaphore is checked before body read, server responds 503 immediately.
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            sock.connect(("127.0.0.1", port))
+            req_headers = (
+                b"POST /v1/execute HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 1000000\r\n\r\n"
+            )
+            sock.sendall(req_headers)
+            chunks: list[bytes] = []
+            while True:
+                try:
+                    c = sock.recv(4096)
+                    if not c:
+                        break
+                    chunks.append(c)
+                except OSError:
+                    break
+            sock.close()
+            full_resp = b"".join(chunks)
+
+            assert b"503 Service Unavailable" in full_resp
+            assert b"WORKER_POOL_BUSY" in full_resp
+
+            # /health remains immediately responsive
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
+                assert resp.status == 200
+                assert json.loads(resp.read().decode())["status"] == "healthy"
+        finally:
+            hold.set()
+            if poster is not None:
+                poster.join(timeout=5)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
     def test_simple_execution(self, compute_url: str) -> None:
         body = _post_execute(compute_url, {"code": "result = 3 ** 4"})
@@ -445,10 +729,14 @@ class TestComputeSettings:
         assert s.host == "127.0.0.1"
         assert not s.auth_required
 
-    def test_wildcard_without_key_is_insecure_ok(self) -> None:
-        s = load_settings(environ={"PYTHON_COMPUTE_HOST": "0.0.0.0", "PYTHON_COMPUTE_PORT": "8000"})
-        assert s.host == "0.0.0.0"
-        assert not s.auth_required
+    def test_wildcard_without_key_is_rejected(self) -> None:
+        """A non-loopback bind without a key must fail inside load_settings."""
+        with pytest.raises(ConfigError, match="API key"):
+            load_settings(environ={"PYTHON_COMPUTE_HOST": "0.0.0.0", "PYTHON_COMPUTE_PORT": "8000"})
+        with pytest.raises(ConfigError, match="API key"):
+            load_settings(environ={"PYTHON_COMPUTE_HOST": "::"})
+        with pytest.raises(ConfigError, match="API key"):
+            ComputeSettings(host="0.0.0.0")
 
     def test_env_api_key_and_host(self) -> None:
         s = load_settings(
@@ -499,6 +787,15 @@ class TestComputeSettings:
         assert s.default_timeout_sec == 12
         assert s.shared_kernel_ttl_sec == 1800.0
 
+    def test_raw_api_key_in_json_fails_closed(self, tmp_path) -> None:
+        cfg = tmp_path / "python-compute.json"
+        cfg.write_text(json.dumps({"auth": {"api_key": "from-json"}}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="api_key"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        cfg.write_text(json.dumps({"api_key": "top-level"}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="api_key"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
     def test_shared_kernel_ttl_env(self) -> None:
         s = load_settings(environ={"PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC": "7200.0", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.shared_kernel_ttl_sec == 7200.0
@@ -530,22 +827,22 @@ class TestComputeSettings:
         both = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_OCR_WORKERS": "2", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert both.threads == 6
 
-    def test_thread_count_keys_are_ignored(self, tmp_path) -> None:
+    def test_thread_count_keys_are_rejected(self, tmp_path) -> None:
+        # Environment variables we do not read cannot change the listener count.
         ignored = load_settings(environ={"PYTHON_COMPUTE_THREADS": "9", "PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert ignored.threads == 2
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({"limits": {"threads": 24, "max_threads": 12, "workers": 4}}), encoding="utf-8")
-        s = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.workers == 4
-        assert s.threads == 4
+        with pytest.raises(ConfigError, match="threads"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
-    def test_inflight_keys_are_ignored(self, tmp_path) -> None:
+    def test_inflight_keys_are_rejected(self, tmp_path) -> None:
         ignored = load_settings(environ={"PYTHON_COMPUTE_MAX_INFLIGHT": "9", "PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION": "3", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert ignored.workers == 2
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({"limits": {"max_inflight": 8, "max_inflight_per_session": 4, "workers": 3}}), encoding="utf-8")
-        s = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.workers == 3
+        with pytest.raises(ConfigError, match="max_inflight"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_workers_invalid(self) -> None:
         from compute_service.config import ConfigError
@@ -571,6 +868,16 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match="idle_worker_ttl_sec"):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
+    def test_env_api_key_keeps_surrounding_spaces(self, tmp_path) -> None:
+        """The env secret used to be strip()'d. The key file is not, so the same text differed."""
+        key = " secret "
+        s = load_settings(environ={"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert s.api_key == key
+        key_path = tmp_path / "key_spaces"
+        key_path.write_bytes(b" secret ")
+        from_file = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert from_file.api_key == s.api_key
+
     def test_key_file_preserves_leading_and_trailing_spaces(self, tmp_path) -> None:
         """_read_key_file must NOT strip() the key; only the one trailing newline is removed.
         API keys with leading/trailing spaces (unusual but valid) must round-trip intact."""
@@ -587,37 +894,130 @@ class TestComputeSettings:
         s = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == "mykey"
 
+    def test_nonfinite_and_huge_numbers_are_config_errors(self, tmp_path) -> None:
+        """Infinity / 1e9999 and an oversized JSON integer must be ConfigError.
 
-class TestBearerAuthHttp:
-    @pytest.fixture(scope="class")
-    def auth_server(self):
-        """One HTTP server for the class; clear `executed` between tests via autouse below."""
-        port = get_free_port()
+        json.loads yields inf for those port values, and int(inf) raises
+        OverflowError. A JSON integer with no decimal point stays a Python
+        int, and float() of one past the float range also raises OverflowError.
+        Neither is a ValueError, so they used to kill startup.
+        """
+        for name, body in (
+            ("inf.json", '{"port": Infinity}'),
+            ("huge-exp.json", '{"port": 1e9999}'),
+        ):
+            cfg = tmp_path / name
+            cfg.write_text(body, encoding="utf-8")
+            with pytest.raises(ConfigError, match="Invalid integer for port") as exc_info:
+                load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            assert isinstance(exc_info.value.__cause__, OverflowError)
+
+        ttl = tmp_path / "ttl.json"
+        ttl.write_text(
+            '{"limits": {"shared_kernel_ttl_sec": ' + ("1" + "0" * 400) + "}}",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigError, match="shared_kernel_ttl_sec must be a number") as exc_info:
+            load_settings(config_path=ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert isinstance(exc_info.value.__cause__, OverflowError)
+
+    @pytest.mark.parametrize(
+        ("field", "env_name"),
+        [
+            ("shared_kernel_ttl_sec", "PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC"),
+            ("idle_worker_ttl_sec", "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"),
+        ],
+    )
+    @pytest.mark.parametrize("token", ["Infinity", "NaN", "1e9999"])
+    def test_nonfinite_ttl_rejected_from_json_and_env(self, tmp_path, field: str, env_name: str, token: str) -> None:
+        """Infinity, NaN, and 1e9999 must not land in a TTL.
+
+        json.loads and float() turn those into inf/nan. inf < 0 and nan < 0
+        are false, so the old >= 0 check let them through and the reaper
+        never evicted.
+        """
+        cfg = tmp_path / "ttl.json"
+        cfg.write_text(f'{{"limits": {{"{field}": {token}}}}}', encoding="utf-8")
+        with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
+            load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", env_name: token})
+
+    @pytest.mark.parametrize("field", ["shared_kernel_ttl_sec", "idle_worker_ttl_sec"])
+    @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
+    def test_compute_settings_rejects_nonfinite_ttl(self, field: str, value: float) -> None:
+        """Direct construction skips _as_float. validate() still rejects non-finite TTLs."""
+        with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
+            ComputeSettings(**{field: value})
+
+    def test_non_utf8_key_and_config_files_are_config_errors(self, tmp_path) -> None:
+        """Binary key and config files raise ConfigError, not UnicodeDecodeError."""
+        key_path = tmp_path / "key.bin"
+        key_path.write_bytes(b"\xff\xfe")
+        with pytest.raises(ConfigError, match="api_key_file") as exc_info:
+            load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
+
+        cfg = tmp_path / "cfg.bin"
+        cfg.write_bytes(b"\xff\xfe")
+        with pytest.raises(ConfigError, match="Cannot read config file") as exc_info:
+            load_settings(config_path=cfg, environ={})
+        assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
+
+    def test_compute_settings_none_worker_counts(self) -> None:
+        """Verify ComputeSettings handles None for workers and ocr_workers gracefully."""
+        s = ComputeSettings(workers=None, ocr_workers=None)
+        assert s.workers == 2
+        assert s.ocr_workers == 0
+        assert s.threads == 2
+
+    def test_dual_stack_port_zero_bind(self) -> None:
+        """Verify WSGIDualStackServer binds cleanly when port=0 and assigns matching port."""
         from compute_service.server import WSGIDualStackServer
 
-        executed: list[str] = []
+        server = WSGIDualStackServer("127.0.0.1", 0)
+        try:
+            assert len(server.srv.sockets) >= 1
+            port = server.srv.server_address[1]
+            assert port > 0
+            for sock in server.srv.sockets:
+                assert sock.getsockname()[1] == port
+        finally:
+            server.server_close()
 
-        def fake_execute(**kwargs):
-            executed.append(kwargs["code"])
-            return {"status": "ok", "result": 1, "stdout": ""}
 
-        reset_calls: list[str] = []
+@pytest.fixture(scope="class")
+def auth_server():
+    """One HTTP server for the class; clear `executed` between tests via autouse below."""
+    port = get_free_port()
+    from compute_service.server import WSGIDualStackServer
 
-        def fake_reset(session_id: str, **_kw):
-            reset_calls.append(session_id)
-            return {"status": "ok"}
+    executed: list[str] = []
 
-        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
-        app = create_wsgi_app(settings, execute_fn=fake_execute, reset_fn=fake_reset)
-        server = WSGIDualStackServer("127.0.0.1", port)
-        server.set_app(app)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        time.sleep(0.15)
-        yield f"http://127.0.0.1:{port}", executed, reset_calls
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    def fake_execute(**kwargs):
+        executed.append(kwargs["code"])
+        return {"status": "ok", "result": 1, "stdout": ""}
+
+    reset_calls: list[str] = []
+
+    def fake_reset(session_id: str, **_kw):
+        reset_calls.append(session_id)
+        return {"status": "ok"}
+
+    settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
+    app = create_wsgi_app(settings, execute_fn=fake_execute, reset_fn=fake_reset)
+    server = WSGIDualStackServer("127.0.0.1", port)
+    server.set_app(app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    time.sleep(0.15)
+    yield f"http://127.0.0.1:{port}", executed, reset_calls
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+class TestBearerAuthHttp:
 
     @pytest.fixture(autouse=True)
     def _clear_executed(self, auth_server):
@@ -904,6 +1304,372 @@ class TestSessionResetHttp:
         assert body.get("status") == "error"
         assert body.get("code") == "WORKER_POOL_BUSY"
 
+    def test_execute_pool_busy_is_503(self) -> None:
+        def busy(**_kwargs):
+            return {"id": "ex-busy", "status": "error", "code": "WORKER_POOL_BUSY", "error": "busy"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=busy)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("code") == "WORKER_POOL_BUSY"
+
+    def test_execute_worker_death_is_503(self) -> None:
+        def dead(**_kwargs):
+            return {"status": "error", "code": "WORKER_CRASHED", "error": "died"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=dead)
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-dead", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("code") == "WORKER_CRASHED"
+
+    def test_execute_timeout_stays_200(self) -> None:
+        def timed_out(**_kwargs):
+            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": "too slow"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=timed_out)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("200")
+        assert body.get("code") == "EXECUTION_TIMEOUT"
+
+    def test_vision_pool_busy_is_503(self) -> None:
+        """A vision lease miss used to be HTTP 200. The accept-deadline pre-check is already 503."""
+        fake_pool = MagicMock()
+        fake_pool.execute.return_value = {
+            "id": "v-busy",
+            "status": "error",
+            "code": "VISION_POOL_BUSY",
+            "error": "All vision workers are currently busy and request timed out waiting for worker lease.",
+        }
+        app = create_wsgi_app(ComputeSettings())
+        payload = json.dumps({"id": "v-busy", "image_b64": "YQ=="}).encode("utf-8")
+        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        assert status.startswith("503")
+        assert body.get("code") == "VISION_POOL_BUSY"
+        assert body.get("id") == "v-busy"
+        assert body.get("status") == "error"
+
+    def test_formula_permits_do_not_starve_vision_admission(self) -> None:
+        """workers=2 and ocr_workers=4 used to share six permits.
+
+        Six in-flight executes then held every permit, so /v1/vision returned
+        VISION_POOL_BUSY while OCR workers were still idle.
+        """
+        settings = ComputeSettings(workers=2, ocr_workers=4)
+        hold = threading.Event()
+        entered_lock = threading.Lock()
+        entered_count = 0
+        both_in = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            nonlocal entered_count
+            with entered_lock:
+                entered_count += 1
+                if entered_count >= 2:
+                    both_in.set()
+            assert hold.wait(timeout=5)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        app = create_wsgi_app(settings, execute_fn=execute_fn)
+        body = json.dumps({"code": "result = 1"}).encode("utf-8")
+        results: list[tuple[str, str | None]] = []
+        results_lock = threading.Lock()
+
+        def post() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+            code = parsed.get("code") if isinstance(parsed, dict) else None
+            with results_lock:
+                results.append((status, code))
+
+        threads = [threading.Thread(target=post) for _ in range(6)]
+        fake_pool = MagicMock()
+        fake_pool.execute.return_value = {"id": "v-free", "status": "ok", "text": "ok"}
+        payload = json.dumps({"id": "v-free", "image_b64": "YQ=="}).encode("utf-8")
+        try:
+            for thread in threads:
+                thread.start()
+            assert both_in.wait(timeout=5)
+            deadline = time.monotonic() + 2.0
+            busy: list[tuple[str, str | None]] = []
+            while time.monotonic() < deadline:
+                with results_lock:
+                    busy = [item for item in results if item[0].startswith("503")]
+                if len(busy) >= 4:
+                    break
+                time.sleep(0.01)
+            assert busy == [("503 Service Unavailable", "WORKER_POOL_BUSY")] * 4
+            assert entered_count == 2
+            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+                vstatus, _vheaders, vbody = _wsgi_post(app, payload, path="/v1/vision")
+            assert vstatus.startswith("200")
+            assert vbody.get("code") != "VISION_POOL_BUSY"
+            fake_pool.execute.assert_called_once()
+        finally:
+            hold.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
+    def test_vision_permits_do_not_starve_formula_admission(self) -> None:
+        """The reverse of the shared-permit bug: a full vision pool must not 503 execute."""
+        settings = ComputeSettings(workers=2, ocr_workers=4)
+        hold = threading.Event()
+        entered_lock = threading.Lock()
+        entered_count = 0
+        all_in = threading.Event()
+
+        def vision_execute(**_kwargs: Any) -> dict[str, Any]:
+            nonlocal entered_count
+            with entered_lock:
+                entered_count += 1
+                if entered_count >= 4:
+                    all_in.set()
+            assert hold.wait(timeout=5)
+            return {"status": "ok", "text": "ok"}
+
+        fake_pool = MagicMock()
+        fake_pool.execute.side_effect = vision_execute
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        app = create_wsgi_app(settings, execute_fn=execute_fn)
+        payload = json.dumps({"image_b64": "YQ=="}).encode("utf-8")
+        results: list[tuple[str, str | None]] = []
+        results_lock = threading.Lock()
+
+        def post() -> None:
+            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision")
+            code = parsed.get("code") if isinstance(parsed, dict) else None
+            with results_lock:
+                results.append((status, code))
+
+        threads = [threading.Thread(target=post) for _ in range(5)]
+        try:
+            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+                for thread in threads:
+                    thread.start()
+                assert all_in.wait(timeout=5)
+                deadline = time.monotonic() + 2.0
+                busy: list[tuple[str, str | None]] = []
+                while time.monotonic() < deadline:
+                    with results_lock:
+                        busy = [item for item in results if item[0].startswith("503")]
+                    if len(busy) >= 1:
+                        break
+                    time.sleep(0.01)
+                assert busy == [("503 Service Unavailable", "VISION_POOL_BUSY")]
+                assert entered_count == 4
+                estatus, _eheaders, ebody = _wsgi_post(
+                    app,
+                    json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    path="/v1/execute",
+                )
+            assert estatus.startswith("200")
+            assert ebody.get("code") != "WORKER_POOL_BUSY"
+        finally:
+            hold.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
+    def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
+        """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
+        from compute_service.server import authenticate_request
+
+        key = "sécret-ключ"
+        key_path = tmp_path / "key"
+        key_path.write_text(key + "\n", encoding="utf-8")
+        settings = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert settings.api_key == key
+
+        principal, err = authenticate_request({"HTTP_AUTHORIZATION": f"Bearer {key}"}, settings)
+        assert err is None
+        assert principal == settings.default_principal
+        principal_bad, err_bad = authenticate_request({"HTTP_AUTHORIZATION": "Bearer café-nope"}, settings)
+        assert principal_bad is None
+        assert err_bad == "invalid"
+
+        ran: list[str] = []
+
+        def execute_fn(**kwargs):
+            ran.append(kwargs["code"])
+            return {"status": "ok", "result": 1, "stdout": ""}
+
+        app = create_wsgi_app(settings, execute_fn=execute_fn)
+        bad_status, bad_headers, bad_body = _wsgi_post(
+            app,
+            json.dumps({"code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+            headers={"Authorization": "Bearer café-nope"},
+        )
+        assert bad_status.startswith("401")
+        assert bad_body.get("error") == "Unauthorized"
+        assert ("WWW-Authenticate", "Bearer") in bad_headers
+        assert ran == []
+
+        ok_status, _ok_headers, ok_body = _wsgi_post(
+            app,
+            json.dumps({"code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert ok_status.startswith("200")
+        assert ok_body.get("status") == "ok"
+        assert ran == ["result = 1"]
+
+    def test_execute_queue_timeout_from_pool_is_503(self) -> None:
+        """The pool's own deadline check must not answer 200.
+
+        The handler returns 503 when the accept deadline is already gone.
+        If it expires in the gap before the pool checks, the pool returns
+        QUEUE_TIMEOUT with no result_json. That used to fall through to 200.
+        """
+
+        def late(**_kwargs):
+            return {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=late)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "q-late", "code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+        )
+        assert status.startswith("503")
+        assert body.get("id") == "q-late"
+        assert body.get("code") == "QUEUE_TIMEOUT"
+        assert body.get("status") == "error"
+
+    def test_overflow_id_is_400(self) -> None:
+        def execute_fn(**_kwargs):
+            raise AssertionError("non-finite id must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        status, _headers, body = _wsgi_post(app, b'{"id":1e9999,"code":"result = 1"}', path="/v1/execute")
+        assert status.startswith("400")
+        assert body.get("error") == "Invalid JSON"
+
+    @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
+    def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
+        """A non-finite vision id used to crash the response, then the 500 fallback."""
+        from compute_service.vision_pool import shutdown_vision_pool
+
+        app = create_wsgi_app(ComputeSettings())
+        try:
+            status, _headers, body = _wsgi_post(
+                app,
+                b'{"id":' + raw_id + b',"image_b64":"abcd"}',
+                path="/v1/vision",
+            )
+            assert status.startswith("400")
+            assert body.get("error") == "Invalid JSON"
+            assert "id" not in body
+        finally:
+            shutdown_vision_pool()
+
+    def test_vision_overflow_timeout_is_json(self) -> None:
+        from compute_service.vision_pool import shutdown_vision_pool
+
+        app = create_wsgi_app(ComputeSettings())
+        try:
+            status, _headers, body = _wsgi_post(
+                app,
+                b'{"image_b64":"abcd","timeout_ms":1e9999}',
+                path="/v1/vision",
+            )
+            assert status.startswith("200")
+            assert body.get("code") == "VISION_SERVICE_DISABLED"
+        finally:
+            shutdown_vision_pool()
+
+    def test_execute_shutdown_is_503(self) -> None:
+        def down(**_kwargs):
+            return {"status": "error", "code": "SERVICE_SHUTDOWN", "error": "stopping"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=down)
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-down", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("id") == "ex-down"
+        assert body.get("code") == "SERVICE_SHUTDOWN"
+
+    def test_execute_eval_error_stays_200(self) -> None:
+        def failed(**_kwargs):
+            return {"status": "error", "result_json": b'{"status":"error","error":"boom"}'}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=failed)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("200")
+        assert body.get("error") == "boom"
+
+    def test_expired_accept_deadline_does_not_run(self) -> None:
+        """Queue time counts against the cell timeout. A late request does not run."""
+
+        def execute_fn(**_kwargs):
+            raise AssertionError("expired request must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        body = json.dumps({"id": "late", "code": "result = 1", "timeout_ms": 1000}).encode("utf-8")
+        status_holder: list[str] = []
+
+        def start_response(status: str, resp_headers: list) -> None:
+            status_holder.append(status)
+            del resp_headers
+
+        environ = {
+            "PATH_INFO": "/v1/execute",
+            "REQUEST_METHOD": "POST",
+            "QUERY_STRING": "",
+            "CONTENT_TYPE": "application/json",
+            "CONTENT_LENGTH": str(len(body)),
+            "wsgi.input": io.BytesIO(body),
+            "compute.accept_time": time.monotonic() - 5.0,
+        }
+        out = b"".join(app(environ, start_response))
+        parsed = json.loads(out.decode("utf-8"))
+        assert status_holder[0].startswith("503")
+        assert parsed.get("code") == "QUEUE_TIMEOUT"
+        assert parsed.get("id") == "late"
+        assert parsed.get("status") == "error"
+
+    def test_unknown_mode_is_400(self) -> None:
+        def execute_fn(**_kwargs):
+            raise AssertionError("bad mode must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "mode-1", "code": "result = 1", "mode": "Shared"}).encode("utf-8"),
+            path="/v1/execute",
+        )
+        assert status.startswith("400")
+        assert body.get("id") == "mode-1"
+        assert "mode" in body.get("error", "")
+
+    def test_peel_init_script_over_cap_is_400(self) -> None:
+        def execute_fn(**_kwargs):
+            raise AssertionError("oversize init must not run")
+
+        app = create_wsgi_app(ComputeSettings(max_code_chars=64), execute_fn=execute_fn)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "init-big", "code": "result = 1", "init_script": "i" * 65}).encode("utf-8"),
+            path="/v1/execute",
+        )
+        assert status.startswith("400")
+        assert body.get("code") == "CODE_TOO_LARGE"
+        assert body.get("id") == "init-big"
+
+    @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity", b"-Infinity"])
+    def test_nonfinite_id_is_400_and_does_not_reset(self, raw_id: bytes) -> None:
+        """json.loads accepts these. Echoing them crashed allow_nan=False after reset ran."""
+
+        def reset_fn(_session_id: str, **_kwargs):
+            raise AssertionError("non-finite id must not reset")
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=reset_fn)
+        status, _headers, body = _wsgi_post(app, b'{"id":' + raw_id + b"}", query="session_id=sid")
+        assert status.startswith("400")
+        assert body.get("error") == "Invalid JSON"
+        assert "id" not in body
+
     def test_auth_required_matches_execute(self) -> None:
         app = create_wsgi_app(
             ComputeSettings(api_key="reset-secret"),
@@ -1011,4 +1777,536 @@ print("ok")
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "Error: fake_pkg is not installed" in captured.err
+
+
+def _run_docker_entrypoint(tmp_path, extra: dict[str, str]):
+    import subprocess
+    from pathlib import Path
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "ran"
+    fake = bindir / "python"
+    fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$FAKE_OUT"\n', encoding="utf-8")
+    fake.chmod(0o755)
+    # /bin stays on PATH so /bin/sh can run; the fake python is first.
+    env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(tmp_path), "FAKE_OUT": str(marker)}
+    env.update(extra)
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "docker-entrypoint.sh"
+    proc = subprocess.run(["/bin/sh", str(script)], env=env, capture_output=True, text=True, check=False)
+    ran = marker.read_text(encoding="utf-8") if marker.exists() else ""
+    return proc, ran
+
+
+class TestDockerEntrypoint:
+    def test_wildcard_without_key_exits(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "0.0.0.0"})
+        assert proc.returncode == 1
+        assert ran == ""
+        assert "PYTHON_COMPUTE_API_KEY" in proc.stderr
+
+    def test_ipv6_wildcard_without_key_exits(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "::"})
+        assert proc.returncode == 1
+        assert ran == ""
+
+    def test_wildcard_with_key_starts_server(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "0.0.0.0", "PYTHON_COMPUTE_API_KEY": "secret"})
+        assert proc.returncode == 0
+        assert "compute_service/server.py" in ran
+
+    def test_loopback_without_key_starts_server(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert proc.returncode == 0
+        assert "compute_service/server.py" in ran
+
+
+class _AcceptedConnectionHandler:
+    """Request handler stand-in that does not treat the socket as a Mock spec.
+
+    ``MagicMock(sock, address, server)`` binds the socket to ``spec``. A
+    MagicMock socket then raises InvalidSpecError inside the listener thread.
+    """
+
+    def __init__(self, request: object, client_address: object, server: object) -> None:
+        self.request = request
+        self.client_address = client_address
+        self.server = server
+
+
+class TestListenerQueue:
+    def test_busy_listener_pool_queues_instead_of_503(self) -> None:
+        """A full listener queue used to answer 503 and close the socket.
+
+        Extra accepted connections wait for a thread. Operators add workers
+        when the server is slow.
+        """
+        from compute_service.server import DualStackThreadPoolHTTPServer
+
+        server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
+        hold = threading.Event()
+        running = threading.Event()
+
+        def _occupy() -> None:
+            running.set()
+            hold.wait(timeout=5)
+
+        try:
+            server.executor.submit(_occupy)
+            assert running.wait(timeout=2)
+            # One waiting item is the old cap (one queued request per listener).
+            server.executor.submit(_occupy)
+            deadline = time.monotonic() + 2
+            while server.executor._work_queue.qsize() < 1 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert server.executor._work_queue.qsize() >= 1
+
+            sock = MagicMock()
+            before = server.executor._work_queue.qsize()
+            server.process_request(sock, ("127.0.0.1", 9))
+            sock.sendall.assert_not_called()
+            sock.close.assert_not_called()
+            assert server.executor._work_queue.qsize() == before + 1
+        finally:
+            hold.set()
+            server.server_close()
+
+
+def test_flatten_config_json_rejects_api_key() -> None:
+    """_flatten_config_json raises ConfigError if api_key is present in config JSON."""
+    from compute_service.config import ConfigError, _flatten_config_json
+
+    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
+        _flatten_config_json({"api_key": "secret"})
+
+    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
+        _flatten_config_json({"auth": {"api_key": "secret"}})
+
+
+def test_send_execution_result_drops_unencodable_id() -> None:
+    """The 500 fallback must still write when req_id itself is not strict JSON."""
+    from compute_service.server import _send_execution_result
+
+    status_holder: list[str] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        del resp_headers
+
+    out = _send_execution_result(start_response, {"status": "ok", "result": float("nan")}, float("inf"))
+    parsed = json.loads(b"".join(out))
+    assert status_holder[0].startswith("500")
+    assert "id" not in parsed
+    assert "JSON encode failed" in parsed.get("error", "")
+
+
+def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
+    """TCPServer.__init__ opens a socket even when bind_and_activate is False."""
+    from compute_service.server import DualStackThreadPoolHTTPServer
+
+    created: list[socket.socket] = []
+    real_socket = socket.socket
+
+    def tracking(*args, **kwargs):
+        sock = real_socket(*args, **kwargs)
+        created.append(sock)
+        return sock
+
+    monkeypatch.setattr(socket, "socket", tracking)
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
+    try:
+        leaked = [sock for sock in created if sock not in server.sockets and sock.fileno() != -1]
+        assert leaked == []
+        assert created
+        assert any(sock.fileno() == -1 for sock in created)
+    finally:
+        server.server_close()
+
+
+def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
+    """A failed listen prints the address and returns 1, without a traceback."""
+    from compute_service.server import main, run_server
+
+    monkeypatch.setattr("compute_service.server.check_dependencies", lambda pool: None)
+    monkeypatch.setattr("compute_service.formula_pool.get_formula_pool", lambda settings: MagicMock())
+    import plugin.scripting.payload_codec as payload_codec
+
+    monkeypatch.setattr(payload_codec, "load_cython_accelerator", lambda: None)
+    monkeypatch.setattr(payload_codec, "get_cython_status_info", lambda: (False, None, "off"))
+
+    def boom(*_args, **_kwargs):
+        raise OSError(98, "Address already in use")
+
+    monkeypatch.setattr("compute_service.server.WSGIDualStackServer", boom)
+    settings = ComputeSettings(host="127.0.0.1", port=1, workers=1, ocr_workers=0)
+    with pytest.raises(OSError):
+        run_server(settings)
+    err = capsys.readouterr().err
+    assert "Failed to bind 127.0.0.1:1" in err
+    assert "Address already in use" in err
+    assert "Traceback" not in err
+
+    monkeypatch.setattr("compute_service.server.load_settings", lambda **_kwargs: settings)
+    assert main([]) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "Failed to bind 127.0.0.1:1" in err
+
+
+def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
+    """Spaces and glob characters in the key must stay one docker argument."""
+    import subprocess
+    from pathlib import Path
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "args"
+    fake = bindir / "docker"
+    fake.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
+    key = "sec ret *"
+    env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "DOCKER_ARGS": str(marker),
+        "PYTHON_COMPUTE_API_KEY": key,
+        "PYTHON_COMPUTE_IMAGE": "python-compute",
+    }
+    proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    lines = marker.read_text(encoding="utf-8").splitlines()
+    assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
+
+
+def test_start_docker_mounts_api_key_file_read_only(tmp_path) -> None:
+    """The host key file is mounted; the container env points at the mount.
+
+    Forwarding PYTHON_COMPUTE_API_KEY_FILE without -v made the process look
+    for the host path inside the image and exit 2. Spaces and glob characters
+    in the key and the path must stay one docker argument each.
+    """
+    import subprocess
+    from pathlib import Path
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "args"
+    fake = bindir / "docker"
+    fake.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    key_file = tmp_path / "sec ret *" / "api key"
+    key_file.parent.mkdir()
+    key_file.write_text("from-file\n", encoding="utf-8")
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
+    key = "sec ret *"
+    env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "DOCKER_ARGS": str(marker),
+        "PYTHON_COMPUTE_API_KEY": key,
+        "PYTHON_COMPUTE_API_KEY_FILE": str(key_file),
+        "PYTHON_COMPUTE_IMAGE": "python-compute",
+    }
+    proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    lines = marker.read_text(encoding="utf-8").splitlines()
+    mount = f"{key_file}:/run/secrets/python_compute_api_key:ro"
+    assert mount in lines
+    assert "PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key" in lines
+    assert f"PYTHON_COMPUTE_API_KEY_FILE={key_file}" not in lines
+    assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
+
+
+def _runner_stage_copies(dockerfile_text: str) -> list[tuple[str, str]]:
+    """``COPY src dest`` pairs from the runner stage, skipping ``--from``."""
+    stage = ""
+    pairs: list[tuple[str, str]] = []
+    for raw in dockerfile_text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.upper().startswith("FROM "):
+            parts = line.split()
+            stage = parts[-1] if len(parts) >= 4 and parts[-2].upper() == "AS" else ""
+            continue
+        if stage != "runner" or not line.startswith("COPY ") or "--from=" in line:
+            continue
+        parts = line.split()
+        if len(parts) != 3:
+            raise AssertionError(f"unexpected COPY form: {line}")
+        pairs.append((parts[1], parts[2]))
+    return pairs
+
+
+def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
+    """The runner COPY set must import worker_base without the rest of plugin/.
+
+    The image copied only framework __init__, constants, and deal_shim.
+    worker_base imports worker_pool at load, and that import failed, so the
+    container never started. This materializes the Dockerfile COPY lines; it
+    does not need a Docker daemon. queue_executor, uno_context, and logging
+    are not part of that load-time closure.
+    """
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
+    pairs = _runner_stage_copies(dockerfile)
+    app = tmp_path / "app"
+    for src, dest in pairs:
+        assert dest.startswith("/app/"), dest
+        source = repo / src
+        target = app / dest[len("/app/") :]
+        assert source.exists(), src
+        if source.is_dir():
+            shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+    framework = app / "plugin" / "framework"
+    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "thread_guard.py", "constants.py", "deal_shim.py"):
+        assert (framework / name).is_file(), name
+    for name in ("queue_executor.py", "uno_context.py", "logging.py"):
+        assert not (framework / name).exists(), name
+
+    proc = subprocess.run(
+        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base"],
+        cwd=app,
+        env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:
+    """When a worker handler returns non-dict, run_worker_stdio_loop formats an error dict."""
+    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop, write_pickle_frame
+
+    stdin_buf = io.BytesIO()
+    stdout_buf = io.BytesIO()
+
+    # Write a valid request into stdin_buf
+    write_pickle_frame(stdin_buf, {"id": "1", "cmd": "test"})
+    stdin_buf.seek(0)
+
+    class MockStdin:
+        buffer = stdin_buf
+
+    class MockStdout:
+        buffer = stdout_buf
+
+    monkeypatch.setattr("sys.stdin", MockStdin())
+    monkeypatch.setattr("sys.stdout", MockStdout())
+
+    def bad_handler(req: dict) -> Any:
+        del req
+        return "not a dict"
+
+    rc = run_worker_stdio_loop(bad_handler)
+    assert rc == 0
+
+    stdout_buf.seek(0)
+    ready_frame = read_pickle_frame(stdout_buf)
+    assert ready_frame is not None
+    assert ready_frame.get("status") == "ready"
+
+    res_frame = read_pickle_frame(stdout_buf)
+    assert isinstance(res_frame, dict)
+    assert res_frame.get("status") == "error"
+    assert res_frame.get("error") == "Handler returned non-dict"
+
+
+def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
+    """ocr_path_is_allowed checks prefix allowlist even if file does not exist yet."""
+    from compute_service.config import ocr_path_is_allowed
+
+    missing = tmp_path / "does_not_exist.png"
+    assert ocr_path_is_allowed(str(missing), (str(tmp_path),)) is True
+    assert ocr_path_is_allowed(str(missing), ("/other/dir",)) is False
+
+
+def test_clamp_timeout_sec_infinite_and_nan() -> None:
+    """clamp_timeout_sec must handle OverflowError and non-finite floats gracefully."""
+    from compute_service.executor import clamp_timeout_sec
+
+    assert clamp_timeout_sec(float("inf"), default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(float("-inf"), default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(float("nan"), default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(1e309, default_timeout_sec=30) == 30
+
+
+def test_ocr_path_is_allowed_root_directory() -> None:
+    """Allowlisted root directory '/' must not fail due to double slash '//'."""
+    from compute_service.config import ocr_path_is_allowed
+
+    assert ocr_path_is_allowed("/tmp/image.png", ("/",)) is True
+    assert ocr_path_is_allowed("/var/data/doc.pdf", ("/",)) is True
+
+
+def test_address_string_avoids_reverse_dns() -> None:
+    """_DeadlineRequestHandler.address_string must return raw IP without socket.getfqdn()."""
+    from compute_service.server import WSGIDualStackServer
+
+    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    try:
+        handler_cls = server.srv.RequestHandlerClass
+        with patch("socket.getfqdn") as mock_fqdn:
+            handler = handler_cls.__new__(handler_cls)
+            handler.client_address = ("127.0.0.1", 54321)
+            assert handler.address_string() == "127.0.0.1"
+            mock_fqdn.assert_not_called()
+    finally:
+        server.server_close()
+
+
+def test_clamp_timeout_sec_boolean() -> None:
+    """clamp_timeout_sec must treat booleans as invalid and return default_timeout_sec."""
+    from compute_service.executor import clamp_timeout_sec
+
+    assert clamp_timeout_sec(True, default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(False, default_timeout_sec=30) == 30
+
+
+def test_source_text_from_part_unicode_chars() -> None:
+    """_source_text_from_part must count characters, not bytes, for UTF-8 code parts."""
+    from compute_service.server import _source_text_from_part
+
+    # 10 Greek letters (each 2 bytes in UTF-8 = 20 bytes total)
+    greek_code = "αβγδεζηθικ".encode("utf-8")
+    assert len(greek_code) == 20
+    # With limit=10, 10 characters should pass even though byte length is 20
+    text, err = _source_text_from_part(greek_code, limit=10, label="code", required=True)
+    assert err is None
+    assert text == "αβγδεζηθικ"
+
+    # With limit=9, 10 characters should be rejected
+    text, err = _source_text_from_part(greek_code, limit=9, label="code", required=True)
+    assert text is None
+    assert err is not None
+    assert err.get("code") == "CODE_TOO_LARGE"
+
+
+def test_log_level_cli_arg() -> None:
+    """--log-level CLI argument must be parsed and set in ComputeSettings."""
+    from compute_service.server import _build_arg_parser, main
+    from unittest.mock import patch
+
+    parser = _build_arg_parser()
+    args = parser.parse_args(["--log-level", "DEBUG"])
+    assert args.log_level == "DEBUG"
+
+    with patch("compute_service.server.run_server") as mock_run:
+        assert main(["--log-level", "WARNING"]) == 0
+        mock_run.assert_called_once()
+        settings = mock_run.call_args[0][0]
+        assert settings.log_level == "WARNING"
+
+
+def test_accept_time_tracked_on_server() -> None:
+    """_DeadlineRequestHandler must read accept time from the server's tracking dictionary."""
+    from compute_service.server import WSGIDualStackServer
+
+    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    try:
+        handler_cls = server.srv.RequestHandlerClass
+        handler = handler_cls.__new__(handler_cls)
+        mock_conn = MagicMock()
+        handler.connection = mock_conn
+        handler.server = server.srv
+        handler.server._accept_times[id(mock_conn)] = 12345.678
+        handler.client_address = ("127.0.0.1", 54321)
+        handler.request_version = "HTTP/1.1"
+        handler.command = "GET"
+        handler.path = "/health"
+        import email.message
+
+        handler.headers = email.message.Message()
+        handler.rfile = io.BytesIO(b"")
+        with patch.object(handler_cls, "setup"):
+            environ = handler.get_environ()
+            assert environ.get("compute.accept_time") == 12345.678
+    finally:
+        server.server_close()
+
+
+def test_real_socket_queue_timeout() -> None:
+    """A blocked worker thread must cause a subsequent request with a short timeout to fail with QUEUE_TIMEOUT."""
+    from compute_service.server import WSGIDualStackServer, create_wsgi_app
+    from compute_service.config import ComputeSettings
+    import threading
+    import urllib.request
+    import urllib.error
+    import json
+    import time
+
+    settings = ComputeSettings(
+        log_level="DEBUG"
+    )
+
+    block_event = threading.Event()
+
+    def fake_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("code") == "block":
+            block_event.wait()
+            return {"status": "ok"}
+        return {"status": "ok"}
+
+    app = create_wsgi_app(settings, execute_fn=fake_execute)
+    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+
+    # Delay processing of the second request to ensure it hits the queue timeout
+    original_process_request = server.srv.process_request
+    req_count = 0
+
+    def intercept(request: Any, client_address: Any) -> None:
+        nonlocal req_count
+        req_count += 1
+        if req_count > 1:
+            time.sleep(1.0)
+        original_process_request(request, client_address)
+
+    server.srv.process_request = intercept # type: ignore
+
+    server.set_app(app)
+
+    port = server.srv.server_port
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+
+    try:
+        req1 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "block", "timeout_ms": 5000}', headers={"Content-Type": "application/json"})
+        t1 = threading.Thread(target=lambda: urllib.request.urlopen(req1))
+        t1.start()
+
+        # Give the first request time to reach the worker
+        time.sleep(0.5)
+
+        req2 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "test", "timeout_ms": 100}', headers={"Content-Type": "application/json"})
+
+        try:
+            urllib.request.urlopen(req2)
+            assert False, "Expected 503 QUEUE_TIMEOUT, but request succeeded."
+        except urllib.error.HTTPError as e:
+            assert e.code == 503
+            resp = json.loads(e.read().decode("utf-8"))
+            assert resp.get("code") == "QUEUE_TIMEOUT"
+    finally:
+        block_event.set()
+        t1.join(timeout=2.0)
+        server.shutdown()
+        server.server_close()
+
 
