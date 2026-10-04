@@ -8,6 +8,7 @@
 #
 """Unit tests for Calc multi-sheet chart helpers and non-empty exception formatting (no UNO required)."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from plugin.calc.charts import (
     _format_chart_exception_msg,
@@ -164,6 +165,11 @@ class _UnoRuntimeException(Exception):
         self.Message = message
 
 
+def _empty_uno_struct(*_args, **_kwargs):
+    """Same shape as the leaked pytest uno.createUnoStruct stub: no .X."""
+    return SimpleNamespace()
+
+
 def _calc_chart_create_parts():
     from plugin.calc.charts import UpsertChart
 
@@ -201,6 +207,7 @@ def test_legend_position_uses_chart_legend_position_enum():
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
         patch("plugin.calc.charts.uno.Enum", return_value="legend-right") as enum,
     ):
         result = tool.execute(ctx, action="create", chart_type="bar", data_range="A1:B6", legend_position="right")
@@ -220,6 +227,7 @@ def test_legend_runtime_exception_removes_inserted_calc_chart():
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
         patch("plugin.calc.charts.uno.Enum", side_effect=_raise_runtime),
     ):
         result = tool.execute(ctx, action="create", chart_type="column", data_range="A1:B6", legend_position="top")
@@ -239,6 +247,7 @@ def test_calc_diagram_failure_after_insert_removes_chart():
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
     ):
         result = tool.execute(ctx, action="create", chart_type="bar", data_range="A1:B6")
     assert result["status"] == "error"
@@ -252,6 +261,7 @@ def test_missing_calc_chart_model_removes_insert():
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
     ):
         result = tool.execute(ctx, action="create", chart_type="line", data_range="A1:B6")
     assert result["status"] == "error"

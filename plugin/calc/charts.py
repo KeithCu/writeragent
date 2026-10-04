@@ -952,7 +952,23 @@ class UpsertChart(ToolBaseDummy):
             except Exception:
                 pass
 
-        log.debug("Creating Calc chart: sheet=%s, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", sheet.getName(), rect.X, rect.Y, rect.Width, rect.Height, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        # What was wrong: this debug line read rect.X before addNewByName.
+        # How: headless pytest stubs uno.createUnoStruct with an empty
+        # SimpleNamespace, so AttributeError aborted create and a legend
+        # failure never reached removeByName.
+        # Why: the log does not place the chart. Missing fields stay None.
+        log.debug(
+            "Creating Calc chart: sheet=%s, rect=(%s,%s,%s,%s), range=(%s,%s,%s,%s)",
+            sheet.getName(),
+            getattr(rect, "X", None),
+            getattr(rect, "Y", None),
+            getattr(rect, "Width", None),
+            getattr(rect, "Height", None),
+            getattr(addr, "StartColumn", None),
+            getattr(addr, "StartRow", None),
+            getattr(addr, "EndColumn", None),
+            getattr(addr, "EndRow", None),
+        )
 
         existing_names = _get_all_calc_chart_names(ctx.doc)
         idx = len(existing_names)
