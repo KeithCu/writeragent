@@ -43,6 +43,7 @@ def resolve_grep_candidates(
     exclude_path: Any = _USE_DEFAULT,
     open_paths: Any = _USE_DEFAULT,
     listing_root: Any = _USE_DEFAULT,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[FileEntry], bool, str | None]:
     """Return (candidates, truncated_files, error_message).
 
@@ -94,8 +95,11 @@ def resolve_grep_candidates(
         exclude_path=exclude_path,
         open_paths=open_paths,
         listing_root=listing_root,
+        stop_checker=stop_checker,
     )
     if listing.get("status") != "ok":
+        if listing.get("code") == "USER_STOPPED":
+            raise InterruptedError()
         return [], False, listing.get("message", "Could not list nearby files")
 
     files: list[FileEntry] = list(listing.get("files") or [])
@@ -402,16 +406,14 @@ def grep_nearby_files(
 
     from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
 
-    def _resolve() -> tuple[list[FileEntry], bool, str | None]:
-        return resolve_grep_candidates(
+    try:
+        candidates, truncated_files, list_err = resolve_grep_candidates(
             ctx,
             active_model,
             file_subset=subset_norm,
+            stop_checker=stop_checker,
         )
-
-    try:
-        candidates, truncated_files, list_err = execute_on_main_thread(_resolve)
-    except SendCancelled:
+    except InterruptedError:
         return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
     if list_err:
