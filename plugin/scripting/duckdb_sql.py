@@ -196,6 +196,10 @@ def insert_sql_result_into_calc(
     start_row: int | None = None,
 ) -> int:
     """Write formatted SQL output starting at the selection (or given anchor)."""
+    stop_checker = getattr(uno_ctx, "stop_checker", None)
+    if callable(stop_checker) and stop_checker() is True:
+        return 0
+
     from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
     grid = format_sql_for_calc(result)

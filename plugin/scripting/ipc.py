@@ -537,6 +537,7 @@ def _read_bytes_with_timeout_win32(
     timeout_sec: float,
     *,
     cmd: str,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> bytes:
     """Read *n* bytes from a Windows pipe without a stuck ReadFile thread.
 
@@ -554,6 +555,8 @@ def _read_bytes_with_timeout_win32(
     deadline = time.monotonic() + max(0.0, timeout_sec)
     buf = bytearray()
     while len(buf) < n:
+        if stop_checker and stop_checker():
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
