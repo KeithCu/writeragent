@@ -491,35 +491,34 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
 
             with _undo_lock(doc):
                 to_remove = []
-                with _SPILL_REGISTRY_LOCK:
-                    for key, value in list(SPILL_REGISTRY.items()):
-                        doc_url, sheet_name, frow, fcol = key
-                        # Bugfix: "" matched every unsaved workbook, so a modify on
-                        # one untitled book cleared the other's spill cells when
-                        # the sheet names matched. Callers pass the file URL or the
-                        # lifecycle id. "" is not an identity.
-                        if self.doc_url and doc_url == self.doc_url and sheet_name == self.sheet_name:
-                            try:
-                                cell = sheet.getCellByPosition(fcol, frow)
-                                formula = cell.getFormula()
-                                if not formula or not is_py_formula_text(str(formula)):
-                                    # Clear previously spilled cells
-                                    for r, c in value:
-                                        if (r, c) != (frow, fcol):
-                                            try:
-                                                spill_cell = sheet.getCellByPosition(c, r)
-                                                spill_cell.clearContents(23)
-                                            except Exception:
-                                                pass
-                                    to_remove.append(key)
-                            except Exception:
-                                log.debug("Failed to inspect formula cell %r", key, exc_info=True)
+                for key, value in list(SPILL_REGISTRY.items()):
+                    doc_url, sheet_name, frow, fcol = key
+                    # Bugfix: "" matched every unsaved workbook, so a modify on
+                    # one untitled book cleared the other's spill cells when
+                    # the sheet names matched. Callers pass the file URL or the
+                    # lifecycle id. "" is not an identity.
+                    if self.doc_url and doc_url == self.doc_url and sheet_name == self.sheet_name:
+                        try:
+                            cell = sheet.getCellByPosition(fcol, frow)
+                            formula = cell.getFormula()
+                            if not formula or not is_py_formula_text(str(formula)):
+                                # Clear previously spilled cells
+                                for r, c in value:
+                                    if (r, c) != (frow, fcol):
+                                        try:
+                                            spill_cell = sheet.getCellByPosition(c, r)
+                                            spill_cell.clearContents(23)
+                                        except Exception:
+                                            pass
+                                to_remove.append(key)
+                        except Exception:
+                            log.debug("Failed to inspect formula cell %r", key, exc_info=True)
 
-                    if to_remove:
-                        for key in to_remove:
-                            SPILL_REGISTRY.pop(key, None)
-                if to_remove and doc is not None:
-                    save_spill_registry_for_doc(doc)
+                if to_remove:
+                    for key in to_remove:
+                        SPILL_REGISTRY.pop(key, None)
+                    if doc is not None:
+                        save_spill_registry_for_doc(doc)
         except Exception:
             log.exception("Error in CalcSpillModifyListener.modified")
 
@@ -1444,10 +1443,8 @@ def cancel_pending_spill_timers(lifecycle_key: str) -> None:
 
 def clear_in_memory_spill_state(*, lifecycle_key: str = "") -> None:
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
-    cancel_pending_spill_timers(lifecycle_key)
     if lifecycle_key:
-        # Sheet listeners are keyed by lifecycle id, not the file URL, so an
-        # unload that only matched doc_url left the dispatcher registered.
+        cancel_pending_spill_timers(lifecycle_key)
         for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
             SHEET_MODIFY_LISTENERS.pop(skey, None)
         LOADED_DOCUMENTS.discard(lifecycle_key)

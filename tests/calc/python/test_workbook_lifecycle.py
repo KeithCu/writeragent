@@ -89,6 +89,7 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
 def test_unload_clears_in_memory_spill_state():
     import plugin.calc.python.function as python_function
 
+    python_function.SPILL_REGISTRY.clear()
     python_function.SPILL_REGISTRY[("key-spill", "Sheet1", 0, 0)] = [(0, 1)]
     python_function.LOADED_DOCUMENTS.add("key-spill")
     ctx = MagicMock()
