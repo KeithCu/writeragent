@@ -308,7 +308,7 @@ def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
     for img_id in ("img_openrouter", "img_together", "img_huggingface", "img_nvidia"):
         assert img_id not in attrs
     assert "dlg:image-src=" not in xdl
-    assert attrs["btn_ok"]["left"] == "170"
+    assert attrs["btn_ok"]["left"] == "304"
 
 
 def _help_text_by_id(xdl_path: Path) -> dict[str, str | None]:
@@ -487,12 +487,17 @@ def test_settings_cancel_sits_beside_ok_and_does_not_take_default(tmp_path: Path
     attrs = _control_attrs(xdl_path)
     ok = attrs["btn_ok"]
     cancel = attrs["btn_cancel"]
-    assert ok["left"] == "170"
-    assert ok["top"] == cancel["top"] == "188"
+    assert ok["left"] == "304"
+    assert cancel["left"] == "372"
+    assert ok["top"] == cancel["top"] == "190"
+    assert ok["width"] == cancel["width"] == "60"
+    assert ok["height"] == cancel["height"] == "16"
     assert int(cancel["left"]) >= int(ok["left"]) + int(ok["width"])
     window = ET.parse(xdl_path).getroot()
     dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
     assert int(cancel["left"]) + int(cancel["width"]) <= dlg_width
+    right_margin = dlg_width - (int(cancel["left"]) + int(cancel["width"]))
+    assert right_margin == 8
     cancel_tag = re.search(r'<dlg:button[^>]*dlg:id="btn_cancel"[^>]*/>', xdl)
     assert cancel_tag is not None
     assert 'dlg:button-type="cancel"' in cancel_tag.group(0)
