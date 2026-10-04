@@ -424,6 +424,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _ppt_master_topic: str
     panel: Any
     audio_wav_path: str | None
+    _session_msg_count_before_send: int
     _current_agent_backend: Any
     _current_tool_call_id: str | None
     _approval_event: Any
@@ -492,6 +493,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._send_cancellation: Any = None
         self._terminal_status = "Ready"
         self._stt_inflight = False
+        self._session_msg_count_before_send = 0
         self._stt_kill = None
         self._send_busy = False
         self._in_librarian_mode = False
@@ -1160,6 +1162,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # the turn-end hook would arm the mic again.
         if kind in (SendEventKind.STOP_CLICKED, SendEventKind.ERROR_OCCURRED):
             self.exit_hands_free_record()
+            if kind == SendEventKind.ERROR_OCCURRED:
+                from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
+                clear_pending_audio_wav(self)
         was_busy = self.sidebar_state.send.is_busy
         tr = sidebar_next_state(self.sidebar_state, SidebarEvent(kind=SidebarEventKind.SEND, payload=event))
         self.sidebar_state = tr.state
@@ -1613,11 +1618,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
-                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
+                        from plugin.chatbot.tool_loop_actions import running_turn
+
+                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped" and running_turn(self) is not None:
                             from plugin.chatbot.tool_loop_actions import session_for_turn
 
                             spoken = session_for_turn(self)
-                            if spoken and spoken.messages:
+                            if spoken and spoken.messages and len(spoken.messages) > getattr(self, "_session_msg_count_before_send", 0):
                                 last_msg = spoken.messages[-1]
                                 if last_msg.get("role") == "assistant" and last_msg.get("content"):
                                     from plugin.chatbot.tool_loop_actions import _STOP_LINE
@@ -1695,6 +1702,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # The turn exists before any worker and before early error rows.
         # Mode and the document are filled in once this send knows them.
         begin_send_turn(self, "")
+        self._session_msg_count_before_send = len(self.session.messages) if getattr(self, "session", None) else 0
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         log.info("=== _do_send START ===")
@@ -1990,6 +1998,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.chatbot.tool_loop_actions import TurnController, begin_send_turn, current_turn
 
         begin_send_turn(self, CHAT_MODE_CHAT)
+        self._session_msg_count_before_send = len(self.session.messages) if getattr(self, "session", None) else 0
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         if self.ensure_path_fn:
