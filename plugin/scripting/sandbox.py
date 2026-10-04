@@ -130,8 +130,13 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "spacytextblob.*",
     "pint",
     "pint.*",
-    # Trusted helpers import these themselves; user code was getting the raw
-    # module, which skips GuardedDuckDBConnection.
+    # Bugfix: duckdb was removed from this allowlist, so `import duckdb` raised
+    # "Import of duckdb is not allowed" before get_safe_module could return the
+    # raw C module. User scripts need connect/execute/df on that module.
+    # session_duckdb() still returns GuardedDuckDBConnection for trusted SQL.
+    # import_policy keeps the name out of LLM blurbs.
+    "duckdb",
+    "duckdb.*",
     "sentence_transformers",
     "sentence_transformers.*",
     "transformers",

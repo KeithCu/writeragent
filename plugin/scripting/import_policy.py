@@ -45,6 +45,11 @@ _VENV_STDLIB_EXTRA: frozenset[str] = frozenset(
     }
 )
 
+# Dropped from the LLM allowed-packages line (substring, so a future
+# plugin.scripting.duckdb_sql entry would stay out too). Still importable:
+# session_duckdb() is the guarded helper; raw import duckdb is unguarded.
+_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = ("duckdb",)
+
 # Compact blurb "networking" list. socket is blocked via DANGEROUS_MODULES
 # and is not a member of _VENV_COMMON_BLOCKED, so it is listed here explicitly
 # instead of being prepended with a string check after the fact.
@@ -127,6 +132,12 @@ def _venv_package_modules() -> tuple[str, ...]:
     return tuple(sorted(m for m in venv_authorized_top_level_modules() if m not in stdlib))
 
 
+def _omit_from_prompt_packages(name: str) -> bool:
+    """True when an importable package must not appear in the =PY blurb."""
+    lowered = name.lower()
+    return any(marker in lowered for marker in _PROMPT_OMIT_PACKAGE_MARKERS)
+
+
 @deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def venv_blocked_modules() -> tuple[str, ...]:
     """Explicitly dangerous modules plus common not-whitelisted mistakes."""
@@ -205,7 +216,11 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         )
     else:
         stdlib = _join_modules(_venv_stdlib_modules())
-        packages = _join_modules(_venv_package_modules())
+        # duckdb stays on VENV_AUTHORIZED_IMPORTS. Listing it here would steer
+        # default chat toward raw import duckdb instead of session_duckdb().
+        packages = _join_modules(
+            tuple(m for m in _venv_package_modules() if not _omit_from_prompt_packages(m))
+        )
         common = _join_modules(_VENV_COMMON_BLOCKED)
         parts.append(f"Allowed stdlib in this sandbox: {stdlib}.")
         parts.append(f"Allowed packages in this sandbox (+ submodules where applicable): {packages}.")

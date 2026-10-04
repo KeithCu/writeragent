@@ -425,7 +425,7 @@ Authoring: pass upstream ranges as `data` so Calc dirties the cell that re-regis
 | Huge memory | Ingress: `python_max_data_cells` fail-loud on preloaded grids (table name + cell count). Egress: `MAX_TABLE_ROWS=200` with `truncated`, `total_rows`, `row_cap`, `warning` / `flags` / `message`, and `tables[].truncated` so chat, RPS, and tools cannot mistake a partial grid for a complete result. |
 | Secrets in env | Existing `scrub_subprocess_env` in [`sandbox.py`](../../plugin/scripting/sandbox.py) |
 
-Add `duckdb` / `duckdb.*` to [`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/sandbox.py) when shipping; update [`import_policy.py`](../../plugin/scripting/import_policy.py) prompts to mention SQL helpers vs raw pandas.
+`duckdb` / `duckdb.*` are on [`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/sandbox.py). [`import_policy.py`](../../plugin/scripting/import_policy.py) still omits that name from default chat / `=PY` blurbs; prefer `run_sql` / `session_duckdb()` over raw `import duckdb`.
 
 ---
 
