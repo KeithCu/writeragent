@@ -26,13 +26,40 @@ from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.chatbot.selection import create_validated_client, prompt_for_edit_instructions, stream_completion
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.writer.edit_review import WriterStreamedAppendSession, WriterStreamedRewriteSession, build_writer_rewrite_prompt
-from plugin.writer.edit_review import review_recording_enabled
+from plugin.writer.edit_review import (
+    TrackedChangesInSelection,
+    WriterStreamedAppendSession,
+    WriterStreamedRewriteSession,
+    build_writer_rewrite_prompt,
+    refuse_tracked_insert_or_delete,
+    review_recording_enabled,
+)
+
+
+def _stop_for_tracked_changes(ctx: Any, title: str, text_range: Any) -> bool:
+    """Stop Extend/Edit Selection when the range already has an Insert or Delete.
+
+    The message box is the user-visible path. The streamed session raises the same
+    way before ``setString``, so skipping this wrapper still cannot wipe the redlines.
+    A deletion-only selection reads as empty after skipping deletes; that used to
+    return from Extend Selection with no message and, on Edit Selection, still
+    reached ``setString``. Check before that empty return and before the prompt.
+    """
+    try:
+        refuse_tracked_insert_or_delete(text_range)
+    except TrackedChangesInSelection:
+        # Literal must match TRACKED_SELECTION_MESSAGE so xgettext extracts it.
+        msgbox(ctx, title, _("This selection contains tracked insertions or deletions. Accept or reject those changes first. The selection was not modified."))
+        return True
+    return False
 
 
 def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
     selection = model.CurrentController.getSelection()
     text_range = selection.getByIndex(0)
+    title = _("WriterAgent: Extend Selection")
+    if _stop_for_tracked_changes(ctx, title, text_range):
+        return
     original_text = get_string_without_tracked_deletions(text_range)
     if len(original_text) == 0:
         return
@@ -46,7 +73,6 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
     model_val = get_text_model()
     update_lru_history(model_val, "model_lru", current_endpoint)
 
-    title = _("WriterAgent: Extend Selection")
     client = create_validated_client(ctx, title)
     if client is None:
         return
@@ -75,9 +101,11 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
     selection = model.CurrentController.getSelection()
     text_range = selection.getByIndex(0)
+    title = _("WriterAgent: Edit Selection")
+    if _stop_for_tracked_changes(ctx, title, text_range):
+        return
     original_text = get_string_without_tracked_deletions(text_range)
 
-    title = _("WriterAgent: Edit Selection")
     edit_request = prompt_for_edit_instructions(ctx, input_box_fn, title)
     if edit_request is None:
         return

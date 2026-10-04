@@ -17,8 +17,12 @@ How a change is tracked end to end:
 
 * ``record_mutation`` snapshots the document's redline identifiers, runs the edit, and tags
   every NEW redline's ``RedlineComment`` with a per-change token (``wa-review:<session>:<n>``).
-  Completion is "no redline carrying this session's token remains" -- NOT "zero redlines in
-  the document" -- so the user's own pre-existing redlines never block or confuse it.
+  Completion is a reliable empty intersection of those comments with tokens on registered
+  ``ChangeRecord``s — NOT "zero redlines in the document", and NOT "every
+  ``wa-review:<session>:`` comment is gone". A tag left behind when the change was not
+  registered (tagging failed, or the missing-bookmark clear left the token) must not keep
+  ``wait_for_review`` blocked. An incomplete scan still fail-closes. The user's own
+  pre-existing redlines never block or confuse it.
 * Each change is anchored with a bookmark (``wa_review_<session>_<n>``) spanning the affected
   range, so it survives positions shifting as other changes are resolved. Bookmarks are
   always removed when the review finishes (success, timeout, or error).
@@ -391,6 +395,8 @@ class EditReviewSession:
             success, orphans = _tag_new_redlines(new_redlines, token)
         if not success:
             if orphans:
+                # The token can remain on the redline. It is not registered, and
+                # _pending_tokens will not treat that leftover as a reason to keep waiting.
                 log.warning("EditReviewSession: tagging failed and %d orphan tag(s) could not be "
                             "reverted; leaving this edit unregistered", orphans)
             else:
@@ -439,6 +445,10 @@ class EditReviewSession:
         # the edit already applied; it stays untagged. Do not "fix" this by appending and
         # special-casing _outcome — empty bookmark is not the same as a bookmark the user later
         # removed (pure-insert reject).
+        # A failed clear can leave wa-review:<session>:<n> on the redline. That orphan is not
+        # registered. _pending_tokens ignores tokens that are not on a ChangeRecord, so
+        # wait_for_review still finishes once every registered change is resolved. Keep this
+        # untag attempt: when it succeeds the redline comment is cleared.
         if not bookmark_name:
             log.warning(
                 "EditReviewSession: no review anchor for change %d; leaving this edit untagged "
@@ -465,14 +475,27 @@ class EditReviewSession:
     # -- review ------------------------------------------------------------------------------
 
     def _pending_tokens(self) -> tuple[set[str], bool]:
-        """``(tokens of this session's changes that still have an unresolved redline, reliable)``.
+        """``(registered tokens that still have an unresolved redline, reliable)``.
 
-        ``reliable`` is False when the scan is INCOMPLETE (enum/count error, a count/enumeration
-        mismatch, or an unreadable comment): an under-counted pending set could make ``wait_for_review`` declare
-        the review complete while a change is still open, so the caller must treat unreliable as
-        "not yet complete" rather than done (guard every enumeration)."""
+        The scan still collects every ``RedlineComment`` that starts with this session's
+        prefix. The returned set is the intersection with tokens on ``ChangeRecord``s.
+
+        What was wrong: a failed tag, or a missing-bookmark clear that left orphans, does
+        not register a change, but the redline can still carry ``wa-review:<session>:<n>``.
+        ``wait_for_review`` used to loop until every such comment was gone. After the user
+        resolved the registered change, the orphan tag — which has no review-UI row — kept
+        the wait going until timeout.
+
+        Why the intersection: an unregistered token must not block completion. A registered
+        token that is still on a redline still waits. ``reliable`` stays False when the scan
+        is incomplete (enum/count error, a count/enumeration mismatch, or an unreadable
+        comment). An empty intersection from a partial scan is not completion — the caller
+        fail-closes and keeps waiting, because the unseen tail might still hold a registered
+        change.
+        """
         prefix = self._session_token_prefix()
-        pending: set[str] = set()
+        registered = {record.token for record in self.changes}
+        seen: set[str] = set()
 
         def on_item(rl: Any) -> bool:
             try:
@@ -480,13 +503,13 @@ class EditReviewSession:
             except Exception:
                 return False
             if comment.startswith(prefix):
-                pending.add(comment)
+                seen.add(comment)
             return True
 
         reliable = _review_scan.scan_redlines(self.doc, on_item)[0]
         if not reliable:
             log.debug("EditReviewSession: pending check enumeration incomplete", exc_info=False)
-        return pending, reliable
+        return seen & registered, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
         """Current text of the CHANGE's own region (its anchor bookmark span), or None if the anchor
@@ -661,9 +684,10 @@ class EditReviewSession:
                     # (would resolve the user's own redlines) and never equate it with dispose.
                     return run(lambda: self._review_payload(complete=False, timed_out=False))
                 pending, reliable = run(self._pending_tokens)
-                # Done ONLY on a reliable, empty scan. An unreliable scan (or remaining tokens) keeps
-                # waiting -- never declare the review complete off a partial read that might have
-                # missed an unresolved change (fail closed).
+                # Done ONLY on a reliable empty intersection of scanned tags with registered
+                # change tokens. An orphan tag (not on a ChangeRecord) does not count. An
+                # unreliable scan keeps waiting — never complete off a partial read that might
+                # have missed an unresolved registered change (fail closed).
                 if reliable and not pending:
                     break
                 if stop_checker is not None and stop_checker():
@@ -1030,6 +1054,138 @@ def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
     return f"Rewrite the following text according to the instructions below. Output only the rewritten text with no labels, headings, or explanations.\n\nInstructions: {instructions}\n\nText to rewrite:\n{original_text}"
 
 
+_BLOCKING_REDLINE_TYPES = frozenset({"Insert", "Delete"})
+_WALK_FAILED = object()
+
+# Shown by the Extend/Edit Selection message box. editselection.py wraps the same
+# words in _() so xgettext can extract them; keep the two copies identical.
+TRACKED_SELECTION_MESSAGE = "This selection contains tracked insertions or deletions. Accept or reject those changes first. The selection was not modified."
+
+
+class TrackedChangesInSelection(Exception):
+    """The selection contains a tracked Insert or Delete, so a streamed edit must not write it.
+
+    ``setString`` with ``RecordChanges`` off accepts deletions and flattens insertions.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(TRACKED_SELECTION_MESSAGE)
+
+
+def _portion_type(node: Any) -> str | None:
+    try:
+        portion_type = node.getPropertyValue("TextPortionType")
+    except Exception:
+        try:
+            portion_type = node.TextPortionType
+        except Exception:
+            return None
+    if portion_type is None:
+        return None
+    return str(portion_type)
+
+
+def _open_enum(owner: Any) -> Any:
+    """Return an enumeration, ``None`` when the object has none, or ``_WALK_FAILED``.
+
+    Missing ``createEnumeration`` is a plain test double (no redlines to protect).
+    A method that exists and throws is a walk we could not finish.
+    """
+    create = getattr(owner, "createEnumeration", None)
+    if not callable(create):
+        return None
+    try:
+        return create()
+    except Exception:
+        return _WALK_FAILED
+
+
+def _is_blocking_redline(node: Any) -> bool:
+    """True for a tracked Insert or Delete, or a redline whose type cannot be read.
+
+    Format (and other) redlines are left alone: this guard exists so ``setString``
+    cannot accept a deletion or flatten an insertion. An unreadable type on a
+    confirmed redline portion fails closed, because that write would resolve it.
+    """
+    if _portion_type(node) != "Redline":
+        return False
+    try:
+        kind = str(node.getPropertyValue("RedlineType"))
+    except Exception:
+        return True
+    return kind in _BLOCKING_REDLINE_TYPES
+
+
+def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
+    """True when *text_range* contains a tracked Insert or Delete.
+
+    A text cursor enumerates paragraphs; a paragraph enumerates portions. Portions
+    are leaves — calling ``createEnumeration`` on them is not part of this walk.
+    ``hasMoreElements() is True`` so a MagicMock enum cannot spin. When the walk
+    starts and then fails, the result is True: ``setString`` must not run on a
+    range we could not prove is free of Insert/Delete redlines.
+    """
+    top = _open_enum(text_range)
+    if top is None:
+        return False
+    if top is _WALK_FAILED:
+        log.warning(
+            "range_has_tracked_insert_or_delete: could not enumerate the selection; "
+            "refusing so setString cannot accept an unseen redline")
+        return True
+    try:
+        while top.hasMoreElements() is True:
+            node = top.nextElement()
+            if _is_blocking_redline(node):
+                return True
+            # A portion (text, redline mark, …) does not contain nested redlines.
+            # Only descend into paragraphs / other containers.
+            if _portion_type(node) is not None:
+                continue
+            sub = _open_enum(node)
+            if sub is _WALK_FAILED:
+                log.warning(
+                    "range_has_tracked_insert_or_delete: could not enumerate a selection "
+                    "child; refusing so setString cannot accept an unseen redline")
+                return True
+            if sub is None:
+                continue
+            while sub.hasMoreElements() is True:
+                if _is_blocking_redline(sub.nextElement()):
+                    return True
+    except Exception:
+        log.warning(
+            "range_has_tracked_insert_or_delete: portion walk failed; refusing so "
+            "setString cannot accept a redline the walk did not finish",
+            exc_info=True)
+        return True
+    return False
+
+
+def refuse_tracked_insert_or_delete(text_range: Any) -> None:
+    """Raise before any streamed-edit write when the range has an Insert or Delete.
+
+    What was wrong: Extend/Edit Selection read the selection with
+    ``get_string_without_tracked_deletions`` (Delete text dropped, Insert text kept
+    as ordinary characters). ``WriterStreamedRewriteSession`` then turned
+    ``RecordChanges`` off and called ``setString("")``. ``WriterStreamedAppendSession``
+    streamed with ``setString(original + continuation)`` and ``finish`` called
+    ``setString(original_text)``. With tracking off, ``setString`` accepts every
+    redline in the range — struck text disappears and insertions flatten — before
+    the model returns anything.
+
+    Why this raise: both session constructors call it before the undo context,
+    before ``RecordChanges`` is changed, and before the first ``setString``, so the
+    redlines stay untouched even if the menu wrapper is skipped. A range with no
+    Insert/Delete keeps the previous rewrite path, including an empty model result.
+    """
+    if range_has_tracked_insert_or_delete(text_range):
+        log.warning(
+            "streamed selection edit refused: selection contains a tracked Insert or "
+            "Delete; RecordChanges was not changed and setString was not called")
+        raise TrackedChangesInSelection()
+
+
 class WriterCompoundUndo:
     """Wrap ``XUndoManager.enterUndoContext`` / ``leaveUndoContext`` for one Ctrl+Z step.
 
@@ -1098,7 +1254,12 @@ class WriterCompoundUndo:
 
 
 class WriterStreamedRewriteSession:
-    """Manage a streamed Writer edit that collapses to one tracked change."""
+    """Manage a streamed Writer edit that collapses to one tracked change.
+
+    Refuses with :class:`TrackedChangesInSelection` before any write when the range
+    already contains a tracked Insert or Delete. An empty model result is not a
+    special case: ``finish`` still does not restore ``original_text`` on its own.
+    """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Edit selection"
 
@@ -1119,6 +1280,10 @@ class WriterStreamedRewriteSession:
         # When True (opt-in flag), the agent's edit is collapsed into one tracked
         # change for the user to review even if they did not have Track Changes on.
         self.track_reviewable = track_reviewable
+        # Before the undo context, RecordChanges, and setString(""). See
+        # refuse_tracked_insert_or_delete: setString with tracking off accepts
+        # deletions and flattens insertions in this range.
+        refuse_tracked_insert_or_delete(text_range)
         self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
 
         try:
@@ -1254,6 +1419,11 @@ class WriterStreamedAppendSession:
     with tracking OFF (the user sees the text appear without a redline per chunk); ``finish()``
     then converts ONLY the appended continuation into a single tracked INSERTION -- the original
     is never struck through -- authored as the agent and tagged for the inline review UI.
+
+    Refuses with :class:`TrackedChangesInSelection` before ``RecordChanges`` is changed and
+    before the first ``setString`` when the range already contains a tracked Insert or Delete.
+    ``original_text`` is the accept-deletions view, so writing it back would accept those
+    redlines.
     """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Extend selection"
@@ -1272,6 +1442,11 @@ class WriterStreamedAppendSession:
         self.original_text = original_text
         self.appended_text = ""
         self.track_reviewable = track_reviewable
+        self.was_recording = False
+        # Before the undo context and before RecordChanges is turned off. append_chunk's
+        # setString(original_text + continuation) and finish()'s setString(original_text)
+        # would accept deletions and flatten insertions. See refuse_tracked_insert_or_delete.
+        refuse_tracked_insert_or_delete(text_range)
         self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
 
         try:

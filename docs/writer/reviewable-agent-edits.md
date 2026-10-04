@@ -38,6 +38,12 @@ What is implemented today (not every Writer mutation tool):
 | Style tools | No (`style_unreviewed: true`) | No | No |
 | Other Writer tools (comments, images, …) | No | No | No |
 
+Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
+`WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before `setString` and
+before changing `RecordChanges`, and the menu shows a message. The redlines stay as they are.
+A selection with no Insert/Delete redlines keeps the previous rewrite, including an empty model
+result (the cleared range is not written back to the original text).
+
 `table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
 removing every row), so the table would vanish unreviewable. It selects the table and dispatches
 `.uno:DeleteTable`, which Writer records as a tracked deletion. Writer anchors each **empty** row with
@@ -59,8 +65,11 @@ chat worker or MCP HTTP thread). The main thread never block-waits so the user c
 * Tagging is **fail-closed**: if the pre- or post-edit redline scan is incomplete, the edit still
   applies but its redlines are **not** tagged — they stay untagged (treated as the user's own) so
   Accept/Reject All never touches a misclassified user redline.
-* Completion is *"no redline carrying this session's token remains"* — **not** "zero redlines in
-  the document" — so the user's own pre-existing redlines never block or confuse it.
+* Completion is a reliable empty intersection of redline comments with tokens on **registered**
+  changes — **not** "zero redlines in the document", and **not** "every `wa-review:<session>:`
+  comment is gone". A tag left behind when the change was not registered (tagging failed, or the
+  missing-bookmark clear left the token) does not keep `wait_for_review` blocked. An incomplete
+  scan still fail-closes. The user's own pre-existing redlines never block or confuse it.
 * Each change is anchored with a `wa_review_<session>_<n>` bookmark spanning the **change's own
   redline span** (not the whole paragraph), so several changes in one paragraph each get a correct
   outcome and `final_text` preview.
