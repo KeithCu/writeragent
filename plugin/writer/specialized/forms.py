@@ -178,7 +178,55 @@ def _next_stacked_position_on_draw_page(dp: Any, default_width: int, default_hei
     return Point(margin_x, max_bottom + gap)
 
 
+# XCell.getType() members that can take setString without dropping a number or formula.
+_CALC_APPENDABLE_KINDS = frozenset({"EMPTY", "TEXT"})
+_CALC_CELL_KINDS = _CALC_APPENDABLE_KINDS | frozenset({"VALUE", "FORMULA"})
+
+
+def _calc_cell_content_kind(cell: Any) -> str:
+    """Return EMPTY, TEXT, VALUE, FORMULA, or '' when the cell type is unknown.
+
+    ``XCell.getType()`` is a ``CellContentType`` enum. PyUNO exposes the member
+    name on ``.value`` (``'FORMULA'``). A plain string is accepted so a test
+    double can stub the same check. Anything else is unknown: callers must not
+    guess, because ``setString`` would replace whatever is really in the cell.
+    """
+    try:
+        content_type = cell.getType()
+    except Exception:
+        return ""
+    if content_type is None:
+        return ""
+    raw = getattr(content_type, "value", None)
+    if not isinstance(raw, str) or not raw.strip():
+        if isinstance(content_type, str):
+            raw = content_type
+        else:
+            # uno.Enum repr when .value is absent:
+            # <Enum instance com.sun.star.table.CellContentType ('FORMULA')>
+            text = str(content_type)
+            if "('" in text and text.endswith("')>"):
+                raw = text[text.rfind("('") + 2 : -3]
+            else:
+                return ""
+    name = raw.strip().upper()
+    if name in _CALC_CELL_KINDS:
+        return name
+    return ""
+
+
 def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
+    """Append *text* to the active Calc cell when that will not destroy it.
+
+    What was wrong: ``getString()`` + ``setString()`` stored the displayed
+    characters as text. A formula or number in the active cell became a
+    literal, plus the form label or the space inserted after each control.
+    How: ``FormCreate._insert_space`` and ``FormGenerate._insert_text`` both
+    call this for spreadsheet documents.
+    Why: VALUE and FORMULA cells are left unchanged. EMPTY and TEXT cells
+    still take the append, which is where a Calc form label belongs. An
+    unknown type is left unchanged too — guessing would risk the same rewrite.
+    """
     controller = doc.getCurrentController()
     sheet = controller.ActiveSheet
     selection = controller.getSelection()
@@ -187,8 +235,45 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
         cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
     else:
         cell = sheet.getCellByPosition(0, 0)
-    prev = cell.getString() or ""
+    kind = _calc_cell_content_kind(cell)
+    if kind not in _CALC_APPENDABLE_KINDS:
+        return
+    prev = ""
+    if kind == "TEXT":
+        try:
+            prev = cell.getString() or ""
+        except Exception:
+            return
     cell.setString(prev + (text or ""))
+
+
+def _field_failure_result(tool: Any, results: list[Any], *, total: int, action: str, names: list[Any] | None = None) -> dict[str, Any] | None:
+    """Return an error payload when any form field failed, else None.
+
+    What was wrong: ``form_create`` and ``form_generate`` returned status ok
+    after a control failed, so the caller treated a partial form as finished.
+    How: each field result was stored or discarded and then ignored.
+    Why: the error payload repeats those results and names the failures.
+    """
+    bits: list[str] = []
+    for index, res in enumerate(results):
+        if not isinstance(res, dict) or res.get("status") != "error":
+            continue
+        msg = str(res.get("message") or res.get("code") or "field failed")
+        name = ""
+        if names is not None and index < len(names):
+            item = names[index]
+            if isinstance(item, dict):
+                name = str(item.get("name") or "")
+            elif isinstance(item, str):
+                name = item
+        bits.append(f"{name}: {msg}" if name else msg)
+    if not bits:
+        return None
+    shown = "; ".join(bits[:5])
+    if len(bits) > 5:
+        shown += "; ..."
+    return tool._tool_error(f"{action}: {len(bits)} of {total} fields failed. {shown}", results=results)
 
 
 def _plain_text_for_calc_html_fragment(html: str) -> str:
@@ -348,6 +433,9 @@ class FormCreate(ToolWriterFormBase):
             # Add a space after each control if we are inserting series
             _run_on_main(self._insert_space, ctx)
 
+        failure = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
+        if failure is not None:
+            return failure
         return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
 
     def _insert_space(self, ctx: Any) -> None:
@@ -416,18 +504,31 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         parts = re.split(r"(\{FIELD:[^\}]+\})", content)
 
         creator = FormCreateControl()
+        field_results: list[Any] = []
+        field_names: list[Any] = []
 
         for part in parts:
             if part.startswith("{FIELD:"):
                 # Parse the field tag
                 params = self._parse_field_tag(part)
                 if params:
-                    _run_on_main(creator._execute_main, ctx, **params)
+                    res = _run_on_main(creator._execute_main, ctx, **params)
+                    if not isinstance(res, dict):
+                        res = format_error_payload(ToolExecutionError("Form field returned no result."))
+                    field_results.append(res)
+                    field_names.append(params)
+                else:
+                    snippet = part if len(part) <= 80 else part[:77] + "..."
+                    field_results.append(format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}")))
+                    field_names.append({})
             else:
                 # Insert regular text
                 if part:
                     _run_on_main(self._insert_text, ctx, part)
 
+        failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
+        if failure is not None:
+            return failure
         return {"status": "ok", "message": "Form generation completed and inserted."}
 
     def _insert_text(self, ctx: Any, text: str) -> None:
