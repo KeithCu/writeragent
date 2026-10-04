@@ -1052,6 +1052,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
         try:
+            from plugin.chatbot.tool_loop_actions import current_turn
+
+            self._last_mcp_turn = current_turn(self)
             from plugin.framework.logging import format_tool_call_for_display
 
             fmt_str = format_tool_call_for_display(tool, args, method)
@@ -1068,9 +1071,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self._panel_teardown or self.ctx is None:
             return
 
+        try:
+            from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+            last_turn = getattr(self, "_last_mcp_turn", None)
+            if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                return
+        except Exception:
+            pass
+
         def _update_ui() -> None:
             if self._panel_teardown or self.ctx is None:
                 return
+            try:
+                from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+                last_turn = getattr(self, "_last_mcp_turn", None)
+                if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                    return
+            except Exception:
+                pass
             try:
                 from plugin.framework.logging import format_tool_result_for_display
 
