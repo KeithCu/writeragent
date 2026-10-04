@@ -410,6 +410,8 @@ class SearchDialog:
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import _folder_search_mode
 
+                from plugin.embeddings.embeddings_indexer import _try_enqueue, _clear_enqueue
+
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:
                     self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active document found."))
@@ -419,60 +421,66 @@ class SearchDialog:
                     self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active folder resolved."))
                     return
 
-                # Clear local cache files to force a full cold index rebuild
-                clear_folder_cache(listing_root)
-
-                model = get_embedding_model()
-
-                hb_data: dict[str, dict[str, Any]] = {}
-
-                def heartbeat_fn(payload: dict[str, Any]) -> None:
-                    file = payload.get("file")
-                    if not file:
-                        return
-                    phase = payload.get("phase")
-                    now = time.time()
-                    if phase == "extract":
-                        paragraphs, chunks = heartbeat_counts_from_payload(payload)
-                        hb_data[file] = {"start": now, "paragraphs": paragraphs, "chunks": chunks}
-                        return
-                    if phase in ("embed", "index", "delete"):
-                        info = hb_data.get(file)
-                        if info is None:
-                            return
-                        elapsed = now - info["start"]
-                        payload_paragraphs, payload_chunks = heartbeat_counts_from_payload(payload)
-                        paragraphs = payload_paragraphs or int(info.get("paragraphs") or 0)
-                        chunks = payload_chunks or int(info.get("chunks") or 0)
-                        line = format_index_heartbeat_line(
-                            str(file),
-                            paragraphs=paragraphs,
-                            chunks=chunks,
-                            elapsed_sec=elapsed,
-                        )
-
-                        def ui_update() -> None:
-                            existing = results_ctrl.getModel().Text
-                            new_text = (existing + "\n" if existing else "") + line
-                            results_ctrl.getModel().Text = new_text
-
-                        execute_on_main_thread(ui_update)
-                        del hb_data[file]
-
-                # Use the service function (mocked in tests) to rebuild the cache
+                if not _try_enqueue(_folder_key):
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("An index operation is already in progress."))
+                    return
                 try:
-                    embeddings_service.maintain_folder_index(
-                        ctx,
-                        listing_root,
-                        model=model,
-                        mode="cold",
-                        search_mode=_folder_search_mode(),
-                        heartbeat_fn=heartbeat_fn,
-                    )
-                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
-                except Exception as exc:
-                    log.exception("maintain_folder_index failed during rebuild")
-                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(exc))
+                    # Clear local cache files to force a full cold index rebuild
+                    clear_folder_cache(listing_root)
+
+                    model = get_embedding_model()
+
+                    hb_data: dict[str, dict[str, Any]] = {}
+
+                    def heartbeat_fn(payload: dict[str, Any]) -> None:
+                        file = payload.get("file")
+                        if not file:
+                            return
+                        phase = payload.get("phase")
+                        now = time.time()
+                        if phase == "extract":
+                            paragraphs, chunks = heartbeat_counts_from_payload(payload)
+                            hb_data[file] = {"start": now, "paragraphs": paragraphs, "chunks": chunks}
+                            return
+                        if phase in ("embed", "index", "delete"):
+                            info = hb_data.get(file)
+                            if info is None:
+                                return
+                            elapsed = now - info["start"]
+                            payload_paragraphs, payload_chunks = heartbeat_counts_from_payload(payload)
+                            paragraphs = payload_paragraphs or int(info.get("paragraphs") or 0)
+                            chunks = payload_chunks or int(info.get("chunks") or 0)
+                            line = format_index_heartbeat_line(
+                                str(file),
+                                paragraphs=paragraphs,
+                                chunks=chunks,
+                                elapsed_sec=elapsed,
+                            )
+
+                            def ui_update() -> None:
+                                existing = results_ctrl.getModel().Text
+                                new_text = (existing + "\n" if existing else "") + line
+                                results_ctrl.getModel().Text = new_text
+
+                            execute_on_main_thread(ui_update)
+                            del hb_data[file]
+
+                    # Use the service function (mocked in tests) to rebuild the cache
+                    try:
+                        embeddings_service.maintain_folder_index(
+                            ctx,
+                            listing_root,
+                            model=model,
+                            mode="cold",
+                            search_mode=_folder_search_mode(),
+                            heartbeat_fn=heartbeat_fn,
+                        )
+                        self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
+                    except Exception as exc:
+                        log.exception("maintain_folder_index failed during rebuild")
+                        self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(exc))
+                finally:
+                    _clear_enqueue(_folder_key)
 
                 self._refresh_cache_status(dlg)
             except Exception as e:
