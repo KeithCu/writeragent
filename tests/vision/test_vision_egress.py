@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.vision.vision_egress import (
     insert_vision_result,
     is_vision_result,
@@ -274,3 +274,41 @@ def test_calc_structured_fallback_uses_html_docling(mock_structured, mock_html):
     mock_structured.assert_called_once()
     mock_html.assert_called_once_with(doc, ctx, "<p>original docling</p>", image_name="Photo1")
 
+
+
+def test_prepare_vision_writer_insert_disposed_anchor_raises_document_disposed():
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    class DisposedException(Exception):
+        pass
+
+    graphic = MagicMock()
+    graphic.getName.return_value = "Image1"
+    graphic.getAnchor.side_effect = DisposedException("gone")
+    controller = MagicMock()
+    controller.getFrame.return_value = None
+    doc = MagicMock()
+    doc.getCurrentController.return_value = controller
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=graphic), patch(
+        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Image1", graphic)]
+    ):
+        with pytest.raises(DocumentDisposedError):
+            prepare_vision_writer_insert(doc, MagicMock())
+
+
+def test_prepare_vision_writer_insert_ordinary_anchor_error_stays_vision_error():
+    from plugin.vision.vision_egress import prepare_vision_writer_insert
+
+    graphic = MagicMock()
+    graphic.getName.return_value = "Image1"
+    graphic.getAnchor.side_effect = ValueError("no anchor")
+    controller = MagicMock()
+    controller.getFrame.return_value = None
+    doc = MagicMock()
+    doc.getCurrentController.return_value = controller
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=graphic), patch(
+        "plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Image1", graphic)]
+    ):
+        with pytest.raises(ToolExecutionError) as exc:
+            prepare_vision_writer_insert(doc, MagicMock())
+    assert exc.value.code == "VISION_ERROR"

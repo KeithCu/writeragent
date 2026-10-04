@@ -32,6 +32,19 @@ def _import_docling() -> Any:
     return importlib.import_module("docling.document_converter")
 
 
+def _text_score_for_cache(params: dict[str, Any]) -> float:
+    """OCR threshold stored in the converter cache key.
+
+    ``float(params.get("text_score") or 0.5)`` treated a real ``0.0`` as
+    missing, so the key matched the default ``0.5`` converter. The warm
+    converter was reused and the requested threshold was never applied.
+    """
+    value = params.get("text_score")
+    if value is None or value == "":
+        return 0.5
+    return float(value)
+
+
 def _cache_key(params: dict[str, Any], *, for_structure: bool, input_format: str) -> tuple[Any, ...]:
     backend = resolve_ocr_backend(params)
     lang = str(params.get("lang") or "en").strip() or "en"
@@ -50,7 +63,7 @@ def _cache_key(params: dict[str, Any], *, for_structure: bool, input_format: str
         str(params.get("layout_model") or "heron"),
         bool(params.get("do_formula_enrichment", False)),
         bool(params.get("do_code_enrichment", False)),
-        float(params.get("text_score") or 0.5),
+        _text_score_for_cache(params),
         bool(params.get("force_full_page_ocr", True)),
         str(params.get("ocr_mode") or ""),
         float(params.get("document_timeout") or 0),
@@ -438,12 +451,25 @@ def _table_from_span_cells(
         width = max(len(r) for r in data_rows)
         columns = [f"col_{i + 1}" for i in range(width)]
     limited = data_rows[:MAX_TABLE_ROWS]
-    # Drop spans that land only in truncated body rows.
-    kept_spans = [
-        span
-        for span in spans
-        if span["row"] == 0 or span["row"] - 1 < len(limited)
-    ]
+    # Header is grid row 0; kept body rows are 1..len(limited). A rowspan that
+    # continues past that last kept row used to survive and the Calc insert
+    # merged through the truncation note appended under the table.
+    last_kept = len(limited)
+    kept_spans: list[dict[str, int]] = []
+    for span in spans:
+        row = span["row"]
+        if row < 0 or row > last_kept:
+            continue
+        rowspan = int(span["rowspan"])
+        colspan = int(span["colspan"])
+        max_rowspan = last_kept - row + 1
+        if rowspan > max_rowspan:
+            rowspan = max_rowspan
+        if rowspan <= 1 and colspan <= 1:
+            continue
+        if rowspan != span["rowspan"]:
+            span = {**span, "rowspan": rowspan}
+        kept_spans.append(span)
     return {
         "name": name,
         "columns": columns,

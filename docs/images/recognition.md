@@ -289,7 +289,8 @@ png_bytes = base64.b64decode(b64)
 
 - **Lazy-init** one `PaddleOCR` instance per warm worker process (module-level singleton; reset on worker respawn).
 - Phase 1 **`params`:** optional `lang` (string, default `"en"`).
-- Use current PaddleOCR 3.x Python API (`PaddleOCR(...)` + `ocr` / `predict` per installed version — implementer reads installed package docs).
+- Use current PaddleOCR 3.x Python API. Construct `PaddleOCR(use_angle_cls=True, lang=...)` and `PPStructureV3(...)` without `show_log` (3.x / PaddleX rejects it; 2.x defaults it off). Call 3.x `predict(image)` — `ocr(image, cls=True)` forwards `cls` into keyword-only `predict` and raises `TypeError`. 2.x still uses `ocr(image, cls=True)`.
+- **3.x Result parsing** ([`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py)): `ocr` / `predict` returns a Result whose `.json` is `{"res": {rec_texts, rec_scores, rec_polys}}`, not the 2.x `[[box, (text, score)], ...]` line list. PPStructureV3 pages are the same wrapper with `parsing_res_list` (`block_label`, `block_content`, `block_bbox`) and `table_res_list[].pred_html`. Both 3.x and 2.x shapes parse. Missing `PPStructureV3` is `PADDLEOCR_UNAVAILABLE`.
 - Map engine output → [§10](#10-extract_text-result-json-normative) (`html`, `full_text`, `regions`, `metrics`).
 - **`ImportError` / missing paddle:** return `{"status": "error", "code": "PADDLEOCR_UNAVAILABLE", ...}` — do not raise uncaught from venv for missing pip packages.
 
@@ -440,6 +441,8 @@ Template params for OCR research (in `# writeragent:vision … params=…`):
 | `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
 | `fallback_engine` | `true` | When Docling is missing, or a Docling runtime `VISION_ERROR` looks like a layout API/AttributeError (`get_engine_config` / `LayoutModelConfig`), auto-fallback to Paddle if installed |
 
+`text_score` (Settings, default `0.5`, range `0.0`–`1.0`) is part of the Docling converter cache key. `0.0` is a real OCR threshold and gets its own converter; it is not treated as unset and reused as `0.5`.
+
 **Docling layout `model_spec` (issue 587):** `layout_model=heron` / `egret_large` maps to `LayoutObjectDetectionOptions` / `ObjectDetectionModelSpec` (`layout_heron_default` / `layout_egret_large`) on Docling ≥ **2.118.0** (released **2026-08-03**). On ≤ 2.117 the same keys still assign `DOCLING_LAYOUT_*` (`LayoutModelConfig`) onto legacy `LayoutOptions`. The legacy branch is removable once WriterAgent assumes Docling ≥ 2.118.0. When Docling is installed, `tests/vision/venv/test_vision_docling.py` imports it and calls `_build_pipeline_options` / `extract_text` without mocking layout types (skips if Docling, PIL, rapidocr, or onnxruntime is missing). The removable legacy `LayoutModelConfig` branch is not unit-tested.
 
 Success payloads may include `metrics.engine`, `metrics.ocr_backend`, and `metrics.input_format` (`image` or `pdf`) for provenance.
@@ -579,6 +582,8 @@ result = run_vision("extract_text", image)
 
 With an empty `image_name` (default when calling with a string helper), Run exports the currently selected Writer or Calc embedded graphic as PNG bytes into the sandbox variable `image` before execution. To override params or target a specific named graphic, pass a dictionary spec: `run_vision({"helper": "extract_text", "params": {"image_name": "Photo1"}}, image)`.
 
+In the user venv, AliasImporter maps `writeragent.vision` to [`plugin/vision/__init__.py`](../../plugin/vision/__init__.py), which re-exports `run_vision` from [`plugin/vision/venv/vision.py`](../../plugin/vision/venv/vision.py). Calc and Writer `image_name` Run paths execute that import. Writer selection OCR does not; it calls [`plugin.scripting.client.run_vision`](../../plugin/scripting/client.py).
+
 ---
 
 ## 10. `extract_text` result JSON (normative)
@@ -625,7 +630,7 @@ def is_vision_result(value: Any) -> bool:
 1. Docling `export_to_html` (`formula_to_mathml=True`, or Paddle HTML builders) → **`css_inline.inline()`** (required).
 2. **`augment_lo_heading_styles`** — merge `font-size` / `font-weight` onto `<h1>`–`<h6>` (Docling’s h2 CSS is color/margins only).
 3. **`augment_lo_body_paragraph_styles`** — Arial + line-height on bare `<p>` tags.
-4. **`convert_latex_delimiters_to_mathml`** — leftover `$$…$$` / `\[…\]` / `\(...\)` (and conservative `$…$`) → `<math display="block|inline">` via vendored `latex2mathml`, so Writer’s mixed HTML+math insert creates native editable Math objects. Currency like `$ 35,934` is left alone. Conversion is skipped if `latex2mathml` is missing.
+4. **`convert_latex_delimiters_to_mathml`** — leftover `$$…$$` / `\[…\]` / `\(...\)` (and conservative `$…$`) → `<math display="block|inline">` via vendored `latex2mathml`, so Writer’s mixed HTML+math insert creates native editable Math objects. Currency like `$ 35,934` is left alone. Conversion is skipped if `latex2mathml` is missing. When it is not already importable, the loader looks in `<extension root>/vendor` and `<extension root>/plugin/lib`. That root is three directories above `plugin/vision/venv/` (`venv → vision → plugin → root`), the same depth `ensure_plugin_on_path` uses for a file directly under `plugin/<pkg>/`.
 5. **`promote_table_header_rows`** — first row that already has `<th>` is wrapped in `<thead>` (remaining rows `<tbody>`). Layout tables with `border:none` (two-column bbox HTML) are skipped. Section rows such as `ASSETS:` stay in the body.
 6. **`augment_lo_table_styles`** — `border="1"` plus `border-collapse` / `1px solid #ccc` on data tables and cells; `<th>` gets `background-color: #f0f0f0; font-weight: bold`. StarWriter often drops stylesheet table rules; the HTML attribute plus inline CSS keep gridlines.
 7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
@@ -695,8 +700,8 @@ Same [`is_vision_result()`](../../plugin/vision/vision_egress.py) guard as [§10
 |-------|----------|-------|
 | `html` | **Yes** on success | **Document insert uses this** (structure + tables as HTML) |
 | `full_text` | Yes (may be `""`) | Plain reading-order text; not inserted into documents |
-| `blocks` | Yes (may be `[]`) | Layout regions from PP-Structure |
-| `tables` | Yes (may be `[]`) | Structured table dicts (also reflected in `html`). Each table may include `spans`: `{row, col, rowspan, colspan}` 0-based in the header+body grid (text only in the origin cell — do not repeat spanned labels) |
+| `blocks` | Yes (may be `[]`) | Layout regions from PP-Structure. A `table` block is not also written as a paragraph: PP-Structure’s `html` field is the table grid (`tables[]` / one `<table>`), not escaped `&lt;table&gt;` text beside it. PaddleOCR 3.x reads that grid from `table_res_list[].pred_html` and prose from `parsing_res_list` (`block_label` / `block_content` / `block_bbox`); 2.x `{type, bbox, res}` regions still parse |
+| `tables` | Yes (may be `[]`) | Structured table dicts (also reflected in `html`). Each table may include `spans`: `{row, col, rowspan, colspan}` 0-based in the header+body grid (text only in the origin cell — do not repeat spanned labels). Docling cells and Paddle PP-Structure HTML colspan/rowspan both go through `_table_from_span_cells` |
 | `metrics.block_count` | Recommended | Length of `blocks` |
 | `metrics.table_count` | Recommended | Length of `tables` |
 | `warnings` | Yes (may be `[]`) | e.g. `"No structure detected."` |

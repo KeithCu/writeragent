@@ -93,7 +93,7 @@ def test_extract_text_docling_unavailable_falls_back_to_paddle(mock_convert):
     with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as mock_get_engine:
-        engine = MagicMock()
+        engine = MagicMock(spec=["ocr"])
         engine.ocr.return_value = [_sample_ocr_page()]
         mock_get_engine.return_value = engine
         mock_decode.return_value = MagicMock()
@@ -131,7 +131,7 @@ def test_extract_text_docling_api_error_falls_back_to_paddle(mock_convert):
     with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as mock_get_engine:
-        engine = MagicMock()
+        engine = MagicMock(spec=["ocr"])
         engine.ocr.return_value = [_sample_ocr_page()]
         mock_get_engine.return_value = engine
         mock_decode.return_value = MagicMock()
@@ -158,7 +158,7 @@ def test_extract_text_docling_unrelated_vision_error_does_not_fallback(mock_conv
 @patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):
-    engine = MagicMock()
+    engine = MagicMock(spec=["ocr"])
     engine.ocr.return_value = [_sample_ocr_page()]
     mock_get_engine.return_value = engine
     mock_decode.return_value = MagicMock()
@@ -247,6 +247,52 @@ def test_extract_structure_paddle_engine(mock_get_engine, mock_decode):
     assert result["status"] == "ok"
     assert "Invoice" in result["full_text"]
     assert result["metrics"]["table_count"] == 1
+    assert result["html"].lower().count("<table") == 1
+    assert "&lt;table" not in result["html"].lower()
+    table_blocks = [block for block in result["blocks"] if block.get("type") == "table"]
+    assert table_blocks
+    assert "<table" not in str(table_blocks[0].get("text") or "").lower()
+
+
+def test_paddle_html_table_preserves_colspan_header():
+    html = (
+        "<table>"
+        '<tr><th colspan="3">ASSETS:</th></tr>'
+        "<tr><td>Cash</td><td>10</td><td>11</td></tr>"
+        "</table>"
+    )
+    table = paddle_mod._table_from_structure_res({"html": html}, name="table_1")
+    assert table is not None
+    assert table["columns"] == ["ASSETS:", "", ""]
+    assert table["rows"] == [["Cash", "10", "11"]]
+    assert table["spans"] == [{"row": 0, "col": 0, "rowspan": 1, "colspan": 3}]
+    assert table["columns"].count("ASSETS:") == 1
+    from plugin.vision.venv.vision_html_export import _html_table_from_columns_rows
+
+    assert 'colspan="3"' in _html_table_from_columns_rows(table["columns"], table["rows"], table["spans"])
+
+    shifted = (
+        "<table>"
+        '<tr><th colspan="2">Group</th><th>Note</th></tr>'
+        '<tr><td rowspan="2">A</td><td>B</td><td>C</td></tr>'
+        "<tr><td>D</td><td>E</td></tr>"
+        "</table>"
+    )
+    spanned = paddle_mod._table_from_structure_res({"html": shifted}, name="table_2")
+    assert spanned is not None
+    assert spanned["columns"] == ["Group", "", "Note"]
+    assert spanned["rows"] == [["A", "B", "C"], ["", "D", "E"]]
+    assert spanned["spans"] == [
+        {"row": 0, "col": 0, "rowspan": 1, "colspan": 2},
+        {"row": 1, "col": 0, "rowspan": 2, "colspan": 1},
+    ]
+
+
+def test_text_from_structure_res_drops_raw_table_html():
+    html = "<table><tr><th>Item</th></tr><tr><td>Widget</td></tr></table>"
+    assert paddle_mod._text_from_structure_res({"html": html}) == ""
+    assert paddle_mod._text_from_structure_res({"text": "Caption", "html": html}) == "Caption"
+    assert paddle_mod._text_from_structure_res({"html": "<p>Note</p>"}) == "<p>Note</p>"
 
 
 @patch("plugin.vision.venv.vision_paddle._get_pp_structure")
@@ -262,7 +308,7 @@ def test_extract_structure_paddle_unavailable(mock_get_engine):
 @patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_runtime_error_returns_vision_error(mock_get_engine, mock_decode):
-    engine = MagicMock()
+    engine = MagicMock(spec=["ocr"])
     engine.ocr.side_effect = RuntimeError("model failed")
     mock_get_engine.return_value = engine
     mock_decode.return_value = MagicMock()
