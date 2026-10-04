@@ -147,7 +147,7 @@ def test_execute_code_stop_returns_interrupted_without_venv():
     ):
         out = execute_code(ctx, doc, "x = 1")
         reset.assert_called_once_with(ctx, "notebook:test")
-    assert out["status"] == "interrupted"
+    assert out["status"] == "stopped"
     assert pump.call_args.kwargs.get("pump_idle") is False
     run_venv.assert_not_called()
 

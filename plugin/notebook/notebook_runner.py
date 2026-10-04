@@ -154,7 +154,8 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     except BlockingWaitStopped:
         # Teardown child so it drops the IO lock and next cell isn't busy.
         reset_python_session(ctx, session_id)
-        return {"status": "interrupted", "message": "Stopped."}
+        # Returning status 'stopped' ensures run_cells recognizes the interruption.
+        return {"status": "stopped", "message": "Stopped."}
 
 
 # ---------------------------------------------------------------------------
