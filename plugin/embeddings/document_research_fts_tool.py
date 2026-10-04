@@ -188,6 +188,8 @@ class SearchNearbyFiles(ToolBase):
                 model=model,
                 near_slop=near_slop,
             )
+            if result.get("error"):
+                return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")
         except Exception as exc:
             log.exception("search_nearby_files failed")
             return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")

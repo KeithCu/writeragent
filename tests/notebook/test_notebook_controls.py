@@ -567,3 +567,33 @@ def test_form_and_container_multiple_forms():
     fc, container = notebook_controls._form_and_container(doc)
     assert fc is fc1
     assert container is container1
+
+def test_wire_all_dedups_off_main_thread_when_uno_same_raises(monkeypatch):
+    """If uno_same raises off the main thread, wire_all must still dedup the listener."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///fake.odt"
+    doc.RuntimeUID = "fake_uid"
+
+    def raise_uno_same(*args, **kwargs):
+        raise RuntimeError("uno_same called off main thread")
+
+    import plugin.notebook.notebook_controls as notebook_controls
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), MagicMock())),
+        patch("plugin.framework.uno_context.uno_same", side_effect=raise_uno_same)
+    ):
+        notebook_controls._listener_refs.clear()
+        notebook_controls._wired_form_docs.clear()
+
+        first = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+        assert first == 1
+        assert len(notebook_controls._listener_refs) == 2
+
+        second = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+        # Verify dedup worked even with uno_same raising
+        assert second == 1
+        assert len(notebook_controls._listener_refs) == 2
