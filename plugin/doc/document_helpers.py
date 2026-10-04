@@ -198,7 +198,8 @@ def get_document_context_for_chat(
             if use_head_tail:
                 start_chars = max_context // 2
                 end_chars = max_context - start_chars
-                excerpt_windows = [(0, start_chars), (doc_len - end_chars, doc_len)]
+                # Document text goes from 0 to doc_len, we take end_chars.
+                excerpt_windows = [(0, start_chars), (max(0, doc_len - end_chars), doc_len)]
             else:
                 start_chars = 0
                 end_chars = 0
@@ -219,10 +220,11 @@ def get_document_context_for_chat(
                         end_offset = start_offset + max_selection_span
 
             if use_head_tail:
+                tail_start = max(0, doc_len - end_chars)
                 start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
-                end_excerpt = _text_helpers._read_writer_text_slice(model, doc_len - end_chars, end_chars)
+                end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
                 start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-                end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]")
+                end_excerpt = _inject_markers_into_excerpt(end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,
@@ -307,6 +309,8 @@ def resolve_locator(model: Any, locator: str) -> dict[str, int]:
             children = node["children"]
             if 1 <= part <= len(children):
                 node = children[part - 1]
+            elif len(children) > 0:
+                node = children[-1]
             else:
                 break
         return {"para_index": node["para_index"]}
