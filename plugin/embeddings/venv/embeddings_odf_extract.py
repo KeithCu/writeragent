@@ -63,15 +63,15 @@ def extract_draw_pages(path: str) -> list[str]:
         from odf.draw import Page as DrawPage
         from odf.opendocument import load
         from odf.presentation import Notes
-    except ImportError:
+    except ImportError as exc:
         log.debug("odfpy not installed — ODP/ODG extract skipped for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"odfpy not installed — ODP/ODG extract skipped for {path}") from exc
 
     try:
         document = load(path)
-    except Exception:
+    except Exception as exc:
         log.debug("extract_draw_pages failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_draw_pages failed for {path}") from exc
 
     passages: list[str] = []
     page_index = 0
@@ -93,17 +93,17 @@ def extract_calc_rows(path: str) -> list[str]:
     """Read indexable row text from a Calc .ods/.ots/.fods (one passage per non-empty row)."""
     try:
         import pandas as pd
-    except ImportError:
+    except ImportError as exc:
         log.debug("pandas not installed — ODS extract skipped for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"pandas not installed — ODS extract skipped for {path}") from exc
     try:
         sheets = pd.read_excel(path, engine="odf", sheet_name=None, header=None)
-    except ImportError:
+    except ImportError as exc:
         log.debug("odfpy not installed — ODS extract skipped for %s", path, exc_info=True)
-        return []
-    except Exception:
+        raise RuntimeError(f"odfpy not installed — ODS extract skipped for {path}") from exc
+    except Exception as exc:
         log.debug("extract_calc_rows failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_calc_rows failed for {path}") from exc
 
     rows: list[str] = []
     for sheet_name, frame in sheets.items():
