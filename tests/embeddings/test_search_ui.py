@@ -84,7 +84,11 @@ class TestSearchDialog:
         mock_doc.return_value = MagicMock()
 
         # Call Rebuild
-        dialog._run_rebuild(mock_dlg)
+        with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=True) as mock_try, \
+             patch("plugin.embeddings.embeddings_indexer._clear_enqueue"), \
+             patch("plugin.embeddings.search_ui.get_embedding_model", return_value="dummy_model", create=True):
+            dialog._run_rebuild(mock_dlg)
+            assert mock_try.called
 
         assert mock_clear.called
         assert mock_maintain.called
@@ -182,7 +186,11 @@ class TestSearchDialog:
 
         with patch("plugin.doc.text_helpers.get_document_path", return_value=None):
             with patch("plugin.doc.document_research.get_work_directory", return_value=my_docs):
-                dialog._run_rebuild(mock_dlg)
+                with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=True) as mock_try, \
+                     patch("plugin.embeddings.embeddings_indexer._clear_enqueue"), \
+                     patch("plugin.embeddings.search_ui.get_embedding_model", return_value="dummy_model", create=True):
+                    dialog._run_rebuild(mock_dlg)
+                    assert mock_try.called
 
         assert mock_clear.called
         assert mock_clear.call_args.args[0] == my_docs
