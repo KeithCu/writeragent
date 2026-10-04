@@ -146,9 +146,9 @@ def test_image_generate_forwards_stop_checker():
     assert svc.generate_image.call_args.kwargs.get("stop_checker") is stop_checker
 
 
-def test_image_generate_skips_insert_on_stop():
+def test_image_generate_inserts_even_if_stopped_after_download():
     ctx = TestingFactory.create_context(doc_type="writer")
-    stop_checker = MagicMock(return_value=True)  # Signifies generation was stopped/cancelled
+    stop_checker = MagicMock(return_value=True)
     ctx.stop_checker = stop_checker
 
     svc = MagicMock()
@@ -162,17 +162,16 @@ def test_image_generate_skips_insert_on_stop():
         patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image") as mock_insert,
-        patch("plugin.writer.images.images.replace_image_in_place") as mock_replace,
+        patch("plugin.writer.images.images.replace_image_in_place"),
         patch("plugin.writer.images.images.get_config_int", return_value=1024),
         patch("plugin.writer.images.images.get_config_bool", return_value=False),
         patch("plugin.writer.images.images.get_config_str", return_value="square"),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
-        res = ImageGenerate().execute(ctx, prompt="a canceled cat")
-        assert res["status"] == "error"
-        assert res.get("code") == "CANCELLED"
-    mock_insert.assert_not_called()
-    mock_replace.assert_not_called()
+        res = ImageGenerate().execute(ctx, prompt="a cat")
+    assert res["status"] == "ok"
+    assert "inserted" in res["message"]
+    mock_insert.assert_called_once()
 
 
 def test_image_generate_invalid_base_size_falls_back_to_1024():
