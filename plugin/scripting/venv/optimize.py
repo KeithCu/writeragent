@@ -57,6 +57,7 @@ def linear_programming(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Solve a linear program with ``scipy.optimize.linprog``.
 
@@ -71,7 +72,7 @@ def linear_programming(
     import pandas as pd
     from scipy import optimize as scipy_optimize
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df.dropna(subset=[c_col, b_col] + a_cols)
     
     if df.empty:
@@ -145,13 +146,14 @@ def optimize_portfolio(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Mean-variance portfolio optimization."""
     import numpy as np
     import pandas as pd
     from scipy import optimize as scipy_optimize
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     
     try:
@@ -233,12 +235,13 @@ def solve_scheduling_problem(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Solve an assignment problem (e.g. workers to tasks) using linear_sum_assignment."""
     import pandas as pd
     from scipy import optimize as scipy_optimize
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     
     try:
@@ -276,7 +279,8 @@ def solve_scheduling_problem(
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
     sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+    date_origin = str(context.get("date_origin", "1899-12-30"))
+    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint, "date_origin": date_origin}
 
     if name == "optimize_portfolio":
         return optimize_portfolio(data, returns_col=params.get("returns_col"), target_return=params.get("target_return"), risk_free_rate=params.get("risk_free_rate", 0.0), **common)

@@ -713,6 +713,42 @@ def test_streamed_append_allows_format_redline_and_still_appends():
     assert text_range.set_calls == ["Hi!"]
 
 
+def test_streamed_rewrite_reports_write_failure_in_finish():
+    doc = _MockDoc(recording=False)
+    text_range = _RedlineCursor([
+        _Paragraph([_Portion("Text", text="Hello")])
+    ])
+    session = WriterStreamedRewriteSession(doc, text_range, "Hello")
+
+    def fail_set_string(val):
+        raise RuntimeError("UNO text range write error")
+
+    text_range.setString = fail_set_string
+
+    session.append_chunk(" World")
+    warning = session.finish()
+    assert warning is not None
+    assert "UNO text range write error" in warning
+
+
+def test_streamed_append_reports_write_failure_in_finish():
+    doc = _MockDoc(recording=False)
+    text_range = _RedlineCursor([
+        _Paragraph([_Portion("Text", text="Hello")])
+    ])
+    session = WriterStreamedAppendSession(doc, text_range, "Hello")
+
+    def fail_set_string(val):
+        raise RuntimeError("UNO text range write error")
+
+    text_range.setString = fail_set_string
+
+    session.append_chunk(" World")
+    warning = session.finish()
+    assert warning is not None
+    assert "UNO text range write error" in warning
+
+
 def test_menu_message_matches_session_exception():
     from pathlib import Path
 

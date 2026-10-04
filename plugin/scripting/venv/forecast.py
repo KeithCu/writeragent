@@ -47,11 +47,12 @@ def _prepare_time_series(
     header_row: int,
     sheet_hint: str | None,
     helper: str,
+    date_origin: str = "1899-12-30",
 ) -> tuple[CoerceResult | None, Any | None, dict[str, Any] | None]:
     """Return (coerced, series, error_dict)."""
     import pandas as pd
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     if date_col not in df.columns:
         return None, None, _error_result("UNKNOWN_COLUMN", f"Column {date_col!r} not found", helper=helper)
@@ -59,7 +60,8 @@ def _prepare_time_series(
         return None, None, _error_result("UNKNOWN_COLUMN", f"Column {value_col!r} not found", helper=helper)
 
     work = df[[date_col, value_col]].copy()
-    work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+    from plugin.scripting.venv.coerce import convert_to_datetime
+    work[date_col] = convert_to_datetime(work[date_col], date_origin=date_origin, errors="coerce")
     work[value_col] = pd.to_numeric(work[value_col], errors="coerce")
     work = work.dropna(subset=[date_col, value_col]).sort_values(date_col)
     if work.empty:
@@ -402,6 +404,7 @@ def forecast_time_series(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Forward predictions on a date-indexed series."""
     helper = "forecast_time_series"
@@ -413,6 +416,7 @@ def forecast_time_series(
         header_row=header_row,
         sheet_hint=sheet_hint,
         helper=helper,
+        date_origin=date_origin,
     )
     if err is not None:
         return err
@@ -484,6 +488,7 @@ def decompose_time_series(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Trend / seasonal / residual decomposition via statsmodels."""
     import pandas as pd
@@ -500,6 +505,7 @@ def decompose_time_series(
         header_row=header_row,
         sheet_hint=sheet_hint,
         helper=helper,
+        date_origin=date_origin,
     )
     if err is not None:
         return err
@@ -582,6 +588,7 @@ def anomaly_detection_time_series(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Flag temporal outliers via STL residuals and robust z-scores."""
     import pandas as pd
@@ -602,6 +609,7 @@ def anomaly_detection_time_series(
         header_row=header_row,
         sheet_hint=sheet_hint,
         helper=helper,
+        date_origin=date_origin,
     )
     if err is not None:
         return err
@@ -666,7 +674,8 @@ def anomaly_detection_time_series(
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
     sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+    date_origin = str(context.get("date_origin", "1899-12-30"))
+    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint, "date_origin": date_origin}
 
     if name == "forecast_time_series":
         return forecast_time_series(

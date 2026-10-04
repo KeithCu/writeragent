@@ -171,6 +171,40 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
         thread.join(3)
 
 
+def test_pool_cancel_inflight_targeted_token(tmp_path):
+    pool = KokoroProcessPool(sys.executable, script_path=_fake_worker_script(tmp_path), idle_worker_ttl_sec=None)
+    result = {}
+
+    def _run() -> None:
+        result.update(pool.execute({"text": "block", "out_path": str(tmp_path / "block.wav")}))
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    try:
+        token = None
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            token = pool.get_inflight_token()
+            if token is not None:
+                break
+            time.sleep(0.02)
+
+        assert token is not None
+
+        # cancelling with a different token does nothing
+        pool.cancel_inflight(object())
+        assert pool._inflight is True
+
+        # cancelling with the correct token aborts the run
+        pool.cancel_inflight(token)
+        thread.join(5)
+        assert not thread.is_alive()
+        assert result.get("code") == "WORKER_CANCELLED"
+    finally:
+        pool.shutdown()
+        thread.join(3)
+
+
 def test_pool_missing_script_is_spawn_failed_not_cancelled(tmp_path):
     """A handshake crash still falls back. Only a dropped token is WORKER_CANCELLED."""
     pool = KokoroProcessPool(sys.executable, script_path=str(tmp_path / "missing.py"), idle_worker_ttl_sec=None)
