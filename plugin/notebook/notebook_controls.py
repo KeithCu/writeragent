@@ -528,6 +528,10 @@ def _record_listener_keys(lis: Any, survivor_keys: set[tuple[str, str]], survivo
 
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return
     global _listener_refs, _wired_keys, _wired_form_docs
     with _lock:
         refs = list(_listener_refs)
@@ -733,15 +737,34 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
         count = getattr(forms, "getCount", lambda: 0)()
         if count < 1:
             return None, None
+
+        target_form = None
         for i in range(count):
             form = forms.getByIndex(i)
+            # check for elements with nb_run_ prefix
+            has_nb = False
+            elem_count = getattr(form, "getCount", lambda: 0)()
+            for j in range(elem_count):
+                elem = form.getByIndex(j)
+                name = getattr(elem, "Name", "")
+                if name and name.startswith("nb_run_"):
+                    has_nb = True
+                    break
+            if has_nb:
+                target_form = form
+                break
+
+        if target_form is None and count > 0:
+            target_form = forms.getByIndex(0)  # fallback
+
+        if target_form is not None:
             fc = None
             if hasattr(controller, "getFormController"):
-                fc = controller.getFormController(form)
+                fc = controller.getFormController(target_form)
             if fc is None:
                 access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
                 if access is not None:
-                    fc = access.getFormController(form)
+                    fc = access.getFormController(target_form)
             if fc is not None:
                 container = fc.getContainer() if hasattr(fc, "getContainer") else None
                 if container is not None:
@@ -814,17 +837,23 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         return 0
 
     from plugin.framework.uno_context import uno_same
+    already_wired = False
     with _lock:
-        # Check if this specific container view is already wired
         for lis in _listener_refs:
-            if isinstance(lis, NotebookFormContainerListener):
+            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
                 try:
-                    if uno_same(lis._container, container):
-                        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
-                        return 1
+                    if uno_same(ctx, lis._container, container):
+                        already_wired = True
+                        break
                 except Exception:
-                    pass
-        _wired_form_docs.add(doc_key)
+                    already_wired = True  # fallback to just assuming it's the same if uno_same fails
+                    break
+
+    if already_wired:
+        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
+        return 1
+
+
 
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
@@ -847,6 +876,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         _listener_refs.append(listener)
         if container_lis is not None:
             _listener_refs.append(container_lis)
+        _wired_form_docs.add(doc_key)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1

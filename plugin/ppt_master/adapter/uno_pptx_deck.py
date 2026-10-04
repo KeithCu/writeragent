@@ -42,10 +42,15 @@ def export_project_to_doc(doc: Any, project_path: Path, ctx: Any | None = None) 
         }
 
     mirror_odp = project_path / "exports" / f"{pptx_path.stem}.odp"
-    return import_pptx_to_doc(
-        ctx,
-        doc,
-        pptx_path,
-        clear_existing=True,
-        save_mirror_odp=mirror_odp,
+
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    return execute_on_main_thread(
+        lambda: import_pptx_to_doc(
+            ctx,
+            doc,
+            pptx_path,
+            clear_existing=True,
+            save_mirror_odp=mirror_odp,
+        )
     )

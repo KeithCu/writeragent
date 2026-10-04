@@ -332,7 +332,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
 
 def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that a list result triggers deferred spilling when not in a matrix selection."""
-    doc = CalcDocStub(url="file:///fake.ods", selection="B2", props={"RuntimeUID": "calc:file:///fake.ods"})
+    doc = CalcDocStub(url="file:///fake.ods", selection="B2")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(1, 1).setFormula('=PYTHON("test_code")')
     ctx = _ctx_with_doc(doc)
@@ -421,7 +421,7 @@ def test_finalize_python_return_matrix_formula_does_not_spill() -> None:
 
 def test_spill_collision_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that finalize_python_return returns #SPILL! when a cell in the spill target is occupied."""
-    doc = CalcDocStub(url="file:///fake.ods", selection="B2", props={"RuntimeUID": "calc:file:///fake.ods"})
+    doc = CalcDocStub(url="file:///fake.ods", selection="B2")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(1, 1).setFormula('=PYTHON("test_code_spill_blocked")')
     # Occupied spill target (getType() != EMPTY)
@@ -459,7 +459,7 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
 
-    doc = CalcDocStub(url="file:///fake_doc.ods", props={"RuntimeUID": "calc:file:///fake_doc.ods"})
+    doc = CalcDocStub(url="file:///fake_doc.ods")
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
@@ -548,7 +548,7 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
 
         python_function.SPILL_REGISTRY[key1] = [(2, 1)]
         python_function.LOADED_DOCUMENTS.add("uid-spill-1")
-        python_function.clear_in_memory_spill_state(lifecycle_key="uid-spill-1")
+        python_function.clear_in_memory_spill_state(doc_url="", lifecycle_key="uid-spill-1")
         assert key1 not in python_function.SPILL_REGISTRY
         assert "uid-spill-1" not in python_function.LOADED_DOCUMENTS
         assert python_function.SPILL_REGISTRY[key2] == [(9, 9)]
@@ -664,7 +664,7 @@ def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: p
 
 def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that a 2D result triggers block spills via setDataArray on appropriate ranges."""
-    doc = CalcDocStub(url="file:///fake2d.ods", selection="B2", props={"RuntimeUID": "calc:file:///fake2d.ods"})
+    doc = CalcDocStub(url="file:///fake2d.ods", selection="B2")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(1, 1).setFormula('=PYTHON("test_code_2d")')
     ctx = _ctx_with_doc(doc)
@@ -743,7 +743,6 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
     doc = CalcDocStub(
         sheets=[sheet],
         url="file:///SpillTest.ods",
-            props={"RuntimeUID": "calc:file:///SpillTest.ods"},
         active_sheet="SpillTest",
         selection="A1",
     )
@@ -790,7 +789,7 @@ def test_finalize_python_return_spills_off_main_when_doc_unambiguous(
     """
     from plugin.scripting import session_manager as sm
 
-    doc = CalcDocStub(url="file:///offmain-spill.ods", selection="B2", props={"RuntimeUID": "calc:file:///offmain-spill.ods"})
+    doc = CalcDocStub(url="file:///offmain-spill.ods", selection="B2")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(1, 1).setFormula('=PYTHON("off_main_spill")')
     ctx = _ctx_with_doc(doc)
@@ -912,9 +911,7 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     # Listener cleanup asserts clearContents call args; keep a MagicMock sheet for that.
     sheet = MagicMock()
     aEvent = SimpleNamespace(Source=sheet)
-    doc = CalcDocStub(url="file:///fake_cleanup.ods", props={"RuntimeUID": "calc:file:///fake_cleanup.ods"})
-    python_function.SPILL_REGISTRY.clear()
-    python_function.SPILL_REGISTRY.clear()
+    doc = CalcDocStub(url="file:///fake_cleanup.ods")
 
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
 
@@ -922,9 +919,9 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
 
     ctx = MagicMock()
-    listener = python_function.CalcSpillModifyListener(ctx, "calc:file:///fake_cleanup.ods", "Sheet1")
+    listener = python_function.CalcSpillModifyListener(ctx, "file:///fake_cleanup.ods", "Sheet1")
 
-    key = ("calc:file:///fake_cleanup.ods", "Sheet1", 1, 1)
+    key = ("file:///fake_cleanup.ods", "Sheet1", 1, 1)
     python_function.SPILL_REGISTRY[key] = [(2, 1)]
 
     cell_B2 = MagicMock()
@@ -957,8 +954,6 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     """Orphan cleanup must undo/save the workbook that owns the sheet."""
     owner = CalcDocStub(url="file:///owner.ods", props={"RuntimeUID": "uid-owner"})
     active = CalcDocStub(url="file:///active.ods", props={"RuntimeUID": "uid-active"})
-    python_function.SPILL_REGISTRY.clear()
-    python_function.SPILL_REGISTRY.clear()
     sheet = owner.getSheets().getByName("Sheet1")
     sheet.getParent = lambda: owner  # type: ignore[method-assign]
     origin = sheet.getCellByPosition(1, 1)
@@ -970,10 +965,10 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     saved: list[Any] = []
     monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda doc: saved.append(doc))
 
-    key = ("uid-owner", "Sheet1", 1, 1)
+    key = ("file:///owner.ods", "Sheet1", 1, 1)
     python_function.SPILL_REGISTRY[key] = [(2, 1)]
     try:
-        listener = python_function.CalcSpillModifyListener(MagicMock(), "uid-owner", "Sheet1")
+        listener = python_function.CalcSpillModifyListener(MagicMock(), "file:///owner.ods", "Sheet1")
         listener.modified(SimpleNamespace(Source=sheet))
         assert key not in python_function.SPILL_REGISTRY
         assert spilled.getValue() == 0
@@ -986,14 +981,12 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
     """=PYMT and other formulas that merely contain PY/PYTHON must drop stale spills."""
     sheet = MagicMock()
     aEvent = SimpleNamespace(Source=sheet)
-    doc = CalcDocStub(url="file:///fake_pymt.ods", props={"RuntimeUID": "calc:file:///fake_pymt.ods"})
-    python_function.SPILL_REGISTRY.clear()
-    python_function.SPILL_REGISTRY.clear()
+    doc = CalcDocStub(url="file:///fake_pymt.ods")
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
     monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: None)
 
-    listener = python_function.CalcSpillModifyListener(MagicMock(), "calc:file:///fake_pymt.ods", "Sheet1")
-    key = ("calc:file:///fake_pymt.ods", "Sheet1", 1, 1)
+    listener = python_function.CalcSpillModifyListener(MagicMock(), "file:///fake_pymt.ods", "Sheet1")
+    key = ("file:///fake_pymt.ods", "Sheet1", 1, 1)
     python_function.SPILL_REGISTRY[key] = [(2, 1)]
 
     origin = MagicMock()
@@ -1404,7 +1397,7 @@ def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest
     ctx = _ctx_with_doc(doc)
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
     python_function.perform_deferred_spill(
-        ctx, "file:///spill.ods", "Sheet1", 0, 0, [["x", "y"]], doc=doc, code="result = 1"
+        ctx, "calc:file:///spill.ods", "Sheet1", 0, 0, [["x", "y"]], doc=doc, code="result = 1"
     )
     assert sheet.getCellByPosition(1, 0).getString() in ("", None) or not sheet.getCellByPosition(1, 0).getFormula()
 
@@ -1424,7 +1417,7 @@ def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytes
     monkeypatch.setattr(
         python_function,
         "session_key",
-        lambda *_a, **_k: ("calc:file:///u.ods", "Sheet1", "sid", "dup", "0,0"),
+        lambda *_a, **_k: ("file:///u.ods", "Sheet1", "sid", "dup", "0,0"),
     )
     a = python_function.scalar_for_list_result(ctx, "dup", [10, 20, 30])
     b = python_function.scalar_for_list_result(ctx, "dup", [10, 20, 30])
@@ -1662,6 +1655,29 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
 
 
 
+
+def test_off_main_spill_timer_does_not_register_empty_lkey(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = None
+    t_start_called = [False]
+    class MockTimer:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            t_start_called[0] = True
+
+    monkeypatch.setattr(python_function, "_new_spill_timer", MockTimer)
+
+    reg_called = [False]
+    def mock_register(*args, **kwargs):
+        reg_called[0] = True
+    monkeypatch.setattr(python_function, "_register_spill_timer", mock_register)
+
+    python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], doc)
+
+    assert t_start_called[0], "Timer should still be started"
+    assert not reg_called[0], "Timer should not be registered when lkey is empty"
+
+
 def test_rename_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///rename.ods", props={"RuntimeUID": "calc:file:///rename.ods"})
     python_function.SPILL_REGISTRY.clear()
@@ -1677,6 +1693,7 @@ def test_rename_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
     new_key = ("calc:file:///rename.ods", "NewName", 1, 1)
     assert python_function.SPILL_REGISTRY[new_key] == [(2, 1)]
     assert len(saved) == 1
+
 
 def test_delete_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///delete.ods", props={"RuntimeUID": "calc:file:///delete.ods"})
@@ -1695,19 +1712,15 @@ def test_delete_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
     assert key2 in python_function.SPILL_REGISTRY
     assert len(saved) == 1
 
+
 def test_save_as_does_not_orphan_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Save-As changes doc url but not lifecycle id. Ensure spill registry is intact."""
+    """Save-As changes the file URL but not the lifecycle id, so spill rows stay addressable."""
     doc = CalcDocStub(url="file:///old.ods", props={"RuntimeUID": "calc:file:///old.ods"})
     python_function.SPILL_REGISTRY.clear()
-
-    # Spill triggers before Save-As
     key = ("calc:file:///old.ods", "Sheet1", 1, 1)
     python_function.SPILL_REGISTRY[key] = [(2, 1)]
-
-    # Save-As occurs, URL changes but RuntimeUID remains the same
     doc.url = "file:///new.ods"
 
-    # A subsequent operation (e.g. rename) should correctly target the existing key because _lifecycle_key remains the same
     saved = []
     monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
 
@@ -1718,58 +1731,20 @@ def test_save_as_does_not_orphan_spill_registry(monkeypatch: pytest.MonkeyPatch)
     assert python_function.SPILL_REGISTRY[new_key] == [(2, 1)]
     assert len(saved) == 1
 
-def test_rename_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
-    doc = CalcDocStub(url="file:///rename.ods", props={"RuntimeUID": "calc:file:///rename.ods"})
+
+def test_deferred_spill_rechecks_occupancy_before_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A value typed during the debounce must not be overwritten by the deferred spill."""
+    doc = CalcDocStub(url="file:///occ.ods", props={"RuntimeUID": "uid-occ"})
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("occ_code")')
+    sheet.getCellByPosition(0, 1).setValue(7.0)
+    ctx = _ctx_with_doc(doc)
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
     python_function.SPILL_REGISTRY.clear()
-    key = ("calc:file:///rename.ods", "OldName", 1, 1)
-    python_function.SPILL_REGISTRY[key] = [(2, 1)]
-
-    saved = []
-    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
-
-    python_function.rename_spill_registry_sheet(doc, "OldName", "NewName")
-
-    assert key not in python_function.SPILL_REGISTRY
-    new_key = ("calc:file:///rename.ods", "NewName", 1, 1)
-    assert python_function.SPILL_REGISTRY[new_key] == [(2, 1)]
-    assert len(saved) == 1
-
-def test_delete_spill_registry_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
-    doc = CalcDocStub(url="file:///delete.ods", props={"RuntimeUID": "calc:file:///delete.ods"})
-    python_function.SPILL_REGISTRY.clear()
-    key1 = ("calc:file:///delete.ods", "Sheet1", 1, 1)
-    key2 = ("calc:file:///delete.ods", "Sheet2", 1, 1)
-    python_function.SPILL_REGISTRY[key1] = [(2, 1)]
-    python_function.SPILL_REGISTRY[key2] = [(3, 1)]
-
-    saved = []
-    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
-
-    python_function.delete_spill_registry_sheet(doc, "Sheet1")
-
-    assert key1 not in python_function.SPILL_REGISTRY
-    assert key2 in python_function.SPILL_REGISTRY
-    assert len(saved) == 1
-
-def test_save_as_does_not_orphan_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Save-As changes doc url but not lifecycle id. Ensure spill registry is intact."""
-    doc = CalcDocStub(url="file:///old.ods", props={"RuntimeUID": "calc:file:///old.ods"})
-    python_function.SPILL_REGISTRY.clear()
-
-    # Spill triggers before Save-As
-    key = ("calc:file:///old.ods", "Sheet1", 1, 1)
-    python_function.SPILL_REGISTRY[key] = [(2, 1)]
-
-    # Save-As occurs, URL changes but RuntimeUID remains the same
-    doc.url = "file:///new.ods"
-
-    # A subsequent operation (e.g. rename) should correctly target the existing key because _lifecycle_key remains the same
-    saved = []
-    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
-
-    python_function.rename_spill_registry_sheet(doc, "Sheet1", "NewName")
-
-    assert key not in python_function.SPILL_REGISTRY
-    new_key = ("calc:file:///old.ods", "NewName", 1, 1)
-    assert python_function.SPILL_REGISTRY[new_key] == [(2, 1)]
-    assert len(saved) == 1
+    reg_key = ("uid-occ", "Sheet1", 0, 0)
+    python_function.SPILL_REGISTRY[reg_key] = [(1, 1)]
+    python_function.perform_deferred_spill(
+        ctx, "uid-occ", "Sheet1", 0, 0, [["anchor", "new"], ["typed", "other"]], doc=doc, code="occ_code"
+    )
+    assert sheet.getCellByPosition(0, 1).getValue() == 7.0
+    assert python_function.SPILL_REGISTRY[reg_key] == []

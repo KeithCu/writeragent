@@ -243,3 +243,18 @@ def test_duplicate_dates_are_aggregated():
     result = forecast_time_series(pd.DataFrame(rows), periods=2, model="moving_average")
     assert result["status"] == "ok"
     assert any("Aggregated 1 duplicate" in flag for flag in result["flags"])
+
+
+def test_insert_forecast_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.forecast import insert_forecast_result_into_calc
+    class MockCtx:
+        def stop_checker(self):
+            return True
+
+    doc = None
+    ctx = MockCtx()
+    result = {"status": "ok", "result": "val"}
+
+    # Normally this would raise or do something. We just check if it returns 0.
+    res = insert_forecast_result_into_calc(doc, ctx, result)
+    assert res == 0

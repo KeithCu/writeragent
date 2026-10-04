@@ -267,7 +267,9 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 from plugin.calc.python.function import clear_in_memory_spill_state
 
                 for url in doc_urls:
-                    clear_in_memory_spill_state(lifecycle_key=lifecycle_key)
+                    # Lifecycle id is the registry identity. Also drop rows still
+                    # keyed by the file URL from before that switch.
+                    clear_in_memory_spill_state(doc_url=url, lifecycle_key=lifecycle_key)
             except Exception:
                 log.debug("python_workbook_lifecycle: spill state clear failed", exc_info=True)
             try:

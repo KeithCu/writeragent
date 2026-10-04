@@ -145,6 +145,10 @@ def insert_optimize_result_into_calc(
     that sheet. A missing name stays on the active sheet (Run Python Script
     selection, or an unqualified ``output_range``).
     """
+    stop_checker = getattr(uno_ctx, "stop_checker", None)
+    if callable(stop_checker) and stop_checker() is True:
+        return 0
+
     from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
     grid = format_optimize_for_calc(result)

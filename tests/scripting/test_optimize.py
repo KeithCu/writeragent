@@ -1,3 +1,4 @@
+import pytest
 import pandas as pd
 import numpy as np
 
@@ -97,3 +98,17 @@ def test_run_optimize_dispatcher():
     }
     result = run_optimize(spec, cost_matrix)
     assert result["status"] == "ok"
+
+
+def test_insert_optimize_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.optimize import insert_optimize_result_into_calc
+    class MockCtx:
+        def stop_checker(self):
+            return True
+
+    doc = None
+    ctx = MockCtx()
+    result = {"status": "ok", "result": "val"}
+
+    res = insert_optimize_result_into_calc(doc, ctx, result)
+    assert res == 0
