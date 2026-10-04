@@ -542,7 +542,7 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
     ``_source_is_open_workbook`` here — after a hidden open the source
     *is* loaded, which would skip every miss write.
     """
-    from plugin.calc.ods_cache import cache_entry_paths, is_cacheable_office_source, ods_cache_enabled, write_sidecar_meta, source_stat
+    from plugin.calc.ods_cache import cache_key, is_cacheable_office_source, ods_cache_enabled, ods_cache_dir, write_sidecar_meta, source_stat
 
     if cache_hit or not opened_flag:
         return
@@ -552,10 +552,10 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
         abs_path, mtime_ns, size = source_stat(full_path)
     except OSError:
         return
-    paths = cache_entry_paths(full_path)
-    if paths is None:
-        return
-    ods_path, meta_path = paths
+    key = cache_key(abs_path, mtime_ns, size)
+    folder = ods_cache_dir(full_path, create=False)
+    ods_path = folder / f"{key}.ods"
+    meta_path = folder / f"{key}.meta.json"
     try:
         _export_model_to_cached_ods(model, ods_path)
         write_sidecar_meta(meta_path, abs_path, mtime_ns, size)

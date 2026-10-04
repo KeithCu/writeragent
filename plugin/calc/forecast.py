@@ -77,7 +77,7 @@ class ForecastDataTool(ToolBaseDummy):
             return self._tool_error("Provide data_range or data")
 
         from plugin.scripting.forecast import run_trusted_forecast, insert_forecast_result_into_calc
-        from plugin.calc.address_utils import parse_address, parse_output_anchor
+        from plugin.calc.address_utils import parse_output_anchor
         from plugin.framework.queue_executor import execute_on_main_thread
 
         dr = str(data_range).strip() if data_range else None
@@ -102,7 +102,6 @@ class ForecastDataTool(ToolBaseDummy):
         if output_range and result.get("status") == "ok":
 
             def _write() -> None:
-                from plugin.calc.address_utils import parse_output_anchor
                 col, row = parse_output_anchor(output_range)
                 insert_forecast_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
 

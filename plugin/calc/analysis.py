@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBaseDummy
-from plugin.calc.address_utils import parse_address, split_sheet_prefix, parse_output_anchor
+from plugin.calc.address_utils import parse_output_anchor
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import resolve_cell_address
 from plugin.scripting.analysis import HELPER_NAMES

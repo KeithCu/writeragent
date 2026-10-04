@@ -18,7 +18,7 @@ from plugin.calc.duckdb_tools import (
     parse_table_source_spec,
     resolve_table_source_a1,
 )
-from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, write_sidecar_meta
+from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, write_sidecar_meta, source_stat
 from plugin.framework.errors import ToolExecutionError
 
 
@@ -873,7 +873,8 @@ def test_sql_path_uses_cache_on_second_query(
     cached_ods, meta_path = paths
     cached_ods.parent.mkdir(parents=True, exist_ok=True)
     cached_ods.write_bytes(b"PK\x03\x04cached-ods")
-    write_sidecar_meta(meta_path, str(xlsx))
+    abs_path, mtime_ns, size = source_stat(str(xlsx))
+    write_sidecar_meta(meta_path, abs_path, mtime_ns, size)
 
     t = QueryFolderSqlTool()
     res = t.execute(
