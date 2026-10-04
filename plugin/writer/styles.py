@@ -765,7 +765,7 @@ class ApplyStyle(FrameworkToolBase):
 
             for found in ranges:
                 if stop_checker and stop_checker():
-                    return self._tool_error("Tool stopped by user before applying style to all matches.")
+                    break
                 try:
                     ftext = found.getText()
                     c = ftext.createTextCursorByRange(found.getStart())
@@ -774,7 +774,15 @@ class ApplyStyle(FrameworkToolBase):
                     applied += 1
                 except Exception as e:
                     return self._tool_error("Applied to %d of %d; failed on one match: %s" % (applied, len(ranges), e))
-            result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied),
+
+            if applied == 0 and len(ranges) > 0 and stop_checker and stop_checker():
+                return self._tool_error("Tool stopped by user before applying style to all matches.")
+
+            msg = "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied)
+            if applied < len(ranges) and stop_checker and stop_checker():
+                msg = "Tool stopped early by user. Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied)
+
+            result = {"status": "ok", "message": msg,
                       "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": applied}
             result.update(self._merge_reports(reports))
             from plugin.writer.edit_review import review_recording_enabled

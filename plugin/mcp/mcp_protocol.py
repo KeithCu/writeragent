@@ -219,6 +219,9 @@ _WAIT_TIMEOUT = 5.0
 _PROCESS_TIMEOUT = 60.0
 
 _ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
+# Omitted means "read the caller's ambient send". An explicit None means the
+# worker had no scope; do not substitute the main thread's contextvar after marshal.
+_SEND_CANCELLATION_UNSET = object()
 
 _doc_gates: dict[str, threading.Lock] = {}
 _doc_gates_guard = threading.Lock()
@@ -958,7 +961,9 @@ class MCPProtocolHandler:
         if not acquired:
             raise BusyError("LibreOffice is busy processing another tool call. Please wait a moment and retry.")
         try:
-            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0)
+            from plugin.framework.queue_executor import get_current_send_cancellation
+            send_cancellation = get_current_send_cancellation()
+            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
             if not isinstance(prepared, _PreparedMcpCall):
                 return prepared
             with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
@@ -1001,11 +1006,20 @@ class MCPProtocolHandler:
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
         return schemas, others
 
-    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None) -> Any:
+    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, send_cancellation: Any = _SEND_CANCELLATION_UNSET) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
         Returns ``_PreparedMcpCall`` or a structured error dict.
+
+        Marshalled callers pass the scope captured on the worker, including
+        None, so this does not inherit the main thread's ambient send.
+        Direct callers omit the argument and use the scope on this thread.
         """
+        if send_cancellation is _SEND_CANCELLATION_UNSET:
+            from plugin.framework.queue_executor import get_current_send_cancellation
+
+            send_cancellation = get_current_send_cancellation()
+
         tool = self.tool_registry.get(tool_name)
         if tool is None:
             return {"status": "error", "code": "UNKNOWN_TOOL", "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
@@ -1072,10 +1086,6 @@ class MCPProtocolHandler:
             except Exception:
                 pass
 
-        from plugin.framework.queue_executor import get_current_send_cancellation
-
-        send_cancellation = get_current_send_cancellation()
-
         def stop_checker() -> bool:
             if req_id is not None and req_id in self._cancelled_requests:
                 return True
@@ -1136,7 +1146,9 @@ class MCPProtocolHandler:
         this method does not pass that keyword (see
         _arguments_without_thread_guard_bypass).
         """
-        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0)
+        from plugin.framework.queue_executor import get_current_send_cancellation
+        send_cancellation = get_current_send_cancellation()
+        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared
         return self._run_prepared_mcp_execute(prepared, tool_name, arguments)

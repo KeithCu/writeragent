@@ -799,7 +799,7 @@ class QueueExecutor:
             return True
         return False
 
-    def execute(self, fn: Callable[..., Any], *args: Any, timeout: float = 30.0, **kwargs: Any) -> Any:
+    def execute(self, fn: Callable[..., Any], *args: Any, timeout: float = 30.0, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> Any:
         """Execute function on main thread (blocking).
 
         If already on the main thread, calls directly (avoids deadlock).
@@ -846,7 +846,7 @@ class QueueExecutor:
 
         self._flush_pending_posts()
         log.debug("marshal route=enqueue fn=%s %s", fn_label, tag)
-        item = self._enqueue_work(fn, args, kwargs, blocking=True)
+        item = self._enqueue_work(fn, args, kwargs, blocking=True, bound_scope=bound_scope)
         return self._wait_for_result(item, timeout)
 
     def post(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
