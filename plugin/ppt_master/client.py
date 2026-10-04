@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from plugin.ppt_master.adapter.uno_enhance import apply_enhancement_project
 from plugin.ppt_master.adapter.uno_pptx_deck import export_project_to_doc
@@ -16,7 +16,7 @@ from plugin.ppt_master.adapter.uno_template_fill import apply_fill_plan_file
 from plugin.ppt_master.paths import apply_data_root_env
 
 
-def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path, stop_checker: Callable[[], bool] | None = None) -> dict[str, Any]:
+def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path, stop_checker: Any = None) -> dict[str, Any]:
     """Apply a ppt-master project to the open Impress/Draw document via PPTX → ODP import."""
     apply_data_root_env(ctx)
     path = Path(project_path).expanduser().resolve()

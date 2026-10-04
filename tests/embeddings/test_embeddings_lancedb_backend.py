@@ -98,7 +98,7 @@ def test_maintain_lancedb_cold_proceeds(tmp_path):
     except Exception as e:
         assert "LanceDB backend selected but the 'lancedb' package is not importable" in str(e)
 
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, patch
 
 @pytest.mark.skipif(not ld.HAS_LANCEDB, reason="lancedb package not installed in this test python")
 def test_lancedb_ingest_bad_dimension_no_overwrite():

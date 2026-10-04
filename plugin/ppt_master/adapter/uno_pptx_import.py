@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
 from plugin.draw.bridge import DrawBridge, find_notes_shape
@@ -147,7 +147,7 @@ def _import_slides_from_source(
     *,
     slide_indices: list[int] | None = None,
     clear_existing: bool = True,
-    stop_checker: Callable[[], bool] | None = None,
+    stop_checker: Any = None,
 ) -> dict[str, Any]:
     source_pages = source_doc.getDrawPages()
     source_count = int(source_pages.getCount())
@@ -166,7 +166,7 @@ def _import_slides_from_source(
     results: list[dict[str, Any]] = []
     for out_index, src_index in enumerate(indices):
         if stop_checker is not None and stop_checker():
-            return {"status": "error", "message": "Import cancelled by user", "code": "USER_STOPPED"}
+            return {"status": "error", "message": "Stopped by user.", "code": "USER_STOPPED"}
         source_page = source_pages.getByIndex(src_index)
         # What was wrong: the target slide was cleared before the copy, so a
         # copy that returned no shapes had already destroyed user content.
@@ -210,7 +210,7 @@ def import_pptx_to_doc(
     *,
     clear_existing: bool = True,
     save_mirror_odp: Path | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    stop_checker: Any = None,
 ) -> dict[str, Any]:
     """Load PPTX hidden, copy all slides into *target_doc*, optionally write mirror ODP."""
     pptx_path = Path(pptx_path).expanduser().resolve()
