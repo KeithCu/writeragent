@@ -1682,6 +1682,7 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
         caller="script",
         allowed_tools=None,
         script_session_id=None,
+        stop_checker=None,
     )
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)

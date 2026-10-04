@@ -434,7 +434,7 @@ def test_is_async_uses_long_running_path():
         with patch.object(handler, "_execute_with_backpressure") as mock_backpressure:
             result = handler._mcp_tools_call({"name": "async_probe", "arguments": {}})
 
-            mock_long.assert_called_once_with("async_probe", {}, document_url=None)
+            mock_long.assert_called_once_with("async_probe", {}, document_url=None, req_id=None)
             mock_backpressure.assert_not_called()
 
             payload = _payload(result)
