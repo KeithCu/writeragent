@@ -22,13 +22,36 @@ def _reset_lifecycle_registry():
     import plugin.calc.python.workbook_lifecycle as lifecycle
 
     lifecycle._LISTENERS.clear()
+    lifecycle._LIFECYCLE_KEYS.clear()
+    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
+    lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
+    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
     yield
     lifecycle._LISTENERS.clear()
+    lifecycle._LIFECYCLE_KEYS.clear()
+    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
+    lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
+    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
 
 
 def test_lifecycle_key_prefers_runtime_uid():
     doc = CalcDocStub(props={"RuntimeUID": "uid-abc"})
     assert _lifecycle_key(doc) == "uid-abc"
+
+
+def test_unload_forgets_cached_lifecycle_key():
+    """Off-main spill lookup must not keep a closed workbook's id."""
+    from plugin.calc.python.workbook_lifecycle import lifecycle_key_if_known
+
+    doc = CalcDocStub(props={"RuntimeUID": "uid-forget"})
+    assert _lifecycle_key(doc) == "uid-forget"
+    assert lifecycle_key_if_known(doc) == "uid-forget"
+    listener = _CalcPythonUnloadListener(MagicMock(), "calc:wb-forget", "uid-forget")
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        mock_reset.return_value = {"status": "ok"}
+        listener.on_document_event(MagicMock(EventName="OnUnload"))
+    assert lifecycle_key_if_known(doc) == ""
+    assert lifecycle_key_if_known(None) == ""
 
 
 def test_unload_listener_resets_worker_session():
@@ -164,3 +187,62 @@ def test_save_notes_new_session_id_reset_on_unload():
     reset_ids = {call.args[1] for call in mock_reset.call_args_list}
     assert reset_ids == {"calc:uuid-1", "calc:file:///saved.ods"}
     assert "uid-save" not in lifecycle._LISTENERS
+
+
+def test_note_during_teardown_resets_late_session():
+    """A Save that lands after unload snapshots the ids still resets the new kernel."""
+    import threading
+
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-race", doc_url="")
+    started = threading.Event()
+    release = threading.Event()
+    seen: list[str] = []
+
+    def slow_reset(_ctx, sid):
+        seen.append(sid)
+        if sid == "calc:wb-1":
+            started.set()
+            assert release.wait(5)
+        return {"status": "ok"}
+
+    worker = threading.Thread(target=listener.on_document_event, args=(MagicMock(EventName="OnUnload"),))
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", side_effect=slow_reset):
+        worker.start()
+        assert started.wait(5)
+        try:
+            listener.note_calc_identity("calc:file:///saved.ods", "file:///saved.ods")
+        finally:
+            release.set()
+            worker.join(5)
+    assert not worker.is_alive()
+    assert seen[0] == "calc:wb-1"
+    assert "calc:file:///saved.ods" in seen
+    assert listener._teardown_done is True
+
+
+def test_unload_resets_worker_when_busy():
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-busy", doc_url="")
+
+    seen = []
+    def mock_reset_side_effect(_ctx, sid):
+        seen.append(sid)
+        if len(seen) == 1:
+            return {"status": "error", "code": "WORKER_REENTRY"}
+        return {"status": "ok"}
+
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", side_effect=mock_reset_side_effect):
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run_in_background:
+            listener.on_document_event(MagicMock(EventName="OnUnload"))
+            # Initial call
+            assert len(seen) == 1
+            # Ensure background fallback was scheduled
+            mock_run_in_background.assert_called_once()
+            callback = mock_run_in_background.call_args[0][0]
+            with patch("time.sleep"):
+                callback()
+            assert len(seen) == 2
+    assert listener._teardown_done is True

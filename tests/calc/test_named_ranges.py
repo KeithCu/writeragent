@@ -15,6 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for Calc named range tools and flag parsing."""
 
+import sys
 from unittest.mock import MagicMock
 import pytest
 
@@ -25,11 +26,67 @@ from plugin.calc.named_ranges import (
     NamedRangeEdit,
     NamedRangeGetInfo,
     NamedRangeList,
+    _defined_name_error,
     _extract_range_info,
     _format_flags,
+    _parse_base_address,
     _parse_flags,
     _resolve_container,
 )
+
+
+def _doc_with_sheet_names(*names: str) -> MagicMock:
+    sheet_objs = []
+    for name in names:
+        sheet = MagicMock()
+        sheet.getName.return_value = name
+        sheet_objs.append(sheet)
+    sheets = MagicMock()
+    sheets.getCount.return_value = len(sheet_objs)
+    sheets.getByIndex.side_effect = lambda idx: sheet_objs[idx]
+    doc = MagicMock()
+    doc.getSheets.return_value = sheets
+    return doc
+
+
+class _RecordingCellAddress:
+    """CellAddress stand-in that keeps the fields the parser passes.
+
+    The full suite imports ``tests/framework/test_errors.py``, which replaces
+    ``sys.modules['com.sun.star.table']`` with a MagicMock. ``CellAddress(Sheet=1)``
+    then returns a mock whose ``.Sheet`` is not 1, so a correct index looked
+    like a failure.
+    """
+
+    def __init__(self, Sheet: int = 0, Column: int = 0, Row: int = 0) -> None:
+        self.Sheet = Sheet
+        self.Column = Column
+        self.Row = Row
+
+
+def test_named_range_unknown_sheet_prefix_errors(monkeypatch):
+    # An unknown prefix used to leave the default sheet (0), so a relative
+    # name was anchored on the wrong sheet.
+    table = sys.modules.get("com.sun.star.table")
+    if table is None:
+        table = MagicMock()
+        monkeypatch.setitem(sys.modules, "com.sun.star.table", table)
+    monkeypatch.setattr(table, "CellAddress", _RecordingCellAddress, raising=False)
+
+    doc = _doc_with_sheet_names("Sheet1", "Data")
+
+    with pytest.raises(ValueError, match="No sheet named 'Nope'"):
+        _parse_base_address(doc, "Nope.B2", default_sheet_idx=0)
+    with pytest.raises(ValueError, match="No sheet named 'Missing Sheet'"):
+        _parse_base_address(doc, "'Missing Sheet'!A1", default_sheet_idx=0)
+
+    pos = _parse_base_address(doc, "Data.B2", default_sheet_idx=0)
+    assert pos.Sheet == 1
+    assert (pos.Column, pos.Row) == (1, 1)
+
+    bare = _parse_base_address(doc, "C3", default_sheet_idx=4)
+    assert bare.Sheet == 4
+    assert (bare.Column, bare.Row) == (2, 2)
 
 
 def test_parse_flags_and_format_flags():
@@ -148,6 +205,12 @@ def test_named_range_tools_execution_with_mock():
 
     ctx = MagicMock()
     ctx.doc = doc
+    # Unqualified lookup checks the active sheet before the workbook container.
+    # This sheet has no local names, so get/edit/delete stay on doc.NamedRanges.
+    active_sheet = MagicMock()
+    active_sheet.getName.return_value = "Sheet1"
+    active_sheet.NamedRanges.hasByName.return_value = False
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active_sheet
 
     # 1. Add
     tool_add = NamedRangeAdd()
@@ -255,3 +318,177 @@ def test_named_range_tools_error_handling():
     assert res_titles["status"] == "error"
     assert res_titles["code"] == "INVALID_BORDER"
 
+    # 7. CreateFromTitles missing range
+    tool_titles = NamedRangeCreateFromTitles()
+    res_titles = tool_titles.execute(ctx, range=[])
+    assert res_titles["status"] == "error"
+    assert res_titles["code"] == "INVALID_ARGUMENT"
+
+    # 8. Add invalid base_cell
+    named_ranges.hasByName.side_effect = None
+    named_ranges.hasByName.return_value = False
+    tool_add = NamedRangeAdd()
+    res_add_invalid_base = tool_add.execute(ctx, name="NewRange", content="A1", base_cell="invalid!")
+    assert res_add_invalid_base["status"] == "error"
+    assert res_add_invalid_base["code"] == "INVALID_BASE_CELL"
+
+
+def test_defined_name_matches_calc_is_name_valid():
+    """ScRangeData::IsNameValid rejects cell refs, dots, leading digits, and spaces."""
+    for illegal in ("A1", "a1", "AA10", "Q1", "R1C1", "RC", "C1", "R2", "Sales.2026", "1abc", "My Range", "", "A1:B2", "$A$1"):
+        assert _defined_name_error(illegal), illegal
+    assert "cell" in (_defined_name_error("A1") or "").lower()
+    assert "underscore" in (_defined_name_error("Sales.2026") or "").lower()
+    assert "underscore" in (_defined_name_error("1abc") or "").lower()
+    for legal in ("TaxRate", "_Hidden", "Sales_2026", "Q1Sales", "DATA1", "R2D2", "Sales?", "Ångström"):
+        assert _defined_name_error(legal) is None, legal
+
+
+def _nr(name: str, content: str) -> MagicMock:
+    nr = MagicMock()
+    nr.getName.return_value = name
+    nr.getContent.return_value = content
+    nr.getType.return_value = 0
+    nr.getReferencePosition.return_value = MagicMock(Sheet=0, Column=0, Row=0)
+    nr.getReferredCells.return_value = None
+    return nr
+
+
+def _named_container(items: dict[str, MagicMock]) -> MagicMock:
+    container = MagicMock()
+    container.getElementNames.return_value = list(items)
+    container.hasByName.side_effect = lambda n: n in items
+    container.getByName.side_effect = lambda n: items[n]
+    return container
+
+
+def _sheet(name: str, items: dict[str, MagicMock]) -> MagicMock:
+    sheet = MagicMock()
+    sheet.getName.return_value = name
+    sheet.NamedRanges = _named_container(items)
+    return sheet
+
+
+def _workbook(active_name: str, sheets: list[MagicMock], global_items: dict[str, MagicMock]) -> MagicMock:
+    doc = MagicMock()
+    doc.NamedRanges = _named_container(global_items)
+    by_name = {sheet.getName(): sheet for sheet in sheets}
+    sheets_obj = MagicMock()
+    sheets_obj.getCount.return_value = len(sheets)
+    sheets_obj.getByIndex.side_effect = lambda i: sheets[i]
+    sheets_obj.hasByName.side_effect = lambda n: n in by_name
+    sheets_obj.getByName.side_effect = lambda n: by_name[n]
+    doc.getSheets.return_value = sheets_obj
+    doc.getCurrentController.return_value.getActiveSheet.return_value = by_name[active_name]
+    ctx = MagicMock()
+    ctx.doc = doc
+    return ctx
+
+
+def test_edit_rejects_illegal_rename_before_mutation():
+    """Illegal new names never reach setName, and earlier fields stay unchanged."""
+    nr = _nr("TaxRate", "$Sheet1.$A$1")
+    ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
+    tool = NamedRangeEdit()
+    res = tool.execute(ctx, name="TaxRate", new_name="A1", content="$Sheet1.$B$1")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_NAME"
+    nr.setName.assert_not_called()
+    nr.setContent.assert_not_called()
+
+    res_space = tool.execute(ctx, name="TaxRate", new_name="Sales 2026", content="$Sheet1.$B$1")
+    assert res_space["code"] == "INVALID_NAME"
+    nr.setContent.assert_not_called()
+
+    res_base = tool.execute(ctx, name="TaxRate", new_name="TaxRate2", base_cell="invalid!")
+    assert res_base["code"] == "INVALID_BASE_CELL"
+    nr.setName.assert_not_called()
+
+
+def test_edit_renames_before_other_fields_and_rolls_back():
+    """setName runs first. A later setter failure restores the previous name."""
+    nr = _nr("TaxRate", "$Sheet1.$A$1")
+    ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
+    order: list[tuple[str, str]] = []
+    nr.setName.side_effect = lambda new: order.append(("name", new))
+    nr.setContent.side_effect = lambda content: order.append(("content", content))
+    nr.setType.side_effect = lambda mask: order.append(("type", str(mask)))
+
+    res = NamedRangeEdit().execute(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", flags=["print_area"])
+    assert res["status"] == "ok"
+    assert [step[0] for step in order] == ["name", "content", "type"]
+    assert order[0] == ("name", "TaxRate2")
+
+    nr_fail = _nr("TaxRate", "$Sheet1.$A$1")
+    ctx_fail = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr_fail})
+    nr_fail.setContent.side_effect = RuntimeError("content rejected")
+    res_fail = NamedRangeEdit().execute(ctx_fail, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1")
+    assert res_fail["status"] == "error"
+    assert res_fail["code"] == "NAMED_RANGE_ERROR"
+    assert [call.args[0] for call in nr_fail.setName.call_args_list] == ["TaxRate2", "TaxRate"]
+
+
+def test_unqualified_name_prefers_sheet_local_shadow():
+    """A bare name on a sheet with a local same-spelled range targets the local one."""
+    local = _nr("Total", "local")
+    glob = _nr("Total", "global")
+    sheet = _sheet("Sheet1", {"Total": local})
+    ctx = _workbook("Sheet1", [sheet], {"Total": glob})
+
+    info = NamedRangeGetInfo().execute(ctx, name="Total")
+    assert info["status"] == "ok"
+    assert info["result"]["scope"] == "Sheet1"
+    assert info["result"]["content"] == "local"
+
+    forced = NamedRangeGetInfo().execute(ctx, name="Total", scope="global")
+    assert forced["result"]["scope"] == "global"
+    assert forced["result"]["content"] == "global"
+
+    edit = NamedRangeEdit().execute(ctx, name="Total", content="$Sheet1.$C$1")
+    assert edit["status"] == "ok"
+    local.setContent.assert_called_once_with("$Sheet1.$C$1")
+    glob.setContent.assert_not_called()
+
+    glob_edit = NamedRangeEdit().execute(ctx, name="Total", scope="global", content="$Sheet1.$D$1")
+    assert glob_edit["status"] == "ok"
+    glob.setContent.assert_called_once_with("$Sheet1.$D$1")
+
+    deleted = NamedRangeDelete().execute(ctx, name="Total")
+    sheet.NamedRanges.removeByName.assert_called_once_with("Total")
+    ctx.doc.NamedRanges.removeByName.assert_not_called()
+    assert deleted["status"] == "ok"
+
+    deleted_global = NamedRangeDelete().execute(ctx, name="Total", scope="global")
+    ctx.doc.NamedRanges.removeByName.assert_called_once_with("Total")
+    assert deleted_global["status"] == "ok"
+
+
+def test_list_all_and_get_info_skip_hidden_sheets():
+    """scope=all and the unqualified fallback omit _-prefixed generated sheets."""
+    visible = _nr("Visible", "v")
+    hidden = _nr("Secret", "s")
+    other = _nr("Other", "o")
+    anon = _nr("Anon", "a")
+    sheet1 = _sheet("Sheet1", {"Visible": visible})
+    hidden_sheet = _sheet("_hidden", {"Secret": hidden})
+    anon_sheet = _sheet("__Anonymous_Sheet_DB__0", {"Anon": anon})
+    sheet2 = _sheet("Sheet2", {"Other": other})
+    ctx = _workbook("Sheet1", [sheet1, hidden_sheet, anon_sheet, sheet2], {"Global": _nr("Global", "g")})
+
+    listed = NamedRangeList().execute(ctx, scope="all")
+    assert listed["status"] == "ok"
+    found = {(item["scope"], item["name"]) for item in listed["result"]}
+    assert found == {("global", "Global"), ("Sheet1", "Visible"), ("Sheet2", "Other")}
+
+    missing = NamedRangeGetInfo().execute(ctx, name="Secret")
+    assert missing["status"] == "error"
+    assert missing["code"] == "NAMED_RANGE_NOT_FOUND"
+
+    explicit = NamedRangeGetInfo().execute(ctx, name="Secret", scope="_hidden")
+    assert explicit["status"] == "ok"
+    assert explicit["result"]["scope"] == "_hidden"
+    assert explicit["result"]["content"] == "s"
+
+    fallback = NamedRangeGetInfo().execute(ctx, name="Other")
+    assert fallback["status"] == "ok"
+    assert fallback["result"]["scope"] == "Sheet2"

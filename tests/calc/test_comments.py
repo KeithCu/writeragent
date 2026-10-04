@@ -7,7 +7,7 @@
 
 from unittest.mock import MagicMock
 
-from plugin.calc.comments import _annotation_text, _split_cell_sheet
+from plugin.calc.comments import _annotation_date, _annotation_text, _split_cell_sheet
 
 
 def test_annotation_text_uses_get_string_when_present():
@@ -58,3 +58,89 @@ def test_split_cell_sheet_conflict_raises():
     except ValueError as e:
         assert "Summary" in str(e)
         assert "Other" in str(e)
+
+def _list_one_comment(date_value):
+    """Run list_cell_comments against one mocked annotation."""
+    import json
+    from plugin.calc.comments import ListCellComments
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    ctx.doc = doc
+
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    # list_cell_comments resolves sheet via resolve_sheet
+    def get_sheet_by_name(name):
+        return sheet
+
+    sheets = MagicMock()
+    sheets.hasByName.return_value = True
+    sheets.getByName.side_effect = get_sheet_by_name
+    doc.getSheets.return_value = sheets
+
+    controller = MagicMock()
+    controller.getActiveSheet.return_value = sheet
+    doc.getCurrentController.return_value = controller
+
+    annotations = MagicMock()
+    annotations.getCount.return_value = 1
+
+    ann = MagicMock()
+    pos = MagicMock()
+    pos.Column = 0
+    pos.Row = 0
+    ann.getPosition.return_value = pos
+    ann.getAuthor.return_value = "Author"
+    ann.getIsVisible.return_value = False
+
+    annotations.getByIndex.return_value = ann
+    sheet.getAnnotations.return_value = annotations
+
+    cell_ann = MagicMock()
+    cell_ann.getDate.return_value = date_value
+    cell_ann.getString.return_value = "Test comment"
+
+    cell = MagicMock()
+    cell.getAnnotation.return_value = cell_ann
+    sheet.getCellByPosition.return_value = cell
+
+    res = ListCellComments().execute(ctx, sheet="Sheet1")
+    json.dumps(res)
+    return res
+
+
+def test_list_cell_comments_keeps_formatted_date_string():
+    # XSheetAnnotation.getDate() is a formatted string, not a DateTime struct.
+    # Treating it as a struct dropped every date (attribute access failed).
+    res = _list_one_comment("10/24/2023 12:30 PM")
+
+    assert res["status"] == "ok"
+    assert res["comments"][0]["date"] == "10/24/2023 12:30 PM"
+    assert res["comments"][0]["text"] == "Test comment"
+
+
+def test_list_cell_comments_formats_datetime_struct_fallback():
+    class DummyDateTime:
+        Year = 2023
+        Month = 10
+        Day = 24
+        Hours = 12
+        Minutes = 30
+
+    res = _list_one_comment(DummyDateTime())
+    assert res["comments"][0]["date"] == "2023-10-24 12:30"
+
+
+def test_annotation_date_string_struct_and_empty():
+    class DateOnly:
+        Year = 2023
+        Month = 1
+        Day = 2
+
+    assert _annotation_date("2023-10-24 12:30") == "2023-10-24 12:30"
+    assert _annotation_date("") == ""
+    assert _annotation_date(DateOnly()) == "2023-01-02"
+    assert _annotation_date(None) == ""
+    assert _annotation_date(object()) == ""

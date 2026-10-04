@@ -72,11 +72,8 @@ class PlotDataTool(ToolBaseDummy):
         from plugin.scripting.viz import run_trusted_viz, extract_image_payload
         from plugin.scripting.payload_codec import write_image_payload_to_temp
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
-
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "VIZ_ERROR"))
         except Exception as exc:
@@ -93,10 +90,18 @@ class PlotDataTool(ToolBaseDummy):
 
             try:
                 execute_on_main_thread(_insert)
+            except Exception as exc:
+                # What was wrong: a missing sheet or draw page still produced
+                # image_inserted and "Plot inserted". How: image egress swallowed
+                # the failure, so this except never ran. Why: egress now raises;
+                # keep that as an error instead of a successful insert.
+                out["status"] = "error"
+                out["image_inserted"] = False
+                out["plot_error"] = str(exc)
+                out["message"] = f"Plot was not inserted: {exc}"
+            else:
                 out["image_inserted"] = True
                 out["message"] = "Plot inserted on active sheet"
-            except Exception as exc:
-                out["plot_error"] = str(exc)
         else:
             payload = extract_image_payload(result)
             if payload is not None:

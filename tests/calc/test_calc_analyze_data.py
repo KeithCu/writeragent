@@ -22,6 +22,101 @@ def calc_ctx():
     return ctx
 
 
+def test_output_anchor_quoted_dotted_sheet_and_range():
+    """rsplit('.') dropped quoted/dotted sheets and used the range's end cell."""
+    from plugin.calc.address_utils import parse_output_anchor as _output_anchor
+
+    assert _output_anchor("'Q1.Sales'!B2") == ("Q1.Sales", 1, 1)
+    assert _output_anchor("'Data Sheet'.C3") == ("Data Sheet", 2, 2)
+    assert _output_anchor("Sheet1.A1:Sheet1.C10") == ("Sheet1", 0, 0)
+    assert _output_anchor("$A$1:$C$5") == (None, 0, 0)
+    assert _output_anchor("Sheet1.$B$2") == ("Sheet1", 1, 1)
+    assert _output_anchor("A1") == (None, 0, 0)
+
+
+@patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+def test_analyze_data_output_range_quoted_sheet(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
+    mock_run_trusted.return_value = {"status": "ok", "helper": "describe_data"}
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    tool = AnalyzeDataTool()
+    result = tool.execute(
+        calc_ctx,
+        helper="describe_data",
+        data_range="A1:B2",
+        output_range="'Q1.Sales'!B2",
+    )
+
+    assert result["status"] == "ok"
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs["sheet_name"] == "Q1.Sales"
+    assert mock_insert.call_args.kwargs["start_col"] == 1
+    assert mock_insert.call_args.kwargs["start_row"] == 1
+
+
+def _disposed():
+    class DisposedException(Exception):
+        pass
+
+    return DisposedException("Binary URP bridge disposed during call")
+
+
+def test_goal_seek_reraises_disposed(calc_ctx):
+    from plugin.calc.analysis import GoalSeekTool
+
+    boom = _disposed()
+    with (
+        patch("plugin.calc.analysis.UNO_AVAILABLE", True),
+        patch("plugin.calc.analysis.CalcBridge", side_effect=boom),
+        pytest.raises(type(boom), match="URP"),
+    ):
+        GoalSeekTool().execute(calc_ctx, formula_cell="A1", variable_cell="B1", target_value=1)
+
+
+def test_goal_seek_wraps_other_errors(calc_ctx):
+    from plugin.calc.analysis import GoalSeekTool
+    from plugin.framework.errors import ToolExecutionError
+
+    with (
+        patch("plugin.calc.analysis.UNO_AVAILABLE", True),
+        patch("plugin.calc.analysis.CalcBridge", side_effect=ValueError("seek failed")),
+        pytest.raises(ToolExecutionError, match="seek failed"),
+    ):
+        GoalSeekTool().execute(calc_ctx, formula_cell="A1", variable_cell="B1", target_value=1)
+
+
+def test_solver_reraises_disposed(calc_ctx):
+    import sys
+    import types
+
+    from plugin.calc.analysis import SolverTool
+
+    # Solver imports sheet UNO types before its try. Unit tests have no live
+    # office, so install stubs and fail inside the try on CalcBridge.
+    star = types.ModuleType("com.sun.star")
+    sheet = types.ModuleType("com.sun.star.sheet")
+    ops = types.ModuleType("com.sun.star.sheet.SolverConstraintOperator")
+    sheet.SolverConstraint = type("SolverConstraint", (), {})
+    ops.EQUAL = ops.GREATER_EQUAL = ops.LESS_EQUAL = 0
+    modules = {
+        "com": types.ModuleType("com"),
+        "com.sun": types.ModuleType("com.sun"),
+        "com.sun.star": star,
+        "com.sun.star.sheet": sheet,
+        "com.sun.star.sheet.SolverConstraintOperator": ops,
+    }
+    boom = _disposed()
+    with (
+        patch.dict(sys.modules, modules),
+        patch("plugin.calc.analysis.UNO_AVAILABLE", True),
+        patch("plugin.calc.analysis.CalcBridge", side_effect=boom),
+        pytest.raises(type(boom), match="URP"),
+    ):
+        SolverTool().execute(calc_ctx, objective_cell="C1", variables=["A1"])
+
+
 def test_analyze_data_requires_helper(calc_ctx):
     tool = AnalyzeDataTool()
     result = tool.execute(calc_ctx, data=[["A"], [1]])
@@ -52,7 +147,8 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
-    mock_main_thread.assert_called_once()
+    # execute_on_main_thread is now inside run_trusted_analysis for reading data only,
+    # but since run_trusted_analysis is mocked entirely here, main_thread won't be called.
     mock_run_trusted.assert_called_once()
     _, kwargs = mock_run_trusted.call_args
     assert kwargs["helper"] == "describe_data"
@@ -61,8 +157,9 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
-def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_run_trusted, mock_main_thread, calc_ctx):
+@patch("plugin.calc.analysis_runner.run_analysis")
+@patch("plugin.calc.calc_addin_data._resolve_python_data")
+def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, mock_run_analysis, mock_main_thread, calc_ctx):
     call_order: list[str] = []
 
     def main_thread(fn, *args, **kwargs):
@@ -74,7 +171,8 @@ def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_run_trusted,
         return {"status": "ok", "helper": "describe_data"}
 
     mock_main_thread.side_effect = main_thread
-    mock_run_trusted.side_effect = run_side
+    mock_run_analysis.side_effect = run_side
+    mock_resolve.return_value = ({"col1": [1, 2]}, None)
 
     tool = AnalyzeDataTool()
     result = tool.execute(calc_ctx, helper="describe_data", data_range="A1:B2")

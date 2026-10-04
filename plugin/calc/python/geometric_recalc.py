@@ -658,7 +658,9 @@ def record_geometric_calc_session(doc: Any) -> str:
     from plugin.scripting.session_manager import record_active_calc_session
 
     sid = geometric_workbook_key(doc)
-    record_active_calc_session(sid)
+    # Pass doc so this GC can tell workbooks apart. Without it, recording
+    # calc:<url> drops every other book's calc:unsaved:{uuid}.
+    record_active_calc_session(sid, doc=doc)
     return sid
 
 
@@ -1039,7 +1041,15 @@ def ensure_geometric_strip_index_for_eval(doc: Any, ctx: Any = None) -> None:
     if not on_main_thread():
         return
     workbook_key = load_geometric_registry_for_doc(doc)
-    if any(key.workbook_key == workbook_key for key in current_geometric_strip_safe()):
+    # Bugfix: any non-empty index for this workbook skipped the rebuild for
+    # the rest of the process. A flag-off book then kept a stale strip-safe
+    # triple and dropped a later user-authored data argument with the same
+    # code and arity.
+    # How: flag-off does not run ``reconcile_geometric_sheet``, and the
+    # early return treated "we already have one key" as "the sheet is current".
+    # Why: flag-off must rescan here. Flag-on still skips a non-empty index;
+    # modify reconcile is what refreshes that one.
+    if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in current_geometric_strip_safe()):
         return
     _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
 

@@ -49,7 +49,10 @@ FILTER_OPERATOR2_LABELS: tuple[str, ...] = _FILTER_OPERATOR2_CODE_NAMES
 # Dual-profile: Closed FilterOperator2 labels under CrossHair. Open ascii_bounded
 # DEAL_MAX_TOKEN still cost ~28m on name→code / connection / resolve (cover-all 35546602462).
 def _deal_filter_op_name_ok_pytest(name: object) -> bool:
-    return isinstance(name, str) and ascii_bounded(name, DEAL_MAX_TOKEN)
+    # An unknown or non-ASCII operator from the model must raise
+    # UnoObjectError, not PreContractError. The body does that.
+    # CrossHair stays on the closed FilterOperator2 labels.
+    return isinstance(name, str)
 
 
 def _deal_filter_op_name_ok_crosshair(name: object) -> bool:
@@ -60,7 +63,8 @@ _deal_filter_op_name_ok = _deal_filter_op_name_ok_crosshair if UNDER_CROSSHAIR e
 
 
 def _deal_filter_connection_ok_pytest(name: object) -> bool:
-    return name is None or ascii_bounded(name, DEAL_MAX_TOKEN)
+    # Same as operator names: a bad connection is UnoObjectError.
+    return name is None or isinstance(name, str)
 
 
 def _deal_filter_connection_ok_crosshair(name: object) -> bool:
@@ -70,7 +74,20 @@ def _deal_filter_connection_ok_crosshair(name: object) -> bool:
 _deal_filter_connection_ok = _deal_filter_connection_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_connection_ok_pytest
 
 
-@deal.pre(lambda code: isinstance(code, int) and -8 <= code < 32)
+def _deal_filter_code_ok_pytest(code: object) -> bool:
+    # A code outside the small CrossHair window still has a string label.
+    # The range cap raised PreContractError before ``str(int(code))``.
+    return isinstance(code, int)
+
+
+def _deal_filter_code_ok_crosshair(code: object) -> bool:
+    return isinstance(code, int) and -8 <= code < 32
+
+
+_deal_filter_code_ok = _deal_filter_code_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_code_ok_pytest
+
+
+@deal.pre(lambda code: _deal_filter_code_ok(code))
 def filter_operator2_code_to_name(code: int) -> str:
     """Map UNO ``FilterOperator2`` *code* (long) to a stable string label."""
     # crosshair: off
@@ -122,7 +139,27 @@ def resolve_filter_operator_code(operator: str) -> int:
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
 
 
-@deal.pre(lambda raw, is_first: isinstance(raw, dict) and len(raw) <= DEAL_MAX_CMD_ARGS and (not isinstance(raw.get("operator"), str) or ascii_bounded(raw.get("operator"), DEAL_MAX_TOKEN)) and (not isinstance(raw.get("connection"), str) or ascii_bounded(raw.get("connection"), DEAL_MAX_TOKEN)))
+def _deal_filter_criterion_ok_pytest(raw: object) -> bool:
+    # Extra JSON keys and long operator strings are model output. The
+    # body raises UnoObjectError for a missing field or unknown operator.
+    return isinstance(raw, dict)
+
+
+def _deal_filter_criterion_ok_crosshair(raw: object) -> bool:
+    return (
+        isinstance(raw, dict)
+        and len(raw) <= DEAL_MAX_CMD_ARGS
+        and (not isinstance(raw.get("operator"), str) or ascii_bounded(raw.get("operator"), DEAL_MAX_TOKEN))
+        and (not isinstance(raw.get("connection"), str) or ascii_bounded(raw.get("connection"), DEAL_MAX_TOKEN))
+    )
+
+
+_deal_filter_criterion_ok = (
+    _deal_filter_criterion_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_criterion_ok_pytest
+)
+
+
+@deal.pre(lambda raw, is_first: _deal_filter_criterion_ok(raw))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 6)
 @deal.raises(UnoObjectError)
 def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[int, int, int, bool, float, str]:
@@ -159,11 +196,19 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
         v = raw.get("value")
         if v is None or str(v).strip() == "":
             raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")
-        return field, op_code, conn, True, float(v), ""
+        try:
+            fv = float(v)
+        except ValueError:
+            raise UnoObjectError(f"Operator {op_label} requires a valid numeric 'value', got {v!r}.")
+        return field, op_code, conn, True, fv, ""
 
     v = raw.get("value")
     if v is None:
         raise UnoObjectError(f"Operator {op_label} requires 'value'.")
     if raw.get("is_numeric") is True:
-        return field, op_code, conn, True, float(v), ""
+        try:
+            fv = float(v)
+        except ValueError:
+            raise UnoObjectError(f"is_numeric=True requires a valid numeric 'value', got {v!r}.")
+        return field, op_code, conn, True, fv, ""
     return field, op_code, conn, False, 0.0, str(v)

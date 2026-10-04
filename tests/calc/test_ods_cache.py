@@ -36,7 +36,8 @@ def _seed_cache(xlsx: Path, *, ods_bytes: bytes = b"PK\x03\x04cached-ods") -> tu
     ods_path, meta_path = paths
     ods_path.parent.mkdir(parents=True, exist_ok=True)
     ods_path.write_bytes(ods_bytes)
-    write_sidecar_meta(meta_path, str(xlsx))
+    abs_path, mtime_ns, size = source_stat(str(xlsx))
+    write_sidecar_meta(meta_path, abs_path, mtime_ns, size)
     return ods_path, meta_path
 
 

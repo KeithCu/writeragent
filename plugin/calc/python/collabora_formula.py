@@ -197,10 +197,11 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     Called from the existing Excel-PY ``OnLoadFinished`` listener (no extra
     GlobalEventBroadcaster). Returns the number of cells rewritten.
 
-    After ``setFormula``, Calc usually marks the document modified. We try
-    ``setModified(False)`` so a casual open/close does not convert the file on
-    disk; **Save** still persists writeragent tokens (Collabora Online would
-    then need a writeragent alias to evaluate those files).
+    After ``setFormula``, Calc usually marks the document modified. Snapshot
+    ``isModified`` before the rewrite and write that flag back: a clean file
+    stays clean, and a file the user had already edited stays dirty. **Save**
+    still persists writeragent tokens (Collabora Online would then need a
+    writeragent alias to evaluate those files).
     """
     if doc is None:
         return 0
@@ -213,6 +214,15 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     from plugin.framework.thread_guard import guard_uno
 
     doc = guard_uno(doc)
+    # Bugfix: setModified(False) after a rewrite cleared the dirty flag even
+    # when the user had already edited the book. setFormula flips the flag
+    # itself, so restore the value from before the scan.
+    was_modified: bool | None = None
+    try:
+        if hasattr(doc, "isModified"):
+            was_modified = bool(doc.isModified())
+    except Exception:
+        log.debug("collabora PY rewrite: isModified failed", exc_info=True)
     changed = 0
     controllers_locked = False
     try:
@@ -235,9 +245,10 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
 
     if changed:
         log.info("collabora PY rewrite: updated %s formula cell(s) to writeragent PY", changed)
-        try:
-            if hasattr(doc, "setModified"):
-                doc.setModified(False)
-        except Exception:
-            log.debug("collabora PY rewrite: setModified(False) failed", exc_info=True)
+        if was_modified is not None:
+            try:
+                if hasattr(doc, "setModified"):
+                    doc.setModified(was_modified)
+            except Exception:
+                log.debug("collabora PY rewrite: setModified restore failed", exc_info=True)
     return changed

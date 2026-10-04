@@ -80,6 +80,12 @@ def test_address_utils():
     assert split_sheet_prefix("'Data Sheet'!B2") == ("Data Sheet", "B2")
     assert split_sheet_prefix("Summary.D4:D6") == ("Summary", "D4:D6")
     assert split_sheet_prefix("A1:C5") == (None, "A1:C5")
+    # Doubled apostrophe is one apostrophe. An undoubled quote is not a prefix.
+    assert split_sheet_prefix("'O''Brien'.C5:D6") == ("O'Brien", "C5:D6")
+    assert split_sheet_prefix("'O''Brien'!C5") == ("O'Brien", "C5")
+    assert split_sheet_prefix("'Q1 Sales''s'.A1:B2") == ("Q1 Sales's", "A1:B2")
+    assert split_sheet_prefix("''''.A1") == ("'", "A1")
+    assert split_sheet_prefix("'O'Brien'.C5:D6") == (None, "'O'Brien'.C5:D6")
     assert parse_range_string(split_sheet_prefix("Sheet1.A1:C5")[1]) == ((0, 0), (2, 4))
 
     try:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, NoReturn
 
 from plugin.scripting.payload_codec import write_image_payload_to_temp
 
@@ -24,6 +24,28 @@ DEFAULT_CHART_SIZE_WIDTH = 10000
 DEFAULT_CHART_SIZE_HEIGHT = 6000
 MIN_CHART_PLACEHOLDER_WIDTH = 4000
 MIN_CHART_PLACEHOLDER_HEIGHT = 3000
+
+# Only shapes we created for a plot are replaced on the next insert. A user
+# image is also a GraphicObjectShape; matching the anchor alone overwrote it.
+_DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
+_PLOT_SHAPE_NAME_PREFIX = "WriterAgentPlot"
+
+
+class ImageEgressError(Exception):
+    """Raised when a Calc plot was not placed on the sheet.
+
+    Callers used to treat a silent return as success ("plot inserted" /
+    "Image inserted") when the document, sheet, or draw page was missing.
+    """
+
+
+def _egress_fail(message: str, *, level: str = "debug") -> NoReturn:
+    """Log *message* and raise so callers cannot report a successful insert."""
+    if level == "warning":
+        log.warning("insert_image_result_on_sheet: %s", message)
+    else:
+        log.debug("insert_image_result_on_sheet: %s", message)
+    raise ImageEgressError(message)
 
 
 def _cell_address_key(cell: Any) -> tuple[Any, int, int] | None:
@@ -54,12 +76,107 @@ def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
         return False
 
 
+def _supports_draw_graphic(shape: Any) -> bool:
+    """True only for a real GraphicObjectShape.
+
+    UNO ``supportsService`` returns True or 1. A test double's MagicMock is
+    truthy too, so only those two results count.
+    """
+    supports = getattr(shape, "supportsService", None)
+    if not callable(supports):
+        return False
+    try:
+        hit = supports(_DRAW_GRAPHIC_SERVICE)
+    except Exception:
+        return False
+    if hit is True:
+        return True
+    return type(hit) is int and hit == 1
+
+
+def _shape_name(shape: Any) -> str:
+    try:
+        if hasattr(shape, "getPropertyValue"):
+            value = shape.getPropertyValue("Name")
+        else:
+            value = getattr(shape, "Name", "")
+    except Exception:
+        return ""
+    return value if isinstance(value, str) else ""
+
+
+def _is_plot_shape_name(name: str) -> bool:
+    if name == _PLOT_SHAPE_NAME_PREFIX:
+        return True
+    return name.startswith(_PLOT_SHAPE_NAME_PREFIX + "_")
+
+
+def _is_reusable_plot_shape(shape: Any, target_cell: Any) -> bool:
+    """Graphic we previously inserted at *target_cell*, not a user image or other shape.
+
+    What was wrong: any shape whose anchor matched the formula cell had
+    GraphicURL replaced, including rectangles and photos the user placed there.
+    How: reuse checked the anchor and nothing else.
+    Why: require GraphicObjectShape plus the WriterAgentPlot name prefix.
+    Plots from before the prefix are left in place (one extra shape) rather
+    than guessing which graphic is ours.
+    """
+    if not _supports_draw_graphic(shape):
+        return False
+    if not _is_plot_shape_name(_shape_name(shape)):
+        return False
+    return _shape_anchor_matches_cell(shape, target_cell)
+
+
+def _assign_plot_shape_name(shape: Any, draw_page: Any) -> None:
+    """Give a new plot shape a unique WriterAgentPlot name so the next insert can find it."""
+    used: set[str] = set()
+    try:
+        raw_count = getattr(draw_page, "getCount", lambda: 0)()
+        if isinstance(raw_count, int) and raw_count > 0:
+            for index in range(raw_count):
+                used.add(_shape_name(draw_page.getByIndex(index)))
+    except Exception:
+        log.debug("insert_image_result_on_sheet: could not list shape names", exc_info=True)
+    name = _PLOT_SHAPE_NAME_PREFIX
+    suffix = 2
+    while name in used and suffix < 10000:
+        name = f"{_PLOT_SHAPE_NAME_PREFIX}_{suffix}"
+        suffix += 1
+    try:
+        shape.setPropertyValue("Name", name)
+    except Exception:
+        log.debug("insert_image_result_on_sheet: could not name plot shape", exc_info=True)
+
+
+def _unlink_temp_image(path: str | None) -> None:
+    """Best-effort delete of the PNG/SVG written for GraphicURL.
+
+    The GraphicURL setter reads the file before it returns and stores the
+    bitmap on the shape (desktop GraphicObjectShape embeds on set). The path
+    is not a live link after that call, so unlink in ``finally`` — including
+    when a later anchor step fails — instead of leaking a file per recalc.
+    A build that kept only the URL would show a broken picture; that is not
+    what the desktop setter does.
+    """
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except OSError:
+        log.debug("insert_image_result_on_sheet: temp image cleanup failed for %s", path, exc_info=True)
+
+
 def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str | None = None, doc: Any | None = None) -> None:
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
     Posts execution asynchronously to the main VCL UI thread if invoked from a background worker thread.
-    Pass *doc* from the add-in when known: get_calc_document_from_ctx is the front window,
-    not the recalculating workbook.
+    Pass *doc* from the add-in or tool when known: get_calc_document_from_ctx is the front window,
+    not the recalculating workbook or the MCP ``document_url`` target.
+
+    Raises:
+        ImageEgressError: the synchronous (main-thread) insert did not place a graphic.
+            The off-main path only posts; the posted call raises on the main thread.
     """
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.framework.thread_guard import on_main_thread
@@ -85,12 +202,26 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
     # Furthermore, if Sheet 0 had a 1-row merged hero banner selected, charts were crushed to ~12.7mm height.
     # Fix: Resolve the target sheet and cell by locating the formula cell via code if available;
     # otherwise fallback gracefully to active sheet/selection, and enforce minimum dimensions for merged sizing.
+    #
+    # What was wrong: missing doc/sheet/draw page and a thrown UNO error returned
+    # normally, so =PY(), venv, and plot_data reported the picture as inserted.
+    # How: every failure path logged and returned. Why: raise ImageEgressError.
+    tmp_path: str | None = None
     try:
         from plugin.framework.thread_guard import on_main_thread
 
         if not on_main_thread():
-            log.debug("insert_image_result_on_sheet: skipping off-main image insertion")
-            return
+            # What was wrong: this check called _egress_fail, which raises at
+            # runtime but is only a Call in the AST. The thread-safety linter
+            # treats an early exit as Return or Raise, so it still flagged the
+            # get_calc_document_from_ctx below as unguarded UNO access.
+            # How: the off-main path ended in a helper call. Why: a literal
+            # raise is the exit the linter recognizes, and it still refuses to
+            # touch the document off the main thread.
+            log.debug(
+                "insert_image_result_on_sheet: image insertion must run on the main thread"
+            )
+            raise ImageEgressError("image insertion must run on the main thread")
 
         from plugin.calc.calc_utils import get_cell_geometry
         from plugin.scripting.document_scripts import get_calc_document_from_ctx
@@ -98,8 +229,7 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
         if doc is None:
             doc = get_calc_document_from_ctx(ctx)
         if doc is None:
-            log.debug("insert_image_result_on_sheet: no active Calc document resolved from context")
-            return
+            _egress_fail("no Calc document for image insertion")
 
         sheet = None
         target_cell = None
@@ -110,7 +240,7 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
 
                 located = locate_formula_cell_in_doc(ctx, doc, code)
                 if located is not None:
-                    sheet, target_cell, _ = located
+                    sheet, target_cell, _unused_anchor = located
             except Exception:
                 log.debug("insert_image_result_on_sheet: locate_formula_cell_in_doc failed", exc_info=True)
 
@@ -119,8 +249,10 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                 # the formula cell must NOT fall back to the controller's active sheet or active selection.
                 # Falling back causes plots to be inserted on whatever sheet/cell is active (e.g. analysis!A1
                 # during Ctrl+Shift+F9 recalc).
-                log.warning("insert_image_result_on_sheet: could not locate formula cell for formula code; aborting egress to prevent wrong-sheet placement")
-                return
+                _egress_fail(
+                    "could not locate formula cell for formula code; image was not inserted",
+                    level="warning",
+                )
 
         ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None
 
@@ -130,13 +262,11 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
             elif hasattr(doc, "getSheets") and doc.getSheets().getCount() > 0:
                 sheet = doc.getSheets().getByIndex(0)
             else:
-                log.debug("insert_image_result_on_sheet: could not resolve sheet")
-                return
+                _egress_fail("could not resolve a sheet for image insertion")
 
         draw_page = getattr(sheet, "DrawPage", None)
         if draw_page is None:
-            log.debug("insert_image_result_on_sheet: target sheet has no DrawPage")
-            return
+            _egress_fail("target sheet has no DrawPage; image was not inserted")
 
         if target_cell is None and ctrl is not None and hasattr(ctrl, "getSelection"):
             try:
@@ -155,29 +285,32 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
             try:
                 raw_count = getattr(draw_page, "getCount", lambda: 0)()
                 if isinstance(raw_count, int) and raw_count > 0:
-                    for i in range(raw_count):
-                        s = draw_page.getByIndex(i)
-                        if _shape_anchor_matches_cell(s, target_cell):
-                            shape = s
+                    for index in range(raw_count):
+                        candidate = draw_page.getByIndex(index)
+                        if _is_reusable_plot_shape(candidate, target_cell):
+                            shape = candidate
                             break
             except Exception:
                 shape = None
 
         default_size = Size(DEFAULT_CHART_SIZE_WIDTH, DEFAULT_CHART_SIZE_HEIGHT)
         if shape is None:
-            shape = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
+            shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
             shape.setSize(default_size)
             draw_page.add(shape)
+            _assign_plot_shape_name(shape, draw_page)
 
+        # Setter loads the file into the shape's Graphic before returning.
+        # _unlink_temp_image runs in finally, after this call.
         shape.setPropertyValue("GraphicURL", file_url)
 
         if target_cell is not None:
             try:
                 cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
                 is_merged = bool(getattr(target_cell, "IsMerged", False))
-                w = getattr(cell_size, "Width", 0)
-                h = getattr(cell_size, "Height", 0)
-                is_large_placeholder = is_merged and w >= MIN_CHART_PLACEHOLDER_WIDTH and h >= MIN_CHART_PLACEHOLDER_HEIGHT
+                width = getattr(cell_size, "Width", 0)
+                height = getattr(cell_size, "Height", 0)
+                is_large_placeholder = is_merged and width >= MIN_CHART_PLACEHOLDER_WIDTH and height >= MIN_CHART_PLACEHOLDER_HEIGHT
 
                 shape.setPropertyValue("Anchor", target_cell)
                 if hasattr(shape, "setPosition"):
@@ -193,5 +326,10 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                         shape.setSize(default_size)
             except Exception:
                 log.debug("insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
-    except Exception:
+    except ImageEgressError:
+        raise
+    except Exception as exc:
         log.exception("insert_image_result_on_sheet failed to insert graphic shape")
+        raise ImageEgressError("insert_image_result_on_sheet failed to insert graphic shape") from exc
+    finally:
+        _unlink_temp_image(tmp_path)

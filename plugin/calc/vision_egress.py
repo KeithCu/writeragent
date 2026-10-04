@@ -11,15 +11,19 @@ from typing import Any
 from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
-from plugin.calc.python.function import to_calc_compatible
 from plugin.calc.rich_html import insert_cell_html_rich
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, is_disposed_exception
 from plugin.framework.i18n import _
 from plugin.writer.images.image_tools import _get_selected_graphic_object
 
 
 def _cell(value: Any) -> Any:
-    return to_calc_compatible(value)
+    """Keep OCR cell text unchanged. Numeric coercion happens only at write time."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 def _append_blank(rows: list[list[Any]]) -> None:
@@ -27,8 +31,12 @@ def _append_blank(rows: list[list[Any]]) -> None:
         rows.append([])
 
 
-def _table_span_merges(table: dict[str, Any], *, header_grid_row: int) -> list[tuple[int, int, int, int]]:
-    """Return (r1, c1, r2, c2) 0-based grid coords for Docling cell spans."""
+def _table_span_merges(table: dict[str, Any], *, header_grid_row: int, max_grid_row: int) -> list[tuple[int, int, int, int]]:
+    """Return (r1, c1, r2, c2) 0-based grid coords for Docling cell spans.
+
+    Spans are clipped to *max_grid_row* so a rowspan past the kept body
+    cannot merge the truncation note that is appended after the table.
+    """
     merges: list[tuple[int, int, int, int]] = []
     spans = table.get("spans")
     if not isinstance(spans, list):
@@ -46,6 +54,12 @@ def _table_span_merges(table: dict[str, Any], *, header_grid_row: int) -> list[t
         c1 = col
         r2 = r1 + rowspan - 1
         c2 = c1 + colspan - 1
+        if r1 > max_grid_row:
+            continue
+        if r2 > max_grid_row:
+            r2 = max_grid_row
+        if r1 == r2 and c1 == c2:
+            continue
         merges.append((r1, c1, r2, c2))
     return merges
 
@@ -94,7 +108,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
                         rows.append([_cell(cell) for cell in row])
                     else:
                         rows.append([_cell(row)])
-            merges.extend(_table_span_merges(table, header_grid_row=header_grid_row))
+            merges.extend(_table_span_merges(table, header_grid_row=header_grid_row, max_grid_row=len(rows) - 1))
             if table.get("truncated"):
                 total = table.get("total_rows")
                 note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
@@ -145,7 +159,9 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
     try:
         if hasattr(obj, "getPropertyValue"):
             anchor = obj.getPropertyValue("Anchor")
-    except Exception:
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise DocumentDisposedError("Document disposed", object_type="calc") from exc
         anchor = None
 
     if anchor is None:
@@ -155,7 +171,9 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
         addr = anchor.getCellAddress()
         col = int(addr.Column)
         row = int(addr.Row)
-    except Exception:
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise DocumentDisposedError("Document disposed", object_type="calc") from exc
         raise ToolExecutionError(_("Anchor the image to a cell, select it, then Run again."), code="NO_OUTPUT_ANCHOR") from None
 
     return col, row + 1
@@ -179,7 +197,8 @@ def insert_vision_structure_into_calc(doc: Any, uno_ctx: Any, result: dict[str, 
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
     addr = f"{index_to_column(col)}{row + 1}"
-    manipulator.write_formula_range(addr, grid)
+    # literal_text: setString, so "=..." is not a live formula and "000123" is not float()'d.
+    manipulator.write_formula_range(addr, grid, literal_text=True)
     for r1, c1, r2, c2 in merges:
         start = f"{index_to_column(col + c1)}{row + r1 + 1}"
         end = f"{index_to_column(col + c2)}{row + r2 + 1}"
