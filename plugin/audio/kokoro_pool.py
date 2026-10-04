@@ -401,7 +401,13 @@ class KokoroProcessPool:
             }
         return result
 
-    def cancel_inflight(self) -> None:
+    def get_inflight_token(self) -> object | None:
+        with self._lock:
+            if self._inflight:
+                return self._exec_token
+            return None
+
+    def cancel_inflight(self, token: object | None = None) -> None:
         """Kill the child only when a job is running. Idle warm processes stay up.
 
         What was wrong: during the ready handshake ``_worker`` was still None
@@ -412,6 +418,8 @@ class KokoroProcessPool:
         """
         with self._lock:
             if not self._inflight:
+                return
+            if token is not None and self._exec_token is not token:
                 return
             worker = self._worker
             self._worker = None
@@ -491,9 +499,18 @@ def shutdown_kokoro_pool() -> None:
         pool.shutdown()
 
 
-def cancel_kokoro_inflight() -> None:
+def get_kokoro_inflight_token() -> object | None:
+    """Get the token for the current ONNX job, if any, to target cancellation."""
+    with _POOL_LOCK:
+        pool = _POOL
+    if pool is not None:
+        return pool.get_inflight_token()
+    return None
+
+
+def cancel_kokoro_inflight(token: object | None = None) -> None:
     """Abort the current ONNX job without dropping an idle warm worker."""
     with _POOL_LOCK:
         pool = _POOL
     if pool is not None:
-        pool.cancel_inflight()
+        pool.cancel_inflight(token)

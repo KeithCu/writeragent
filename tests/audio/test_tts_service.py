@@ -85,6 +85,28 @@ def test_stop_speech_terminates_proc():
         mock_proc.terminate.assert_called_once()
 
 
+def test_stop_speech_fetches_kokoro_token():
+    with patch("plugin.audio.kokoro_pool.get_kokoro_inflight_token") as mock_get_token, \
+         patch("plugin.audio.kokoro_pool.cancel_kokoro_inflight") as mock_cancel:
+
+        mock_token = object()
+        mock_get_token.return_value = mock_token
+
+        stop_speech()
+
+        # Stop speech synchronously gets the token
+        mock_get_token.assert_called_once()
+
+        # Background task calls cancel
+        import time
+        for _ in range(10):
+            if mock_cancel.call_count > 0:
+                break
+            time.sleep(0.01)
+
+        mock_cancel.assert_called_once_with(mock_token)
+
+
 def test_resolve_tts_voice():
     from plugin.audio.tts_service import _resolve_tts_voice
 
