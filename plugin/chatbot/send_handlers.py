@@ -245,7 +245,9 @@ class SendHandlersMixin:
         from plugin.audio.stt_service import SttStopped, status_for_transcription, terminate_stt_process, transcribe
         from plugin.framework.queue_executor import post_to_main_thread
 
-        if self._stt_inflight:
+        # getattr: a duck-typed host (the smol _do_send double) has no field
+        # until this call sets it. Missing means nothing is in flight.
+        if getattr(self, "_stt_inflight", False):
             log.info("Ignoring re-entrant STT; the in-flight transcription keeps the first Stop")
             return ""
 

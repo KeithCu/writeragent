@@ -1398,7 +1398,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # cleared the stop fallback while the first Whisper child was
                 # still alive, so Stop for the first send did not kill it.
                 # Why: leave the first scope in place until that child exits.
-                if self._stt_inflight:
+                if getattr(self, "_stt_inflight", False):
                     log.info("StartSend ignored while speech-to-text is running")
                     return
 
@@ -1511,7 +1511,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # A drain posted before StartSend learned STT was in flight must not
         # clear the first send's scope or dispatch SEND_COMPLETED under it.
-        if self._stt_inflight:
+        if getattr(self, "_stt_inflight", False):
             log.info("Nested send drain ignored during speech-to-text")
             return
 
@@ -1624,7 +1624,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # begin_send_turn aborts the turn already in flight. A pump re-entry
         # during Whisper must not do that, and must not clear the WAV.
-        if self._stt_inflight:
+        # What was wrong: this read self._stt_inflight. Smol tests call
+        # _do_send on a SimpleNamespace that never ran __init__, so the
+        # attribute was missing and every chat send raised AttributeError.
+        # Why: missing means not transcribing, same as the mixin default.
+        if getattr(self, "_stt_inflight", False):
             log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
             return
 
