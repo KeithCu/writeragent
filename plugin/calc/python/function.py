@@ -1084,10 +1084,10 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     # ctx, code, the grid, and the cached document after the book closed.
     # The key was cached on the UI thread; do not call _lifecycle_key here.
     lkey = _off_main_spill_lifecycle_key(doc)
+    t = _new_spill_timer(0.1, _deferred)
     if lkey:
-        t = _new_spill_timer(0.1, _deferred)
         _register_spill_timer(lkey, t)
-        t.start()
+    t.start()
 
 
 def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None) -> float | str | bool | tuple[Any, ...]:

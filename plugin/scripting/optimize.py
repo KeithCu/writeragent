@@ -146,7 +146,7 @@ def insert_optimize_result_into_calc(
     selection, or an unqualified ``output_range``).
     """
     stop_checker = getattr(uno_ctx, "stop_checker", None)
-    if stop_checker and stop_checker():
+    if callable(stop_checker) and stop_checker() is True:
         return 0
 
     from plugin.calc.tabular_egress import insert_tabular_result_into_calc

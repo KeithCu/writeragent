@@ -230,7 +230,7 @@ def insert_image_payload_for_doc(
 def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a viz helper result (image nested under ``image`` key)."""
     stop_checker = getattr(ctx, "stop_checker", None)
-    if stop_checker and stop_checker():
+    if callable(stop_checker) and stop_checker() is True:
         return 0
 
     if result.get("status") == "error":

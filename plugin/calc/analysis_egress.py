@@ -32,7 +32,7 @@ def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:
 def insert_analysis_result_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, sheet_name: str | None = None, start_col: int | None = None, start_row: int | None = None) -> int:
     """Write formatted analysis output starting at *start_col*/*start_row* (or selection). Returns row count."""
     stop_checker = getattr(uno_ctx, "stop_checker", None)
-    if stop_checker and stop_checker():
+    if callable(stop_checker) and stop_checker() is True:
         return 0
 
     grid = format_analysis_for_calc(result)
