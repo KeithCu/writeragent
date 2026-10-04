@@ -292,15 +292,23 @@ def stop_speech() -> None:
         temps = list(_tracked_temps)
         _tracked_temps.clear()
         _reply_misaki_ready.clear()
+    cancel_token: object | None = None
+    try:
+        from plugin.audio.kokoro_pool import get_kokoro_inflight_token
+        cancel_token = get_kokoro_inflight_token()
+    except Exception:
+        pass
+
     def _bg_cleanup() -> None:
         _terminate_proc(play)
         for proc in synths:
             _terminate_proc(proc)
-        try:
-            from plugin.audio.kokoro_pool import cancel_kokoro_inflight
-            cancel_kokoro_inflight()
-        except Exception:
-            log.debug("Kokoro cancel failed", exc_info=True)
+        if cancel_token is not None:
+            try:
+                from plugin.audio.kokoro_pool import cancel_kokoro_inflight
+                cancel_kokoro_inflight(cancel_token)
+            except Exception:
+                log.debug("Kokoro cancel failed", exc_info=True)
         paths: list[str] = []
         if queue_ref is not None:
             paths.extend(queue_ref.drain())

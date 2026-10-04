@@ -195,6 +195,7 @@ def test_extract_structure_happy_path_inserts(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
+    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=True)
 
     assert result["status"] == "ok"
@@ -227,6 +228,7 @@ def test_extract_structure_return_only_skips_insert(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
+    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=False)
 
     assert result["status"] == "ok"
@@ -288,11 +290,20 @@ def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_build_agent):
     mock_build_agent.assert_not_called()
 
 
-def test_delegate_vision_no_document_lock():
+@patch("plugin.framework.constants.USE_SUB_AGENT", False)
+def test_delegate_vision_no_document_lock_when_no_sub_agent():
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     gateway = DelegateToSpecializedWriter()
     assert gateway.requires_document_lock({"domain": "vision"}) is False
+
+
+@patch("plugin.framework.constants.USE_SUB_AGENT", True)
+def test_delegate_vision_requires_document_lock_when_sub_agent():
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+
+    gateway = DelegateToSpecializedWriter()
+    assert gateway.requires_document_lock({"domain": "vision"}) is True
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
@@ -334,6 +345,7 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
         "failed_image": "Img2",
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    tool_ctx.stop_checker = None
     result = ExtractStructureFromImage().execute(tool_ctx)
     assert result["status"] == "error"
     assert result["code"] == "VISION_ERROR"
@@ -348,5 +360,6 @@ def test_extract_structure_reraises_document_disposed(tool_ctx):
     from plugin.framework.errors import DocumentDisposedError
 
     with patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection", side_effect=DocumentDisposedError("gone", object_type="vision")):
+        tool_ctx.stop_checker = None
         with pytest.raises(DocumentDisposedError):
             ExtractStructureFromImage().execute(tool_ctx)

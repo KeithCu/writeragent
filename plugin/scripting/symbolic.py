@@ -200,6 +200,10 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
 
 def insert_symbolic_result_into_calc(doc: Any, ctx: Any, result: dict[str, Any]) -> int:
     """Write symbolic result rows on the active Calc sheet."""
+    stop_checker = getattr(ctx, "stop_checker", None)
+    if callable(stop_checker) and stop_checker() is True:
+        return 0
+
     from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
     return insert_tabular_result_into_calc(doc, ctx, format_symbolic_for_calc(result))

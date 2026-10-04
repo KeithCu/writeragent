@@ -421,6 +421,12 @@ def clear_folder_cache(listing_root: str) -> None:
     _remove_path(base / "zvec")
     _remove_path(base / "lancedb")
 
+    try:
+        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+        zvec_clear_cache(str(base / "zvec"))
+    except ImportError:
+        pass
+
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
     """On first access after upgrade, drop stale v1/v2 stores."""
@@ -436,13 +442,18 @@ def maybe_upgrade_legacy_index(listing_root: str) -> None:
     clear_folder_cache(listing_root)
 
 
-def resolve_index_context(ctx: Any, model: Any) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
+_USE_DEFAULT = object()
+
+
+def resolve_index_context(
+    ctx: Any = None, model: Any = None, *, listing_root: Any = _USE_DEFAULT
+) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
     """Return (folder_key, corpus_db_path, corpus_meta_path, listing_root) or error tuple."""
-    listing_root = resolve_folder_for_active_doc(ctx, model)
+    if listing_root is _USE_DEFAULT:
+        listing_root = resolve_folder_for_active_doc(ctx, model)
     if not listing_root:
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
-    maybe_upgrade_legacy_index(listing_root)
     db_path = corpus_db_path(listing_root)
     meta = corpus_meta_path(listing_root)
     return folder_key, db_path, meta, listing_root

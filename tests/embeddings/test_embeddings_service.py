@@ -289,3 +289,39 @@ def test_maintain_folder_index_lancedb_mode(ctx, tmp_path):
     assert mock_run.call_args.kwargs["params"]["search_mode"] == "lancedb"
 
 
+
+def test_stop_checker_plumbing(ctx, tmp_path):
+    corpus_db = str(tmp_path / "corpus.db")
+    meta_json = str(tmp_path / "meta.json")
+
+    def stop_checker():
+        return False
+
+    cancellation_scope = object()
+
+    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"chunk_count": 5, "mode": "cold", "hits": [], "indexed": 1, "deleted": 1}) as mock_run:
+        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="sqlite"):
+                embeddings_service.collection_stats(ctx, corpus_db, meta_json, stop_checker=stop_checker, cancellation_scope=cancellation_scope)
+                assert mock_run.call_args.kwargs["stop_checker"] is stop_checker
+                assert mock_run.call_args.kwargs["cancellation_scope"] is cancellation_scope
+
+                embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL, stop_checker=stop_checker, cancellation_scope=cancellation_scope)
+                assert mock_run.call_args.kwargs["stop_checker"] is stop_checker
+                assert mock_run.call_args.kwargs["cancellation_scope"] is cancellation_scope
+
+                embeddings_service.knn_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL, stop_checker=stop_checker, cancellation_scope=cancellation_scope)
+                assert mock_run.call_args.kwargs["stop_checker"] is stop_checker
+                assert mock_run.call_args.kwargs["cancellation_scope"] is cancellation_scope
+
+                embeddings_service.index_paragraphs(ctx, corpus_db, meta_json, [], model=DEFAULT_EMBEDDING_MODEL, stop_checker=stop_checker, cancellation_scope=cancellation_scope)
+                assert mock_run.call_args.kwargs["stop_checker"] is stop_checker
+                assert mock_run.call_args.kwargs["cancellation_scope"] is cancellation_scope
+
+                embeddings_service.delete_paragraphs(ctx, corpus_db, meta_json, [], model=DEFAULT_EMBEDDING_MODEL, stop_checker=stop_checker, cancellation_scope=cancellation_scope)
+                assert mock_run.call_args.kwargs["stop_checker"] is stop_checker
+                assert mock_run.call_args.kwargs["cancellation_scope"] is cancellation_scope
+
+                embeddings_service.maintain_folder_index(ctx, str(tmp_path), model=DEFAULT_EMBEDDING_MODEL, stop_checker=stop_checker, cancellation_scope=cancellation_scope)
+                assert mock_run.call_args.kwargs["stop_checker"] is stop_checker
+                assert mock_run.call_args.kwargs["cancellation_scope"] is cancellation_scope
