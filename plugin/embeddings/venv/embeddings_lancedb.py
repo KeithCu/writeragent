@@ -284,7 +284,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     indexed = 0
     upserted_total = 0
 
-    _hb.force({"phase": "start", "mode": "lancedb", "listing_root": root, "files": total})
+    _hb.force({"phase": "start", "mode": mode, "listing_root": root, "files": total})
 
     # Probe dim
     dim = 0
@@ -330,7 +330,17 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
         remove_file_from_index(Path(db_path), url)
 
     for idx, entry in enumerate(files):
-        _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": "lancedb"})
+        _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
+
+        try:
+            tbl = _open_for_search(coll_path)
+            file_docs = tbl.search().where(f"doc_url = '{entry.url}'").limit(1).to_list()
+            if file_docs:
+                mtime = file_docs[0].get("file_mtime")
+                if mtime is not None and abs(mtime - entry.modified) < 1.0:
+                    continue
+        except Exception:
+            pass
 
         try:
             paragraph_count, chunks = indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
@@ -372,6 +382,6 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim, chunk_count=final_count)
     write_corpus_meta(meta_path, storage_backend="lancedb", updated_at=str(time.time()))
 
-    _hb.force({"phase": "done", "mode": "lancedb", "indexed_paragraphs": indexed, "upserted": upserted_total})
+    _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
 
     return {"mode": "lancedb", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "lancedb"}
