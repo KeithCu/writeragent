@@ -647,5 +647,6 @@ def test_calc_bridge_targets_active_sheet():
     sheets.getByIndex.return_value = sheet
     doc.getSheets.return_value = sheets
     doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
+    doc.getCurrentController.return_value.ActiveSheet = sheet
     bridge = DrawBridge(doc)
     assert bridge.get_active_page() is page

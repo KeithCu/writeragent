@@ -161,6 +161,8 @@ def _grid_for_requested_range(range_name: str) -> list[list[dict]]:
 def test_query_folder_sql_tool_basic_schema():
     t = QueryFolderSqlTool()
     assert t.name == "query_folder_sql"
+    assert t.specialized_domain == "python/sql"
+    assert getattr(t, "is_mutation", None) is False
     p = t.parameters
     assert "sql" in p["properties"]
     assert "sql" in p.get("required", [])

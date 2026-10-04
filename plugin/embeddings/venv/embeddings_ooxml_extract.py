@@ -56,8 +56,8 @@ def extract_docx_paragraphs(path: str) -> list[str]:
     return passages
 
 
-def extract_spreadsheet_rows(path: str) -> list[str]:
-    """One passage per non-empty row from .xlsx/.xls (pandas + openpyxl/xlrd)."""
+def extract_spreadsheet_rows(path: str) -> list[str] | None:
+    """One passage per non-empty row from .xlsx/.xls (pandas + openpyxl/xlrd). Returns None on failure."""
     ext = Path(path).suffix.lower()
     if ext == ".xlsx":
         engine = "openpyxl"
@@ -69,15 +69,15 @@ def extract_spreadsheet_rows(path: str) -> list[str]:
         import pandas as pd
     except ImportError as exc:
         log.debug("pandas not installed — spreadsheet extract skipped for %s", path, exc_info=True)
-        raise RuntimeError(f"pandas not installed — spreadsheet extract skipped for {path}") from exc
+        return None
     try:
         sheets = pd.read_excel(path, engine=engine, sheet_name=None, header=None)
     except ImportError as exc:
         log.debug("%s engine not installed — spreadsheet extract skipped for %s", engine, path, exc_info=True)
-        raise RuntimeError(f"{engine} engine not installed — spreadsheet extract skipped for {path}") from exc
-    except Exception as exc:
+        return None
+    except Exception:
         log.debug("extract_spreadsheet_rows failed for %s", path, exc_info=True)
-        raise RuntimeError(f"extract_spreadsheet_rows failed for {path}") from exc
+        return None
 
     rows: list[str] = []
     for sheet_name, frame in sheets.items():

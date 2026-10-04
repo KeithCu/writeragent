@@ -1209,8 +1209,16 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
     tests that patch it). Do not pump inside ``execute_code`` (LayoutIdle).
     """
     try:
-        from plugin.framework.queue_executor import pump_main_thread_work_queue
+        from plugin.framework.async_drain_guard import get_drain_owner
+        from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
+        from plugin.framework.uno_context import get_toolkit
+        from plugin.notebook.writer_importer import flush_ui_idle
+
         pump_main_thread_work_queue(max_items=1)
+        if get_drain_owner() is not None:
+            pump_ui_idle(get_toolkit(ctx), max_queue_items=1)
+        else:
+            flush_ui_idle(ctx)
     except Exception:
         log.debug("notebook run: between-cell pump failed", exc_info=True)
 
@@ -1309,22 +1317,43 @@ def run_from_here_for_doc(ctx: Any, doc: Any) -> RunResult | None:
     return run_cells(ctx, doc, start_index=find_run_from_here_index(doc, state))
 
 
-def run_all_from_menu(ctx: Any | None = None) -> None:
+def run_all_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
     from plugin.framework.uno_context import get_ctx
 
     resolved = ctx if ctx is not None else get_ctx()
-    run_all_for_doc(resolved, get_active_document(resolved))
+    doc = None
+    if frame is not None and hasattr(frame, "getController"):
+        ctrl = frame.getController()
+        if ctrl is not None and hasattr(ctrl, "getModel"):
+            doc = ctrl.getModel()
+    if doc is None:
+        doc = get_active_document(resolved)
+    run_all_for_doc(resolved, doc)
 
 
-def run_from_here_from_menu(ctx: Any | None = None) -> None:
+def run_from_here_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
     from plugin.framework.uno_context import get_ctx
 
     resolved = ctx if ctx is not None else get_ctx()
-    run_from_here_for_doc(resolved, get_active_document(resolved))
+    doc = None
+    if frame is not None and hasattr(frame, "getController"):
+        ctrl = frame.getController()
+        if ctrl is not None and hasattr(ctrl, "getModel"):
+            doc = ctrl.getModel()
+    if doc is None:
+        doc = get_active_document(resolved)
+    run_from_here_for_doc(resolved, doc)
 
 
-def stop_from_menu(ctx: Any | None = None) -> None:
+def stop_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
     from plugin.framework.uno_context import get_ctx
 
     resolved = ctx if ctx is not None else get_ctx()
-    stop_for_doc(get_active_document(resolved))
+    doc = None
+    if frame is not None and hasattr(frame, "getController"):
+        ctrl = frame.getController()
+        if ctrl is not None and hasattr(ctrl, "getModel"):
+            doc = ctrl.getModel()
+    if doc is None:
+        doc = get_active_document(resolved)
+    stop_for_doc(doc)

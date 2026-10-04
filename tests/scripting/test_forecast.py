@@ -244,6 +244,25 @@ def test_duplicate_dates_are_aggregated():
     assert result["status"] == "ok"
     assert any("Aggregated 1 duplicate" in flag for flag in result["flags"])
 
+def test_forecast_date_origin_honored():
+    from plugin.scripting.venv.forecast import forecast_time_series
+    grid = [["Date", "Value"]]
+    # 44780.0 is 2026-08-08 under 1904-01-01 NullDate
+    for i in range(12):
+        grid.append([44780.0 + i, 100.0 + i])
+
+    # Under default 1899-12-30, 44780 is 2022-08-07
+    result_1899 = forecast_time_series(grid, periods=1)
+    df_1899 = result_1899["tables"][0]["rows"]
+    # forecast point date
+    fdate_1899 = df_1899[0][0]
+    assert str(fdate_1899).startswith("2022-08-19")
+
+    # Under 1904-01-01, 44780 is 2026-08-08
+    result_1904 = forecast_time_series(grid, periods=1, date_origin="1904-01-01")
+    df_1904 = result_1904["tables"][0]["rows"]
+    fdate_1904 = df_1904[0][0]
+    assert str(fdate_1904).startswith("2026-08-20")
 
 def test_insert_forecast_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.scripting.forecast import insert_forecast_result_into_calc

@@ -26,6 +26,7 @@ class MCPState(BaseState):
     error_message: Optional[str] = None
     error_code: Optional[str] = None
     is_long_running: bool = False
+    is_async: bool = False
     is_error: bool = False
 
 
@@ -58,6 +59,7 @@ class ExecuteToolEffect:
     tool_name: str
     arguments: Dict[str, Any]
     is_long_running: bool
+    is_async: bool
     document_url: Optional[str] = None
 
 
@@ -91,14 +93,15 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
         arguments = event.data.get("arguments", {})
         document_url = event.data.get("document_url")
         is_long_running = event.data.get("is_long_running", False)
+        is_async = event.data.get("is_async", False)
 
         if not tool_name:
             effects.append(SendErrorEffect(message="Missing 'name' in tools/call params", code="INVALID_PARAMS"))
             return FsmTransition(dataclasses.replace(state, status=MCPStateStr.ERROR, is_error=True), effects)
 
         effects.append(ParseRequestEffect())
-        effects.append(ExecuteToolEffect(tool_name=tool_name, arguments=arguments, is_long_running=is_long_running, document_url=document_url))
-        return FsmTransition(dataclasses.replace(state, status=MCPStateStr.EXECUTING_TOOL, tool_name=tool_name, arguments=arguments, document_url=document_url, is_long_running=is_long_running), effects)
+        effects.append(ExecuteToolEffect(tool_name=tool_name, arguments=arguments, is_long_running=is_long_running, is_async=is_async, document_url=document_url))
+        return FsmTransition(dataclasses.replace(state, status=MCPStateStr.EXECUTING_TOOL, tool_name=tool_name, arguments=arguments, document_url=document_url, is_long_running=is_long_running, is_async=is_async), effects)
 
     elif event.kind == EventKind.TOOL_EXECUTION_STARTED:
         # Just an informational event, we stay in EXECUTING_TOOL

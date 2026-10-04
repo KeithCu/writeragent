@@ -293,20 +293,19 @@ class SendHandlersMixin:
                 self._stt_kill = _kill
 
             def _call() -> str:
+                # AI/DEV INVARIANT: Do NOT pass stop_checker or cancel_scope to transcribe().
+                # If the user clicks Stop while talking or transcribing, we want speech-to-text
+                # to complete transcribing the take so the text lands in the query box for the user,
+                # rather than aborting Whisper and discarding the audio.
                 return transcribe(
                     wav_path,
                     client=cl,
                     model=stt_model,
                     on_status=on_status,
-                    stop_checker=stop_checker,
-                    cancel_scope=cancel_scope,
                     on_spawn=_on_spawn,
                 )
 
             try:
-                # Do not pass stop_checker here. That raises BlockingWaitStopped
-                # and returns before the worker reaps the child. The worker
-                # polls the frozen checker and kills the process first.
                 transcript_text = run_blocking_in_thread(self.ctx, _call)
             except SttStopped:
                 log.info("Speech-to-text stopped")
@@ -316,12 +315,14 @@ class SendHandlersMixin:
                 log.exception("Transcription error in _transcribe_audio")
                 self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
                 raise e
-            # The child can exit in the same poll as Stop. Do not hand that
-            # transcript to chat; the checker is still the first send's.
+            # AI/DEV INVARIANT: Return transcript_text even if stop_checker() is True.
+            # When Stop was requested, _terminal_status = "Stopped" tells the send drain
+            # not to send the text to the model, but returns the transcript so it lands
+            # in the query box for the user to see and edit.
             if stop_checker():
-                log.info("Speech-to-text stopped")
+                log.info("Speech-to-text finished after Stop; preserving transcript for query box")
                 self._terminal_status = "Stopped"
-                return ""
+                return transcript_text
             return transcript_text
         finally:
             self._stt_inflight = False
@@ -1139,6 +1140,8 @@ class SendHandlersMixin:
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""
         try:
+            if not as_bool(get_config("mcp.mcp_enabled")):
+                return None
             from plugin.mcp.server import mcp_endpoint_url
 
             port = get_config_int_safe("mcp.mcp_port")
