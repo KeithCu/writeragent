@@ -250,6 +250,10 @@ We chose the **lightweight, dependency-free** approach:
 
 This avoids adding the heavy `openai` dependency to the LibreOffice extension while ensuring 100% compatibility with OpenAI-style streaming deltas.
 
+Non-streaming JSON (images, speech, and the sync half of `request_with_tools`) shares one retry loop, `_exchange_json` in `plugin/framework/client/llm_client.py`. Stop during a 429/503 wait aborts that call. A body that `read()` already returned is not posted again. The stream loop stays separate because it must not retry after tokens have reached the UI.
+
+A retry before any visible token still drops that attempt's snapshot. `on_delta` can record `role`, `usage`, and a buffered `<think` prefix while `emitted_any` is still false (a usage-only chunk and a partial tag never call `on_content`). `accumulate_delta` adds integers and concatenates strings, so the next attempt would double `prompt_tokens` / `completion_tokens` and glue the prefix on twice. `_run_streaming_loop` calls `reset_unemitted_attempt` only in that case. After a token, a thinking delta, or a tool-call byte has been shown, the loop does not retry and does not clear the snapshot.
+
 ---
 
 ## 7. Event Loop and UI Threading
@@ -259,8 +263,8 @@ LibreOffice’s UI (VCL) is single-threaded. To keep the UI responsive during lo
 **The Architecture:**
 
 1. **Worker Threads (Producers):**
-   - The LLM stream (`_spawn_llm_worker`) runs on a background thread. It pushes messages like `("chunk", text)`, `("thinking", text)`, `("stream_done", response)`, or `("error", e)` to the queue.
-   - Long-running network tools (like Web Search or Image Generation) also run on background threads and push `("tool_thinking", text)", `("status", text)`, and `("tool_done", ...)` to the *same* queue.
+   - The LLM stream (`_spawn_llm_worker`) runs on a background thread. It pushes `(StreamQueueKind.CHUNK, text)`, `(StreamQueueKind.THINKING, text)`, `(StreamQueueKind.STREAM_DONE, response)`, or `(StreamQueueKind.ERROR, e)` tuples — the first element must be a `StreamQueueKind` enum member, not a bare string.
+   - Long-running network tools (like Web Search or Image Generation) also run on background threads and push `TOOL_THINKING`, `STATUS`, and `TOOL_DONE` on the *same* queue.
 
 2. **Main Thread (Consumer):**
    - Runs a single `while True` event loop in `_start_tool_calling_async`.
@@ -276,16 +280,16 @@ This flat architecture avoids nested callbacks and makes state transitions expli
 
 ### Tool-loop command boundary
 
-The main-chat loop keeps the transition layer pure. Queue items from worker threads are normalized in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) by `_create_event_from_stream_item()`, then [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) `next_state()` returns only a new `ToolLoopState` plus effect dataclasses. Control fields (`round_num`, `pending_tools`, `is_stopped`, …) live solely in that frozen state (`sidebar_state.tool_loop`). [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) is the interpreter that executes those effects against host session handles (`_active_q` / `_active_batched_q`, client, tool schemas/fn, model)—not a parallel copy of the FSM counters. This keeps document mutations out of the FSM while preserving the main-thread drain-loop boundary for UNO work.
+The main-chat loop keeps the transition layer pure. Queue items from worker threads are normalized in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) by `_create_event_from_stream_item()`, then [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) `next_state()` returns only a new `ToolLoopState` plus effect dataclasses. Control fields (`round_num`, `pending_tools`, `is_stopped`, …) live solely in that frozen state (`sidebar_state.tool_loop`). [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) is the interpreter that executes those effects against the current `TurnController` (queue, document model captured at spawn, client, tool schemas/fn)—not a parallel copy of the FSM counters. This keeps document mutations out of the FSM while preserving the main-thread drain-loop boundary for UNO work. An async tool closes over the execute function, document model, and stop checker from the spawn that started it. A failure is classified with that captured model, so a later send's document cannot turn a disposed-document error into an ordinary tool result. Sync tools close over the same document. ``execute_safe`` reports a disposed document as a ``DOCUMENT_DISPOSED`` dict; the chat executor raises that with the spawn document so the failure path queues ``ERROR`` and the loop ends. ``NEXT_TOOL`` while the FSM is already stopped emits ``ExitLoopEffect`` and does not spawn another LLM or final-stream worker.
 
 > [!WARNING]
 > **`job_done` ownership invariant:** `job_done[0]` must **only** be written by the drain loop (main thread) when it processes a terminal queue item (`STREAM_DONE`, `ERROR`, or `STOPPED`). The worker thread must never set `job_done[0] = True` directly, even in a `finally` block.
 >
 > **Why this matters:** Setting `job_done[0] = True` from the worker thread races with the drain loop's `while not job_done[0]` check. A fast-returning worker (common for short LLM responses) can set the flag before the main thread dequeues and processes the `STREAM_DONE` item. The drain loop then exits without ever calling `on_done` — which means cleanup callbacks such as `leaveUndoContext()` are never invoked, leaving LibreOffice's `XUndoManager` with an open, orphaned context. All subsequent text insertions are recorded under that context as `"Insert $1"` and the undo stack is permanently corrupted for that document session.
 >
-> The worker's `finally` block posts the sentinel `(STREAM_DONE, None)` on a normal return so the drain loop unblocks. It must not post that sentinel when the wrapper already queued `ERROR`: `on_error` returning `True` keeps the drain alive for a replacement worker, and a trailing `STREAM_DONE` would end that recovery. The drain loop itself sets `job_done[0] = True` when it processes a terminal item.
+> The worker's `finally` block posts the sentinel `(STREAM_DONE, None)` on a normal return so the drain loop unblocks. It must not post that sentinel when the wrapper already queued `ERROR`: `on_error` returning `True` keeps the drain alive for a replacement worker, and a trailing `STREAM_DONE` would end that recovery. Puts on the real queue (including a queue the worker closed over) are counted by one shared `put` wrapper. Overlapping workers on that queue each have their own flag; the original `put` is restored when the last watcher leaves. The drain loop itself sets `job_done[0] = True` when it processes a terminal item. `NEXT_TOOL` is not terminal: it notifies `on_stream_done` and keeps the current batch going. A true return is applied only after items already pulled are handled, so a chunk or `STREAM_DONE` behind `NEXT_TOOL` is not discarded. A false return leaves the drain pumping. `run_async_worker_with_drain` returns false for `NEXT_TOOL` so that wrapper does not look like a finished stream.
 >
-> **Drain-handler exceptions:** If a dispatch handler (chunk/thinking UI) raises inside `_process_batch`, that is an inline `ERROR`: call `on_error` once, set `job_done`, and end the batch. Do **not** re-queue `(ERROR, payload)` (that used to keep applying later chunks and then run `STREAM_DONE` as success, so `on_error` never ran). Do **not** call `on_stream_done` after the crash (Writer Extend/Edit would both restore and finish; chat would show Error and Ready). `STREAM_DONE` already dequeued into the current `items` list is skipped because `job_done` is set — breaking *without* `job_done` after that dequeue is what hangs. A live worker `finally` may still post a later sentinel; the loop has already exited, same as a producer `ERROR`.
+> **Drain-handler exceptions:** If a dispatch handler (chunk/thinking UI) raises inside `_process_batch`, that is an inline `ERROR`: call `on_error` once and end the batch. A fatal result sets `job_done`. `on_error` returning True leaves `job_done` clear for the replacement worker and drops the rest of the batch. Either way, skip the trailing `flush_buffers` — the handler path already flushed, and a second flush that raises would call `on_error` again. A stop break skips that trailing flush too, because `_finish_on_stop` already flushed. Stop also applies CHUNK and THINKING already pulled into that batch and not yet handled, including when Stop is the first item; other kinds in the tail are not dispatched. The drain `get` timeout stays 0.1s. The success path still flushes, so a flush that raises is reported once by the outer catch. Do **not** re-queue `(ERROR, payload)` (that used to keep applying later chunks and then run `STREAM_DONE` as success, so `on_error` never ran). Do **not** call `on_stream_done` after the crash (Writer Extend/Edit would both restore and finish; chat would show Error and Ready). `STREAM_DONE` already dequeued into the current `items` list is skipped on the fatal path because `job_done` is set — breaking *without* `job_done` after that dequeue, and then applying the tail, is what used to finish the failed attempt. A live worker `finally` may still post a later sentinel; a fatal loop has already exited, same as a producer `ERROR`.
 
 
 
@@ -300,11 +304,11 @@ When the LLM finishes a stream and requests tools (`"stream_done"`), WriterAgent
 To handle both sync and async tools without freezing the UI, WriterAgent uses an internal dispatch queue:
 
 1. **Queueing:** When `"stream_done"` is received with `tool_calls`, the calls are added to a `pending_tools` list, and a `("next_tool",)` message is pushed onto the queue.
-2. **Dispatching:** The main loop picks up `"next_tool"`. It pops the first tool from `pending_tools`:
-   - **Async Tools (`ASYNC_TOOLS` set):** Spawned in a daemon thread. The main loop immediately returns to pumping UI events. When the thread finishes, it pushes a `("tool_done", ...)` message to the queue.
-   - **Sync Tools (UNO operations):** Executed immediately on the main thread. A `("tool_done", ...)` message is pushed to the queue.
+2. **Dispatching:** The main loop picks up `"next_tool"` and keeps pumping through items already pulled. A true callback return does not drop that tail; it is applied only after the batch. A false return leaves the drain running. It pops the first tool from `pending_tools`:
+   - **Async Tools (`ASYNC_TOOLS` set):** Spawned on a dedicated thread. The main loop immediately returns to pumping UI events. When the thread finishes, it pushes a `("tool_done", ...)` message to the queue.
+   - **Sync Tools (UNO operations):** Also started on a dedicated thread, so the drain can keep pumping Stop. The worker checks the spawn-time stop checker before the call. UNO still runs on the main thread: ``ToolRegistry.execute`` marshals sync tools with ``execute_on_main_thread``, and the drain's ``pump_ui_idle`` runs that work. The worker then pushes `("tool_done", ...)`.
 3. **Completion:** When `"tool_done"` is received, the result is saved to the session history, and another `("next_tool",)` message is pushed.
-4. **Next Round:** When `"next_tool"` finds an empty `pending_tools` list, all tools are finished. The loop increments the round counter and spawns a new LLM worker to send the results back to the model.
+4. **Next Round:** When `"next_tool"` finds an empty `pending_tools` list and the loop is not stopped, all tools are finished. The loop increments the round counter and spawns a new LLM worker to send the results back to the model. If the loop is already stopped, it exits instead of spawning that worker or the final stream.
 
 This sequentializes tool execution while guaranteeing the UI never freezes during network-bound tool operations.
 
@@ -312,7 +316,12 @@ Smolagents (`ToolCallingAgent.process_tool_calls`) uses the same rule: multiple 
 
 ### Stop / cancellation
 
-Each sidebar **Send** runs under a **`SendCancellation`** scope ([`plugin/framework/queue_executor.py`](../../plugin/framework/queue_executor.py) `agent_session()`). **Stop** calls `scope.cancel()` once. Closing the tab (or disposing the send control) during drain is re-entrant on the UI thread inside `processEventsToIdle`; [`SendButtonListener.disposing`](../../plugin/chatbot/panel.py) cancels the same scope and latches `_stop_requested_fallback` so the drain stop checker matches Stop.
+
+#### Stop semantics: network waits vs document mutations and speech
+
+- **Abort packet/network waits immediately:** When Stop is requested, abort blocking reads, streaming tokens from the LLM, image generation HTTP requests, or subprocess waits right away so the user is not left waiting.
+- **Allow in-flight document mutations to land:** If Stop is clicked while inserting a picture, applying an already-received text chunk in Writer, or writing analysis/plots to a Calc sheet, let the document mutation finish. Do not add fragile defensive abort code right before or during document mutations. Chunks already in hand must land in the document cleanly rather than raising exceptions inside `apply_chunk` (which would pop error dialogs and roll back the user's edits).
+- **Speech / Voice:** If the user is speaking and clicks Stop, end the recording take and transcribe the audio into the query box. Do **not** abort the transcription, discard the audio, or auto-submit the transcript to the model. The user can review and edit their spoken input before sending.
 
 #### What `scope.cancel()` does
 
@@ -338,7 +347,9 @@ Two separate bugs caused that:
 
    The worker still used `stop_checker=lambda: self.stop_requested`. After the scope pointer was cleared, `stop_requested` fell back to **`_stop_requested_fallback`**, which was still **False** (only `scope.cancel()` had run—it does not set the fallback unless Stop goes through the panel path). So from step 5 onward the sub-agent’s `SmolAgentExecutor` loop thought nothing was cancelled and kept calling the model.
 
-   **Fix:** pass a **stable** predicate: `scope.is_cancelled` (bound method on the same `SendCancellation` object), via [`bind_send_stop_checker()`](../../plugin/framework/queue_executor.py) / [`SendButtonListener.resolve_stop_checker()`](../../plugin/chatbot/panel.py). Capture that when starting the worker; do not re-read `panel._send_cancellation` from the worker after the drain exits.
+   **Fix:** pass a **stable** predicate: `scope.is_cancelled` (bound method on the same `SendCancellation` object), via [`bind_send_stop_checker()`](../../plugin/framework/queue_executor.py) / [`SendButtonListener.resolve_stop_checker()`](../../plugin/chatbot/panel.py). Capture that on the send thread when starting the worker ([`capture_send_stop`](../../plugin/framework/queue_executor.py)); do not re-read `panel._send_cancellation` from the worker after the drain exits.
+
+   Calling `resolve_stop_checker()` inside the worker body is the same bug one step later. The drain has cleared the field, the next send has stored a new scope, and the late body binds that new scope. The old Stop is missed, and the old worker can cancel the new send. `run_in_background` copies contextvars at submit, so `get_current_send_cancellation()` is the submit-time scope. Do not replace that with a panel read when the job runs.
 
 2. **Sub-agent `LlmClient` never registered for `stop()`**
 
@@ -355,7 +366,8 @@ Two separate bugs caused that:
 | Need | Do this |
 |------|---------|
 | Main-thread drain / streaming | `stop_checker=self.resolve_stop_checker()` (not `lambda: self.stop_requested` alone). |
-| Background worker (web research, async tool) | At worker start: `stop_checker = self.resolve_stop_checker()` and `cancel_scope = self._send_cancellation`; pass both into `ToolContext(..., stop_checker=stop_checker, send_cancellation=cancel_scope)`. |
+| Background worker (web research, LLM stream, async tool) | On the send thread at spawn, before the thread body: `cancel_scope, stop_checker = capture_send_stop(self)`. Close over both. The worker must not call `resolve_stop_checker()` or read `host._send_cancellation`. Pass them into `ToolContext(..., stop_checker=stop_checker, send_cancellation=cancel_scope)`. |
+| Deep-research pool | On Stop, cancel futures that have not started, then join the pool. Workers return when the stop checker captured with the send is true. A worker stuck in HTTP is joined only up to `_STOP_POOL_JOIN_SEC`. Do not use `with ThreadPoolExecutor` (that joins before Stop can cancel). |
 | New `LlmClient` on a worker | `LlmClient(config, ctx, cancellation_scope=ctx.send_cancellation)` (or register manually on the scope). |
 | Long-running smol sub-agent | Use [`SmolAgentExecutor`](../../plugin/chatbot/smol_agent.py); do not hand-roll `agent.run` without the same stop/interrupt behavior. |
 | UNO + HTTP (document research) | Open/close document on main thread only; run inner smol agent on the **async worker**—never wrap the whole agent in `execute_on_main_thread`. |
@@ -396,9 +408,9 @@ See the full class and docstring in [`plugin/framework/async_stream.py`](../../p
 
 Key guarantees the implementation provides:
 
-- **Simple append only.** Internal buffers are `list[str]`; each `put((CHUNK, delta))` or `put((THINKING, delta))` just does `buf.append(delta)`.
-- **Hard max-latency timer from first fragment ("every 250 ms max, or when done").** The *first* display delta that starts a new burst arms a one-shot `threading.Timer` for exactly `batch_interval` (default 0.25 s) measured from the arrival of that first fragment. Subsequent deltas during the same burst are simply appended to the buffer; they do **not** reset or postpone the deadline. When the timer fires we emit one joined string. This guarantees the consumer sees an update at least every 250 ms even during a very fast continuous stream from the model. No main-thread sleeps.
-- **One joined emission.** When the timer fires **or** `.flush()` is called, the batcher does a single `raw_q.put((StreamQueueKind.CHUNK, "".join(content_buf)))` (and the equivalent for THINKING), then clears the buffer. Downstream never sees the intermediate fragments.
+- **Simple append only.** Each contiguous CHUNK or THINKING run is a `list[str]`; each `put` appends to the current run or starts a new one.
+- **Hard max-latency timer from first fragment ("every 250 ms max, or when done").** The *first* display delta that starts a new burst arms that batcher's reusable timer for exactly `batch_interval` (default 0.25 s) measured from the arrival of that first fragment. One thread serves every burst; a new `threading.Timer` is not started per burst. Subsequent deltas during the same burst are simply appended; they do **not** reset or postpone the deadline. When the timer fires we emit one joined string per contiguous run, in arrival order. This guarantees the consumer sees an update at least every 250 ms even during a very fast continuous stream from the model. No main-thread sleeps. The thread is stopped when the batcher is released.
+- **One joined emission per run.** When the timer fires **or** `.flush()` is called, the batcher puts those runs in arrival order (thinking that arrived first is not moved after content), then clears them. Downstream never sees the intermediate fragments. `.discard()` drops the same buffer without emitting it and stays dropped, so a later `put` cannot arm the timer. Stop, a new send, and the tool-loop `finally` abort the turn, which discards its batcher.
 - **Strict flush-before-boundary discipline (the most important rule):**
   Any non-display control item forces an immediate flush of any pending display text **before** the control item is forwarded:
   - `STREAM_DONE`, `FINAL_DONE`, `ERROR`, `STOPPED`
@@ -414,7 +426,7 @@ Key guarantees the implementation provides:
 The **primary user-visible chat streaming path** was updated:
 
 - `plugin/chatbot/tool_loop.py`:
-  - `_start_tool_calling_async` creates both the raw queue (`_active_q`) **and** a `BatchingStreamQueue` wrapper (`_active_batched_q`).
+  - `_start_tool_calling_async` creates both the raw queue and a `BatchingStreamQueue` wrapper and stores them on the current `TurnController` (`queue` / `batcher`).
   - `_spawn_llm_worker` and `_spawn_final_stream` accept either a raw `Queue` or a `BatchingStreamQueue`. When the latter is supplied they use the `.content_cb()` / `.thinking_cb()` helpers (or the equivalent manual `batched.put(...)` + `batched.flush()` before every boundary put).
   - All terminal / control puts in those two workers now do `if batched: batched.flush()` before emitting `STREAM_DONE`, `FINAL_DONE`, `STOPPED`, `ERROR`, etc.
 - `plugin/framework/async_stream.py`:
@@ -475,7 +487,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 
 1. Start with the grep above.
 2. For each site, answer:
-   - Is this inside a send that already has an `_active_batched_q` (or equivalent) in scope?
+   - Is this inside a send that already has a turn batcher (or equivalent) in scope?
    - If yes, change the put to go through the batcher (or the `.content_cb()`).
    - If no (one-off path, test, or different send lifetime), either create a short-lived `BatchingStreamQueue` around the raw queue for that operation, or at minimum insert an explicit `batcher.flush()` immediately before every control/boundary item.
 3. Pay special attention to any place that does a "final tiny chunk" followed immediately by a terminal kind — that tiny chunk must be flushed.
@@ -485,7 +497,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 ### Cross references
 
 - Implementation: `plugin/framework/async_stream.py` (`BatchingStreamQueue`, the defensive bits in `run_async_worker_with_drain`)
-- Primary wiring: `plugin/chatbot/tool_loop.py` (`_active_batched_q`, `_spawn_llm_worker`, `_spawn_final_stream`)
+- Primary wiring: `plugin/chatbot/tool_loop.py` (turn `batcher`, `_spawn_llm_worker`, `_spawn_final_stream`)
 - Tests: `tests/framework/test_async_stream.py` (the four new batcher tests)
 - UX context & scroll work: [../chat/rich-text-control-sidebar.md](../chat/rich-text-control-sidebar.md) (`reveal_rich_control_caret`)
 - Original plan / todo items: the conversation transcript and the todo list that existed at the moment the change landed (items such as `boundary-flush-audit`, `wire-acp-and-other-backends`, `flush-for-rerender-clear`, etc. were deliberately cancelled / marked "deferred to global audit" rather than completed).
@@ -560,7 +572,7 @@ Inside [panel.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_pa
        pump_ui_idle(toolkit)
    ```
 
-Because we are doing `q.get(timeout=0.1)` followed by `pump_ui_idle(toolkit)`, the loop yields control back to the UI ~10 times a second **and** runs `execute_on_main_thread` callbacks posted by async tools (e.g. web research locale detection). **The UI stays smooth and responsive**, and when a chunk of text or a tool execution request arrives from the worker, sync tool paths still run natively on the main thread.
+Because we are doing `q.get(timeout=0.1)` followed by `pump_ui_idle(toolkit)`, the loop yields control back to the UI ~10 times a second **and** runs `execute_on_main_thread` callbacks posted by tool workers (e.g. web research locale detection, or a sync tool marshaled off the drain). **The UI stays smooth and responsive.** The UNO body of a sync tool still runs on the main thread for that marshal; Stop is processed on the drain before the next model round.
 
 ### The `next_tool` Queuing System
 The final piece of the puzzle handles slow external tools (like Web Research or Image Generation).
@@ -568,8 +580,8 @@ If we executed [`web_research`](../../plugin/chatbot/web_research.py) on the mai
 
 Our solution is the `next_tool` dispatcher:
 - When a tool is popped from the queue, we check `if name in ASYNC_TOOLS`.
-- **Sync Tools (UNO calls):** Run instantly on the main thread, avoiding VCL crashes.
-- **Async Tools (Network/OS calls):** A new minimal daemon thread is launched to execute the tool, pushing a [("tool_done", result)](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/panel_factory.py#393-404) message back onto the queue when finished. The Main event loop keeps ticking and pumping the UI while it waits for the async tool thread to return.
+- **Sync Tools (UNO calls):** Started on a dedicated worker (`tool-sync-*`) so the drain can pump. UNO is marshaled back to the main thread, which avoids VCL crashes.
+- **Async Tools (Network/OS calls):** A dedicated thread (`tool-async-*`) executes the tool, pushing a `tool_done` result back onto the queue when finished. The main event loop keeps ticking and pumping the UI while it waits.
 
 ## Summary
 

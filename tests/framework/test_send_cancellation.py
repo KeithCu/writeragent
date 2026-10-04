@@ -331,6 +331,27 @@ def test_stop_checker_stays_true_after_panel_clears_scope_reference():
     assert stop_checker() is True
 
 
+def test_bound_checker_ignores_a_replaced_scope_attribute():
+    from plugin.framework.queue_executor import bind_send_stop_checker, capture_send_stop
+
+    class Host:
+        def __init__(self, scope):
+            self._send_cancellation = scope
+
+        def resolve_stop_checker(self):
+            return bind_send_stop_checker(self._send_cancellation, lambda: False)
+
+    old = SendCancellation()
+    host = Host(old)
+    scope, checker = capture_send_stop(host)
+    assert scope is old
+    old.cancel()
+    new = SendCancellation()
+    host._send_cancellation = new
+    assert checker() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False
+
+
 def test_bind_send_stop_checker_ors_fallback_before_scope_cancel():
     from plugin.framework.queue_executor import bind_send_stop_checker
 

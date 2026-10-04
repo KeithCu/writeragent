@@ -99,27 +99,9 @@ def test_get_ctx_fallback_uno_returns_none():
             set_fallback_ctx(None)
 
 
-def test_clear_default_focus_restore_if_keeps_another_panels_query():
-    from plugin.framework.uno_context import clear_default_focus_restore_if, set_default_focus_restore
-    from plugin.framework import uno_context as uc
-
-    mine = MagicMock()
-    other = MagicMock()
-    set_default_focus_restore(other)
-    try:
-        clear_default_focus_restore_if(mine)
-        assert uc._default_focus_restore is other
-        clear_default_focus_restore_if(other)
-        assert uc._default_focus_restore is None
-    finally:
-        set_default_focus_restore(None)
-
-
 def test_focus_preserved_restores_focus_window():
+    from plugin.framework.uno_context import focus_preserved
 
-    from plugin.framework.uno_context import focus_preserved, set_default_focus_restore
-
-    set_default_focus_restore(None)
     focus_window = MagicMock()
     toolkit = MagicMock()
     toolkit.getFocusWindow.return_value = focus_window
@@ -131,60 +113,19 @@ def test_focus_preserved_restores_focus_window():
     focus_window.setFocus.assert_called_once()
 
 
-def test_focus_preserved_prefers_pinned_query_over_toolkit():
-    from plugin.framework.uno_context import focus_preserved, set_default_focus_restore
+def test_focus_preserved_prefers_explicit_query_over_toolkit():
+    from plugin.framework.uno_context import focus_preserved
 
     query = MagicMock()
     send_btn = MagicMock()
     toolkit = MagicMock()
     toolkit.getFocusWindow.return_value = send_btn
-    set_default_focus_restore(query)
-    try:
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
-            with focus_preserved(MagicMock()):
-                pass
-    finally:
-        set_default_focus_restore(None)
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        with focus_preserved(MagicMock(), query):
+            pass
 
     query.setFocus.assert_called_once()
     send_btn.setFocus.assert_not_called()
-
-
-def test_restore_query_if_user_still_there():
-    from plugin.framework import uno_context as uc
-
-    query = MagicMock()
-    uc.set_default_focus_restore(query)
-    uc.note_user_wants_query()
-    try:
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_called_once()
-        query.reset_mock()
-        uc._restore_query_after_scroll = False
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_not_called()
-    finally:
-        uc.set_default_focus_restore(None)
-        uc._restore_query_after_scroll = True
-
-
-def test_note_user_left_query_skips_restore():
-    """Packet B1: hovering/clicking Stop must stop query.setFocus on stream chunks."""
-    from plugin.framework import uno_context as uc
-
-    query = MagicMock()
-    uc.set_default_focus_restore(query)
-    uc.note_user_wants_query()
-    try:
-        uc.note_user_left_query()
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_not_called()
-        uc.note_user_wants_query()
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_called_once()
-    finally:
-        uc.set_default_focus_restore(None)
-        uc._restore_query_after_scroll = True
 
 
 def test_process_events_to_idle_calls_toolkit():
@@ -322,16 +263,8 @@ def _restore_default_work_queue(saved: list[object]) -> None:
 def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
     """Writer doProofreading is Dummy-*; PE2I on that stack is a thread violation.
 
-    What was wrong: ``result["ok"]`` was False after the 1s timeout. The patched
-    post never ran, so the event stayed unset.
-    How it happened: ``_post_secondary_idle`` returns without posting when
-    ``default_executor._work_queue`` is already non-empty. That queue is
-    process-wide. pytest-xdist runs many tests in one worker, and a passing
-    test can leave an item queued. ``on_main_thread`` is false for ``Dummy-*``
-    (it is not ``threading.main_thread()``), so the wait does take the post
-    path — and then skips it.
-    Why this change: seed that leftover, then park the queue before the wait.
-    Removing the park makes this fail on its own, not only after another test.
+    The marshal queue is process-wide. A leftover item must not skip the post:
+    that left the event unset (and harper_try_lint with posts=0 under xdist).
     """
     from plugin.framework.queue_executor import default_executor
     from plugin.framework.uno_context import wait_while_pumping
@@ -339,7 +272,7 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
     saved = _park_default_work_queue()
     try:
         default_executor._work_queue.put(object())
-        assert _park_default_work_queue(), "seeded leftover must be queued before the wait"
+        assert default_executor.pending_work_count() >= 1
         done = threading.Event()
         posts: list[object] = []
         pe2i_threads: list[str] = []
@@ -375,8 +308,8 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
 def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
     """QueueExecutor.post can run the callback on the waiter; still no PE2I off-main.
 
-    Same dirty-queue skip as the post test above: a leftover item means the
-    patched post never runs, the event stays unset, and the wait returns False.
+    A leftover marshal item must not skip that post. The inlined pump still
+    must not call PE2I on Dummy-*.
     """
     from plugin.framework.queue_executor import default_executor
     from plugin.framework.uno_context import wait_while_pumping
@@ -384,7 +317,7 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
     saved = _park_default_work_queue()
     try:
         default_executor._work_queue.put(object())
-        assert _park_default_work_queue(), "seeded leftover must be queued before the wait"
+        assert default_executor.pending_work_count() >= 1
         done = threading.Event()
         pe2i_threads: list[str] = []
         result: dict[str, bool] = {}
@@ -415,66 +348,66 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
         _restore_default_work_queue(saved)
 
 
-def test_wait_while_pumping_skips_post_while_work_queue_nonempty():
-    """One queued pump is enough; a later empty queue must post again (not a sticky flag)."""
-    import queue as queue_mod
+def test_post_secondary_idle_coalesces_own_pump_not_queue_depth():
+    """One outstanding secondary-idle pump; an unrelated queued item does not suppress it.
 
+    Once that pump leaves the queue the next call posts again (not a sticky flag).
+    """
+    from plugin.framework import uno_context as uno_context_mod
     from plugin.framework.queue_executor import default_executor
-    from plugin.framework.uno_context import wait_while_pumping
 
-    saved: list[object] = []
-    while True:
-        try:
-            saved.append(default_executor._work_queue.get_nowait())
-        except queue_mod.Empty:
-            break
-    default_executor._work_queue.put(object())
-    posts: list[int] = []
-    result: dict[str, bool] = {}
+    class _Item:
+        def __init__(self, fn: object) -> None:
+            self.fn = fn
+
+    saved = _park_default_work_queue()
+    leftover = object()
+    uno_context_mod._secondary_idle_posted = None
     try:
-        done = threading.Event()
+        default_executor._work_queue.put(leftover)
+        posts: list[object] = []
 
-        def _post_ignored(fn: object, *args: object, **kwargs: object) -> None:
-            del fn, args, kwargs
-            posts.append(1)
-            done.set()
+        def _post(fn: object, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+            posts.append(fn)
+            default_executor._work_queue.put(_Item(fn))
 
-        def _waiter() -> None:
-            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_ignored):
-                result["skipped"] = wait_while_pumping(done, MagicMock(), timeout=0.04, poll_sec=0.01)
+        def _twice() -> None:
+            with (
+                patch("plugin.framework.uno_context.process_events_to_idle") as pe2i,
+                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+            ):
+                uno_context_mod._post_secondary_idle(MagicMock())
+                uno_context_mod._post_secondary_idle(MagicMock())
+                pe2i.assert_not_called()
 
-        worker = threading.Thread(target=_waiter, name="Dummy-21")
+        worker = threading.Thread(target=_twice, name="Dummy-21")
         worker.start()
-        worker.join(timeout=2)
+        worker.join(timeout=2.0)
         assert not worker.is_alive()
-        assert result.get("skipped") is False
-        assert posts == []
+        assert len(posts) == 1
+        assert default_executor.pending_work_count() >= 2
 
-        default_executor._work_queue.get_nowait()
-        done2 = threading.Event()
+        parked = _park_default_work_queue()
+        assert any(getattr(item, "fn", None) is posts[0] for item in parked)
+        default_executor._work_queue.put(leftover)
+        posts.clear()
 
-        def _post_once(fn: object, *args: object, **kwargs: object) -> None:
+        def _post_again(fn: object, *args: object, **kwargs: object) -> None:
             del fn, args, kwargs
             posts.append(1)
-            done2.set()
 
-        def _waiter2() -> None:
-            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_once):
-                result["posted"] = wait_while_pumping(done2, MagicMock(), timeout=1.0, poll_sec=0.01)
+        def _once() -> None:
+            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_again):
+                uno_context_mod._post_secondary_idle(MagicMock())
 
-        worker2 = threading.Thread(target=_waiter2, name="Dummy-22")
+        worker2 = threading.Thread(target=_once, name="Dummy-22")
         worker2.start()
-        worker2.join(timeout=2)
-        assert result.get("posted") is True
+        worker2.join(timeout=2.0)
         assert posts == [1]
     finally:
-        while True:
-            try:
-                default_executor._work_queue.get_nowait()
-            except queue_mod.Empty:
-                break
-        for item in saved:
-            default_executor._work_queue.put(item)
+        uno_context_mod._secondary_idle_posted = None
+        _restore_default_work_queue(saved)
 
 
 def test_resolve_package_extension_id_prefers_librepy():
@@ -543,64 +476,106 @@ def test_product_display_name_follows_extension_id():
     set_package_extension_id(EXTENSION_ID_WRITERAGENT)
     try:
         assert product_display_name() == "WriterAgent"
+        with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
+            assert product_display_name() == "LibreHarper"
     finally:
         reset_package_extension_id_for_tests()
 
 
+def test_get_desktop_returns_none_without_service_manager():
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
+
+    ctx = MagicMock()
+    ctx.ServiceManager = None
+    ctx.getServiceManager.return_value = None
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", ["soffice"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+        ):
+            assert get_desktop(ctx) is None
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
+
+
+def test_get_extension_path_rejects_non_file_url():
+    from plugin.framework.uno_context import get_extension_path
+
+    with patch("plugin.framework.uno_context.get_extension_url", return_value="vnd.sun.star.extension://org.writeragent"):
+        assert get_extension_path() == ""
+
+
 def test_get_desktop_skips_create_on_uno_bin_helper():
     """Register/enable uno.bin must not createInstance(Desktop) (#768)."""
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-        assert get_desktop(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+            assert get_desktop(ctx) is None
+        smgr.createInstanceWithContext.assert_not_called()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_desktop_skips_create_when_proc_exe_is_uno_bin():
     """pythonloader may rewrite sys.argv; /proc/self/exe is the real process (#768)."""
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
     proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
-    with (
-        patch.object(sys, "argv", [""]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
-    ):
-        assert get_desktop(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", [""]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+        ):
+            assert get_desktop(ctx) is None
+        smgr.createInstanceWithContext.assert_not_called()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_desktop_creates_on_soffice():
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     desktop = MagicMock()
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = desktop
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    with (
-        patch.object(sys, "argv", ["soffice"]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
-        patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
-    ):
-        assert get_desktop(ctx) is desktop
-    smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.frame.Desktop", ctx)
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", ["soffice"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+        ):
+            assert get_desktop(ctx) is desktop
+        smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.frame.Desktop", ctx)
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_active_document_skips_desktop_create_on_no_vcl():
-    from plugin.framework.uno_context import get_active_document
+    from plugin.framework.uno_context import get_active_document, reset_desktop_create_is_unsafe_for_tests
 
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-        assert get_active_document(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+            assert get_active_document(ctx) is None
+        smgr.createInstanceWithContext.assert_not_called()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_active_document_reraises_disposed_desktop():
@@ -634,43 +609,34 @@ def test_new_blank_writer_returns_guarded_document():
     guard.assert_called_once_with(doc)
 
 
-def test_install_does_not_replace_focus_pin():
-    import types
+def test_new_blank_writer_returns_none_when_template_text_survives():
+    from plugin.framework.uno_context import new_blank_writer
 
-    from plugin.framework import uno_context as uc
+    doc = MagicMock()
+    doc.getText.return_value.getString.return_value = "AO DOUTO JUIZO"
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.clear_writer_body", return_value=False),
+    ):
+        assert new_blank_writer(MagicMock()) is None
 
-    class _Base:
-        pass
 
-    class XFocusListener:
-        pass
+def test_new_blank_writer_keeps_an_already_empty_body():
+    from plugin.framework.uno_context import new_blank_writer
 
-    class XMouseListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    first = MagicMock()
-    second = MagicMock()
-    saved_pin = uc._default_focus_restore
-    saved_trackers = list(uc._stream_focus_trackers)
-    saved_query = uc._query_focus_listener
-    uc._stream_focus_trackers.clear()
-    uc._query_focus_listener = None
-    uc._query_focus_bindings.clear()
-    uc.set_default_focus_restore(first)
-    fake_awt = types.SimpleNamespace(XFocusListener=XFocusListener, XMouseListener=XMouseListener, XMouseClickHandler=XMouseClickHandler)
-    try:
-        with patch.dict(sys.modules, {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt}):
-            uc.install_stream_focus_tracker(MagicMock(), query=second)
-        assert uc._default_focus_restore is first
-        second.addFocusListener.assert_called_once()
-    finally:
-        uc.set_default_focus_restore(saved_pin)
-        uc._stream_focus_trackers[:] = saved_trackers
-        uc._query_focus_listener = saved_query
-        uc._query_focus_bindings.clear()
+    doc = MagicMock()
+    doc.getText.return_value.getString.return_value = ""
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+    sentinel = object()
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.clear_writer_body", return_value=False),
+        patch("plugin.framework.thread_guard.guard_uno", return_value=sentinel),
+    ):
+        assert new_blank_writer(MagicMock()) is sentinel
 
 
 def test_get_active_document_reraises_disposed():
@@ -708,17 +674,6 @@ def test_get_active_document_none_on_other_uno_object_error():
         assert get_active_document(MagicMock()) is None
 
 
-def test_current_document_controller_skips_desktop_create_on_no_vcl():
-    from plugin.framework.uno_context import _current_document_controller
-
-    smgr = MagicMock()
-    ctx = MagicMock()
-    ctx.ServiceManager = smgr
-    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-        assert _current_document_controller(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
-
-
 def test_extension_id_constants_match_package_ids():
     from plugin.framework.constants import (
         EXTENSION_ID_LIBREHARPER,
@@ -735,219 +690,6 @@ def test_extension_id_constants_match_package_ids():
         EXTENSION_ID_WRITERAGENT,
         EXTENSION_ID_LIBREHARPER,
     )
-
-
-def test_attach_leave_query_listeners_adds_mouse_and_focus():
-    """Sidebar Stop/Clear must get mouse listeners so stream restore does not steal the click."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseListener:
-        pass
-
-    control = MagicMock()
-    saved = list(uc._stream_focus_trackers)
-    uc._stream_focus_trackers.clear()
-    fake_awt = types.SimpleNamespace(XFocusListener=XFocusListener, XMouseListener=XMouseListener)
-    try:
-        with patch.dict(
-            sys.modules,
-            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-        ):
-            uc._attach_leave_query_listeners(control)
-        control.addMouseListener.assert_called_once()
-        control.addFocusListener.assert_called_once()
-        assert len(uc._stream_focus_trackers) == 2
-    finally:
-        uc._stream_focus_trackers[:] = saved
-
-
-def test_install_attaches_leave_controls_when_trackers_already_exist():
-    """Second sidebar must still get Stop/Clear leave listeners (global tracker early-return)."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    stop = MagicMock()
-    query = MagicMock()
-    saved = list(uc._stream_focus_trackers)
-    saved_query_listener = uc._query_focus_listener
-    uc._stream_focus_trackers[:] = [object()]
-    uc._query_focus_listener = object()
-    fake_awt = types.SimpleNamespace(
-        XFocusListener=XFocusListener,
-        XMouseListener=XMouseListener,
-        XMouseClickHandler=XMouseClickHandler,
-    )
-    try:
-        with patch.dict(
-            sys.modules,
-            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-        ):
-            uc.install_stream_focus_tracker(
-                MagicMock(),
-                query=query,
-                leave_query_controls=(stop,),
-            )
-        stop.addMouseListener.assert_called_once()
-        stop.addFocusListener.assert_called_once()
-        # A different Ask field still gets focusGained. The old early return
-        # skipped it whenever any query listener was already live.
-        query.addFocusListener.assert_called_once()
-        uc.install_stream_focus_tracker(MagicMock(), query=query, leave_query_controls=(stop,))
-        stop.addMouseListener.assert_called_once()
-        query.addFocusListener.assert_called_once()
-    finally:
-        uc._stream_focus_trackers[:] = saved
-        uc._query_focus_listener = saved_query_listener
-        uc._query_focus_bindings.clear()
-        uc._leave_query_bindings.clear()
-
-
-def test_install_click_handler_follows_each_document_controller():
-    """A later document must get its own page-click handler; disposing removes it."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    class XMouseListener:
-        pass
-
-    class _Controller:
-        def __init__(self) -> None:
-            self.added: list[object] = []
-            self.removed: list[object] = []
-
-        def addMouseClickHandler(self, handler: object) -> None:
-            self.added.append(handler)
-
-        def removeMouseClickHandler(self, handler: object) -> None:
-            self.removed.append(handler)
-
-    first = _Controller()
-    second = _Controller()
-    saved_trackers = list(uc._stream_focus_trackers)
-    saved_bindings = list(uc._doc_click_bindings)
-    saved_query_listener = uc._query_focus_listener
-    uc._stream_focus_trackers.clear()
-    uc._doc_click_bindings.clear()
-    uc._query_focus_listener = None
-    fake_awt = types.SimpleNamespace(
-        XFocusListener=XFocusListener,
-        XMouseListener=XMouseListener,
-        XMouseClickHandler=XMouseClickHandler,
-    )
-    controllers = iter([first, second, second])
-    try:
-        with (
-            patch.dict(
-                sys.modules,
-                {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-            ),
-            patch.object(uc, "_current_document_controller", side_effect=lambda ctx: next(controllers)),
-        ):
-            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
-            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
-            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
-        assert len(first.added) == 1
-        assert len(second.added) == 1
-        handler = second.added[0]
-        handler.disposing(None)
-        assert second.removed == [handler]
-        assert all(pair[1] is not handler for pair in uc._doc_click_bindings)
-    finally:
-        uc._stream_focus_trackers[:] = saved_trackers
-        uc._doc_click_bindings[:] = saved_bindings
-        uc._query_focus_listener = saved_query_listener
-
-
-def test_disposed_query_listener_lets_the_next_sidebar_attach():
-    """disposing() must clear the query listener so a reopened sidebar hears focusGained."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    saved_trackers = list(uc._stream_focus_trackers)
-    saved_query_listener = uc._query_focus_listener
-    uc._stream_focus_trackers.clear()
-    uc._query_focus_listener = None
-    uc._query_focus_bindings.clear()
-    uc._leave_query_bindings.clear()
-    fake_awt = types.SimpleNamespace(
-        XFocusListener=XFocusListener,
-        XMouseListener=XMouseListener,
-        XMouseClickHandler=XMouseClickHandler,
-    )
-    try:
-        with patch.dict(
-            sys.modules,
-            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-        ):
-            first = MagicMock()
-            uc.install_stream_focus_tracker(MagicMock(), query=first)
-            listener = first.addFocusListener.call_args[0][0]
-            listener.disposing(None)
-            assert uc._query_focus_listener is None
-            second = MagicMock()
-            uc.install_stream_focus_tracker(MagicMock(), query=second)
-            second.addFocusListener.assert_called_once()
-            second.addFocusListener.call_args[0][0].focusGained(None)
-            leave = MagicMock()
-            uc.install_stream_focus_tracker(MagicMock(), query=second, leave_query_controls=(leave,))
-            mouse = leave.addMouseListener.call_args[0][0]
-            before = len(uc._stream_focus_trackers)
-            mouse.disposing(None)
-            assert mouse not in uc._stream_focus_trackers
-            assert len(uc._stream_focus_trackers) < before
-            leave.removeMouseListener.assert_called()
-    finally:
-        uc._stream_focus_trackers[:] = saved_trackers
-        uc._query_focus_listener = saved_query_listener
-        uc._query_focus_bindings.clear()
-        uc._leave_query_bindings.clear()
-
-
-# ---- uno_same --------------------------------------------------------------
 
 
 class _NeverEq:
@@ -1116,6 +858,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
     frame.getController.return_value = controller
 
     saved = uc._fallback_ctx
+    uc.reset_desktop_create_is_unsafe_for_tests()
     try:
         uc.set_fallback_ctx(ctx)
         with (
@@ -1135,6 +878,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
             assert uc.get_document_from_frame(frame) is frame_model
     finally:
         uc.set_fallback_ctx(saved)
+        uc.reset_desktop_create_is_unsafe_for_tests()
     for obj in (ctx, desktop, doc, pip, toolkit, model, frame_model):
         assert obj in seen
 
@@ -1248,3 +992,39 @@ def test_doc_identity_url_repairs_file_slash_without_changing_normalize():
 
     assert normalize_doc_url("file:/tmp/note.odt") == "file:/tmp/note.odt"
     assert _doc_identity_url("file:/tmp/note.odt") == _doc_identity_url("file:///tmp/note.odt")
+
+
+
+def test_resolve_document_by_url_reraises_disposed_on_nextelement():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.framework.uno_context import resolve_document_by_url, set_fallback_ctx, reset_desktop_create_is_unsafe_for_tests
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    desktop = MagicMock()
+    comps = MagicMock()
+    enum = MagicMock()
+
+    ctx.ServiceManager.createInstanceWithContext.return_value = desktop
+    desktop.getComponents.return_value = comps
+    comps.createEnumeration.return_value = enum
+    enum.hasMoreElements.return_value = True
+
+    # Simulate nextElement raising a disposed-like exception
+    class DisposedException(Exception):
+        pass
+
+    # We construct a mock exception that has "disposed" in its string representation or is com.sun.star.lang.DisposedException
+    exc = DisposedException("com.sun.star.lang.DisposedException: document is closed")
+    # Actually, _reraise_document_disposed in errors.py looks for "disposed" or DisposedException type.
+    enum.nextElement.side_effect = exc
+
+    # We need to bypass the desktop creation guard for the test
+    saved_ctx = set_fallback_ctx(ctx)
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(ctx, "file:///tmp/missing.odt")
+    finally:
+        set_fallback_ctx(saved_ctx)
+        reset_desktop_create_is_unsafe_for_tests()
