@@ -582,8 +582,20 @@ def build_tool_execute_fn(
             send_cancellation=cancel_scope,
             uno_services_supported=getattr(host, "cached_uno_services", None),
         )
+        # What was wrong: safe_args is the model/peer JSON object, and
+        # ToolRegistry.execute binds keyword-only bypass_thread_guard from
+        # **safe_args before without_unknown_kwargs runs. A true value
+        # skipped execute_safe (no main-thread assert, no disposed-document
+        # probe) and ran the tool on the tool-sync worker.
+        # How: this spread the raw dict. MCP already pops the key and passes
+        # bypass_thread_guard=False. Why: copy so the stored tool-call dict
+        # stays intact, drop the key, and pass False. A chat argument must
+        # not set the eval-harness switch.
+        call_args = safe_args
+        if "bypass_thread_guard" in call_args:
+            call_args = {key: value for key, value in call_args.items() if key != "bypass_thread_guard"}
         try:
-            res = _get_tools().execute(name, tctx, **safe_args)
+            res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
             # What was wrong: execute_safe turns a disposed document into a
             # DOCUMENT_DISPOSED dict. This returned JSON, the worker queued
             # TOOL_DONE, and the loop kept going on a dead document. The
