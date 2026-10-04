@@ -58,6 +58,8 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
     """
 
     name: str | None = "query_folder_sql"
+    specialized_domain: ClassVar[str | None] = "python/sql"
+    is_mutation: bool | None = False
     description: str = (
         "Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). "
         'Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) '

@@ -790,7 +790,7 @@ class MCPProtocolHandler:
             return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
 
         tool = self.tool_registry.get(tool_name)
-        is_long_running = getattr(tool, "long_running", False) if tool else False
+        is_long_running = (getattr(tool, "long_running", False) or (callable(getattr(tool, "is_async", None)) and tool.is_async())) if tool else False
 
         initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
 
