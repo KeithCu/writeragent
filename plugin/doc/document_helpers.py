@@ -346,14 +346,18 @@ def _dispatch_writer_locator(model: Any, loc_type: str, loc_value: str) -> dict[
 
     What was wrong: ``heading_text:``, ``section:``, ``page:``, and a bookmark
     name that was missing or already deleted fell out of ``resolve_locator``
-    as paragraph 0. Navigation, ``get_page_objects``, and ``clone_heading_block``
-    then changed or reported the first paragraph and returned success.
-    ``TreeService.resolve_writer_locator`` already implemented those locators,
-    but nothing in production called it.
-    Why: call that resolver. ``ValueError`` (``page:abc`` fails ``int()``
-    before the resolver's own error) becomes ``ToolExecutionError`` because
-    the tool registry re-raises ``ValueError`` as a programmer error. A result
-    with no paragraph index is an error, not paragraph 0.
+    as paragraph 0. A bookmark that still had a name but whose anchor could
+    not be placed did the same, because the live ``bookmark:`` branch called
+    ``find_paragraph_for_range`` and returned its fallback 0. Navigation,
+    ``get_page_objects``, and ``clone_heading_block`` then changed the first
+    paragraph and returned success. ``TreeService.resolve_writer_locator``
+    already rejected a missing name, but the live branch never called it.
+    Why: every ``bookmark:`` goes through that resolver, which rejects an
+    anchor that does not land on a paragraph. ``ValueError`` (``page:abc``
+    fails ``int()`` before the resolver's own error) becomes
+    ``ToolExecutionError`` because the tool registry re-raises ``ValueError``
+    as a programmer error. A result with no paragraph index is an error, not
+    paragraph 0.
     """
     tree = _writer_tree_service()
     try:
@@ -371,11 +375,11 @@ def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
     """Resolve a locator string to a paragraph index.
 
     ``paragraph:``, ``heading:`` (sibling-ordinal), and ``chapter_number:``
-    (Chapter Numbering paint label) are resolved here. A ``bookmark:`` whose
-    name still exists is resolved here too. ``heading_text:``, ``section:``,
-    ``page:``, a missing or stale ``bookmark:``, and any other writer locator
-    go to ``TreeService.resolve_writer_locator``. A locator that cannot be
-    resolved raises ``ToolExecutionError``.
+    (Chapter Numbering paint label) are resolved here. Every ``bookmark:``
+    goes to ``TreeService.resolve_writer_locator``, including a name that
+    still exists. ``heading_text:``, ``section:``, ``page:``, and any other
+    writer locator go there too. A missing bookmark, or a bookmark whose
+    anchor does not land on a paragraph, raises ``ToolExecutionError``.
     """
     loc_type, sep, loc_value = locator.partition(":")
     if not sep or not loc_type:
@@ -420,13 +424,10 @@ def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
             )
         return {"para_index": found["para_index"]}
 
-    if loc_type == "bookmark" and hasattr(model, "getBookmarks"):
-        bms = model.getBookmarks()
-        if bms.hasByName(loc_value):
-            anchor = bms.getByName(loc_value).getAnchor()
-            para_ranges = _get_paragraph_ranges(model)
-            return {"para_index": _find_paragraph_for_range(anchor, para_ranges, model.getText())}
-
+    # bookmark: is not resolved here. The old branch returned
+    # find_paragraph_for_range's fallback 0 when the anchor could not be
+    # placed, so a stale name still navigated to the first paragraph.
+    # TreeService.resolve_writer_locator rejects that anchor.
     return _dispatch_writer_locator(model, loc_type, loc_value)
 
 

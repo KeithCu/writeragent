@@ -183,3 +183,157 @@ def test_registered_writer_tree_is_the_resolver(monkeypatch):
     assert hit["para_index"] == 9
     assert calls["args"] == ("section", "Body")
     services.get.assert_called_with("writer_tree")
+
+
+class _PosPara:
+    def __init__(self, text, start, end):
+        self.text = text
+        self.start = start
+        self.end = end
+
+    def getString(self):
+        return self.text
+
+    def supportsService(self, service):
+        return service == "com.sun.star.text.Paragraph"
+
+    def getStart(self):
+        return self.start
+
+    def getEnd(self):
+        return self.end
+
+
+class _PosText:
+    def __init__(self, paras):
+        self.paras = paras
+
+    def createEnumeration(self):
+        return _Enum(self.paras)
+
+    def compareRegionStarts(self, left, right):
+        if left < right:
+            return 1
+        if left > right:
+            return -1
+        return 0
+
+
+class _Enum:
+    def __init__(self, items):
+        self.items = list(items)
+        self.idx = 0
+
+    def hasMoreElements(self):
+        return self.idx < len(self.items)
+
+    def nextElement(self):
+        item = self.items[self.idx]
+        self.idx += 1
+        return item
+
+
+class _PosAnchor:
+    def __init__(self, pos):
+        self.pos = pos
+
+    def getStart(self):
+        return self.pos
+
+    def getEnd(self):
+        return self.pos
+
+    def getString(self):
+        return ""
+
+
+class _PosDoc:
+    def __init__(self, paras, name, pos):
+        self._paras = paras
+        self._text = _PosText(paras)
+        self._name = name
+        self._anchor = _PosAnchor(pos)
+
+    def getText(self):
+        return self._text
+
+    def getBookmarks(self):
+        return self
+
+    def hasByName(self, name):
+        return name == self._name
+
+    def getByName(self, name):
+        bookmark = MagicMock()
+        bookmark.getAnchor.return_value = self._anchor
+        return bookmark
+
+    def getElementNames(self):
+        return [self._name]
+
+
+def test_live_bookmark_uses_the_tree_resolver(monkeypatch):
+    """A bookmark that still exists must not skip TreeService.
+
+    The old short-circuit called find_paragraph_for_range itself and returned
+    its fallback 0. This document's anchor would be that 0 if the short-circuit
+    still ran.
+    """
+    calls = {}
+
+    class _Tree:
+        def resolve_writer_locator(self, _doc, loc_type, loc_value):
+            calls["args"] = (loc_type, loc_value)
+            return {"para_index": 4}
+
+    services = MagicMock()
+    services.get.return_value = _Tree()
+    main = type(sys)("plugin.main")
+    main._services = services
+    monkeypatch.setitem(sys.modules, "plugin.main", main)
+
+    bookmarks = _Bookmarks(["here"], {"here": object()})
+    doc = _BookmarkDoc([ElementStub("Alpha", outline_level=1)], bookmarks)
+    hit = resolve_locator(doc, "bookmark:here")
+    assert hit["para_index"] == 4
+    assert calls["args"] == ("bookmark", "here")
+
+
+def test_bookmark_on_first_paragraph_still_resolves():
+    paras = [_PosPara("Alpha", 0, 10), _PosPara("Beta", 10, 20)]
+    assert resolve_locator(_PosDoc(paras, "here", 0), "bookmark:here")["para_index"] == 0
+    assert resolve_locator(_PosDoc(paras, "here", 15), "bookmark:here")["para_index"] == 1
+
+
+def test_bookmark_past_the_end_is_not_paragraph_zero():
+    paras = [_PosPara("Alpha", 0, 10), _PosPara("Beta", 10, 20)]
+    with pytest.raises(ToolExecutionError, match="Bookmark 'here' anchor is not in the document"):
+        resolve_locator(_PosDoc(paras, "here", 500), "bookmark:here")
+
+
+def test_stale_bookmark_anchor_is_not_paragraph_zero():
+    class _Broken:
+        def getStart(self):
+            raise RuntimeError("stale anchor")
+
+        def getString(self):
+            return ""
+
+    class _Marks:
+        def hasByName(self, name):
+            return name == "_mcp_stale"
+
+        def getByName(self, _name):
+            bookmark = MagicMock()
+            bookmark.getAnchor.return_value = _Broken()
+            return bookmark
+
+        def getElementNames(self):
+            return ["_mcp_stale"]
+
+    doc = _BookmarkDoc(
+        [ElementStub("Alpha", outline_level=1), ElementStub("Beta", outline_level=1)],
+        _Marks(),
+    )
+    with pytest.raises(ToolExecutionError, match="Bookmark '_mcp_stale' anchor is not in the document"):
+        resolve_locator(doc, "bookmark:_mcp_stale")

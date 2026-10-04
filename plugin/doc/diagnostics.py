@@ -101,13 +101,35 @@ class DocumentHealthCheck(ToolBaseDummy):
                     try:
                         bm = bookmarks.getByName(name)
                         try:
-                            _anchor = bm.getAnchor()
+                            anchor = bm.getAnchor()
                         except Exception:
-                            # The anchor might be missing entirely or the bookmark collapsed
-                            # so strictly getAnchor might fail.
+                            # getAnchor can throw on a collapsed mark. The name
+                            # still exists; do not call that broken.
                             continue
-                        if _anchor is None or not _anchor.getString():
+                        if anchor is None:
                             issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
+                            continue
+                        # What was wrong: `not anchor.getString()` flagged every
+                        # point bookmark. Heading `_mcp_` marks are inserted as
+                        # a collapsed cursor, so their anchor string is empty
+                        # and document_health_check reported each one as broken.
+                        # Why: an empty string with a start position is a point
+                        # bookmark. Broken means no anchor, or an anchor whose
+                        # text and start both cannot be read.
+                        try:
+                            anchor_text = anchor.getString()
+                        except Exception:
+                            anchor_text = None
+                        if anchor_text:
+                            continue
+                        get_start = getattr(anchor, "getStart", None)
+                        if callable(get_start):
+                            try:
+                                if get_start() is not None:
+                                    continue
+                            except Exception:
+                                pass
+                        issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
                     except Exception:
                         issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
         except Exception:

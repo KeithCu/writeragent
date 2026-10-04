@@ -206,4 +206,68 @@ def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj:
         return _index_outside_paragraphs(text_obj, match_start, para_ranges, entries, low)
     except UnoObjectError:
         logging.getLogger(__name__).exception("find_paragraph_for_range error")
+    # Callers that only need a best-effort index (images, comments) still get 0.
+    # Bookmark locators must not: 0 is also the first paragraph. They call
+    # confirm_paragraph_index before navigating or mutating.
     return 0
+
+
+def confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
+    """Return *para_idx* when it is a real hit, or None for the unplaced fallback.
+
+    What was wrong: ``find_paragraph_for_range`` returns 0 both when the anchor
+    sits in the first paragraph and when the anchor cannot be placed (disposed
+    range, compare failure, or a point past the last paragraph). ``bookmark:``
+    locators then navigated and edited paragraph 0 and reported success.
+    How: a stale ``_mcp_`` mark after save/reopen or ``bookmark_cleanup`` still
+    has a name, so the missing-name error never runs; only the finder fails.
+    Why: index 0 is kept only when the anchor start lies in that element. Any
+    other non-negative index is a hit inside the search, not the fallback.
+    """
+    if not isinstance(para_idx, int) or isinstance(para_idx, bool) or para_idx < 0:
+        return None
+    if para_idx != 0:
+        return para_idx
+    if _anchor_is_at_index(text_obj, anchor, para_ranges, 0):
+        return 0
+    return None
+
+
+def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: int) -> bool:
+    """True when *anchor*'s start lies in ``para_ranges[para_idx]``.
+
+    Same region test as :func:`find_paragraph_for_range`: ``compareRegionStarts``
+    is 1 when the first position starts before the second, 0 when equal, and -1
+    when after. A paragraph contains the point when the point does not start
+    before the paragraph and does not start after the paragraph end.
+    """
+    if para_idx < 0 or para_idx >= len(para_ranges):
+        return False
+    get_start = getattr(anchor, "getStart", None)
+    if not callable(get_start):
+        return False
+    try:
+        match_start = get_start()
+    except Exception:
+        return False
+    element = para_ranges[para_idx]
+    try:
+        if _is_text_paragraph(element):
+            compare = getattr(text_obj, "compareRegionStarts", None)
+            if not callable(compare):
+                return False
+            # compareRegionStarts is untyped UNO. Only an int is a region test:
+            # 1 when the first position starts before the second, 0 when equal,
+            # -1 when after.
+            cmp_start = compare(match_start, element.getStart())
+            cmp_end = compare(match_start, element.getEnd())
+            if isinstance(cmp_start, bool) or not isinstance(cmp_start, int):
+                return False
+            if isinstance(cmp_end, bool) or not isinstance(cmp_end, int):
+                return False
+            if cmp_start > 0:
+                return False
+            return cmp_end >= 0
+        return _anchor_contains_point(text_obj, match_start, element)
+    except Exception:
+        return False

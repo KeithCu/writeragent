@@ -135,6 +135,28 @@ def test_find_table_anchor_maps_to_table_slot():
     assert table.start_calls == 0
 
 
+def test_confirm_paragraph_index_keeps_real_zero_and_rejects_unplaced():
+    """Index 0 is a real hit only when the anchor start is inside that paragraph."""
+    from plugin.doc.paragraph_search import confirm_paragraph_index
+
+    elements = [_Para(0, 10), _Para(20, 30)]
+    text = _TextObj()
+    at_start = _Para(0, 0)
+    past_end = _Para(100, 100)
+    assert find_paragraph_for_range(at_start, elements, text) == 0
+    assert confirm_paragraph_index(text, at_start, elements, 0) == 0
+    # The finder still reports 0 when the point is past the last paragraph.
+    assert find_paragraph_for_range(past_end, elements, text) == 0
+    assert confirm_paragraph_index(text, past_end, elements, 0) is None
+    assert confirm_paragraph_index(text, _Para(24, 24), elements, 1) == 1
+
+    class _Broken:
+        def getStart(self):
+            raise RuntimeError("stale anchor")
+
+    assert confirm_paragraph_index(text, _Broken(), elements, 0) is None
+
+
 def test_find_picks_matching_table_when_two_share_a_gap():
     first = _Table(12)
     second = _Table(18)
