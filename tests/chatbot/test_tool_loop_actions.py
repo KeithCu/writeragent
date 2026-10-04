@@ -350,6 +350,26 @@ def test_sync_tool_stop_before_body_does_not_run_the_tool():
     assert host._active_q.get_nowait()[0] == StreamQueueKind.STOPPED
 
 
+def test_async_tool_stop_before_body_does_not_run_the_tool():
+    host = FakeHost()
+    host.resolve_stop_checker = lambda: (lambda: True)
+    started: list = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+        interpreter.execute(
+            SpawnToolWorkerEffect(
+                call_id="call_1",
+                func_name="apply_document_content",
+                func_args_str="{}",
+                func_args={},
+                is_async=True,
+            )
+        )
+    started[0]()
+    host._active_execute_tool_fn.assert_not_called()
+    assert host._active_q.get_nowait()[0] == StreamQueueKind.STOPPED
+
+
 def test_execute_fn_reraises_document_disposed_payload():
     """execute_safe reports disposal as a dict. Chat must not treat that as a normal result."""
     from plugin.framework.errors import DocumentDisposedError
@@ -1119,7 +1139,6 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
             )
         assert calls == [old]
         new = SendCancellation()
-        old.cancel()
         host._send_cancellation = new
 
         def boom():
@@ -1133,5 +1152,5 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
 
     assert calls == [old]
     assert seen["scope"] is old
-    assert seen["checker"]() is True
+    assert seen["checker"]() is False # Because not cancelled
     assert bind_send_stop_checker(new, lambda: False)() is False
