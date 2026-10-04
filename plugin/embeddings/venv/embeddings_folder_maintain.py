@@ -443,7 +443,7 @@ def maintain_folder_corpus(
             return maintain_folder_zvec(
                 root,
                 model,
-                mode=mode,
+                mode=resolved_mode,
                 heartbeat_fn=heartbeat_fn,
                 hb=hb,
             )
@@ -452,7 +452,7 @@ def maintain_folder_corpus(
         return maintain_folder_lancedb(
             root,
             model,
-            mode=mode,
+            mode=resolved_mode,
             heartbeat_fn=heartbeat_fn,
             hb=hb,
         )

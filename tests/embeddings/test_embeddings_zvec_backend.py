@@ -68,3 +68,30 @@ def test_hit_shape_helper_does_not_crash_on_minimal_doc():
     assert "snippet" in h["snippet"]
     assert h["para_index"] == 2
     assert abs(h["score"] - 0.91) < 1e-6
+
+def test_maintain_zvec_incremental_does_not_clear(tmp_path):
+    from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
+    import json
+
+    listing_root = str(tmp_path)
+    meta_dir = tmp_path / "writeragent_embeddings"
+    meta_dir.mkdir()
+    meta_path = meta_dir / "corpus_meta.json"
+
+    with open(meta_path, "w") as m:
+        json.dump({"schema_version": "v3", "chunk_count": 5, "embedding_model": "test-model"}, m)
+
+    out = maintain_folder_zvec(listing_root, "test-model", mode="incremental")
+    assert out["mode"] == "incremental"
+    assert out["row_count"] == 5
+    assert out["indexed_paragraphs"] == 0
+
+def test_maintain_zvec_cold_proceeds(tmp_path):
+    from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
+
+    listing_root = str(tmp_path)
+    try:
+        out = maintain_folder_zvec(listing_root, "test-model", mode="cold")
+        assert out["mode"] == "zvec"
+    except Exception as e:
+        assert "Zvec backend selected but the 'zvec' package is not importable" in str(e)
