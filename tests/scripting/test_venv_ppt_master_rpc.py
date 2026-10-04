@@ -275,7 +275,7 @@ def test_handle_llm_request_returns_user_stopped_via_client_stopped():
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
-        patch("plugin.framework.client.llm_client.LlmClient", return_value=client) as mock_llm,
+        patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
     ):
         out = handle_llm_request(
             {
@@ -297,7 +297,7 @@ def test_handle_llm_request_returns_user_stopped_via_stop_checker():
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
-        patch("plugin.framework.client.llm_client.LlmClient", return_value=client) as mock_llm,
+        patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
     ):
         out = handle_llm_request(
             {

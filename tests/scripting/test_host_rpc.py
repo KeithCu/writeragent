@@ -263,7 +263,7 @@ def test_execute_tool_prefers_script_session_document():
     registry._services = {}
     registry.execute.return_value = {"status": "ok"}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
@@ -469,8 +469,8 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     with (
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
-        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
+        patch("plugin.framework.uno_context.get_active_document", return_value=focused),
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
         patch("plugin.main.get_tools", return_value=registry),
         patch("plugin.doc.doc_type.is_draw", return_value=True),
         patch("plugin.doc.doc_type.is_calc", return_value=False),
