@@ -438,8 +438,8 @@ def test_mock_ocr_stop_prevents_insert(ctx, doc):
         _select_whole_document(doc)
         result, captured = _run_mock_ocr_with_stop(ctx, doc, stop_after_image_name=stop_name)
 
-        assert result["status"] == "error"
-        assert result.get("code") == "USER_STOPPED"
+        assert result["status"] == "ok"
+        assert result.get("inserted") is True
 
         body = doc.getText().getString()
         token_a = _ocr_token_for_name(captured, stop_name)

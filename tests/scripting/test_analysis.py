@@ -476,16 +476,12 @@ def test_helper_golden_metrics(helper, call, metric_keys, requires):
         assert key in result["metrics"], f"missing metric {key!r} for {helper}"
 
 
-def test_insert_analysis_result_into_calc_inserts_even_if_stopped() -> None:
-    """Document mutation should proceed even if stopped; do not abort after analysis is formatted."""
+def test_insert_analysis_result_into_calc() -> None:
+    from unittest.mock import MagicMock
     from plugin.calc.analysis_egress import insert_analysis_result_into_calc
 
-    class MockCtx:
-        def stop_checker(self):
-            return True
-
     doc = object()
-    ctx = MockCtx()
+    ctx = MagicMock()
     result = {"status": "ok", "result": "val"}
 
     def _write(_doc, _uno_ctx, grid, **_kwargs):

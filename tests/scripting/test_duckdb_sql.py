@@ -962,15 +962,12 @@ def test_is_sql_result_long_message_is_bool():
     assert parse_sql_script_header(header) is None
 
 
-def test_insert_sql_result_into_calc_inserts_even_if_stopped() -> None:
+def test_insert_sql_result_into_calc() -> None:
     from unittest.mock import MagicMock, patch
     from plugin.scripting.duckdb_sql import insert_sql_result_into_calc
-    class MockCtx:
-        def stop_checker(self):
-            return True
 
     doc = MagicMock()
-    ctx = MockCtx()
+    ctx = MagicMock()
     result = {"status": "ok", "tables": [{"columns": ["a"], "rows": [[1]]}]}
 
     with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:

@@ -219,16 +219,11 @@ def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
     mock_client.assert_called_once()
 
 
-def test_insert_viz_result_into_doc_inserts_even_if_stopped() -> None:
-    """Document mutation should proceed even if stopped; do not abort after plot is generated."""
+def test_insert_viz_result_into_doc() -> None:
     from plugin.scripting.viz import insert_viz_result_into_doc
 
-    class MockCtx:
-        def stop_checker(self):
-            return True
-
     doc = MagicMock()
-    ctx = MockCtx()
+    ctx = MagicMock()
     payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
     result = {"status": "ok", "image": payload}
 

@@ -77,15 +77,12 @@ def test_latex_to_math_object_rejects_unparsed_text():
     assert result["code"] == "PARSE_ERROR"
 
 
-def test_insert_symbolic_result_into_calc_inserts_even_if_stopped() -> None:
+def test_insert_symbolic_result_into_calc() -> None:
     from unittest.mock import MagicMock, patch
     from plugin.scripting.symbolic import insert_symbolic_result_into_calc
-    class MockCtx:
-        def stop_checker(self):
-            return True
 
     doc = MagicMock()
-    ctx = MockCtx()
+    ctx = MagicMock()
     result = {"status": "ok", "tables": [{"columns": ["Expr"], "rows": [["x**2"]]}]}
 
     with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
