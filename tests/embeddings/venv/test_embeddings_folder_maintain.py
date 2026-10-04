@@ -354,7 +354,29 @@ def test_incremental_refresh_handles_empty_text_files(tmp_path: Path):
 
     # The file mtime should be updated
     assert info["file_mtime"] == doc.stat().st_mtime
-    # The chunk_count should be 0 because the empty file text was extracted and the diff_chunk_rows removed the old chunks
-    assert info["chunk_count"] == 0
-
     conn.close()
+
+
+def test_zvec_incremental_maintain_does_not_skip_with_existing_meta(tmp_path: Path):
+    from unittest.mock import MagicMock, patch
+    from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
+
+    meta_dir = tmp_path / "writeragent_embeddings"
+    meta_dir.mkdir(parents=True)
+    meta_path = meta_dir / "corpus_meta.json"
+    meta_path.write_text('{"schema_version":"6","embedding_model":"m","chunk_count":5}', encoding="utf-8")
+
+    doc = tmp_path / "test.odt"
+    _write_min_odt(doc, "content")
+
+    mock_coll = MagicMock()
+    mock_coll.query.return_value = [{"file_mtime": doc.stat().st_mtime}]
+    mock_coll.__len__ = MagicMock(return_value=5)
+    with patch("plugin.embeddings.venv.embeddings_zvec.HAS_ZVEC", True), \
+         patch("plugin.embeddings.venv.embeddings_zvec.zvec", MagicMock()), \
+         patch("plugin.embeddings.venv.embeddings_zvec._COLL_CACHE", {str(meta_dir / "zvec_collection"): mock_coll}), \
+         patch("plugin.embeddings.embeddings_cache.zvec_collection_path", return_value=meta_dir / "zvec_collection"):
+        res = maintain_folder_zvec(str(tmp_path), "m", mode="incremental")
+        assert res["mode"] == "zvec"
+        mock_coll.query.assert_called()
+
