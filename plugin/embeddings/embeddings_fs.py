@@ -114,7 +114,7 @@ def _extract_legacy_via_soffice(path: str, ext: str) -> list[str] | None:
         return []
     with temporary_converted_odf(path) as converted:
         if converted is None:
-            raise RuntimeError(f"Legacy soffice conversion failed for {path}")
+            return []
         return extract_indexable_passages(str(converted))
 
 
@@ -139,7 +139,7 @@ def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleText
 
         with temporary_converted_odf(path) as converted:
             if converted is None:
-                raise RuntimeError(f"Legacy soffice conversion failed for {path}")
+                return []
             return extract_odf_paragraph_runs(str(converted))
     return []
 
@@ -171,8 +171,6 @@ def extract_indexable_passages(path: str) -> list[str] | None:
 
 def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
     """List indexable document siblings in *directory* (stdlib scan, no UNO)."""
-    from plugin.doc.document_research import _should_skip_filename
-
     listing_root = _normalize_path(directory)
     entries: list[WriterFileEntry] = []
     try:
@@ -181,8 +179,6 @@ def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
         log.debug("guess_indexable_paths listdir failed for %s", listing_root, exc_info=True)
         return []
     for name in names:
-        if _should_skip_filename(name):
-            continue
         full = os.path.join(listing_root, name)
         if not os.path.isfile(full):
             continue

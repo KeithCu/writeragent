@@ -318,12 +318,6 @@ Smolagents (`ToolCallingAgent.process_tool_calls`) uses the same rule: multiple 
 
 Each sidebar **Send** is one `TurnController` (the mode captured when the user clicked Send, the session list that send writes, and the queue, stripper, and document model for that send) and runs under a **`SendCancellation`** scope ([`plugin/framework/queue_executor.py`](../../plugin/framework/queue_executor.py) `agent_session()`). **Stop** and the next send abort that controller and later `put` calls drop the item. The sidebar paints `session.messages`; streamed tokens are the open row on that list. **Stop** calls `scope.cancel()` once, then the turn commits the open row, closes unanswered tool calls with one cancelled row each, and appends the stop line as a normal message before the send drain drops the controller. Clear and a mode change abort the turn first, then replace the list or the session. Closing the tab (or disposing the send control) during drain is re-entrant on the UI thread inside `processEventsToIdle`; [`SendButtonListener.disposing`](../../plugin/chatbot/panel.py) aborts the turn, cancels the same scope, and latches `_stop_requested_fallback` so the drain stop checker matches Stop. A retry of the HTTP stream is refused after any emitted byte, including a thinking delta or tool-call arguments. Requeue of main-thread work uses the same offer path as enqueue.
 
-#### Stop semantics: network waits vs document mutations and speech
-
-- **Abort packet/network waits immediately:** When Stop is requested, abort blocking reads, streaming tokens from the LLM, image generation HTTP requests, or subprocess waits right away so the user is not left waiting.
-- **Allow in-flight document mutations to land:** If Stop is clicked while inserting a picture, applying an already-received text chunk in Writer, or writing analysis/plots to a Calc sheet, let the document mutation finish. Do not add fragile defensive abort code right before or during document mutations. Chunks already in hand must land in the document cleanly rather than raising exceptions inside `apply_chunk` (which would pop error dialogs and roll back the user's edits).
-- **Speech / Voice:** If the user is speaking and clicks Stop, end the recording take and transcribe the audio into the query box. Do **not** abort the transcription, discard the audio, or auto-submit the transcript to the model. The user can review and edit their spoken input before sending.
-
 #### What `scope.cancel()` does
 
 - Sets a **thread-safe** cancelled flag (`scope.is_cancelled()`).

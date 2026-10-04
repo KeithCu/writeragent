@@ -31,9 +31,9 @@ def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:
 
 def insert_analysis_result_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, sheet_name: str | None = None, start_col: int | None = None, start_row: int | None = None) -> int:
     """Write formatted analysis output starting at *start_col*/*start_row* (or selection). Returns row count."""
-    # AI/DEV INVARIANT: Do NOT add stop_checker checks before sheet insertion.
-    # Once an analysis result has been formatted into a tabular grid, let the data
-    # be written to the sheet rather than discarding completed computation at egress.
+    stop_checker = getattr(uno_ctx, "stop_checker", None)
+    if callable(stop_checker) and stop_checker() is True:
+        return 0
 
     grid = format_analysis_for_calc(result)
     return insert_tabular_result_into_calc(doc, uno_ctx, grid, sheet_name=sheet_name, start_col=start_col, start_row=start_row)

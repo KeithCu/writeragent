@@ -1857,6 +1857,7 @@ def _run_blocking_now(ctx, func, *args, stop_checker=None, **kwargs):
 
 def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     """Stop on the first scope still aborts STT after the panel field moves."""
+    from plugin.audio.stt_service import SttStopped
     from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
 
     panel = DummyChatbotPanel()
@@ -1871,19 +1872,25 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     panel.resolve_stop_checker = resolve
     wav = tmp_path / "take.wav"
     wav.write_bytes(b"RIFF")
+    seen = {}
 
     def fake_transcribe(_path, **kwargs):
         second = SendCancellation()
         panel._send_cancellation = second
         panel._stop_requested_fallback = False
+        seen["checker"] = kwargs["stop_checker"]
+        seen["scope"] = kwargs["cancel_scope"]
         proc = MagicMock()
         proc.poll.return_value = None
         kwargs["on_spawn"](proc)
+        panel._stt_kill()
+        proc.kill.assert_called_once()
         # A live re-read binds the next send and would miss this Stop.
         assert resolve()() is False
         first.cancel()
+        assert kwargs["stop_checker"]() is True
         assert bind_send_stop_checker(second, lambda: False)() is False
-        return "hello"
+        raise SttStopped()
 
     with (
         patch("plugin.chatbot.send_handlers.run_blocking_in_thread", side_effect=_run_blocking_now),
@@ -1892,8 +1899,10 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     ):
         result = panel._transcribe_audio(str(wav), "base")
 
-    assert result == "hello"
+    assert result == ""
     assert panel._terminal_status == "Stopped"
+    assert seen["scope"] is first
+    assert seen["checker"]() is True
     assert not any("Transcription error" in text for text in panel.responses)
     assert not wav.exists()
     assert panel._stt_inflight is False

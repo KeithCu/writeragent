@@ -397,11 +397,10 @@ def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None)
     )
 
     canon = normalize_detected_bcp47(locale_bcp47) if locale_bcp47 else None
-    eff_locale = canon or locale_bcp47
-    if eff_locale and is_whitespace_sentence_locale(eff_locale):
+    if canon and is_whitespace_sentence_locale(canon):
         sentences = _split_passage_whitespace_to_sentences(passage)
-    elif eff_locale:
-        sentences = split_passage_to_sentences(passage, bcp47_to_icu_sentence_breaker_locale(eff_locale))
+    elif canon:
+        sentences = split_passage_to_sentences(passage, bcp47_to_icu_sentence_breaker_locale(canon))
     else:
         sentences = split_passage_to_sentences(passage)
     if not sentences:

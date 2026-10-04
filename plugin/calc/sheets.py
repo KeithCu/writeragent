@@ -147,11 +147,6 @@ class RenameSheet(ToolCalcSheetBase):
                 return self._tool_error(f"A sheet named '{new_name}' already exists in the document.")
             sheet = sheets.getByName(old_name)
             sheet.setName(new_name)
-            try:
-                from plugin.calc.python.function import rename_spill_registry_sheet
-                rename_spill_registry_sheet(doc, old_name, new_name)
-            except Exception:
-                log.exception("Failed to update spill registry on sheet rename")
             log.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
             return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}
         except Exception as e:
@@ -180,11 +175,6 @@ class DeleteSheet(ToolCalcSheetBase):
             if sheets.getCount() <= 1:
                 return self._tool_error("Cannot delete the only sheet in the document.")
             sheets.removeByName(sheet_name)
-            try:
-                from plugin.calc.python.function import delete_spill_registry_sheet
-                delete_spill_registry_sheet(doc, sheet_name)
-            except Exception:
-                log.exception("Failed to update spill registry on sheet delete")
             log.info("Sheet deleted: %s", sheet_name)
             return {"status": "ok", "message": f"Sheet '{sheet_name}' deleted."}
         except Exception as e:

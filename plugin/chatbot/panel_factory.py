@@ -370,8 +370,15 @@ def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
     """
     from plugin.chatbot.history_db import get_chat_history
 
+    # If the destination already has chat history, leave it intact.
+    # We do not overwrite the destination's chat when "Save As" targets
+    # an existing file that already has its own conversation.
+    dest_history = get_chat_history(new_session_id)
+    if list(dest_history.get_messages()):
+        return
+
     messages = list(get_chat_history(old_session_id).get_messages())
-    get_chat_history(new_session_id).replace_messages(messages)
+    dest_history.replace_messages(messages)
 
 
 def header_third_button_kind(model: Any) -> str:

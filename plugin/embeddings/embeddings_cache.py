@@ -419,6 +419,7 @@ def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: A
     if not listing_root:
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
+    maybe_upgrade_legacy_index(listing_root)
     db_path = corpus_db_path(listing_root)
     meta = corpus_meta_path(listing_root)
     return folder_key, db_path, meta, listing_root
