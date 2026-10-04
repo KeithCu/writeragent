@@ -134,6 +134,12 @@ class ACPConnection:
         # froze the UI thread. Signal the child here so a second stop still
         # sees one terminate, and only the wait/kill runs off this thread.
         try:
+            if proc.stdin:
+                proc.stdin.close()
+        except Exception:
+            pass
+
+        try:
             proc.terminate()
         except Exception:
             pass
@@ -220,21 +226,15 @@ class ACPConnection:
             return
         msg = {"jsonrpc": _JSONRPC_VERSION, "method": method, "params": params or {}}
         line = json.dumps(msg) + "\n"
-        # What was wrong: `if self._proc and self._proc.stdin` loads
-        # self._proc twice. stop() can set it to None between the loads,
-        # and None.stdin raises AttributeError. The except swallowed that,
-        # so the notification never went out. Why: copy the process once
-        # and write through that local. Same race as send_request.
+
         proc = self._proc
-        def _do_write() -> None:
-            try:
-                stdin = proc.stdin if proc is not None else None
-                if stdin:
-                    stdin.write(line.encode("utf-8"))
-                    stdin.flush()
-            except Exception:
-                pass
-        run_in_background(_do_write, name="acp-notify")
+        try:
+            stdin = proc.stdin if proc is not None else None
+            if stdin:
+                stdin.write(line.encode("utf-8"))
+                stdin.flush()
+        except Exception:
+            pass
 
     def send_response(self, msg_id: Any, result: Any = None, error: Any = None) -> None:
         """Send a JSON-RPC response to a request from the agent."""
@@ -247,18 +247,15 @@ class ACPConnection:
             msg["result"] = result or {}
 
         line = json.dumps(msg) + "\n"
-        # Same double-read as send_notification: stop() can clear _proc
-        # between the truthiness check and the .stdin load.
+
         proc = self._proc
-        def _do_write() -> None:
-            try:
-                stdin = proc.stdin if proc is not None else None
-                if stdin:
-                    stdin.write(line.encode("utf-8"))
-                    stdin.flush()
-            except Exception:
-                log.exception("Failed to send response")
-        run_in_background(_do_write, name="acp-response")
+        try:
+            stdin = proc.stdin if proc is not None else None
+            if stdin:
+                stdin.write(line.encode("utf-8"))
+                stdin.flush()
+        except Exception:
+            log.exception("Failed to send response")
 
     def set_notification_callback(self, callback: Any) -> None:
         """Set a callback(method, params, msg_id) for incoming notifications."""

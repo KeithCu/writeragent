@@ -554,6 +554,21 @@ class TestStopAndShutdown:
             q,
         )
         backend.stop()
+
+        # Verify calls occurred in the correct order (cancellations before terminate)
+        calls = conn.mock_calls
+        cancel_idx = -1
+        stop_idx = -1
+        for i, call in enumerate(calls):
+            if call[0] == "send_notification" and call[1][0] == "session/cancel":
+                cancel_idx = i
+            if call[0] == "stop":
+                stop_idx = i
+
+        assert cancel_idx != -1, "session/cancel was not sent"
+        assert stop_idx != -1, "stop() was not called"
+        assert cancel_idx < stop_idx, "session/cancel was sent AFTER stop()"
+
         conn.send_notification.assert_called_once_with("session/cancel", {"sessionId": "sess-1"})
         conn.send_response.assert_called_once_with(7, result={"outcome": {"outcome": "cancelled"}})
         assert ("session/interrupt") not in (str(conn.send_notification.call_args_list))
