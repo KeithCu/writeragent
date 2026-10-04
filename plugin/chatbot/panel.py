@@ -444,6 +444,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _panel_teardown: bool
     _mcp_event_bus: Any
     _turn: Any
+    _last_mcp_turn: Any | None
 
     def __init__(
         self,
@@ -508,6 +509,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
         # The queue, stripper, and document model live on ``_turn``.
         self._turn = None
+        self._last_mcp_turn = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
