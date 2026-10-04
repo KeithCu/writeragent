@@ -92,7 +92,7 @@ def test_writer_image_result_returns_path_only():
     with (
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
+        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet"),
         patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
@@ -128,7 +128,6 @@ def test_calc_image_result_aborts_insert_if_stopped():
     assert out["image_path"] == "/tmp/plot.svg"
     assert "stopped by user" in out["message"]
     assert main_thread.call_count == 0
-    insert.assert_not_called()
     insert.assert_not_called()
 
 

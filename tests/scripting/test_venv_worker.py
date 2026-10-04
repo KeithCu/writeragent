@@ -137,7 +137,9 @@ def test_run_code_in_user_venv_passes_stop_checker():
         mock_mgr_ctx.return_value = (mock_mgr, None)
 
         ctx = MagicMock()
-        stop_fn = lambda: True
+
+        def stop_fn() -> bool:
+            return True
 
         run_code_in_user_venv(ctx, code="result = 1", stop_checker=stop_fn)
 
@@ -2130,7 +2132,6 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
             return {"frame_type": FRAME_HEARTBEAT, "payload": {"phase": "test"}}
         return {"frame_type": FRAME_RESULT, "status": "ok"}
 
-    import plugin.scripting.venv_worker as vw
 
     # Track calls to on_heartbeat
     heartbeat_calls = []
