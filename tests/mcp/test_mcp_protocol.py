@@ -678,12 +678,16 @@ def test_timeout_zero_rejects_async_tool():
 
 
 def test_named_async_tools_declare_positive_timeout():
-    """Tools moved off the UI thread must satisfy the MCP async timeout gate."""
+    """Async tools must declare a positive MCP timeout.
+
+    RunMerge and ApplyStyle stay synchronous (they mutate UNO on the LibreOffice
+    main thread), so this check does not require them to be async. Tools that
+    remain async still must declare timeout > 0.
+    """
     from plugin.chatbot.writing import WriteDocumentSection
     from plugin.ppt_master.tools import ExportPresentationProject
-    from plugin.writer.specialized.mail_merge import RunMerge
 
-    for tool in (WriteDocumentSection(), ExportPresentationProject(), RunMerge()):
+    for tool in (WriteDocumentSection(), ExportPresentationProject()):
         assert tool.is_async() is True
         assert getattr(tool, "timeout", 0) > 0
 
