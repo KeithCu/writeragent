@@ -54,16 +54,16 @@ def _run_ppt_master_venv_agent(
     # calling get_active_document(), or calling getURL() off the main thread (including via
     # _selected_chat_model) causes a UNO thread safety violation. Wrapping these in
     # execute_on_main_thread ensures they execute safely on the main thread.
-    def _resolve_session_and_model() -> tuple[str, str | None]:
+    def _resolve_session_and_model() -> tuple[str, str | None, Any]:
         uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
         sess_id = ppt_master_session_id(uno_doc)
         selected_model = _selected_chat_model(ctx)
-        return sess_id, selected_model
+        return sess_id, selected_model, uno_doc
 
     if on_main_thread():
-        session_id, resolved_model = _resolve_session_and_model()
+        session_id, resolved_model, uno_doc = _resolve_session_and_model()
     else:
-        session_id, resolved_model = execute_on_main_thread(_resolve_session_and_model)
+        session_id, resolved_model, uno_doc = execute_on_main_thread(_resolve_session_and_model)
 
     def on_worker_event(event: dict[str, Any]) -> None:
         kind = event.get("kind")
@@ -81,17 +81,22 @@ def _run_ppt_master_venv_agent(
     if stop_checker and stop_checker():
         return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
-    return run_ppt_master_venv_turn(
-        ctx.ctx,
-        query=query,
-        history_text=history_text,
-        topic=topic,
-        model=model or resolved_model,
-        session_id=session_id,
-        on_worker_event=on_worker_event,
-        stop_checker=stop_checker,
-        cancellation_scope=getattr(ctx, "send_cancellation", None),
-    )
+    from plugin.scripting.session_manager import pin_script_document, release_script_document
+    pinned_session_id = pin_script_document(uno_doc)
+    try:
+        return run_ppt_master_venv_turn(
+            ctx.ctx,
+            query=query,
+            history_text=history_text,
+            topic=topic,
+            model=model or resolved_model,
+            session_id=pinned_session_id or session_id,
+            on_worker_event=on_worker_event,
+            stop_checker=stop_checker,
+            cancellation_scope=getattr(ctx, "send_cancellation", None),
+        )
+    finally:
+        release_script_document(pinned_session_id)
 
 
 class PptMasterSessionTool(ToolBase):

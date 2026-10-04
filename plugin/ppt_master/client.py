@@ -16,13 +16,14 @@ from plugin.ppt_master.adapter.uno_template_fill import apply_fill_plan_file
 from plugin.ppt_master.paths import apply_data_root_env
 
 
-def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path) -> dict[str, Any]:
+from typing import Callable
+def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path, *, stop_checker: Callable[[], bool] | None = None) -> dict[str, Any]:
     """Apply a ppt-master project to the open Impress/Draw document via PPTX → ODP import."""
     apply_data_root_env(ctx)
     path = Path(project_path).expanduser().resolve()
     if not path.is_dir():
         return {"status": "error", "message": f"Project path not found: {path}"}
-    return export_project_to_doc(doc, path, ctx=ctx)
+    return export_project_to_doc(doc, path, ctx=ctx, stop_checker=stop_checker)
 
 
 def apply_template_fill(ctx: Any, doc: Any, plan_path: str | Path) -> dict[str, Any]:
@@ -30,9 +31,9 @@ def apply_template_fill(ctx: Any, doc: Any, plan_path: str | Path) -> dict[str, 
     return apply_fill_plan_file(doc, Path(plan_path))
 
 
-def apply_native_enhance(ctx: Any, doc: Any, project_path: str | Path) -> dict[str, Any]:
+def apply_native_enhance(ctx: Any, doc: Any, project_path: str | Path, *, stop_checker: Callable[[], bool] | None = None) -> dict[str, Any]:
     apply_data_root_env(ctx)
-    return apply_enhancement_project(doc, Path(project_path))
+    return apply_enhancement_project(doc, Path(project_path), stop_checker=stop_checker)
 
 
 def validate_project_structure(project_path: str | Path) -> dict[str, Any]:

@@ -412,16 +412,21 @@ def execute_tool(
 
         tool = registry.get(tool_name)
         is_async = tool is not None and tool.is_async()
-        return registry, tctx, is_async
+        return registry, tctx, is_async, tool
 
     from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.mcp.mcp_protocol import _document_mutation_gate, _resolve_mcp_doc_key
 
-    registry, tctx, is_async = execute_on_main_thread(_run)
+    registry, tctx, is_async, tool = execute_on_main_thread(_run)
 
-    if is_async:
-        return registry.execute(tool_name, tctx, **payload)
-    else:
-        return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
+    mutates = tool.detects_mutation() if tool is not None else False
+    doc_key = _resolve_mcp_doc_key(None, tctx.doc)
+
+    with _document_mutation_gate(doc_key, enabled=mutates):
+        if is_async:
+            return registry.execute(tool_name, tctx, **payload)
+        else:
+            return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
 
 
 def _execute_named_script_tool_off_main(tool_name: str, payload: dict[str, Any]) -> Any:

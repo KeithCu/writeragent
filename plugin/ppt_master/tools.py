@@ -52,7 +52,7 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         path = kwargs.get("project_path")
         if not path:
             return self._tool_error("project_path is required.", code="MISSING_PATH")
-        return export_project_to_impress(ctx.ctx, ctx.doc, path)
+        return export_project_to_impress(ctx.ctx, ctx.doc, path, stop_checker=ctx.stop_checker)
 
 
 class ValidatePptMasterProject(ToolDrawPptMasterBase):
@@ -112,4 +112,4 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
         path = kwargs.get("project_path")
         if not path:
             return self._tool_error("project_path is required.", code="MISSING_PATH")
-        return apply_native_enhance(ctx.ctx, ctx.doc, path)
+        return apply_native_enhance(ctx.ctx, ctx.doc, path, stop_checker=ctx.stop_checker)
