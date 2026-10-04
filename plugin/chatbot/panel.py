@@ -412,6 +412,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     cached_uno_services: frozenset[str] | None
     _stop_requested_fallback: bool
     _terminal_status: str
+    _stt_inflight: bool
+    _stt_kill: Any
     _send_busy: bool
     _in_librarian_mode: bool
     _in_brainstorming_mode: bool
@@ -488,6 +490,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._stop_requested_fallback = False
         self._send_cancellation: Any = None
         self._terminal_status = "Ready"
+        self._stt_inflight = False
+        self._stt_kill = None
         self._send_busy = False
         self._in_librarian_mode = False
         self._in_brainstorming_mode = False
@@ -628,6 +632,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.framework.queue_executor import bind_send_stop_checker
 
         return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
+
+    def _kill_inflight_stt(self) -> None:
+        """Kill the Whisper child for the transcription that is running now.
+
+        The scope hook covers Stop on the send that started STT. This covers
+        Stop after a second send replaced ``_send_cancellation``: that click
+        cancels the new scope, which does not own the first child.
+        """
+        kill = self._stt_kill
+        if not callable(kill):
+            return
+        try:
+            kill()
+        except Exception:
+            log.debug("STT kill failed", exc_info=True)
 
     def sync_audio_slice(self) -> None:
         """Mirror :attr:`audio_recorder.state` into the composite (strategy A)."""
@@ -1374,6 +1393,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case StartSendEffect():
                 from plugin.framework.queue_executor import SendCancellation
 
+                # What was wrong: STT runs inside run_blocking_in_thread, which
+                # pumps the UI. A second Send replaced _send_cancellation and
+                # cleared the stop fallback while the first Whisper child was
+                # still alive, so Stop for the first send did not kill it.
+                # Why: leave the first scope in place until that child exits.
+                if self._stt_inflight:
+                    log.info("StartSend ignored while speech-to-text is running")
+                    return
+
                 try:
                     from plugin.audio.tts_service import stop_speech
                     stop_speech()
@@ -1413,6 +1441,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if scope is not None:
                     scope.cancel()
                 self._stop_requested_fallback = True
+                self._kill_inflight_stt()
                 from plugin.doc.peer_message import drop_listener_queue
 
                 drop_listener_queue(self)
@@ -1479,6 +1508,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
         from plugin.framework.i18n import _
         from plugin.framework.queue_executor import agent_session
+
+        # A drain posted before StartSend learned STT was in flight must not
+        # clear the first send's scope or dispatch SEND_COMPLETED under it.
+        if self._stt_inflight:
+            log.info("Nested send drain ignored during speech-to-text")
+            return
 
         try:
             with agent_session(getattr(self, "_send_cancellation", None)) as cancel_scope:
@@ -1587,6 +1622,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.framework.i18n import _
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
+        # begin_send_turn aborts the turn already in flight. A pump re-entry
+        # during Whisper must not do that, and must not clear the WAV.
+        if self._stt_inflight:
+            log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
+            return
+
         # The turn exists before any worker and before early error rows.
         # Mode and the document are filled in once this send knows them.
         begin_send_turn(self, "")
@@ -1680,6 +1721,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
                     try:
                         transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
+                        if self._terminal_status == "Stopped":
+                            return
                         if transcript:
                             query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
                     except Exception as e:
@@ -1963,6 +2006,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if scope is not None:
             scope.cancel()
         self._stop_requested_fallback = True
+        self._kill_inflight_stt()
         self._release_open_microphone()
         self.exit_hands_free_record()
         try:

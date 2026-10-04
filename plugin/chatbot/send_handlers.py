@@ -175,6 +175,8 @@ class SendHandlerHost(Protocol):
     frame: Any
     audio_wav_path: str | None
     _terminal_status: str
+    _stt_inflight: bool
+    _stt_kill: Any
     _current_agent_backend: Any
     _turn: Any
 
@@ -215,6 +217,8 @@ class SendHandlersMixin:
     client: LlmClient | None = None
     audio_wav_path: str | None = None
     _terminal_status: str = "Ready"
+    _stt_inflight: bool = False
+    _stt_kill: Any = None
     _current_agent_backend: Any = None
     _librarian_suggested_user_name: str | None = None
     _in_librarian_mode: bool = False
@@ -224,41 +228,102 @@ class SendHandlersMixin:
     _turn: Any = None
 
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
-        """Transcribe audio synchronously using event pumping on the main thread."""
-        from plugin.audio.stt_service import status_for_transcription, transcribe
+        """Transcribe audio synchronously using event pumping on the main thread.
+
+        What was wrong: this called ``transcribe`` with no stop checker.
+        ``run_blocking_in_thread`` pumps the UI, so Stop can cancel the send
+        scope, and a nested send can replace ``_send_cancellation``, while
+        Whisper's ``subprocess.run`` still waited out 900s. The transcript
+        was then posted anyway.
+
+        Why: ``capture_send_stop`` freezes the scope from this send. The
+        worker closes over that checker and must not call
+        ``resolve_stop_checker`` again. Stop kills the child through the
+        scope hook and ``_stt_kill``. A re-entrant call returns without
+        deleting the first WAV or clearing the first client's stop latch.
+        """
+        from plugin.audio.stt_service import SttStopped, status_for_transcription, terminate_stt_process, transcribe
         from plugin.framework.queue_executor import post_to_main_thread
 
-        if not self.client:
+        if self._stt_inflight:
+            log.info("Ignoring re-entrant STT; the in-flight transcription keeps the first Stop")
+            return ""
 
-
-            api_config = get_api_config()
-            self.client = LlmClient(api_config, self.ctx)
-
-        cl = self.client
-        assert cl is not None
-
-        transcribing = status_for_transcription()
-        self._set_status(transcribing)
-        self._append_response("\n[" + transcribing + "]\n")
-
-        def on_status(message: str) -> None:
-            # Worker thread: the status control is UNO. run_blocking_in_thread
-            # pumps processEventsToIdle, which runs this posted callback.
-            post_to_main_thread(self._set_status, message)
-
+        self._stt_inflight = True
         try:
-            transcript_text = run_blocking_in_thread(
-                self.ctx, transcribe, wav_path, client=cl, model=stt_model, on_status=on_status,
-            )
+            # Spawn-time scope. Do not call resolve_stop_checker inside the
+            # worker: Stop's drain clears the field and the next send replaces it.
+            cancel_scope, stop_checker = capture_send_stop(self)
+            if stop_checker():
+                self._terminal_status = "Stopped"
+                return ""
+
+            if not self.client:
+                api_config = get_api_config()
+                self.client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope)
+
+            cl = self.client
+            assert cl is not None
+            if cancel_scope is not None and not cancel_scope.is_cancelled():
+                clearer = getattr(cl, "clear_stop", None)
+                if callable(clearer):
+                    clearer()
+            if cancel_scope is not None:
+                register = getattr(cancel_scope, "register_client", None)
+                if callable(register):
+                    register(cl)
+
+            transcribing = status_for_transcription()
+            self._set_status(transcribing)
+            self._append_response("\n[" + transcribing + "]\n")
+
+            def on_status(message: str) -> None:
+                # Worker thread: the status control is UNO. run_blocking_in_thread
+                # pumps processEventsToIdle, which runs this posted callback.
+                post_to_main_thread(self._set_status, message)
+
+            def _on_spawn(proc: Any) -> None:
+                def _kill() -> None:
+                    terminate_stt_process(proc)
+
+                # StopSendEffect calls this when the panel field no longer
+                # points at cancel_scope (a second send replaced it).
+                self._stt_kill = _kill
+
+            def _call() -> str:
+                return transcribe(
+                    wav_path,
+                    client=cl,
+                    model=stt_model,
+                    on_status=on_status,
+                    stop_checker=stop_checker,
+                    cancel_scope=cancel_scope,
+                    on_spawn=_on_spawn,
+                )
+
+            try:
+                # Do not pass stop_checker here. That raises BlockingWaitStopped
+                # and returns before the worker reaps the child. The worker
+                # polls the frozen checker and kills the process first.
+                transcript_text = run_blocking_in_thread(self.ctx, _call)
+            except SttStopped:
+                log.info("Speech-to-text stopped")
+                self._terminal_status = "Stopped"
+                return ""
+            except Exception as e:
+                log.exception("Transcription error in _transcribe_audio")
+                self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
+                raise e
+            # The child can exit in the same poll as Stop. Do not hand that
+            # transcript to chat; the checker is still the first send's.
+            if stop_checker():
+                log.info("Speech-to-text stopped")
+                self._terminal_status = "Stopped"
+                return ""
             return transcript_text
-
-        except Exception as e:
-            log.exception("Transcription error in _transcribe_audio")
-            self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
-            raise e
         finally:
-
-
+            self._stt_inflight = False
+            self._stt_kill = None
             try:
                 os.remove(wav_path)
             except Exception:
