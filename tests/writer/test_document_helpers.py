@@ -171,6 +171,35 @@ def test_writer_streamed_rewrite_session_finish_without_tracking_leaves_undo_con
     assert doc.undo.entered is True
     assert session.finish() is None
     assert doc.undo.left is True
+    assert text_range.getString() == "Original"
+
+
+def test_writer_streamed_rewrite_session_empty_finish_restores_original():
+    """No model text must not erase the selection or record a deletion of it."""
+    for recording in (False, True):
+        doc = _MockDoc(recording=recording)
+        text_range = _MutableTextRange()
+        session = WriterStreamedRewriteSession(doc, text_range, "Original")
+
+        assert text_range.getString() == ""
+        assert session.finish() is None
+        assert text_range.getString() == "Original"
+        # Recording ends as the document started it. A tracked deletion would
+        # have left the range "" after turning RecordChanges back on.
+        assert doc.getPropertyValue("RecordChanges") is recording
+        assert doc.undo.left is True
+
+
+def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():
+    """Whitespace the model sent is a real rewrite, not an empty result."""
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+
+    session.append_chunk(" ")
+    assert session.finish() is None
+    assert text_range.getString() == " "
+    assert doc.getPropertyValue("RecordChanges") is True
 
 
 def test_writer_compound_undo_enter_close_and_idempotent():

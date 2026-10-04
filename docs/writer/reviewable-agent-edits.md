@@ -38,6 +38,8 @@ What is implemented today (not every Writer mutation tool):
 | Style tools | No (`style_unreviewed: true`) | No | No |
 | Other Writer tools (comments, images, …) | No | No | No |
 
+Edit selection clears the range while tokens stream. If the model returns no text, `WriterStreamedRewriteSession.finish()` writes the original back and does not record an empty replacement. Whitespace the model actually sent is kept.
+
 `table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
 removing every row), so the table would vanish unreviewable. It selects the table and dispatches
 `.uno:DeleteTable`, which Writer records as a tracked deletion. Writer anchors each **empty** row with
