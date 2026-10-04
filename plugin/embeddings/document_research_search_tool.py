@@ -163,7 +163,7 @@ class SearchEmbeddings(ToolBase):
                 "message": "Folder index is building in the background. Retry search_embeddings shortly.",
             }
 
-        search_path = context_result["search_path"]
+        search_path = str(context_result["search_path"])
         model = get_embedding_model()
 
         try:
@@ -178,13 +178,13 @@ class SearchEmbeddings(ToolBase):
             log.exception("search_embeddings failed")
             return self._tool_error(str(exc), code="EMBEDDING_SEARCH_ERROR")
 
-        def _wakeup() -> None:
+        def _wakeup2() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
 
         if on_main_thread():
-            _wakeup()
+            _wakeup2()
         else:
-            execute_on_main_thread(_wakeup)
+            execute_on_main_thread(_wakeup2)
 
         hits = result.get("hits") or []
         return {

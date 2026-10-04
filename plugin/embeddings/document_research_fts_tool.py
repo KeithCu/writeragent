@@ -201,8 +201,15 @@ class SearchNearbyFiles(ToolBase):
                 "message": "Folder index is building in the background. Retry search_nearby_files shortly.",
             }
 
-        search_path = context_result["search_path"]
-        allowed_urls = context_result["allowed_urls"]
+        from typing import cast
+        search_path = str(context_result["search_path"])
+
+        # safely cast allowed_urls
+        _allowed_urls_raw = context_result.get("allowed_urls")
+        resolved_urls: set[str] | None = None
+        if isinstance(_allowed_urls_raw, set):
+            resolved_urls = cast("set[str]", _allowed_urls_raw)
+
         model = get_embedding_model()
 
         try:
@@ -213,21 +220,24 @@ class SearchNearbyFiles(ToolBase):
                 k,
                 model=model,
                 near_slop=near_slop,
-                doc_url_filter=context_result["allowed_urls"],
+                doc_url_filter=list(resolved_urls)[0] if resolved_urls and len(resolved_urls) == 1 else None,
             )
         except Exception as exc:
             log.exception("search_nearby_files failed")
             return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
 
-        def _wakeup() -> None:
+        def _wakeup2() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
 
         if on_main_thread():
-            _wakeup()
+            _wakeup2()
         else:
-            execute_on_main_thread(_wakeup)
+            execute_on_main_thread(_wakeup2)
 
         hits = list(result.get("hits") or [])
+        if resolved_urls is not None and len(resolved_urls) > 1:
+            hits = [h for h in hits if h.get("doc_url") in resolved_urls]
+
         return {
             "status": "ok",
             "hits": hits,

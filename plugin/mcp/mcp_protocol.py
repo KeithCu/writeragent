@@ -397,7 +397,7 @@ class MCPProtocolHandler:
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
         self.version = "unknown"
-        self._cancelled_requests = set()
+        self._cancelled_requests: set[str | int] = set()
         try:
             from plugin.version import EXTENSION_VERSION
 
