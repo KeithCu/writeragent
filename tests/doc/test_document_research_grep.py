@@ -276,3 +276,71 @@ def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
     assert len(matches) == 2
     assert count == 2
     assert partial is False
+
+def test_grep_text_in_writer_includes_table_text():
+    from plugin.doc.document_research_grep import _grep_text_in_writer
+
+    model = MagicMock()
+    services = MagicMock()
+
+    # Create paragraphs and a table
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getString.return_value = "Normal text before table."
+
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ("A1", "B1")
+
+    cellA1 = MagicMock()
+    cellA1.getString.return_value = "Cell one text."
+    cellB1 = MagicMock()
+    cellB1.getString.return_value = "target keyword cell."
+
+    def get_cell_by_name(name):
+        if name == "A1": return cellA1
+        elif name == "B1": return cellB1
+        raise Exception()
+
+    table.getCellByName.side_effect = get_cell_by_name
+
+    services.document.get_paragraph_ranges.return_value = [para1, table]
+
+    matches, count = _grep_text_in_writer(
+        model,
+        services,
+        pattern="keyword",
+        max_results=5
+    )
+
+    assert count == 1
+
+
+@patch("plugin.doc.document_research_grep._process_events_if_available")
+@patch("plugin.doc.document_research_grep.close_document_research_document")
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
+def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mock_open, mock_close, mock_events):
+    mock_resolve.return_value = (
+        [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
+        False,
+        None,
+    )
+    mock_open.return_value = (MagicMock(), "calc", None, True)
+    mock_search.return_value = (
+        [{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}],
+        1,
+        False,
+        None,
+    )
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute:
+        def side_effect(func):
+            return func()
+        mock_execute.side_effect = side_effect
+
+        result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
+
+        assert mock_execute.call_count >= 4
+        assert result["status"] == "ok"

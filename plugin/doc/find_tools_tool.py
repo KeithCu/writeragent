@@ -218,7 +218,7 @@ class FindTools(ToolBase):
             name = s.get("name")
             if not isinstance(name, str) or not name:
                 continue
-            if name == _FINISH_TOOL or name.startswith(_GATEWAY_PREFIX) or name in sidebar_only:
+            if name == _FINISH_TOOL or name.startswith(_GATEWAY_PREFIX) or name in sidebar_only or name == self.name:
                 continue
             tools.append(s)
         tools.sort(key=lambda s: str(s.get("name") or ""))
