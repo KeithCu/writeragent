@@ -195,10 +195,10 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
                     from plugin.framework.queue_executor import execute_on_main_thread
 
-                    if stop_checker and stop_checker():
-                        out["message"] = f"Plot generation skipped: stopped by user"
-                        out["image_inserted"] = False
-                        return out
+                    # AI/DEV INVARIANT: Do NOT add stop_checker checks before inserting plots here.
+                    # Once a Python venv script has finished running and produced plot images,
+                    # allow the plots to land on the sheet. Do not abort or discard completed work
+                    # during document egress.
 
                     # What was wrong: the plot landed on the front window, and a
                     # failed insert still said "plot(s) inserted". How: doc= was
