@@ -643,7 +643,9 @@ class ApplyStyle(FrameworkToolBase):
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
-    is_async: bool | None = True
+
+    def is_async(self) -> bool:
+        return True
 
     # Maps family to the UNO property that holds the style name.
     _PROPERTY_MAP: ClassVar[dict[str, str]] = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
