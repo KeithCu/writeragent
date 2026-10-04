@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 
 try:
     import zvec as _zvec  # type: ignore[import-not-found]
+
     HAS_ZVEC = True
 except Exception:
     _zvec = None  # type: ignore[assignment]
@@ -46,7 +47,6 @@ zvec = _zvec  # type: ignore[assignment]
 
 # Global cache to reuse collection instances in the same process/thread context to prevent locking errors.
 _COLL_CACHE: dict[str, Any] = {}
-
 
 
 # Reuse the project's embedder (sentence-transformers) already present for embeddings work.
@@ -67,6 +67,7 @@ def _stable_doc_id(row: dict[str, Any]) -> str:
     ch = str(row.get("content_hash") or "")[:16]
     raw_id = f"{doc_url}#{para}#{ch}"
     import hashlib
+
     return hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
 
 
@@ -106,7 +107,7 @@ def _get_or_create_collection(coll_path: str, dim: int) -> Any:
                 dimension=int(dim),
                 # HNSW gives good default recall/latency; users can optimize() later if desired.
                 index_param=None,  # VectorSchema defaults to Flat if None; pass HnswIndexParam() for ANN
-            ),
+            )
         ],
     )
 
@@ -134,16 +135,7 @@ def _open_for_search(coll_path: str) -> Any:
     return coll
 
 
-
-def zvec_ingest_rows(
-    collection_path: str,
-    meta_path: str,
-    model_name: str,
-    rows: list[dict[str, Any]],
-    *,
-    build_fts: bool = True,
-    build_vectors: bool = True,
-) -> dict[str, Any]:
+def zvec_ingest_rows(collection_path: str, meta_path: str, model_name: str, rows: list[dict[str, Any]], *, build_fts: bool = True, build_vectors: bool = True, heartbeat_fn: Any | None = None) -> dict[str, Any]:
     """Ingest/upsert paragraph rows into a zvec collection.
 
     For zvec the build_* flags are mostly advisory (we store body for FTS and vectors when asked).
@@ -160,7 +152,15 @@ def zvec_ingest_rows(
     vectors: list[list[float]] = []
     dim = 0
     if build_vectors:
-        vectors = _embed_texts(model_name, bodies, normalize=True)
+        from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE
+
+        for i in range(0, len(bodies), EMBEDDINGS_INGEST_BATCH_SIZE):
+            chunk_bodies = bodies[i : i + EMBEDDINGS_INGEST_BATCH_SIZE]
+            v = _embed_texts(model_name, chunk_bodies, normalize=True)
+            vectors.extend(v)
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "embed", "progress": len(vectors), "total": len(bodies)})
+
         if vectors:
             dim = len(vectors[0])
 
@@ -170,15 +170,9 @@ def zvec_ingest_rows(
     for i, row in enumerate(rows):
         body = bodies[i]
         vec: list[float] | None = vectors[i] if i < len(vectors) else None
-        doc = cast(Any, zvec).Doc(  # type: ignore[attr-defined]
+        doc = cast("Any", zvec).Doc(  # type: ignore[attr-defined]
             id=_stable_doc_id(row),
-            fields={
-                "doc_url": str(row.get("doc_url") or ""),
-                "body": body,
-                "para_index": int(row.get("para_index") or 0),
-                "content_hash": str(row.get("content_hash") or ""),
-                "file_mtime": float(row.get("file_mtime") or 0.0),
-            },
+            fields={"doc_url": str(row.get("doc_url") or ""), "body": body, "para_index": int(row.get("para_index") or 0), "content_hash": str(row.get("content_hash") or ""), "file_mtime": float(row.get("file_mtime") or 0.0)},
             vectors={"embedding": vec} if vec is not None else None,
         )
         docs.append(doc)
@@ -200,12 +194,7 @@ def zvec_ingest_rows(
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta
 
     meta_p = Path(str(meta_path))
-    ensure_corpus_meta(
-        meta_p,
-        embedding_model=model_name,
-        dim=dim or None,
-        chunk_count=count,
-    )
+    ensure_corpus_meta(meta_p, embedding_model=model_name, dim=dim or None, chunk_count=count)
     # Override storage backend for visibility
     write_corpus_meta(meta_p, storage_backend="zvec", updated_at=str(time.time()))
 
@@ -214,12 +203,7 @@ def zvec_ingest_rows(
     except Exception:
         pass
 
-    return {
-        "indexed": len(docs),
-        "upserted": upserted,
-        "dim": dim,
-        "storage_backend": "zvec",
-    }
+    return {"indexed": len(docs), "upserted": upserted, "dim": dim, "storage_backend": "zvec"}
 
 
 def zvec_delete_keys(collection_path: str, keys: list[dict[str, Any]]) -> int:
@@ -262,16 +246,7 @@ def _shape_hit(d: Any) -> dict[str, Any]:
     }
 
 
-def zvec_knn_search(
-    collection_path: str,
-    query_text: str,
-    k: int,
-    *,
-    model_name: str,
-    doc_url_filter: str | None = None,
-    use_mmr: bool = True,
-    rerank_model: str | None = None,
-) -> dict[str, Any]:
+def zvec_knn_search(collection_path: str, query_text: str, k: int, *, model_name: str, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None) -> dict[str, Any]:
     """Semantic-only search over the zvec collection (vector leg)."""
     if not HAS_ZVEC or zvec is None:
         return {"hits": [], "error": "zvec not available in venv", "backend": "zvec"}
@@ -284,13 +259,7 @@ def zvec_knn_search(
     # output_fields restricts what comes back in Doc.fields
     out_fields = ["doc_url", "body", "para_index", "content_hash"]
     try:
-        docs = coll.query(
-            queries=[q],
-            topk=int(k or 5),
-            include_vector=False,
-            output_fields=out_fields,
-            filter=f'doc_url == "{doc_url_filter}"' if doc_url_filter else None,
-        )
+        docs = coll.query(queries=[q], topk=int(k or 5), include_vector=False, output_fields=out_fields, filter=f'doc_url == "{doc_url_filter}"' if doc_url_filter else None)
     except Exception:
         # Some zvec builds may be strict on filter syntax or empty filter; retry without.
         docs = coll.query(queries=[q], topk=int(k or 5), include_vector=False, output_fields=out_fields)
@@ -301,17 +270,7 @@ def zvec_knn_search(
     return {"hits": hits, "backend": "zvec"}
 
 
-def zvec_hybrid_search(
-    collection_path: str,
-    query_text: str,
-    k: int,
-    *,
-    model_name: str,
-    near_slop: int = 10,
-    doc_url_filter: str | None = None,
-    use_mmr: bool = True,
-    rerank_model: str | None = None,
-) -> dict[str, Any]:
+def zvec_hybrid_search(collection_path: str, query_text: str, k: int, *, model_name: str, near_slop: int = 10, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None) -> dict[str, Any]:
     """Hybrid FTS + vector via zvec multi-query + native RRF (or Weighted if reranker provided)."""
     if not HAS_ZVEC or zvec is None:
         return {"hits": [], "error": "zvec not available in venv", "backend": "zvec"}
@@ -343,36 +302,16 @@ def zvec_hybrid_search(
         reranker = None
 
     try:
-        docs = coll.query(
-            queries=qs,
-            topk=int(k or 10),
-            filter=flt,
-            include_vector=False,
-            output_fields=out_fields,
-            reranker=reranker,
-        )
+        docs = coll.query(queries=qs, topk=int(k or 10), filter=flt, include_vector=False, output_fields=out_fields, reranker=reranker)
     except Exception:
         # Retry without reranker if the installed zvec build has limitations on this query mix.
-        docs = coll.query(
-            queries=qs,
-            topk=int(k or 10),
-            filter=flt,
-            include_vector=False,
-            output_fields=out_fields,
-        )
+        docs = coll.query(queries=qs, topk=int(k or 10), filter=flt, include_vector=False, output_fields=out_fields)
 
     hits = [_shape_hit(d) for d in (docs or [])]
     return {"hits": hits, "backend": "zvec"}
 
 
-def maintain_folder_zvec(
-    listing_root: str,
-    embedding_model: str,
-    *,
-    mode: str = "auto",
-    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
-    hb: Any | None = None,
-) -> dict[str, Any]:
+def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None, hb: Any | None = None) -> dict[str, Any]:
     """Zvec-specific folder maintain: extract current paragraphs for files, (re)upsert into zvec collection.
 
     For the first implementation we do a straightforward "current state" build:
@@ -382,11 +321,6 @@ def maintain_folder_zvec(
     This is intentionally simple (no dependency on sqlite indexed_* state) so zvec works side-by-side
     and can be selected even on a folder that has never used the sqlite backend.
     """
-    if not HAS_ZVEC or zvec is None:
-        raise RuntimeError(
-            "Zvec backend selected but the 'zvec' package is not importable in the configured Python venv. "
-            "Install it with: pip install zvec  (then restart LibreOffice or re-trigger the worker)."
-        )
 
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, zvec_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
@@ -396,8 +330,23 @@ def maintain_folder_zvec(
     if not root:
         raise ValueError("listing_root is required")
 
-    coll_path = str(zvec_collection_path(root, create_parent=True))
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
+
+    if mode != "cold":
+        from plugin.embeddings.embeddings_cache import chunk_count_from_meta
+
+        row_count = chunk_count_from_meta(meta_path)
+        if row_count > 0:
+            if heartbeat_fn:
+                heartbeat_fn({"phase": "done", "mode": mode, "indexed_paragraphs": 0, "upserted": 0})
+            from plugin.embeddings.embeddings_fs import guess_indexable_paths
+
+            return {"mode": mode, "indexed_paragraphs": 0, "files": len(guess_indexable_paths(root)), "upserted": 0, "row_count": row_count, "storage_backend": "zvec"}
+
+    if not HAS_ZVEC or zvec is None:
+        raise RuntimeError("Zvec backend selected but the 'zvec' package is not importable in the configured Python venv. Install it with: pip install zvec  (then restart LibreOffice or re-trigger the worker).")
+
+    coll_path = str(zvec_collection_path(root, create_parent=True))
 
     # Heartbeat helper (reuse the one from the caller if provided)
     class _HB:
@@ -430,7 +379,7 @@ def maintain_folder_zvec(
     indexed = 0
     upserted_total = 0
 
-    _hb.force({"phase": "start", "mode": "zvec", "listing_root": root, "files": total})
+    _hb.force({"phase": "start", "mode": mode, "listing_root": root, "files": total})
 
     # Probe dim once by embedding a tiny text (or first real body).
     dim = 0
@@ -454,8 +403,49 @@ def maintain_folder_zvec(
     ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
     write_corpus_meta(meta_path, storage_backend="zvec")
 
+    # Purge deleted files
+    current_urls = {entry.url for entry in files}
+    db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
+    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+
+    indexed_urls = get_all_indexed_urls(Path(db_path))
+
+    coll = None
+    try:
+        if coll_path in _COLL_CACHE:
+            coll = _COLL_CACHE[coll_path]
+        else:
+            coll = zvec.open(coll_path)  # type: ignore[attr-defined]
+            _COLL_CACHE[coll_path] = coll
+    except Exception:
+        pass
+
+    for url in indexed_urls:
+        if url in current_urls:
+            continue
+        if coll is not None:
+            try:
+                coll.delete_by_filter(f'doc_url == "{url}"')
+            except Exception:
+                pass
+        remove_file_from_index(Path(db_path), url)
+
     for idx, entry in enumerate(files):
-        _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": "zvec"})
+        _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
+
+        try:
+            if coll_path in _COLL_CACHE:
+                coll = _COLL_CACHE[coll_path]
+            else:
+                coll = zvec.open(coll_path)  # type: ignore[attr-defined]
+                _COLL_CACHE[coll_path] = coll
+            file_docs = coll.query(filter=f'doc_url == "{entry.url}"', include_vector=False, topk=1)
+            if file_docs:
+                mtime = file_docs[0].get("file_mtime")
+                if mtime is not None and abs(mtime - entry.modified) < 1.0:
+                    continue
+        except Exception:
+            pass
 
         try:
             paragraph_count, chunks = indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
@@ -463,22 +453,13 @@ def maintain_folder_zvec(
             log.debug("zvec extract failed for %s: %s", entry.name, e)
             continue
 
-        rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end,
-                 "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
-
-        _hb.force(
-            {
-                "phase": "extract",
-                "file": entry.name,
-                "paragraphs": paragraph_count,
-                "chunks": len(rows),
-                "mode": "zvec",
-            }
-        )
-
-        if not rows:
-            # Nothing to index for this file; still "touch" it in meta sense by ensuring collection exists.
+        if chunks is None:
+            # Failed extract is not an empty document. Do not purge stored rows.
             continue
+
+        rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end, "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
+
+        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "zvec"})
 
         # For clean per-file refresh, remove any previous docs for this doc_url.
         try:
@@ -492,28 +473,16 @@ def maintain_folder_zvec(
             # Collection may not exist yet; the upsert below will create on open/create path.
             pass
 
-        res = zvec_ingest_rows(
-            coll_path,
-            str(meta_path),
-            embedding_model,
-            rows,
-            build_fts=True,
-            build_vectors=True,
-        )
+        if not rows:
+            # Nothing to index for this file; still "touch" it in meta sense by ensuring collection exists.
+            continue
+
+        res = zvec_ingest_rows(coll_path, str(meta_path), embedding_model, rows, build_fts=True, build_vectors=True)
         up = int(res.get("upserted") or res.get("indexed") or 0)
         upserted_total += up
         indexed += len(rows)
 
-        _hb.force(
-            {
-                "phase": "index",
-                "file": entry.name,
-                "paragraphs": paragraph_count,
-                "chunks": up,
-                "upserted": up,
-                "mode": "zvec",
-            }
-        )
+        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "zvec"})
 
     # Final meta + flush
     try:
@@ -537,23 +506,14 @@ def maintain_folder_zvec(
     ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim, chunk_count=final_count)
     write_corpus_meta(meta_path, storage_backend="zvec", updated_at=str(time.time()))
 
-    _hb.force({"phase": "done", "mode": "zvec", "indexed_paragraphs": indexed, "upserted": upserted_total})
+    _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
 
-    return {
-        "mode": "zvec",
-        "indexed_paragraphs": indexed,
-        "files": total,
-        "upserted": upserted_total,
-        "row_count": final_count,
-        "storage_backend": "zvec",
-    }
+    return {"mode": "zvec", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "zvec"}
 
 
-__all__ = [
-    "HAS_ZVEC",
-    "maintain_folder_zvec",
-    "zvec_delete_keys",
-    "zvec_hybrid_search",
-    "zvec_ingest_rows",
-    "zvec_knn_search",
-]
+def zvec_clear_cache(collection_path: str) -> None:
+    """Remove a stale collection from the memory cache after a cold rebuild wipe."""
+    _COLL_CACHE.pop(collection_path, None)
+
+
+__all__ = ["HAS_ZVEC", "maintain_folder_zvec", "zvec_clear_cache", "zvec_delete_keys", "zvec_hybrid_search", "zvec_ingest_rows", "zvec_knn_search"]

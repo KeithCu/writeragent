@@ -40,6 +40,45 @@ def test_ensure_corpus_meta_writes_json(tmp_path):
     assert meta["storage_backend"] == embeddings_cache.STORAGE_BACKEND
 
 
+def test_write_corpus_meta_atomic_behavior(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+
+    # Write once
+    embeddings_cache.write_corpus_meta(meta_path, foo="bar")
+    assert meta_path.is_file()
+    assert not meta_path.with_suffix(".tmp").exists()
+
+    # Overwrite
+    embeddings_cache.write_corpus_meta(meta_path, baz="qux")
+    meta = embeddings_cache.read_corpus_meta(meta_path)
+    assert meta["foo"] == "bar"
+    assert meta["baz"] == "qux"
+
+
+def test_maybe_upgrade_legacy_index_does_not_wipe_on_corrupt_json(tmp_path):
+    listing = str(tmp_path / "project")
+    Path(listing).mkdir()
+    base = embeddings_cache.folder_cache_dir(listing)
+    meta_path = base / "corpus_meta.json"
+    db_path = base / "corpus.db"
+
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text("{ corrupt json", encoding="utf-8")
+
+    # Call upgrade
+    embeddings_cache.maybe_upgrade_legacy_index(listing)
+
+    # It should NOT have cleared the folder cache
+    assert db_path.is_file()
+    assert meta_path.is_file()
+
+    # Correct format with wrong version WILL wipe
+    meta_path.write_text('{"schema_version": "0.1"}', encoding="utf-8")
+    embeddings_cache.maybe_upgrade_legacy_index(listing)
+    assert not db_path.is_file()
+    assert not meta_path.is_file()
+
+
 def test_index_is_empty_missing_and_populated(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     db_path = tmp_path / "corpus.db"
@@ -51,6 +90,105 @@ def test_index_is_empty_missing_and_populated(tmp_path):
     embeddings_cache.write_corpus_meta(meta_path, chunk_count="3")
     db_path.write_text("", encoding="utf-8")
     assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+
+
+def test_index_is_empty_zvec_ignores_missing_corpus_db(tmp_path):
+    """Missing corpus.db is normal for zvec. Emptiness is meta plus the collection."""
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    embeddings_cache.write_corpus_meta(meta_path, chunk_count="3", embedding_model="m")
+    store = embeddings_cache.zvec_collection_path(listing, create_parent=False)
+    store.mkdir()
+    (store / "segment").write_text("rows", encoding="utf-8")
+
+    assert db_path.is_file() is False
+    # Sqlite still treats the missing db as empty, even if a zvec dir exists.
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is True
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="zvec", listing_root=listing) is False
+
+    embeddings_cache.write_corpus_meta(meta_path, chunk_count="0")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="zvec", listing_root=listing) is True
+
+
+def test_index_is_empty_lancedb_needs_collection_and_chunks(tmp_path):
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    embeddings_cache.write_corpus_meta(meta_path, chunk_count="2")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is True
+
+    store = embeddings_cache.lancedb_collection_path(listing, create_parent=False)
+    store.mkdir()
+    (store / "data.lance").write_text("rows", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is False
+
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is False
+
+
+def test_index_is_empty_with_corrupt_meta_and_db(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+
+    # Even though read_corpus_meta would return {} and chunk_count=0,
+    # index_is_empty must explicitly return False because DB exists
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+
+
+def test_needs_cold_rebuild_with_corrupt_meta(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+
+    # Should not trigger a wipe
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "all-MiniLM-L6-v2") is False
+
+
+def test_needs_cold_rebuild_on_embedding_model_change(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    embeddings_cache.write_corpus_meta(
+        meta_path,
+        schema_version=embeddings_cache.SCHEMA_VERSION,
+        embedding_model="model-a",
+        chunk_count="4",
+        dim="384",
+    )
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is False
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-b") is True
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-b") is True
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+
+
+def test_query_blocked_missing_meta_is_not_a_model_mismatch(tmp_path):
+    meta_path = tmp_path / "missing.json"
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is True
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+
+
+def test_non_dict_corpus_meta_does_not_look_empty_or_cold(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text('["not", "a", "dict"]', encoding="utf-8")
+
+    assert embeddings_cache.read_corpus_meta(meta_path) == {}
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is False
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+
+    listing = str(tmp_path / "project")
+    Path(listing).mkdir()
+    base = embeddings_cache.folder_cache_dir(listing)
+    live_db = base / "corpus.db"
+    live_meta = base / "corpus_meta.json"
+    live_db.write_text("sqlite", encoding="utf-8")
+    live_meta.write_text("[]", encoding="utf-8")
+    embeddings_cache.maybe_upgrade_legacy_index(listing)
+    assert live_db.is_file()
+    assert live_meta.is_file()
 
 
 def test_resolve_index_context_no_listing_root():
@@ -159,7 +297,7 @@ def test_file_index_state_and_diff(tmp_path):
     finally:
         conn.close()
 
-    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, [chunk])
+    to_index, to_delete = embeddings_cache.diff_chunk_rows(db_path, "file:///a.odt", [chunk])
     assert len(to_index) == 1
     assert to_delete == [
         {

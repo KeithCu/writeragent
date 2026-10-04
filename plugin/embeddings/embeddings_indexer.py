@@ -6,25 +6,21 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 """Background per-folder corpus index maintenance (corpus.db in venv)."""
+
 from __future__ import annotations
 
 import logging
 import threading
 from typing import Any
 
-from plugin.embeddings.embeddings_cache import (
-    resolve_index_context,
-)
-from plugin.framework.client.embedding_client import get_embedding_model
-from plugin.framework.client.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
+from plugin.embeddings.embeddings_cache import resolve_index_context
+from plugin.embeddings.embedding_client import get_embedding_model
+from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
 from plugin.framework.config import get_config
 from plugin.framework.constants import folder_search_enabled
 from plugin.framework.worker_pool import run_in_background
 
-__all__ = [
-    "enqueue_folder_index",
-    "ensure_index_wakeup",
-]
+__all__ = ["enqueue_folder_index", "ensure_index_wakeup"]
 
 log = logging.getLogger(__name__)
 
@@ -94,4 +90,13 @@ def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
 
 def ensure_index_wakeup(ctx: Any, services: Any, model: Any) -> None:
     """Non-blocking wakeup when search runs against a missing or stale cache."""
+    try:
+        from plugin.framework.queue_executor import get_current_send_cancellation
+
+        # TurnController has no cancellation scope. Stop latches SendCancellation.
+        scope = get_current_send_cancellation()
+        if scope is not None and scope.is_cancelled():
+            return
+    except Exception:
+        pass
     enqueue_folder_index(ctx, services, model)
