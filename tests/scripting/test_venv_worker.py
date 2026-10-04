@@ -129,6 +129,25 @@ def test_execute_request_does_not_inject_inputs():
     assert "inputs" in r.get("message", "").lower() and "not defined" in r.get("message", "").lower()
 
 
+def test_run_code_in_user_venv_passes_stop_checker():
+    """run_code_in_user_venv must pass stop_checker to the manager's execute method."""
+    with patch("plugin.scripting.venv_worker._worker_manager_for_ctx") as mock_mgr_ctx:
+        mock_mgr = MagicMock()
+        mock_mgr.execute.return_value = {"status": "ok"}
+        mock_mgr_ctx.return_value = (mock_mgr, None)
+
+        ctx = MagicMock()
+
+        def stop_fn() -> bool:
+            return True
+
+        run_code_in_user_venv(ctx, code="result = 1", stop_checker=stop_fn)
+
+        mock_mgr.execute.assert_called_once()
+        kwargs = mock_mgr.execute.call_args.kwargs
+        assert kwargs.get("stop_checker") is stop_fn
+
+
 def test_blocked_import_os():
     r = _execute_request("import os\nresult = 1", None)
     assert r["status"] == "error"
@@ -938,6 +957,8 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
     )
 
     mock_execute.reset_mock()
@@ -959,6 +980,8 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
     )
 
     mock_execute.reset_mock()
@@ -980,6 +1003,8 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
     )
 
     mock_execute.reset_mock()
@@ -1001,6 +1026,8 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
     )
 
 
@@ -2105,7 +2132,6 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
             return {"frame_type": FRAME_HEARTBEAT, "payload": {"phase": "test"}}
         return {"frame_type": FRAME_RESULT, "status": "ok"}
 
-    import plugin.scripting.venv_worker as vw
 
     # Track calls to on_heartbeat
     heartbeat_calls = []

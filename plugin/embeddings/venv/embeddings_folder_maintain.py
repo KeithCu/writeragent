@@ -209,6 +209,12 @@ def _cold_build(
     search_mode: str = "embeddings",
 ) -> dict[str, Any]:
     clear_folder_cache(listing_root)
+    try:
+        from plugin.embeddings.embeddings_cache import zvec_collection_path
+        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+        zvec_clear_cache(str(zvec_collection_path(listing_root)))
+    except ImportError:
+        pass
     if build_vectors:
         ensure_corpus_meta(corpus_meta_path(listing_root), embedding_model=embedding_model)
     db_path = corpus_db_path(listing_root)
@@ -291,13 +297,38 @@ def _incremental_refresh(
     files_touched = 0
     total = len(files)
 
+    current_urls = {entry.url for entry in files}
+    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+    indexed_urls = get_all_indexed_urls(db_path)
+
+    for url in indexed_urls:
+        if url in current_urls:
+            continue
+        to_index, to_delete = diff_chunk_rows(db_path, url, [])
+        if to_delete:
+            file_name = url.split("/")[-1] if "/" in url else url
+            hb.force({"phase": "delete", "file": file_name, "keys": len(to_delete)})
+            _ingest_rows(
+                listing_root,
+                embedding_model,
+                [],
+                delete_keys=to_delete,
+                build_fts=build_fts,
+                build_vectors=build_vectors,
+                search_mode=search_mode,
+                heartbeat_fn=hb.force,
+            )
+            deleted += len(to_delete)
+        remove_file_from_index(db_path, url)
+        files_touched += 1
+
     for index, entry in enumerate(files):
         hb.ping({"phase": "scan", "file": entry.name, "index": index, "total": total})
         if not file_is_stale(db_path, entry.url, entry.modified):
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
         paragraph_count, chunks = _extract_file_chunks(entry)
-        to_index, to_delete = diff_chunk_rows(db_path, chunks)
+        to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
         hb.force(
             {
                 "phase": "extract",
@@ -322,6 +353,7 @@ def _incremental_refresh(
                 heartbeat_fn=hb.force,
             )
             deleted += len(to_delete)
+
             if chunks:
                 sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
         if to_index:
@@ -346,10 +378,12 @@ def _incremental_refresh(
                     "mode": "incremental",
                 }
             )
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             indexed += len(to_index)
             files_touched += 1
-        elif not to_delete:
+
+        if to_delete or to_index:
+            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
+        else:
             mark_file_indexed(db_path, entry.url, entry.modified)
             files_touched += 1
 
@@ -447,6 +481,12 @@ def maintain_folder_corpus(
         # corpus.db is not a cold signal: zvec and lancedb never create it.
         if resolved_mode == "cold":
             clear_folder_cache(root)
+            try:
+                from plugin.embeddings.embeddings_cache import zvec_collection_path
+                from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+                zvec_clear_cache(str(zvec_collection_path(root)))
+            except ImportError:
+                pass
         if backend == "zvec":
             from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 

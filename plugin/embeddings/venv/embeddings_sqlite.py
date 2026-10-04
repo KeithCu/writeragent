@@ -747,8 +747,24 @@ def mark_file_indexed_in_db(
     conn.commit()
 
 
+
+def get_all_indexed_urls_in_db(conn: sqlite3.Connection) -> list[str]:
+    """Return a list of all doc_url entries in indexed_files."""
+    rows = conn.execute("SELECT doc_url FROM indexed_files").fetchall()
+    return [str(row["doc_url"] or "") for row in rows]
+
+
+def remove_file_from_index_in_db(conn: sqlite3.Connection, doc_url: str) -> None:
+    """Remove a file's freshness metadata from the index."""
+    doc_url = str(doc_url or "")
+    conn.execute("DELETE FROM indexed_files WHERE doc_url = ?", (doc_url,))
+    conn.execute("DELETE FROM indexed_paragraphs WHERE doc_url = ?", (doc_url,))
+    conn.commit()
+
+
 def diff_chunk_rows_in_db(
     conn: sqlite3.Connection,
+    doc_url: str,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
@@ -758,9 +774,7 @@ def diff_chunk_rows_in_db(
     seen: set[tuple[str, int, int, int]] = set()
 
     stored: dict[tuple[int, int, int], str] = {}
-    if chunks:
-        doc_url = str(chunks[0].doc_url if isinstance(chunks[0], ParagraphChunk) else "")
-        if doc_url:
+    if doc_url:
             rows = conn.execute(
                 """
                 SELECT para_index, char_start, char_end, content_hash
@@ -784,15 +798,15 @@ def diff_chunk_rows_in_db(
         to_index.append(chunk_to_index_row(chunk))
 
     if not chunks:
-        return to_index, []
-
-    doc_url = chunks[0].doc_url
+        doc_url_for_delete = doc_url
+    else:
+        doc_url_for_delete = chunks[0].doc_url
     to_delete: list[dict[str, Any]] = []
     for (para_index, char_start, char_end), _stored_hash in stored.items():
-        if (doc_url, para_index, char_start, char_end) not in seen:
+        if (doc_url_for_delete, para_index, char_start, char_end) not in seen:
             to_delete.append(
                 {
-                    "doc_url": doc_url,
+                    "doc_url": doc_url_for_delete,
                     "para_index": para_index,
                     "char_start": char_start,
                     "char_end": char_end,
@@ -870,6 +884,7 @@ __all__ = [
     "ensure_schema",
     "file_is_stale_in_db",
     "fts_corpus_search",
+    "get_all_indexed_urls_in_db",
     "get_file_index_info",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
@@ -877,6 +892,7 @@ __all__ = [
     "paragraph_body_for_locator",
     "paragraph_bodies_for_locators",
     "rebuild_fts_corpus_index",
+    "remove_file_from_index_in_db",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",
