@@ -108,7 +108,7 @@ def test_stuck_next_element_does_not_spin():
     The old mock popped before it raised, so hasMoreElements() went false
     and never saw a UNO enumeration that stays true after a failed fetch.
     """
-    class DisposedException(Exception):
+    class StuckEnumException(Exception):
         pass
 
     calls = {"next": 0, "more": 0}
@@ -123,7 +123,7 @@ def test_stuck_next_element_does_not_spin():
 
     def next_elem():
         calls["next"] += 1
-        raise DisposedException("stuck frame")
+        raise StuckEnumException("stuck frame")
 
     desktop = MagicMock()
     enum = MagicMock()
@@ -209,3 +209,27 @@ def test_get_runtime_uid_present_missing_and_error():
             raise RuntimeError("disposed")
 
     assert get_runtime_uid(Boom()) == ""
+
+def test_resolve_reraises_when_next_element_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    calls = {"next": 0, "more": 0}
+
+    def has_more():
+        calls["more"] += 1
+        return True
+
+    def next_elem():
+        calls["next"] += 1
+        raise DisposedException("com.sun.star.lang.DisposedException: frame dead")
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = has_more
+    enum.nextElement.side_effect = next_elem
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///docs/a.odt")
+    assert calls["next"] == 1

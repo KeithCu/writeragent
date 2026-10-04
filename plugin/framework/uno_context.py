@@ -943,6 +943,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 # main thread. Why: stop, as html_import and format do on
                 # a failed nextElement. A model fetched successfully that
                 # then raises is still skipped below.
+                _reraise_document_disposed(e, "Desktop")
                 log.debug("resolve_document_by_url nextElement error: %s", type(e).__name__)
                 break
             try:
