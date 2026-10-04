@@ -142,7 +142,10 @@ def write_corpus_meta(meta_path: Path, **fields: str) -> None:
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     current = read_corpus_meta(meta_path)
     current.update({str(k): str(v) for k, v in fields.items()})
-    meta_path.write_text(json.dumps(current, indent=2, sort_keys=True), encoding="utf-8")
+
+    tmp_path = meta_path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(current, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp_path, meta_path)
 
 
 def _open_index_db(db_path: Path) -> Any:
@@ -321,7 +324,14 @@ def clear_folder_cache(listing_root: str) -> None:
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
     """On first access after upgrade, drop stale v1/v2 stores."""
     meta = corpus_meta_path(listing_root, create_parent=False)
-    if schema_matches(meta):
+    if not meta.is_file():
+        return
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # Corrupt file; do not nuke the corpus
+        return
+    if data.get("schema_version", "") == SCHEMA_VERSION:
         remove_stale_corpus_stores(listing_root)
         return
     clear_folder_cache(listing_root)

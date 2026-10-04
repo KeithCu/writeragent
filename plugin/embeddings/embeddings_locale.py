@@ -79,7 +79,7 @@ def _odf_locale_from_meta_root(root: Element) -> str | None:
 def _read_zip_member(zf: zipfile.ZipFile, member: str) -> Element | None:
     try:
         return ET.fromstring(zf.read(member))
-    except (KeyError, ET.ParseError, OSError):
+    except Exception:
         return None
 
 
