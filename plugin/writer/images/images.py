@@ -124,6 +124,7 @@ class ImageGenerate(ToolWriterImageBase):
         prompt = args.get("prompt", "")
 
         status_callback = getattr(ctx, "status_callback", None)
+        stop_checker = getattr(ctx, "stop_checker", None)
         mt_timeout = float(get_config_int("request_timeout"))
         provider = args.get("provider") or "endpoint"
         if provider == "aihorde":
@@ -200,6 +201,7 @@ class ImageGenerate(ToolWriterImageBase):
             height=height,
             aspect_ratio=aspect,
             status_callback=status_callback,
+            stop_checker=stop_checker,
             **args_copy,
         )
 
@@ -209,6 +211,8 @@ class ImageGenerate(ToolWriterImageBase):
         img_path = paths[0]
 
         def _insert_or_replace() -> str:
+            if stop_checker and stop_checker():
+                return "Image generation was cancelled by the user."
             if is_edit:
                 replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
                 if not replaced:
