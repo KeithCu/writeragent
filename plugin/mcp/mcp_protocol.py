@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
+from plugin.framework.tool import ToolContext
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
 from plugin.mcp.cors import send_cors_headers
@@ -106,7 +107,7 @@ class _PreparedMcpCall:
     """Main-thread document resolve + ToolContext. Safe to hand to a worker with precomputed echo."""
 
     tool: object
-    context: object
+    context: ToolContext
     doc: object
     doc_key: str
     needs_gate: bool
@@ -1131,7 +1132,8 @@ class MCPProtocolHandler:
         registry is marshalled to the main thread from there.
         """
         with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
-            if callable(prepared.context.stop_checker) and prepared.context.stop_checker() is True:
+            stop_checker = prepared.context.stop_checker
+            if callable(stop_checker) and stop_checker() is True:
                 return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
