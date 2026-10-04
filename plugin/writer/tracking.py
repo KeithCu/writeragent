@@ -322,6 +322,15 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
             # getAnchor() call meant every real change died here with "Failed to select".
             try:
+                # Count agent changes before dispatch
+                enum_before = redlines.createEnumeration()
+                agent_changes_before = 0
+                while enum_before.hasMoreElements():
+                    r = enum_before.nextElement()
+                    is_agent_r, _ = redline_is_agent_change(r)
+                    if is_agent_r:
+                        agent_changes_before += 1
+
                 start = target_redline.getPropertyValue("RedlineStart")
                 cur = start.getText().createTextCursorByRange(start)
                 end = start
@@ -382,6 +391,22 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
             if redlines.getCount() == initial_count:
                 return self._tool_error("Failed to resolve tracked change: operation silently failed.")
+
+            # Enforce self-resolve invariant
+            enum_after = redlines.createEnumeration()
+            agent_changes_after = 0
+            while enum_after.hasMoreElements():
+                r = enum_after.nextElement()
+                is_agent_r, _ = redline_is_agent_change(r)
+                if is_agent_r:
+                    agent_changes_after += 1
+
+            if agent_changes_after < agent_changes_before:
+                try:
+                    ctx.doc.getUndoManager().undo()
+                except Exception:
+                    pass
+                return self._tool_error("Agent edit was resolved, which is forbidden.")
 
             action_str = "Accepted" if is_accept else "Rejected"
             return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}
