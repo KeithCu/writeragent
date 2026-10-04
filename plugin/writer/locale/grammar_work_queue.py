@@ -106,6 +106,7 @@ class GrammarWorkItem:
     enqueue_seq: int
     original_bcp47: str = ""
     provider: str = ""
+    n_start: int = 0
 
 
 

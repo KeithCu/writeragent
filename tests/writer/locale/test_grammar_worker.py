@@ -71,14 +71,14 @@ def test_worker_build_chunks_truncates_batch_and_single() -> None:
         batch_items, MagicMock(), batch_size=8, max_chars=10, detect_lang_enabled=False
     )
     assert len(chunks) == 1 and len(chunks[0]) == 2
-    assert chunks[0][0][1] == "A" * 10
-    assert chunks[0][1][1] == "B" * 10
+    assert chunks[0][0][1] == "A" * 100
+    assert chunks[0][1][1] == "B" * 80
 
     single_chunks, _instr = _worker_build_chunks(
         [(_item(long_a), long_a)], MagicMock(), batch_size=8, max_chars=10, detect_lang_enabled=False
     )
     assert len(single_chunks) == 1
-    assert single_chunks[0][0][1] == "A" * 10
+    assert single_chunks[0][0][1] == "A" * 100
 
     short = "Hi."
     short_chunks, _instr = _worker_build_chunks(
@@ -526,7 +526,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
         run_llm_and_cache_batch([item])
     
         # 1. Verify document update was triggered
-        mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP")
+        mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0)
     
         # 2. Verify grammar check was done with ja-JP
         args, _ = mock_client_inst.chat_completion_sync.call_args_list[1]
