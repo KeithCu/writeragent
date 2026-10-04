@@ -53,6 +53,47 @@ def test_file_is_stale_when_mtime_newer(tmp_path):
     assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 40.0) is False
 
 
+def test_file_is_stale_uses_stored_file_mtime_not_wall_clock(tmp_path):
+    """Staleness follows the stored file mtime, not wall-clock last_indexed_at.
+
+    An mtime between the stored file_mtime and the index clock is a real edit.
+    A file mtime that matches the stored value is fresh even when it is ahead
+    of last_indexed_at.
+    """
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
+
+    db_path = tmp_path / "corpus.db"
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": "file:///a.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 1,
+                "content_hash": content_hash("h"),
+                "text": "h",
+                "file_mtime": 50.0,
+            },
+            [],
+            model="",
+            with_fts=False,
+            with_vec=False,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    embeddings_cache.mark_file_indexed(db_path, "file:///a.odt", 50.0, indexed_at=1_000_000.0)
+    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 80.0) is True
+    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 50.0) is False
+
+    embeddings_cache.mark_file_indexed(db_path, "file:///a.odt", 200.0, indexed_at=10.0)
+    assert embeddings_cache.file_is_stale(db_path, "file:///a.odt", 200.0) is False
+
+
 def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
 

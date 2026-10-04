@@ -77,7 +77,52 @@ def test_trusted_embeddings_payload_calls_index_paragraphs():
         [{"text": "hi"}],
         build_fts=False,
         build_vectors=True,
+        search_mode="hybrid",
     )
+
+
+def test_index_and_delete_dispatch_forward_search_mode():
+    with patch(
+        "plugin.embeddings.venv.embeddings_index.index_paragraphs",
+        return_value={"indexed": 1},
+    ) as mock_index:
+        out = _handle_request(
+            {
+                "action": "run_trusted_action",
+                "data": {
+                    "domain": "embeddings_index",
+                    "helper": "index_paragraphs",
+                    "params": {**_INDEX_PARAMS, "search_mode": "zvec"},
+                },
+            }
+        )
+    assert out is not None
+    assert out["status"] == "ok"
+    assert mock_index.call_args.kwargs["search_mode"] == "zvec"
+
+    with patch(
+        "plugin.embeddings.venv.embeddings_index.delete_paragraphs",
+        return_value={"deleted": 1},
+    ) as mock_delete:
+        deleted = _handle_request(
+            {
+                "action": "run_trusted_action",
+                "data": {
+                    "domain": "embeddings_index",
+                    "helper": "delete_paragraphs",
+                    "params": {
+                        "db_path": "/tmp/corpus.db",
+                        "meta_path": "/tmp/meta.json",
+                        "keys": [],
+                        "model": "all-MiniLM-L6-v2",
+                        "search_mode": "lancedb",
+                    },
+                },
+            }
+        )
+    assert deleted is not None
+    assert deleted["status"] == "ok"
+    assert mock_delete.call_args.kwargs["search_mode"] == "lancedb"
 
 
 def test_user_code_still_uses_sandbox():

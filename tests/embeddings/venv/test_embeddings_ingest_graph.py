@@ -26,3 +26,25 @@ def test_ingest_paragraphs_invokes_graph(tmp_path):
     assert result["indexed"] == 1
     assert result["storage_backend"] == "sqlite_vec"
     mock_graph.invoke.assert_called_once()
+
+
+def test_ingest_paragraphs_empty_rows_skip_graph_unless_filling_gaps(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = str(tmp_path / "corpus.db")
+    with patch.object(embeddings_ingest_graph, "_get_ingest_graph") as mock_graph_factory:
+        skipped = embeddings_ingest_graph.ingest_paragraphs(db_path, str(meta_path), "all-MiniLM-L6-v2", [])
+        assert skipped["indexed"] == 0
+        mock_graph_factory.assert_not_called()
+
+        mock_graph = MagicMock()
+        mock_graph.invoke.return_value = {"upserted": 2, "dim": 4}
+        mock_graph_factory.return_value = mock_graph
+        filled = embeddings_ingest_graph.ingest_paragraphs(
+            db_path,
+            str(meta_path),
+            "all-MiniLM-L6-v2",
+            [],
+            fill_vector_gaps=True,
+        )
+    assert filled["indexed"] == 2
+    mock_graph.invoke.assert_called_once()

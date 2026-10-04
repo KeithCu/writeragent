@@ -87,6 +87,7 @@ def _resolve_mode(
     mode: MaintainMode,
     *,
     build_vectors: bool,
+    search_mode: str = "",
 ) -> MaintainMode:
     meta_path = corpus_meta_path(listing_root, create_parent=False)
     db_path = corpus_db_path(listing_root, create_parent=False)
@@ -97,7 +98,9 @@ def _resolve_mode(
         return "cold"
     if mode != "auto":
         return mode
-    if index_is_empty(meta_path, db_path):
+    # corpus.db is absent for zvec/lancedb. Pass the backend so that absence
+    # is not read as an empty sqlite corpus (which cold-wipes the collection).
+    if index_is_empty(meta_path, db_path, search_mode=search_mode, listing_root=listing_root):
         return "cold"
     loaded = _load_meta_object(meta_path)
     if loaded is None:
@@ -134,9 +137,24 @@ def _ingest_rows(
     build_fts: bool,
     build_vectors: bool,
     search_mode: str = "embeddings",
+    fill_vector_gaps: bool = False,
 ) -> dict[str, Any]:
     db_path = str(corpus_db_path(listing_root))
     meta_path = str(corpus_meta_path(listing_root))
+    if fill_vector_gaps:
+        # The gap is rows in sqlite chunks with no vec_chunks_<model> vector.
+        # LlamaIndex uses that same table. Its empty ingest returns before
+        # any embed, so this call always uses the sqlite graph.
+        return ingest_paragraphs(
+            db_path,
+            meta_path,
+            embedding_model,
+            rows,
+            delete_keys=list(delete_keys or []),
+            build_fts=build_fts,
+            build_vectors=True,
+            fill_vector_gaps=True,
+        )
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
         return llama_index_ingest(
@@ -356,6 +374,8 @@ def _incremental_refresh(
             conn.close()
 
         if has_missing:
+            # Empty rows alone never reach the embedder. fill_vector_gaps
+            # loads chunks that have no vector for this model and embeds them.
             _ingest_rows(
                 listing_root,
                 embedding_model,
@@ -363,6 +383,7 @@ def _incremental_refresh(
                 build_fts=False,
                 build_vectors=True,
                 search_mode=search_mode,
+                fill_vector_gaps=True,
             )
 
     db_path_final = corpus_db_path(listing_root, create_parent=False)
@@ -403,7 +424,7 @@ def maintain_folder_corpus(
         raise ValueError("listing_root is required")
 
     maybe_upgrade_legacy_index(root)
-    resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors)
+    resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors, search_mode=search_mode)
     hb = _HeartbeatThrottle(heartbeat_fn)
     hb.force({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode})
 
@@ -411,8 +432,9 @@ def maintain_folder_corpus(
     if backend in ("zvec", "lancedb"):
         # These stores ignore MaintainMode and reopen the existing collection.
         # Its vector dimension is fixed at create time. A cold resolution
-        # (model change, empty, schema) must delete that store first or the
-        # next query hits the previous dimension.
+        # (model change, empty collection, schema) must delete that store
+        # first or the next query hits the previous dimension. Missing
+        # corpus.db is not a cold signal: zvec and lancedb never create it.
         if resolved_mode == "cold":
             clear_folder_cache(root)
         if backend == "zvec":

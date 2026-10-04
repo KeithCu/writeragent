@@ -56,6 +56,32 @@ def test_knn_search_happy_path(ctx, tmp_path):
     assert payload["db_path"] == corpus_db
 
 
+def test_index_paragraphs_passes_config_search_mode(ctx, tmp_path):
+    corpus_db = str(tmp_path / "corpus.db")
+    meta_json = str(tmp_path / "meta.json")
+    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"indexed": 1}) as mock_run:
+        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="zvec"):
+                embeddings_service.index_paragraphs(ctx, corpus_db, meta_json, [{"text": "hi"}], model=DEFAULT_EMBEDDING_MODEL)
+    assert mock_run.call_args.kwargs["params"]["search_mode"] == "zvec"
+
+
+def test_delete_paragraphs_passes_config_search_mode(ctx, tmp_path):
+    corpus_db = str(tmp_path / "corpus.db")
+    meta_json = str(tmp_path / "meta.json")
+    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"deleted": 1}) as mock_run:
+        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="lancedb"):
+                embeddings_service.delete_paragraphs(
+                    ctx,
+                    corpus_db,
+                    meta_json,
+                    [{"doc_url": "file:///a.odt", "para_index": 0}],
+                    model=DEFAULT_EMBEDDING_MODEL,
+                )
+    assert mock_run.call_args.kwargs["params"]["search_mode"] == "lancedb"
+
+
 def test_index_paragraphs_worker_error(ctx, tmp_path):
     corpus_db = str(tmp_path / "corpus.db")
     meta_json = str(tmp_path / "meta.json")

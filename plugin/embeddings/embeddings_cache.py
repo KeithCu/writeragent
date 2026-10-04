@@ -194,7 +194,7 @@ def get_file_index_state(db_path: Path, doc_url: str) -> dict[str, float | int]:
 
 
 def file_is_stale(db_path: Path, doc_url: str, file_mtime: float) -> bool:
-    """True when filesystem mtime is newer than last indexed timestamp for *doc_url*."""
+    """True when *file_mtime* is newer than the mtime stored for *doc_url*."""
     from plugin.embeddings.venv.embeddings_sqlite import file_is_stale_in_db
 
     if not db_path.is_file():
@@ -299,8 +299,53 @@ def chunk_count_from_meta(meta_path: Path) -> int:
         return 0
 
 
-def index_is_empty(meta_path: Path, db_path: Path | None = None) -> bool:
-    """True when corpus has no indexed chunks."""
+def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Path) -> bool:
+    """True when a zvec or lancedb folder store has nothing to search.
+
+    A built store has a positive ``chunk_count`` in corpus_meta.json and at
+    least one file in the collection directory. Either signal missing means
+    empty. A corrupt meta beside a live collection is not empty: a cold
+    rebuild would delete that collection.
+    """
+    if not listing_root:
+        return True
+    if mode == "zvec":
+        probe = zvec_collection_path(listing_root, create_parent=False)
+        populated = zvec_collection_looks_populated(probe)
+    else:
+        probe = lancedb_collection_path(listing_root, create_parent=False)
+        populated = lancedb_collection_looks_populated(probe)
+    if not populated:
+        return True
+    if not meta_path.is_file():
+        return True
+    if _load_meta_object(meta_path) is None:
+        return False
+    return chunk_count_from_meta(meta_path) <= 0
+
+
+def index_is_empty(
+    meta_path: Path,
+    db_path: Path | None = None,
+    *,
+    search_mode: str | None = None,
+    listing_root: str | None = None,
+) -> bool:
+    """True when the active folder store has no indexed chunks.
+
+    *search_mode* ``zvec`` / ``lancedb`` ignore *db_path*. Those backends never
+    create corpus.db; pass *listing_root* so the collection directory can be
+    probed. Other modes keep the sqlite rule: a missing corpus.db is empty.
+    """
+    mode = str(search_mode or "").strip().lower()
+    if mode in ("zvec", "lancedb"):
+        # What was wrong: this returned True whenever corpus.db was missing.
+        # How: #1180 made a missing db file mean "empty", which is right for
+        # sqlite and wrong for zvec/lancedb. Auto maintain then resolved cold
+        # on every tick and clear_folder_cache deleted the real collection.
+        # Empty for those backends is chunk_count plus collection presence,
+        # the same signals search_ui and the research tools already use.
+        return _vector_backend_is_empty(mode, listing_root, meta_path)
     if db_path is not None and not db_path.is_file():
         return True
     if not meta_path.is_file():
@@ -385,13 +430,10 @@ def needs_cold_rebuild(meta_path: Path, embedding_model: str) -> bool:
         return True
     if chunk_count_from_meta(meta_path) == 0:
         return True
-    # What was wrong: a model change returned False, so auto maintain stayed
-    # incremental. The alignment pass calls ingest with no rows, and
-    # ingest_paragraphs returns before backfill, so the vec table stays empty,
-    # partial, or sized to the previous model's dimension while meta is
-    # rewritten to the new model. How: the model_matches_index check was
-    # dropped on the theory that missing vectors are filled incrementally.
-    # That fill never runs for an empty row list. Cold-rebuild instead.
+    # A different embedding model must cold-rebuild. The same-model alignment
+    # pass fills vec gaps for the current model only. It is not a dimension
+    # migration: staying incremental would point meta at a vec table that is
+    # empty, partial, or still the previous dimension.
     return not model_matches_index(meta_path, embedding_model)
 
 

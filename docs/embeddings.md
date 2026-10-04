@@ -954,6 +954,8 @@ zvec stores data in `writeragent_embeddings/zvec/` — a first-class zvec collec
 
 **Maintain (v1):** `maintain_folder_zvec` does per-file `delete_by_filter('doc_url == "..."')`, re-extracts paragraphs, embeds, builds `Doc` objects with stable ids (`{doc_url}#{para_index}#{content_hash_prefix}`), `upsert`s, heartbeat progress. Updates `corpus_meta.json` with `storage_backend: "zvec"`. Does **not** use sqlite `indexed_files` / `indexed_paragraphs` — a folder can have a good zvec index without ever building `corpus.db`.
 
+Auto maintenance must not treat that missing `corpus.db` as an empty index. For `zvec` and `lancedb`, cold vs incremental uses `corpus_meta.json` `chunk_count` plus whether `zvec/` or `lancedb/` has files (the same signals as the Search dialog and the research tools). A false empty resolves cold, and `clear_folder_cache` deletes the collection on every tick.
+
 **Search:** `zvec_knn_search` (semantic only) and `zvec_hybrid_search` (normal tool path) embed the query, build `Query` objects, apply reranker when configured, map through `_shape_hit` to standard hits. `doc_url_filter` becomes a query filter; `near_slop` accepted for future FTS parity.
 
 Guarded by `try: import zvec` — if missing, worker raises `pip install zvec`. LibreOffice embedded Python never imports zvec.
@@ -1080,7 +1082,7 @@ Experimental: **Settings → LanceDB (experimental)** (`folder_search_mode="lanc
 
 **Implementation:** PyArrow tables via `lancedb.connect()`; `lancedb_hybrid_search` and `lancedb_knn_search` return the same hit shape as other backends. Maintain via `maintain_folder_lancedb` — per-file refresh similar to Zvec v1.
 
-**Host checks:** [`lancedb_collection_path`](plugin/embeddings/embeddings_cache.py), [`lancedb_collection_looks_populated`](plugin/embeddings/embeddings_cache.py) — no LanceDB import on the LibreOffice host.
+**Host checks:** [`lancedb_collection_path`](plugin/embeddings/embeddings_cache.py), [`lancedb_collection_looks_populated`](plugin/embeddings/embeddings_cache.py) — no LanceDB import on the LibreOffice host. Auto maintenance uses those checks with `chunk_count`, not the absence of `corpus.db` (see Zvec maintain above).
 
 **Evaluation:** same `eval_folder_search_routing.py` / Search dialog workflow; select LanceDB in Settings and rebuild.
 
