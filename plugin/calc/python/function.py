@@ -369,7 +369,10 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
 
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
-# Key: (doc_url, sheet_name, formula_row, formula_col)
+# Key: (doc identity, sheet_name, formula_row, formula_col)
+# Identity is the file URL when the workbook has one. Every unsaved book
+# reports getURL()==""; those use workbook_lifecycle._lifecycle_key
+# (RuntimeUID), never "". LOADED_DOCUMENTS uses the same identity.
 # Value: list of (spilled_row, spilled_col) coordinates
 SPILL_REGISTRY: dict[tuple[str, str, int, int], list[tuple[int, int]]] = {}
 LOADED_DOCUMENTS: set[str] = set()
@@ -478,7 +481,11 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
                 to_remove = []
                 for key, value in list(SPILL_REGISTRY.items()):
                     doc_url, sheet_name, frow, fcol = key
-                    if doc_url == self.doc_url and sheet_name == self.sheet_name:
+                    # Bugfix: "" matched every unsaved workbook, so a modify on
+                    # one untitled book cleared the other's spill cells when
+                    # the sheet names matched. Callers pass the file URL or the
+                    # lifecycle id. "" is not an identity.
+                    if self.doc_url and doc_url == self.doc_url and sheet_name == self.sheet_name:
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
@@ -507,6 +514,36 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
         SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
 
 
+def _spill_registry_doc_key(doc: Any) -> str:
+    """File URL for a saved workbook; lifecycle id when ``getURL()`` is empty.
+
+    Bugfix: every unsaved book reports ``getURL() == ""``. Keying
+    ``SPILL_REGISTRY`` and ``LOADED_DOCUMENTS`` on ``""`` mixed their spill
+    cells, made the second book skip load, and let save write every untitled
+    row into whichever book was saving. ``sheet_modify._doc_identity`` and
+    ``formula_locator_cache.document_cache_key`` already use
+    ``workbook_lifecycle._lifecycle_key`` (RuntimeUID) for that reason.
+    Saved books keep the file URL so existing registry keys stay stable.
+    ``""`` is never returned as a shared key when a lifecycle id exists.
+    """
+    url = ""
+    try:
+        url = getattr(doc, "getURL", lambda: "")() or ""
+    except Exception:
+        url = ""
+    if url:
+        return str(url)
+    if doc is None:
+        return ""
+    try:
+        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+        return str(_lifecycle_key(doc) or "")
+    except Exception:
+        log.debug("spill registry identity failed", exc_info=True)
+        return ""
+
+
 def load_spill_registry_for_doc(doc: Any) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
@@ -517,7 +554,11 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         if not isinstance(raw, str) or not raw.strip():
             return
         data = json.loads(raw)
-        doc_url = getattr(doc, "getURL", lambda: "")() or ""
+        doc_key = _spill_registry_doc_key(doc)
+        # UD JSON stays ``sheet:row,col`` inside this document. The in-memory
+        # key is per workbook. Do not file those rows under "" (every untitled book).
+        if not doc_key:
+            return
         for key, value in data.items():
             parts = key.split(":")
             if len(parts) == 2:
@@ -526,7 +567,7 @@ def load_spill_registry_for_doc(doc: Any) -> None:
                 if len(row_col) == 2:
                     frow, fcol = int(row_col[0]), int(row_col[1])
                     spill_coords = [(int(r), int(c)) for r, c in value]
-                    SPILL_REGISTRY[(doc_url, sheet_name, frow, fcol)] = spill_coords
+                    SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = spill_coords
     except Exception:
         log.exception("Failed to load spill registry from document property")
 
@@ -537,11 +578,13 @@ def save_spill_registry_for_doc(doc: Any) -> None:
         from plugin.doc.udprops import set_document_property
         import json
 
-        doc_url = getattr(doc, "getURL", lambda: "")() or ""
+        doc_key = _spill_registry_doc_key(doc)
+        if not doc_key:
+            return
         doc_spills = {}
         for key, value in SPILL_REGISTRY.items():
             k_url, sheet_name, frow, fcol = key
-            if k_url == doc_url:
+            if k_url == doc_key:
                 doc_spills[f"{sheet_name}:{frow},{fcol}"] = value
         set_document_property(doc, "WriterAgentSpillRegistry", json.dumps(doc_spills))
     except Exception:
@@ -658,9 +701,25 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
             return
 
         with _undo_lock(doc):
-            current_url = getattr(doc, "getURL", lambda: "")() or ""
-            if current_url != doc_url:
-                return
+            # Bugfix: ``current_url != doc_url`` is false when both are "".
+            # Two unsaved books then shared one spill write. The scheduled
+            # token is the file URL, or the lifecycle id captured when the
+            # URL was empty. A blank token is the legacy getURL() of an
+            # untitled book (UNO callers); the registry still uses this
+            # document's lifecycle id, and a saved book rejects the blank.
+            live_key = _spill_registry_doc_key(doc)
+            scheduled = doc_url or ""
+            if scheduled:
+                if scheduled != live_key:
+                    return
+            else:
+                current_url = ""
+                try:
+                    current_url = getattr(doc, "getURL", lambda: "")() or ""
+                except Exception:
+                    current_url = ""
+                if current_url or not live_key:
+                    return
             if lifecycle_key:
                 try:
                     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
@@ -686,7 +745,7 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
                     log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
                     return
 
-            reg_key = (doc_url, sheet_name, formula_row, formula_col)
+            reg_key = (live_key, sheet_name, formula_row, formula_col)
 
             # 1. Clear previously spilled cells
             previous_spills = SPILL_REGISTRY.get(reg_key, [])
@@ -890,12 +949,16 @@ def _off_main_may_auto_spill(doc: Any | None) -> bool:
 def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> str | tuple[str, str, int, int] | None:
     """Locate the unique formula origin and check spill collisions (UNO / UI thread).
 
-    Returns ``"#SPILL!"`` on collision, ``(doc_url, sheet_name, row, col)`` when the
+    Returns ``"#SPILL!"`` on collision, ``(doc identity, sheet_name, row, col)`` when the
     neighbor write should proceed, or ``None`` when the origin is not unique.
+    The identity is the file URL, or the lifecycle id when ``getURL()`` is empty.
     """
-    doc_url = getattr(target_doc, "getURL", lambda: "")() or ""
     located = locate_formula_cell_in_doc(ctx, target_doc, code)
     if located is None:
+        return None
+    doc_key = _spill_registry_doc_key(target_doc)
+    if not doc_key:
+        # No file URL and no lifecycle id: refuse the shared "" key.
         return None
     sheet = located[0]
     formula_coord = located[2]
@@ -903,9 +966,9 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     log.debug("Spill: located formula cell at %r on sheet %r for code %r", formula_coord, sheet_name, code)
     formula_row, formula_col = formula_coord
 
-    if doc_url not in LOADED_DOCUMENTS:
+    if doc_key not in LOADED_DOCUMENTS:
         load_spill_registry_for_doc(target_doc)
-        LOADED_DOCUMENTS.add(doc_url)
+        LOADED_DOCUMENTS.add(doc_key)
 
     try:
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
@@ -916,7 +979,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
 
     num_rows = len(grid_to_spill)
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
-    reg_key = (doc_url, sheet_name, formula_row, formula_col)
+    reg_key = (doc_key, sheet_name, formula_row, formula_col)
     previous_spills = SPILL_REGISTRY.get(reg_key, [])
     prev_spill_set = set(previous_spills)
 
@@ -945,7 +1008,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
-    return (doc_url, sheet_name, formula_row, formula_col)
+    return (doc_key, sheet_name, formula_row, formula_col)
 
 
 def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: tuple[str, str, int, int]) -> None:
@@ -1312,6 +1375,13 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
         # unload that only matched doc_url left the dispatcher registered.
         for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
             SHEET_MODIFY_LISTENERS.pop(skey, None)
+        # Bugfix: unsaved spill rows are keyed by lifecycle id because
+        # getURL() is "". ``doc_url=""`` used to skip the registry sweep, and
+        # sweeping on "" would drop every other untitled book. Exact match
+        # on this lifecycle id only.
+        LOADED_DOCUMENTS.discard(lifecycle_key)
+        for key in [k for k in SPILL_REGISTRY if k[0] == lifecycle_key]:
+            SPILL_REGISTRY.pop(key, None)
     if doc_url:
         LOADED_DOCUMENTS.discard(doc_url)
         for key in [k for k in SPILL_REGISTRY if k[0] == doc_url]:

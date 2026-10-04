@@ -658,7 +658,9 @@ def record_geometric_calc_session(doc: Any) -> str:
     from plugin.scripting.session_manager import record_active_calc_session
 
     sid = geometric_workbook_key(doc)
-    record_active_calc_session(sid)
+    # Pass doc so this GC can tell workbooks apart. Without it, recording
+    # calc:<url> drops every other book's calc:unsaved:{uuid}.
+    record_active_calc_session(sid, doc=doc)
     return sid
 
 

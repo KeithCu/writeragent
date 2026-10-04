@@ -108,12 +108,54 @@ def _remember_session_snapshot_locked(
     try:
         _SESSION_DOCS[session_id] = weakref.ref(raw)
     except TypeError:
+        # PyUNO models often reject weakref. The id below is the snapshot
+        # stand-in until this session id is dropped.
         _SESSION_DOCS.pop(session_id, None)
+    _SESSION_DOC_IDS[session_id] = id(raw)
 
 
 def _drop_session_snapshot_locked(session_id: str) -> None:
     _SESSION_DOCS.pop(session_id, None)
     _SESSION_INIT.pop(session_id, None)
+    _SESSION_DOC_IDS.pop(session_id, None)
+
+
+def _recorded_session_doc_is_locked(session_id: str, doc: Any) -> bool:
+    """True when *session_id* was recorded for *doc*. Caller holds the lock.
+
+    Prefer the ``_SESSION_DOCS`` snapshot. PyUNO often rejects weakref, so
+    that map has no entry; ``_SESSION_DOC_IDS`` is the same object while the
+    session id is still recorded (cleared with the snapshot, so a recycled
+    id after ``clear_active_calc_session`` does not match).
+    """
+    if doc is None:
+        return False
+    raw = doc
+    try:
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        raw = _unwrap_uno(doc)
+    except Exception:
+        raw = doc
+    ref = _SESSION_DOCS.get(session_id)
+    stored = None
+    if ref is not None:
+        try:
+            stored = ref()
+        except Exception:
+            stored = None
+    if stored is not None:
+        if stored is doc or stored is raw:
+            return True
+        try:
+            from plugin.framework.uno_context import uno_same
+
+            # Distinct Python wrappers can still be one UNO document.
+            return uno_same(stored, raw) is True
+        except Exception:
+            return False
+    token = _SESSION_DOC_IDS.get(session_id)
+    return token is not None and token == id(raw)
 
 
 def _restore_remaining_snapshot_locked(remaining: str | None) -> None:
@@ -247,6 +289,8 @@ _RECORDED_CALC_SESSION_IDS: set[str] = set()
 # Per-session snapshots so closing one workbook can restore the survivor.
 # The last-active weakref alone was cleared even when another id remained.
 _SESSION_DOCS: dict[str, weakref.ReferenceType[Any]] = {}
+# id(doc) when the model cannot be weak-referenced. Cleared with the session.
+_SESSION_DOC_IDS: dict[str, int] = {}
 _SESSION_INIT: dict[str, dict[str, Any]] = {}
 
 
@@ -403,23 +447,45 @@ def record_active_calc_session(
             # UDProp sticks; a later OnLoadFinished then records the persisted
             # id. Two unsaved: keys (UDProp failed twice) or unsaved+durable
             # both make ``off_main_calc_session_is_unambiguous`` false.
-            sid_text = str(session_id)
-            if sid_text.startswith("calc:unsaved:"):
+            # No doc: that replacement is one workbook (callers that omit doc).
+            # With doc: calc:unsaved:{uuid} is a real workbook id after the
+            # unsaved:{uuid} prefix. Drop only an unsaved id whose snapshot
+            # is this same document.
+            if doc is None:
+                # Callers that omit doc model one workbook replacing its own id.
+                sid_text = str(session_id)
+                if sid_text.startswith("calc:unsaved:"):
+                    for stale in [
+                        other
+                        for other in _RECORDED_CALC_SESSION_IDS
+                        if other != session_id and isinstance(other, str) and other.startswith("calc:unsaved:")
+                    ]:
+                        _RECORDED_CALC_SESSION_IDS.discard(stale)
+                        _drop_session_snapshot_locked(stale)
+                else:
+                    for stale in [
+                        other
+                        for other in _RECORDED_CALC_SESSION_IDS
+                        if isinstance(other, str) and other.startswith("calc:unsaved:")
+                    ]:
+                        _RECORDED_CALC_SESSION_IDS.discard(stale)
+                        _drop_session_snapshot_locked(stale)
+            else:
+                # Bugfix: recording calc:<url> for a different open book
+                # discarded every calc:unsaved: id. The recorded count became
+                # 1, off-main =PY() looked unambiguous, and it ran in the
+                # wrong workbook. How: the GC could not tell which unsaved
+                # id belonged to the document being recorded. Why: drop an
+                # unsaved id only when its _SESSION_DOCS snapshot is this
+                # document (that book's own id promotion).
                 for stale in [
                     other
                     for other in _RECORDED_CALC_SESSION_IDS
                     if other != session_id and isinstance(other, str) and other.startswith("calc:unsaved:")
                 ]:
-                    _RECORDED_CALC_SESSION_IDS.discard(stale)
-                    _drop_session_snapshot_locked(stale)
-            else:
-                for stale in [
-                    other
-                    for other in _RECORDED_CALC_SESSION_IDS
-                    if isinstance(other, str) and other.startswith("calc:unsaved:")
-                ]:
-                    _RECORDED_CALC_SESSION_IDS.discard(stale)
-                    _drop_session_snapshot_locked(stale)
+                    if _recorded_session_doc_is_locked(stale, doc):
+                        _RECORDED_CALC_SESSION_IDS.discard(stale)
+                        _drop_session_snapshot_locked(stale)
             _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir
         # Bugfix: ``if init_kwargs`` treated {} like "not passed". Clearing the
         # workbook init passes {} (``set_calc_init_script``), and the previous
@@ -516,6 +582,7 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
         if session_id is None:
             _RECORDED_CALC_SESSION_IDS.clear()
             _SESSION_DOCS.clear()
+            _SESSION_DOC_IDS.clear()
             _SESSION_INIT.clear()
             _LAST_ACTIVE_CALC_SESSION_ID = None
             _LAST_ACTIVE_CALC_INIT_KWARGS = {}
