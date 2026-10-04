@@ -22,7 +22,7 @@ TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
 
 WRITER_EXTENSIONS = frozenset({".odt", ".ott", ".fodt"})
 CALC_EXTENSIONS = frozenset({".ods", ".ots", ".fods"})
-DRAW_EXTENSIONS = frozenset({".odp", ".otp", ".fodp", ".odg", ".fodg"})
+DRAW_EXTENSIONS = frozenset({".odp", ".otp", ".fodp", ".odg"})
 INDEXABLE_EXTENSIONS = WRITER_EXTENSIONS | CALC_EXTENSIONS | DRAW_EXTENSIONS
 
 FOREIGN_WRITER_EXTENSIONS = frozenset({".docx", ".doc", ".rtf", ".txt", ".md"})
