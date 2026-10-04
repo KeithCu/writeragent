@@ -364,8 +364,6 @@ def execute_tool(
 
     payload = args if isinstance(args, dict) else {}
 
-    payload = args if isinstance(args, dict) else {}
-
     def _run() -> Any:
         try:
             from plugin.doc.doc_type import is_calc, is_draw, is_writer
