@@ -49,6 +49,12 @@ _last_start_host: str = "localhost"
 _last_start_port: Any = None
 
 
+def is_mcp_server_running() -> bool:
+    """Return True if the shared HTTP/MCP server is actively running."""
+    server = _shared_http_server
+    return bool(server and getattr(server, "is_running", lambda: False)())
+
+
 class McpModule(ModuleBase):
     """Manages the shared HTTP server and route registry.
 

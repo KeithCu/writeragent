@@ -485,7 +485,13 @@ class PythonSidebarController:
 
         Writer panels must not fall back to some other open Calc document.
         """
-        if not getattr(self, "_calc_panel", True):
+        # What was wrong: self._calc_panel was only set at construction time. After switching
+        # frames to Writer, is_calc(model) was False, falling through to get_calc_document_from_ctx
+        # which found a separate open Calc document on the desktop.
+        # Why this change: refresh self._calc_panel from self._frame_is_calc() on each lookup;
+        # if this frame is not Calc, return None immediately.
+        self._calc_panel = self._frame_is_calc()
+        if not self._calc_panel:
             return None
         frame = self.frame
         if frame is not None:

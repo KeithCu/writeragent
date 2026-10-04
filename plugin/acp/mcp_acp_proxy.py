@@ -61,6 +61,13 @@ class MCPACPProxy(AgentBackend):
     def _load_config(self) -> None:
         """Read MCP server URL from WriterAgent config (port from mcp.mcp_port schema default)."""
         from plugin.framework.config import get_config, get_config_int_safe
+        from plugin.framework.config_schema import as_bool
+
+        # What was wrong: self._mcp_url was populated even when mcp.mcp_enabled was False.
+        # Why this change: clear self._mcp_url when MCP is disabled in configuration.
+        if not as_bool(get_config("mcp.mcp_enabled")):
+            self._mcp_url = ""
+            return
 
         path = ""
         try:

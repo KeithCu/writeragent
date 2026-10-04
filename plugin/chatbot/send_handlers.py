@@ -639,9 +639,14 @@ class SendHandlersMixin:
                 # Lean system prompt for external agents: instructions + MCP connection info
                 mcp_url = self._get_mcp_url()
 
-                # Check if MCP is enabled; if so, tell the agent about it.
+                # Check if MCP is enabled and running; if so, tell the agent about it.
+                # What was wrong: after "Stop MCP Server" or when stopped, the advertise check only
+                # inspected config (mcp.mcp_enabled), telling the agent the dead endpoint was live.
+                # Why this change: gate advertisement on the MCP server actually running.
                 mcp_instructions = ""
-                if mcp_url and as_bool(get_config("mcp.mcp_enabled")):
+                from plugin.mcp import is_mcp_server_running
+
+                if mcp_url and is_mcp_server_running():
                     mcp_instructions = (
                         f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\nYou can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\nTarget the current document by passing the 'X-Document-URL' header: {document_url}\n"
                     )

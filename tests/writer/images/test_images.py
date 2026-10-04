@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for images.py helpers (no LibreOffice required)."""
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import TestingFactory
@@ -128,7 +129,7 @@ def test_image_generate_forwards_stop_checker():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
 
-    def _run(fn, *args, timeout=60.0, **kwargs):
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with (
@@ -154,7 +155,7 @@ def test_image_generate_inserts_even_if_stopped_after_download():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
 
-    def _run(fn, *args, timeout=60.0, **kwargs):
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with (
@@ -179,7 +180,7 @@ def test_image_generate_invalid_base_size_falls_back_to_1024():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
 
-    def _run(fn, *args, timeout=60.0, **kwargs):
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with (
@@ -215,7 +216,7 @@ def test_image_generate_omitted_source_edits_when_selected():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
-    def _run(fn, *args, timeout=60.0, **kwargs):
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with (
@@ -243,7 +244,7 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
 
-    def _run(fn, *args, timeout=60.0, **kwargs):
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
     with (
@@ -382,3 +383,29 @@ def test_image_replace_https_download_verifies_tls():
     assert result["status"] == "ok"
     assert download.call_args.args == ("https://example.com/logo.png",)
     assert download.call_args.kwargs.get("verify_ssl", True) is True
+
+
+def test_image_generate_marshals_insert_unscoped():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/fake.png"], None)
+    scopes_passed: list[Any] = []
+
+    def _track_run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        scopes_passed.append(bound_scope)
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_track_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.insert_image"),
+        patch("plugin.writer.images.images.get_config_int", return_value=1024),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        result = ImageGenerate().execute(ctx, prompt="a red circle")
+    assert result["status"] == "ok"
+    assert None in scopes_passed
+
