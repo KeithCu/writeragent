@@ -41,7 +41,7 @@ import sys
 import threading
 import weakref
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
@@ -321,7 +321,9 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler that dispatches to registered routes."""
 
     # Applied in StreamRequestHandler.setup to the accepted socket.
-    timeout = MCP_HTTP_SOCKET_TIMEOUT_SEC
+    # ClassVar matches StreamRequestHandler.timeout so this stays a class
+    # attribute (a bare annotation is treated as an instance variable).
+    timeout: ClassVar[float | None] = MCP_HTTP_SOCKET_TIMEOUT_SEC
 
     route_registry: HttpRouteRegistry | None = None  # set by HttpServer.start()
 

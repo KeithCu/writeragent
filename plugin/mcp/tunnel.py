@@ -257,7 +257,10 @@ def _tailscale_arm_file_exists() -> bool:
     import os
 
     path = _tailscale_arm_path()
-    return bool(path) and os.path.isfile(path)
+    # bool(path) does not narrow str | None for mypy, so isfile saw str | None.
+    if not path:
+        return False
+    return os.path.isfile(path)
 
 
 def _write_tailscale_arm() -> None:
