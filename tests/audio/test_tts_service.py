@@ -77,6 +77,11 @@ def test_stop_speech_terminates_proc():
     with patch("plugin.audio.tts_service._play_proc", mock_proc):
         assert is_speaking() is True
         stop_speech()
+        import time
+        for _ in range(10):
+            if mock_proc.terminate.call_count > 0:
+                break
+            time.sleep(0.01)
         mock_proc.terminate.assert_called_once()
 
 
@@ -89,8 +94,16 @@ def test_resolve_tts_voice():
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "echo") == "am_adam"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "af_bella") == "af_bella"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "am_adam") == "am_adam"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "if_sara") == "if_sara"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "pf_dora") == "pf_dora"
     assert _resolve_tts_voice("openai/tts-1", "nova") == "nova"
     assert _resolve_tts_voice("openai/tts-1", "alloy") == "alloy"
+
+
+def _speech_meta(body: bytes, content_type: str, status: int = 200):
+    from plugin.framework.client.requests import HttpResult
+
+    return HttpResult(status=status, body=body, content_type=content_type)
 
 
 def test_speak_endpoint_payload():
@@ -102,19 +115,15 @@ def test_speak_endpoint_payload():
     cfg._model_fetch_tts_cache.clear()
     cfg._tts_response_format.clear()
 
-    with patch("urllib.request.urlopen") as mock_urlopen:
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = b"fake-audio-bytes"
-        mock_urlopen.return_value.__enter__.return_value = mock_resp
-
+    with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"fake-audio-bytes", "audio/mpeg")) as mock_sync:
         with patch("plugin.audio.tts_service._play_audio_file") as mock_play:
             _speak_endpoint("Test hello", "https://openrouter.ai/api", "test-key", model="hexgrad/Kokoro-82M", voice="nova")
             mock_play.assert_called_once()
 
-        req = mock_urlopen.call_args[0][0]
-        assert req.full_url == "https://openrouter.ai/api/v1/audio/speech"
-        assert req.headers["Authorization"] == "Bearer test-key"
-        payload = json.loads(req.data.decode("utf-8"))
+        assert mock_sync.call_args.args[0] == "https://openrouter.ai/api/v1/audio/speech"
+        headers = mock_sync.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer test-key"
+        payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
         assert payload["model"] == "hexgrad/Kokoro-82M"
         assert payload["voice"] == "af_sky"
         assert payload["response_format"] == "mp3"
@@ -129,10 +138,7 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
     cfg._tts_response_format.clear()
     cfg._model_fetch_tts_cache["speech-test"] = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
     try:
-        with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = MagicMock()
-            mock_resp.read.return_value = b"fake-audio-bytes"
-            mock_urlopen.return_value.__enter__.return_value = mock_resp
+        with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"fake-audio-bytes", "audio/mpeg")) as mock_sync:
             with patch("plugin.audio.tts_service._play_audio_file"):
                 _speak_endpoint(
                     "Test hello",
@@ -141,7 +147,7 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
                     model="hexgrad/Kokoro-82M",
                     voice="af_bella",
                 )
-            payload = json.loads(mock_urlopen.call_args[0][0].data.decode("utf-8"))
+            payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
             assert payload["model"] == "hexgrad/kokoro-82m"
             assert payload["voice"] == "af_bella"
     finally:
@@ -149,36 +155,10 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
         cfg._tts_response_format.clear()
 
 
-def _speech_response(data: bytes, content_type: str):
-    class _Resp:
-        def __init__(self) -> None:
-            self.headers = {"Content-Type": content_type}
-            self.status = 200
-
-        def read(self) -> bytes:
-            return data
-
-        def __enter__(self) -> "_Resp":
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> bool:
-            del exc_type, exc, tb
-            return False
-
-    return _Resp()
-
-
 def _speech_http_error(code: int, body: str):
-    import io
-    import urllib.error
+    from plugin.framework.errors import NetworkError
 
-    return urllib.error.HTTPError(
-        "https://openrouter.ai/api/v1/audio/speech",
-        code,
-        "error",
-        hdrs=None,
-        fp=io.BytesIO(body.encode("utf-8")),
-    )
+    return NetworkError(body, code="HTTP_ERROR", details={"status": code, "url": "https://openrouter.ai/api/v1/audio/speech"})
 
 
 def test_endpoint_pcm_failure_is_remembered_and_wrapped():
@@ -199,18 +179,18 @@ def test_endpoint_pcm_failure_is_remembered_and_wrapped():
     # First download: reject mp3 once, then return pcm. Later downloads are pcm-only.
     reject_mp3 = True
 
-    def urlopen(req, timeout=None):
-        del timeout
-        payload = json.loads(req.data.decode("utf-8"))
+    def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
+        del url, headers, parse_json, method, kwargs
+        payload = json.loads(data.decode("utf-8"))
         calls.append(payload)
         if reject_mp3 and payload["response_format"] == "mp3":
             raise _speech_http_error(400, body)
-        return _speech_response(pcm, "audio/pcm;rate=16000")
+        return _speech_meta(pcm, "audio/pcm;rate=16000")
 
     path = None
     path2 = None
     try:
-        with patch("urllib.request.urlopen", side_effect=urlopen):
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
             path = _download_endpoint_speech(
                 "Hello",
                 "https://openrouter.ai/api",
@@ -235,7 +215,7 @@ def test_endpoint_pcm_failure_is_remembered_and_wrapped():
 
         reject_mp3 = False
         calls.clear()
-        with patch("urllib.request.urlopen", side_effect=urlopen):
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
             path2 = _download_endpoint_speech(
                 "Again",
                 "https://openrouter.ai/api",
@@ -276,17 +256,17 @@ def test_endpoint_wav_error_retries_wav():
     calls: list[dict] = []
     wav_bytes = b"RIFF" + b"\x00" * 40
 
-    def urlopen(req, timeout=None):
-        del timeout
-        payload = json.loads(req.data.decode("utf-8"))
+    def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
+        del url, headers, parse_json, method, kwargs
+        payload = json.loads(data.decode("utf-8"))
         calls.append(payload)
         if payload["response_format"] == "mp3":
             raise _speech_http_error(400, "unsupported response_format mp3; use wav")
-        return _speech_response(wav_bytes, "audio/wav")
+        return _speech_meta(wav_bytes, "audio/wav")
 
     path = None
     try:
-        with patch("urllib.request.urlopen", side_effect=urlopen):
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
             path = _download_endpoint_speech(
                 "Hello",
                 "https://openrouter.ai/api",
@@ -315,14 +295,14 @@ def test_endpoint_mp3_success_does_not_cache_format():
     cfg._tts_response_format.clear()
     calls: list[dict] = []
 
-    def urlopen(req, timeout=None):
-        del timeout
-        calls.append(json.loads(req.data.decode("utf-8")))
-        return _speech_response(b"ID3fake-mp3", "audio/mpeg")
+    def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
+        del url, headers, parse_json, method, kwargs
+        calls.append(json.loads(data.decode("utf-8")))
+        return _speech_meta(b"ID3fake-mp3", "audio/mpeg")
 
     path = None
     try:
-        with patch("urllib.request.urlopen", side_effect=urlopen):
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
             path = _download_endpoint_speech(
                 "Hello",
                 "https://openrouter.ai/api",
@@ -346,12 +326,12 @@ def test_endpoint_http_error_is_reported_to_status():
     cfg._tts_response_format.clear()
     statuses: list[str] = []
 
-    def urlopen(req, timeout=None):
-        del req, timeout
+    def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
+        del url, data, headers, parse_json, method, kwargs
         raise _speech_http_error(401, '{"error":{"message":"invalid api key"}}')
 
     try:
-        with patch("urllib.request.urlopen", side_effect=urlopen):
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
             path = _download_endpoint_speech(
                 "Hello",
                 "https://api.openai.com",
@@ -365,6 +345,45 @@ def test_endpoint_http_error_is_reported_to_status():
         assert "401" in statuses[0]
         assert "invalid api key" in statuses[0]
         assert cfg.cached_tts_response_format("tts-1") is None
+    finally:
+        cfg._tts_response_format.clear()
+
+
+def test_speech_http_error_redacts_api_key(caplog):
+    """Speech failures go through the shared transport, so the key is not in the status or the log."""
+    import logging
+    from unittest.mock import MagicMock, patch
+
+    from plugin.audio.tts_service import _download_endpoint_speech
+    from plugin.framework.client import model_fetcher as cfg
+    from plugin.framework.client.request_controls import reset_host_pacing_for_tests
+
+    secret = "sk-speech-unique-secret"
+    cfg._tts_response_format.clear()
+    reset_host_pacing_for_tests()
+    response = MagicMock()
+    response.status = 401
+    response.reason = "Unauthorized"
+    response.read.return_value = f'{{"error":{{"message":"bad {secret}"}}}}'.encode()
+    response.getheader.return_value = None
+    conn = MagicMock()
+    conn.getresponse.return_value = response
+    statuses: list[str] = []
+    try:
+        with caplog.at_level(logging.DEBUG), patch("http.client.HTTPSConnection", return_value=conn):
+            path = _download_endpoint_speech(
+                "Hello",
+                "https://api.openai.com",
+                secret,
+                model="tts-1",
+                voice="alloy",
+                on_status=statuses.append,
+            )
+        assert path is None
+        assert statuses
+        assert secret not in statuses[0]
+        assert secret not in caplog.text
+        assert "<redacted>" in statuses[0]
     finally:
         cfg._tts_response_format.clear()
 
@@ -1067,6 +1086,28 @@ def test_resolve_piper_model_file_reports_os_speech_fallback(tmp_path, monkeypat
     assert messages[-1] == "Couldn't download Thorsten; using OS speech"
 
 
+def test_corrupt_download_does_not_leave_broken_file(tmp_path, monkeypatch):
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+    import urllib.error
+    import os
+
+    _kokoro_cache(tmp_path, monkeypatch)
+
+    def mock_urlretrieve_fail(url, filename, *args, **kwargs):
+        # Simulate a crash/failure during download leaving a partial file at the temporary path
+        with open(filename, "wb") as f:
+            f.write(b"partial")
+        raise urllib.error.URLError("offline")
+
+    with patch("plugin.audio.tts_service.os.makedirs"), \
+         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
+         patch("urllib.request.urlretrieve", side_effect=mock_urlretrieve_fail):
+        model_path, voices_path = _resolve_kokoro_model_files(on_status=lambda x: None)
+
+    assert not os.path.exists(model_path)
+    assert not os.path.exists(voices_path)
+    assert model_path.endswith("kokoro-v1.0.onnx")
+
 def test_resolve_kokoro_model_files_reports_download_failure(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_kokoro_model_files
     import urllib.error
@@ -1230,7 +1271,7 @@ def test_resolve_kokoro_model_files_downloads_missing_sibling_beside_probe_hit(t
 
     assert model_path == str(pipecat / "kokoro-v1.0.onnx")
     assert voices_path == str(pipecat / "voices-v1.0.bin")
-    assert downloaded == [str(pipecat / "voices-v1.0.bin")]
+    assert downloaded == [str(pipecat / "voices-v1.0.bin.tmp")]
     assert not (root / "kokoro").exists()
 
 

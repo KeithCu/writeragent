@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from typing import Any, Callable
 
 from plugin.framework.config import get_config, get_config_str
@@ -49,8 +50,12 @@ DEFAULT_STT_LOCAL_MODEL = "base"
 
 _PROBE_TIMEOUT_SEC = 60.0
 # First run may download weights (base is ~150 MB; medium is ~1.5 GB) and then
-# transcribe. A short recording on CPU is much less than this.
+# transcribe. A short recording on CPU is much less than this. Stop kills the
+# child; this is only the bound when the user does not press Stop.
 _TRANSCRIBE_TIMEOUT_SEC = 900.0
+# How often the host re-checks Stop while the child is alive. The cancel hook
+# kills the process immediately; this wait is the backup poll.
+_STT_POLL_SEC = 0.2
 
 _WHISPER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whisper_transcribe.py")
 
@@ -237,6 +242,57 @@ def resolve_stt_python() -> str | None:
     return resolve_venv_python(venv_dir)
 
 
+class SttStopped(Exception):
+    """Stop aborted speech-to-text before a transcript existed.
+
+    Not a :class:`ConfigError`. The sidebar must end the turn as Stopped
+    and must not paint a transcription failure for that click.
+    """
+
+
+def terminate_stt_process(proc: subprocess.Popen[str] | None) -> None:
+    """Kill a Whisper or probe child. A second call is a no-op.
+
+    ``SIGKILL`` (``kill``) so Stop does not wait on a 900s ``subprocess.run``.
+    The caller reaps with ``wait``. Do not ``wait`` here: this runs on the UI
+    thread from ``SendCancellation.cancel``.
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.kill()
+    except OSError:
+        log.debug("STT kill failed", exc_info=True)
+
+
+def _reap_stt_process(proc: subprocess.Popen[str]) -> None:
+    try:
+        proc.wait(timeout=1.0)
+    except Exception:
+        log.debug("STT reap failed", exc_info=True)
+
+
+def _arm_stt_cancel(
+    proc: subprocess.Popen[str],
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+) -> None:
+    if on_spawn is not None:
+        try:
+            on_spawn(proc)
+        except Exception:
+            log.exception("STT on_spawn failed")
+
+
+def _read_stt_pipe(stream: Any, sink: list[str]) -> None:
+    try:
+        data = stream.read() if stream is not None else ""
+    except Exception:
+        log.debug("STT pipe read failed", exc_info=True)
+        data = ""
+    sink.append(data if isinstance(data, str) else "")
+
+
 def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
     log.info("%s", message)
     if on_status is None:
@@ -247,24 +303,83 @@ def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
         log.exception("STT status callback failed")
 
 
-def _run_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str] | None:
-    # A console window on Windows would flash over the document during Record.
-    # Same flag as plugin/scripting/audio_recorder_service.py _popen_kwargs.
+def _run_cmd(
+    cmd: list[str],
+    timeout: float,
+    *,
+    stop_checker: Callable[[], bool] | None = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run *cmd* and return when it exits or *timeout* elapses."""
+    if stop_checker is not None and stop_checker():
+        raise SttStopped()
     run_kwargs: dict[str, Any] = {
-        "capture_output": True,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
         "text": True,
-        "timeout": timeout,
-        "check": False,
         "stdin": subprocess.DEVNULL,
         "env": scrub_subprocess_env(dict(os.environ)),
     }
     if sys.platform == "win32":
         run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
-        return subprocess.run(wrap_command_for_sandbox(cmd), **run_kwargs)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = subprocess.Popen(wrap_command_for_sandbox(cmd), **run_kwargs)
+    except OSError as exc:
         log.warning("STT command failed (%s): %s", cmd[0], exc)
         return None
+
+    from plugin.framework.worker_pool import run_in_background
+
+    # Drain both pipes. A full stdout pipe deadlocks the child while we wait.
+    out_parts: list[str] = []
+    err_parts: list[str] = []
+    handles: list[Any] = []
+    stdout_pipe = proc.stdout
+    stderr_pipe = proc.stderr
+    if stdout_pipe is not None:
+        handles.append(
+            run_in_background(lambda stream=stdout_pipe, sink=out_parts: _read_stt_pipe(stream, sink), name="stt-stdout", dedicated=True)
+        )
+    if stderr_pipe is not None:
+        handles.append(
+            run_in_background(lambda stream=stderr_pipe, sink=err_parts: _read_stt_pipe(stream, sink), name="stt-stderr", dedicated=True)
+        )
+
+    def _join_drains() -> None:
+        for handle in handles:
+            try:
+                handle.join(timeout=1.0)
+            except Exception:
+                log.debug("STT pipe drain join failed", exc_info=True)
+
+    try:
+        _arm_stt_cancel(proc, on_spawn, stop_checker)
+        deadline = time.monotonic() + timeout
+        while proc.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                log.warning("STT command timed out (%s)", cmd[0])
+                terminate_stt_process(proc)
+                return None
+            try:
+                proc.wait(timeout=min(_STT_POLL_SEC, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+        # Join before reading the lists. ``return`` evaluates its expression
+        # before ``finally``, so a join only in ``finally`` would drop stdout.
+        _reap_stt_process(proc)
+        _join_drains()
+        return subprocess.CompletedProcess(
+            cmd,
+            proc.returncode if proc.returncode is not None else 1,
+            "".join(out_parts),
+            "".join(err_parts),
+        )
+    finally:
+        if proc.poll() is None:
+            terminate_stt_process(proc)
+            _reap_stt_process(proc)
+        _join_drains()
 
 
 def _probe_faster_whisper(py_exe: str) -> bool:
@@ -338,7 +453,12 @@ def _transcribe_local(
     wav_path: str,
     model_name: str,
     on_status: Callable[[str], None] | None,
+    *,
+    stop_checker: Callable[[], bool] | None = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
+    if stop_checker is not None and stop_checker():
+        raise SttStopped()
     py_exe = resolve_stt_python()
     if not py_exe:
         raise ConfigError(_missing_venv_message())
@@ -351,9 +471,15 @@ def _transcribe_local(
     # is not already in the hub cache — a later Record of the same size must
     # not claim another download. The download does not stream progress back.
     _emit(on_status, _local_whisper_status(model_name))
+    cmd_extra: dict[str, Any] = {}
+    if on_spawn is not None:
+        cmd_extra["on_spawn"] = on_spawn
+    if stop_checker is not None:
+        cmd_extra["stop_checker"] = stop_checker
     completed = _run_cmd(
         [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, "--model", model_name],
         _TRANSCRIBE_TIMEOUT_SEC,
+        **cmd_extra,
     )
     if completed is None:
         if _local_whisper_weights_cached(model_name):
@@ -387,6 +513,8 @@ def transcribe(
     client: Any = None,
     model: str | None = None,
     on_status: Callable[[str], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> str:
     """Transcribe ``wav_path`` with the configured STT provider.
 
@@ -394,8 +522,20 @@ def transcribe(
     ignores it and uses ``audio.stt_local_model``. Endpoint calls
     ``client.transcribe_audio`` and does not spawn the venv.
     """
+    if stop_checker is not None and stop_checker():
+        raise SttStopped()
     if uses_local_stt():
-        return _transcribe_local(wav_path, get_stt_local_model(), on_status)
+        local_extra: dict[str, Any] = {}
+        if on_spawn is not None:
+            local_extra["on_spawn"] = on_spawn
+        if stop_checker is not None:
+            local_extra["stop_checker"] = stop_checker
+        return _transcribe_local(
+            wav_path,
+            get_stt_local_model(),
+            on_status,
+            **local_extra,
+        )
     if client is None or not hasattr(client, "transcribe_audio"):
         raise ConfigError(_("No language-model client is available for endpoint speech-to-text."))
     return str(client.transcribe_audio(wav_path, model=model) or "")

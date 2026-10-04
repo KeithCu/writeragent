@@ -107,7 +107,7 @@ def _extract_nested_case(
     if isinstance(case_node.stmts[0], (c_ast.Case, c_ast.Default)):
         nested = case_node.stmts.pop()
         stmts_list.append(nested)
-        _extract_nested_case(cast(Any, nested), stmts_list)
+        _extract_nested_case(cast("Any", nested), stmts_list)
 
 
 def fix_atomic_specifiers(
@@ -168,7 +168,7 @@ def _fix_atomic_specifiers_once(
 
     assert isinstance(parent, c_ast.TypeDecl)
     assert grandparent is not None
-    cast(Any, grandparent).type = node.type
+    cast("Any", grandparent).type = node.type
     if "_Atomic" not in node.type.quals:
         node.type.quals.append("_Atomic")
     return decl, True
