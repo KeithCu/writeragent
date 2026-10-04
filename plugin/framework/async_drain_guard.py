@@ -139,9 +139,13 @@ def _notify_drain_idle() -> None:
     """Invoke idle callbacks. Never raise into the drain ``finally``."""
     # Copy under the lock, then drop it before calling. Peer ``_on_drain_idle``
     # calls ``get_drain_owner()``, which takes this same non-reentrant lock.
+    # What was wrong: commit 157237cd1 cleared _drain_idle_callbacks here.
+    # How it happened: callbacks were assumed to be one-shot, but peer_message.py
+    # registers a persistent process-wide callback (add_drain_idle_callback(_on_drain_idle)).
+    # Why this change: do not clear the list; callbacks remain registered across
+    # drain cycles so subsequent peer turns queued during a drain are kicked.
     with _drain_lock:
         callbacks = list(_drain_idle_callbacks)
-        _drain_idle_callbacks.clear()
     for cb in callbacks:
         try:
             cb()

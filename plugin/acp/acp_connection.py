@@ -154,6 +154,11 @@ class ACPConnection:
                     proc.terminate()
             except Exception:
                 pass
+            try:
+                if proc and proc.stdout:
+                    proc.stdout.close()
+            except Exception:
+                pass
 
         run_in_background(_watchdog_terminate, name="acp-stop-watchdog", dedicated=True)
 
@@ -204,6 +209,16 @@ class ACPConnection:
                             proc.kill()
                         except Exception:
                             pass
+                # What was wrong: if a child process exited while stdout was still held open,
+                # or during stop(), the reader thread readline() could block indefinitely.
+                # How it happened: stop() terminated/killed the process but did not close stdout.
+                # Why this change: closing proc.stdout in stop unblocks any blocking readline()
+                # on the reader thread without requiring complex OS-level pipe polling.
+                try:
+                    if proc and proc.stdout:
+                        proc.stdout.close()
+                except Exception:
+                    pass
                 with self._lock:
                     self._writer_started = False
                 break

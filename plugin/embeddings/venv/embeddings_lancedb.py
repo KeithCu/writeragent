@@ -238,16 +238,11 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
-    if mode != "cold":
-        from plugin.embeddings.embeddings_cache import chunk_count_from_meta
-
-        row_count = chunk_count_from_meta(meta_path)
-        if row_count > 0:
-            if heartbeat_fn:
-                heartbeat_fn({"phase": "done", "mode": mode, "indexed_paragraphs": 0, "upserted": 0})
-            from plugin.embeddings.embeddings_fs import guess_indexable_paths
-
-            return {"mode": mode, "indexed_paragraphs": 0, "files": len(guess_indexable_paths(root)), "upserted": 0, "row_count": row_count, "storage_backend": "lancedb"}
+    # What was wrong: commit 0ebedc9d5 added an early return when chunk_count_from_meta > 0
+    # in non-cold modes, returning 0 indexed_paragraphs immediately.
+    # How it happened: it checked row_count > 0 before inspecting files.
+    # Why this change: drop the early return so the incremental mtime loop below
+    # runs, skipping unchanged files and picking up new or modified files.
 
     if not HAS_LANCEDB or lancedb is None:
         raise RuntimeError("LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv.")

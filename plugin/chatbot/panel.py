@@ -1088,10 +1088,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self._panel_teardown or self.ctx is None:
             return
 
+        # What was wrong: gating on kwargs["req_id"] == self._last_mcp_req_id
+        # dropped the result for the earlier of two concurrent MCP requests.
+        # How it happened: _on_mcp_request overwrote _last_mcp_req_id with the newest
+        # request ID, so any earlier in-flight request was discarded on completion.
+        # Why this change: rely on per-request turn tracking in _last_mcp_turn[rid].
+        # Each request is tied to its originating TurnController without interference.
         try:
-            if "req_id" in kwargs and kwargs["req_id"] != getattr(self, "_last_mcp_req_id", None):
-                return
-            from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+            from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
             rid = str(kwargs.get("req_id", ""))
             last_turn = self._last_mcp_turn.get(rid)
             if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
@@ -1103,11 +1108,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self._panel_teardown or self.ctx is None:
                 return
             try:
-                if "req_id" in kwargs and kwargs["req_id"] != getattr(self, "_last_mcp_req_id", None):
-                    return
-                from plugin.chatbot.tool_loop_actions import current_turn, TurnController
+                from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
                 rid = str(kwargs.get("req_id", ""))
-                last_turn = self._last_mcp_turn.get(rid)
+                last_turn = self._last_mcp_turn.pop(rid, None)
                 if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
                     return
             except Exception:
