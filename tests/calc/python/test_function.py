@@ -1654,3 +1654,21 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
     assert result_holder == [42.0]
 
 
+
+
+def test_off_main_spill_timer_skips_empty_lkey(monkeypatch: pytest.MonkeyPatch) -> None:
+    # When doc is None or lkey resolves to empty, _queue_off_main_auto_spill should not start a timer.
+    doc = None
+
+    t_start_called = [False]
+    class MockTimer:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            t_start_called[0] = True
+
+    monkeypatch.setattr(python_function, "_new_spill_timer", MockTimer)
+
+    python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], doc)
+
+    assert not t_start_called[0], "Timer should not be started when lkey is empty"
