@@ -698,7 +698,7 @@ def test_workbook_session_key_returns_id_when_property_sticks() -> None:
         patch("plugin.scripting.session_manager.set_document_property", side_effect=_set),
     ):
         key = session_manager._workbook_session_key(mock_doc)
-    uuid_mod.UUID(key)
+    uuid_mod.UUID(key.replace("unsaved:", ""))
     assert stored[session_manager.PYTHON_WORKBOOK_SESSION_PROP] == key
 
 
@@ -807,3 +807,15 @@ def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
 
 
 
+
+
+def test_unsaved_session_id_starts_with_unsaved():
+    from unittest.mock import MagicMock, patch
+    from plugin.scripting.session_manager import _workbook_session_key
+    doc = MagicMock()
+    doc.getURL = lambda: ""
+    doc.getPropertyValue.side_effect = Exception("No props")
+    with patch("plugin.scripting.session_manager.get_document_property", return_value=None):
+        with patch("plugin.scripting.session_manager.set_document_property"):
+            key = _workbook_session_key(doc)
+            assert key.startswith("unsaved:")
