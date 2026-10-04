@@ -63,15 +63,15 @@ def extract_draw_pages(path: str) -> list[str]:
         from odf.draw import Page as DrawPage
         from odf.opendocument import load
         from odf.presentation import Notes
-    except ImportError:
+    except ImportError as exc:
         log.debug("odfpy not installed — ODP/ODG extract skipped for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"odfpy not installed — ODP/ODG extract skipped for {path}") from exc
 
     try:
         document = load(path)
-    except Exception:
+    except Exception as exc:
         log.debug("extract_draw_pages failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_draw_pages failed for {path}") from exc
 
     passages: list[str] = []
     page_index = 0

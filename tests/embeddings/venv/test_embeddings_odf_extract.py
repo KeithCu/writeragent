@@ -69,7 +69,8 @@ def test_extract_draw_pages_missing_odfpy(tmp_path: Path):
         return real_import(name, *args, **kwargs)
 
     with patch("builtins.__import__", side_effect=_fake_import):
-        assert embeddings_odf_extract.extract_draw_pages(str(odp)) == []
+        with pytest.raises(RuntimeError):
+            embeddings_odf_extract.extract_draw_pages(str(odp))
 
 
 def test_extract_calc_rows_from_ods(tmp_path: Path):
