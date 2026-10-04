@@ -62,7 +62,7 @@ def test_incremental_empty_extract_deletes_stale_chunks(tmp_path):
         patch.object(maintain, "corpus_db_path", return_value=tmp_path / "writeragent_embeddings" / "corpus.db"),
         patch.object(maintain, "_write_row_count_meta"),
     ):
-        result = maintain._incremental_refresh(
+        maintain._incremental_refresh(
             listing_root,
             "test-model",
             [file_entry],
