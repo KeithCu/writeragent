@@ -75,3 +75,18 @@ def test_latex_to_math_object_rejects_unparsed_text():
     result = latex_to_math_object(latex="(((")
     assert result["status"] == "error"
     assert result["code"] == "PARSE_ERROR"
+
+
+import pytest
+def test_insert_symbolic_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.symbolic import insert_symbolic_result_into_calc
+    class MockCtx:
+        def stop_checker(self):
+            return True
+
+    doc = None
+    ctx = MockCtx()
+    result = {"status": "ok", "result": "val"}
+
+    res = insert_symbolic_result_into_calc(doc, ctx, result)
+    assert res == 0
