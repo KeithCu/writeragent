@@ -226,6 +226,21 @@ def test_web_research_approval_setup_failure_does_not_run_search():
     assert "WEB_RESEARCH_APPROVAL_UNAVAILABLE" in out
 
 
+def test_web_research_approval_missing_queue_does_not_run_search():
+    host = FakeHost()
+    host._active_q = None
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True):
+            execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
+            called_ctx = registry.execute.call_args[0][1]
+            approval_result = called_ctx.approval_callback("query", "web_research", {})
+            assert approval_result == (False, None)
+    finally:
+        _restore_main(old_main)
+
+
 def test_execute_fn_reraises_disposed_document():
     class DisposedException(Exception):
         pass

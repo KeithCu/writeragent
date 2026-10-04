@@ -86,7 +86,8 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
                 break
             raw_val = formula_array[row_idx][col_idx]
 
-            # Use raw_val instead of getString() so we get the formula properly.
+            # Use the formula array, not getString(), so formulas are not
+            # replaced by their evaluated display text.
             cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
 
             if not cell_text:
@@ -99,6 +100,8 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
                 prompt = _build_calc_edit_prompt(cell_original, user_input)
                 max_tokens = len(cell_original) + edit_max
                 tasks.append(StreamCompletionTask(prompt, edit_sys, max_tokens, (col, row, cell_original)))
+        if len(tasks) >= 250:
+            break
 
     if not tasks:
         return
@@ -115,8 +118,6 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         accumulated_text = [""]
         if not is_edit:
             accumulated_text[0] = task.prompt
-        elif original is not None:
-            cell.setFormula("")
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:

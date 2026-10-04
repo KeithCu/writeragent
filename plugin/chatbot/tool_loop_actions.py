@@ -517,7 +517,7 @@ def build_tool_execute_fn(
                         emit_turn, q = _subagent_target()
                         if not isinstance(emit_turn, TurnController) or emit_turn.queue is None:
                             log.warning("tool_loop: web_research approval skipped (queue missing)")
-                            return True
+                            return (False, None)
                         event = threading.Event()
                         # Use setattr/getattr to avoid static attribute errors on Event.
                         setattr(event, "approved", False)
