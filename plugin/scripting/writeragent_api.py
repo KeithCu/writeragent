@@ -981,7 +981,7 @@ class _ImagesProxy:
 
         Args:
             url (required): URL of the image to download.
-            verify_ssl (optional): Verify SSL certificates (default: false).
+            verify_ssl (optional): Verify SSL certificates (default: true).
             force (optional): Force re-download even if cached (default: false).
         """
         return _rpc_call("image_download", url=url, verify_ssl=verify_ssl, force=force)

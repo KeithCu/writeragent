@@ -619,6 +619,36 @@ def _selection_cursor(model: Any) -> Any | None:
         return None
 
 
+def _apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
+    """Apply *style* on the scratch paragraph when that style exists there.
+
+    What was wrong: selection and range export copy each paragraph into a blank
+    scratch document and set ``ParaStyleName`` with no check. A custom or
+    foreign style is not in that document, so ``setPropertyValue`` raises.
+    The broad handler then returned ``""`` and the whole selection disappeared.
+    Why this fixes it: skip the missing style (the scratch default stays) and
+    keep copying. One style miss must not discard the range.
+    """
+    if not style:
+        return
+    try:
+        families = temp_doc.getStyleFamilies()
+        para_styles = families.getByName("ParagraphStyles")
+        if not para_styles.hasByName(style):
+            log.debug(
+                "range export: paragraph style %r is not in the scratch document; keeping the default",
+                style,
+            )
+            return
+        temp_cursor.setPropertyValue("ParaStyleName", style)
+    except Exception:
+        log.debug(
+            "range export: skipped paragraph style %r on the scratch document",
+            style,
+            exc_info=True,
+        )
+
+
 def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tuple[int, int]:
     """Visible-text window of *element* that lies inside *source*."""
     try:
@@ -731,7 +761,7 @@ def _range_to_content_via_temp_doc(
             if first_para:
                 temp_cursor.gotoStart(False)
                 temp_cursor.setString(para_text)
-                temp_cursor.setPropertyValue("ParaStyleName", style)
+                _apply_temp_para_style(temp_doc, temp_cursor, style)
                 first_para = False
             else:
                 temp_cursor.gotoEnd(False)
@@ -741,7 +771,7 @@ def _range_to_content_via_temp_doc(
                 # clobbers the previous paragraph instead of filling the new one.
                 temp_cursor.gotoNextParagraph(False)
                 temp_cursor.gotoEndOfParagraph(True)
-                temp_cursor.setPropertyValue("ParaStyleName", style)
+                _apply_temp_para_style(temp_doc, temp_cursor, style)
                 temp_cursor.setString(para_text)
             _paint_direct_formatting(el, portions, temp_text, trim_start, trim_end,
                                       _source_style(model, style, style_cache))
