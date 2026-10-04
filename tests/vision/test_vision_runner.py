@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,6 +24,7 @@ from plugin.vision.vision_runner import (
 
 def test_get_selected_image_bytes_decodes_png():
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     raw = b"fake-png-bytes"
     with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=base64.b64encode(raw).decode("ascii")):
@@ -31,6 +33,7 @@ def test_get_selected_image_bytes_decodes_png():
 
 def test_get_selected_image_bytes_raises_when_no_selection():
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
@@ -43,6 +46,7 @@ def test_get_selected_image_bytes_raises_when_no_selection():
 @patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_bytes.return_value = b"png"
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
@@ -55,11 +59,13 @@ def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_me
         {"helper": "extract_text", "params": {"lang": "en"}},
         b"png",
         context={"source": "selection"},
+            stop_checker=None,
     )
 
 
 def test_run_trusted_vision_rejects_unknown_helper():
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     with pytest.raises(ToolExecutionError) as exc:
         run_trusted_vision(ctx, doc, helper="not_real")
@@ -71,6 +77,7 @@ def test_run_trusted_vision_rejects_unknown_helper():
 @patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
 def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_bytes.return_value = b"png"
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
@@ -83,12 +90,14 @@ def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_visio
         {"helper": "extract_text", "params": {"image_name": "Photo1", "lang": "en"}},
         b"png",
         context={"source": "graphic_name", "image_name": "Photo1"},
+            stop_checker=None,
     )
 
 
 @patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_selected.return_value = b"sel"
     assert resolve_vision_image_bytes(ctx, doc, image_name="") == b"sel"
@@ -99,6 +108,7 @@ def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
@@ -112,6 +122,7 @@ def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_get_obj.return_value = None
     with pytest.raises(ToolExecutionError) as exc:
@@ -125,6 +136,7 @@ def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
 @patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_vision, mock_get_lo_locale, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_bytes.return_value = b"png"
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
@@ -137,6 +149,7 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
         {"helper": "extract_text", "params": {"lang": "fr"}},
         b"png",
         context={"source": "selection"},
+            stop_checker=None,
     )
 
 
@@ -145,6 +158,7 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock())]
 
@@ -187,6 +201,7 @@ def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run,
 def test_run_and_insert_vision_for_selection_reverse_discovery_order(mock_pairs, mock_run, _mock_merge):
     """When discovery returns reverse click order, the host loop follows that order."""
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_pairs.return_value = [("Img2", MagicMock()), ("Img1", MagicMock())]
 
@@ -216,6 +231,7 @@ def test_run_and_insert_vision_for_selection_reverse_discovery_order(mock_pairs,
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_run.return_value = {
         "status": "ok",
@@ -246,6 +262,7 @@ def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pair
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[])
 def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     with pytest.raises(ToolExecutionError) as exc:
         run_and_insert_vision_for_selection(ctx, doc, helper="extract_text")
@@ -258,6 +275,7 @@ def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_stops_on_error_and_reports_partial(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
 
@@ -318,3 +336,66 @@ def test_run_trusted_vision_rejects_oversized_image_before_rpc():
             run_trusted_vision(MagicMock(), MagicMock(), helper="extract_text")
     assert exc.value.code == "IMAGE_TOO_LARGE"
     rpc.assert_not_called()
+
+
+def test_ocr_rpc_runs_outside_main_thread_marshal():
+    depth = {"n": 0}
+    seen: dict[str, int | None] = {"ocr": None, "export": None, "insert": None}
+
+    def fake_exec(fn, *args, bound_scope=None, **kwargs):
+        depth["n"] += 1
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            depth["n"] -= 1
+
+    def fake_run_vision(*args, **kwargs):
+        seen["ocr"] = depth["n"]
+        return {"status": "ok", "helper": "extract_structure", "full_text": "hi", "html": "<p>hi</p>", "warnings": [], "metrics": {}}
+
+    def fake_export(*args, **kwargs):
+        seen["export"] = depth["n"]
+        return b"png"
+
+    def fake_insert(*args, **kwargs):
+        seen["insert"] = depth["n"]
+
+    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec), patch(
+        "plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision
+    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes", side_effect=fake_export), patch(
+        "plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})
+    ), patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]), patch(
+        "plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert
+    ):
+        ctx = MagicMock()
+        ctx.stop_checker = None
+        result = run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_structure")
+
+    assert result["status"] == "ok"
+    assert seen["ocr"] == 0
+    assert seen["export"] == 1
+    assert seen["insert"] == 1
+
+
+def test_vision_insert_marshaled_with_unscoped_scope():
+    scopes_used: list[Any] = []
+
+    def fake_exec(fn, *args, bound_scope=None, **kwargs):
+        scopes_used.append(bound_scope)
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec),
+        patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "text"}),
+        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.vision.vision_egress.insert_vision_result"),
+    ):
+        ctx = MagicMock()
+        ctx.stop_checker = None
+        result = run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_structure")
+
+    assert result["status"] == "ok"
+    assert None in scopes_used
+

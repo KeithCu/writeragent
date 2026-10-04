@@ -44,6 +44,8 @@ def tool_ctx():
     ctx.doc.supportsService.return_value = True
     ctx.ctx = MagicMock()
     ctx.doc_type = "writer"
+    ctx.stop_checker = None
+    ctx.stop_checker = None
     return ctx
 
 
@@ -125,14 +127,14 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
 
 
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is True
     assert vision_ocr_available(MagicMock()) is True
 
 
-@patch("plugin.framework.config.get_config_str", return_value="")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="")
 def test_vision_venv_configured_false_without_venv_path(_cfg):
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is False
@@ -141,7 +143,7 @@ def test_vision_venv_configured_false_without_venv_path(_cfg):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=True)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
     invalidate_vision_availability_cache()
     assert vision_packages_probe_ready(MagicMock()) is True
@@ -149,7 +151,7 @@ def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=False)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):
     invalidate_vision_availability_cache()
     assert vision_packages_probe_ready(MagicMock()) is False
@@ -157,7 +159,7 @@ def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=True)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_venv_configured_true_even_when_probe_would_fail(_cfg, _exe, _probe):
     """Send/schema gate must not subprocess-probe; venv path alone is enough."""
     invalidate_vision_availability_cache()
@@ -195,6 +197,7 @@ def test_extract_structure_happy_path_inserts(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
+    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=True)
 
     assert result["status"] == "ok"
@@ -227,6 +230,7 @@ def test_extract_structure_return_only_skips_insert(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
+    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=False)
 
     assert result["status"] == "ok"
@@ -288,11 +292,20 @@ def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_build_agent):
     mock_build_agent.assert_not_called()
 
 
-def test_delegate_vision_no_document_lock():
+@patch("plugin.framework.constants.USE_SUB_AGENT", False)
+def test_delegate_vision_no_document_lock_when_no_sub_agent():
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     gateway = DelegateToSpecializedWriter()
     assert gateway.requires_document_lock({"domain": "vision"}) is False
+
+
+@patch("plugin.framework.constants.USE_SUB_AGENT", True)
+def test_delegate_vision_requires_document_lock_when_sub_agent():
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+
+    gateway = DelegateToSpecializedWriter()
+    assert gateway.requires_document_lock({"domain": "vision"}) is True
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
@@ -334,6 +347,7 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
         "failed_image": "Img2",
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    tool_ctx.stop_checker = None
     result = ExtractStructureFromImage().execute(tool_ctx)
     assert result["status"] == "error"
     assert result["code"] == "VISION_ERROR"
@@ -342,3 +356,12 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
     assert result["details"]["images_processed"] == 1
     assert result["details"]["image_names"] == ["Img1"]
     assert result["details"]["inserted"] is True
+
+
+def test_extract_structure_reraises_document_disposed(tool_ctx):
+    from plugin.framework.errors import DocumentDisposedError
+
+    with patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection", side_effect=DocumentDisposedError("gone", object_type="vision")):
+        tool_ctx.stop_checker = None
+        with pytest.raises(DocumentDisposedError):
+            ExtractStructureFromImage().execute(tool_ctx)

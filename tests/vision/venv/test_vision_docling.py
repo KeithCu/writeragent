@@ -409,3 +409,83 @@ def test_converter_cache_keeps_only_the_latest():
     docling_mod._store_converter(("new",), object())
     assert list(docling_mod._converter_cache) == [("new",)]
 
+
+def _cache_key_for(params: dict) -> tuple:
+    return docling_mod._cache_key(params, for_structure=True, input_format="image")
+
+
+def test_text_score_zero_is_its_own_cache_key():
+    missing = _cache_key_for({})
+    default = _cache_key_for({"text_score": 0.5})
+    zero = _cache_key_for({"text_score": 0.0})
+    zero_int = _cache_key_for({"text_score": 0})
+    zero_str = _cache_key_for({"text_score": "0.0"})
+    blank = _cache_key_for({"text_score": ""})
+    assert missing == default == blank
+    assert zero == zero_int == zero_str
+    assert zero != default
+    assert docling_mod._text_score_for_cache({"text_score": 0.0}) == 0.0
+    assert docling_mod._text_score_for_cache({}) == 0.5
+
+
+def test_converter_cache_does_not_reuse_default_for_text_score_zero():
+    """A warm 0.5 converter must not be returned when the threshold is 0.0."""
+    built: list[float] = []
+
+    def fake_build(params, *, for_structure, input_format="image"):
+        del for_structure, input_format
+        score = docling_mod._text_score_for_cache(params)
+        built.append(score)
+        pipeline = MagicMock()
+        pipeline.captured_text_score = score
+        return pipeline
+
+    base_models = MagicMock()
+    base_models.InputFormat.IMAGE = "IMAGE"
+    created: list[MagicMock] = []
+
+    def fake_converter(**kwargs):
+        conv = MagicMock()
+        conv.kwargs = kwargs
+        created.append(conv)
+        return conv
+
+    converter_mod = MagicMock()
+    converter_mod.DocumentConverter.side_effect = fake_converter
+    converter_mod.ImageFormatOption.side_effect = lambda **kw: kw
+
+    def fake_import(name):
+        if name == "docling.datamodel.base_models":
+            return base_models
+        if name == "docling.document_converter":
+            return converter_mod
+        raise ImportError(name)
+
+    with patch.object(docling_mod, "_import_docling"), patch.object(
+        docling_mod, "_build_pipeline_options", side_effect=fake_build
+    ), patch.object(docling_mod.importlib, "import_module", side_effect=fake_import):
+        first = docling_mod._get_docling_converter({"text_score": 0.5}, for_structure=True)
+        again = docling_mod._get_docling_converter({"text_score": 0.5}, for_structure=True)
+        second = docling_mod._get_docling_converter({"text_score": 0.0}, for_structure=True)
+
+    assert first is again
+    assert first is not second
+    assert built == [0.5, 0.0]
+    assert created[1].kwargs["format_options"]["IMAGE"]["pipeline_options"].captured_text_score == 0.0
+
+
+
+def test_rowspan_past_max_table_rows_is_clipped(monkeypatch):
+    monkeypatch.setattr(docling_mod, "MAX_TABLE_ROWS", 2)
+    cells = [
+        {"text": "H", "start_row_offset_idx": 0, "start_col_offset_idx": 0, "row_span": 10, "col_span": 1},
+        {"text": "A", "start_row_offset_idx": 1, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
+        {"text": "B", "start_row_offset_idx": 2, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
+        {"text": "C", "start_row_offset_idx": 3, "start_col_offset_idx": 1, "row_span": 4, "col_span": 1},
+    ]
+    table = docling_mod._table_from_span_cells(cells, num_rows=6, num_cols=2, name="t")
+    assert table is not None
+    assert table["truncated"] is True
+    assert len(table["rows"]) == 2
+    spans = table["spans"]
+    assert spans == [{"row": 0, "col": 0, "rowspan": 3, "colspan": 1}]
