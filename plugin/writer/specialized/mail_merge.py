@@ -78,12 +78,22 @@ class ListDataSources(ToolWriterMailMergeBase):
 
     name: str | None = "mail_merge_list_sources"
     intent: str | None = "examine"
-    description: str = "List all registered LibreOffice data sources (e.g. databases, registered spreadsheets, CSVs). Optionally inspect tables/sheets and columns by setting include_tables=True."
+    description: str = (
+        "List all registered LibreOffice data sources (e.g. databases, registered spreadsheets, CSVs). "
+        "Optionally inspect tables/sheets and columns by setting include_tables=True."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "include_tables": {"type": "boolean", "description": "Whether to connect to each data source and list its tables and column names.", "default": False},
-            "data_source_name": {"type": "string", "description": "Optional name to inspect a specific data source instead of all registered ones."},
+            "include_tables": {
+                "type": "boolean",
+                "description": "Whether to connect to each data source and list its tables and column names.",
+                "default": False,
+            },
+            "data_source_name": {
+                "type": "string",
+                "description": "Optional name to inspect a specific data source instead of all registered ones.",
+            },
         },
         "required": [],
     }
@@ -104,7 +114,10 @@ class ListDataSources(ToolWriterMailMergeBase):
 
         if target_ds_name:
             if target_ds_name not in available_names:
-                return self._tool_error(f"Data source '{target_ds_name}' is not registered in LibreOffice. Available sources: {available_names}")
+                return self._tool_error(
+                    f"Data source '{target_ds_name}' is not registered in LibreOffice. "
+                    f"Available sources: {available_names}"
+                )
             selected_names = [target_ds_name]
         else:
             selected_names = available_names
@@ -138,7 +151,12 @@ class ListDataSources(ToolWriterMailMergeBase):
 
             results.append(source_entry)
 
-        return {"status": "ok", "count": len(results), "data_sources": results, "registered_names": available_names}
+        return {
+            "status": "ok",
+            "count": len(results),
+            "data_sources": results,
+            "registered_names": available_names,
+        }
 
 
 class RegisterDataSource(ToolWriterMailMergeBase):
@@ -146,13 +164,27 @@ class RegisterDataSource(ToolWriterMailMergeBase):
 
     name: str | None = "mail_merge_register_source"
     intent: str | None = "edit"
-    description: str = "Register or unregister a file (.ods spreadsheet, .csv, or .odb database) as a named data source in LibreOffice, making it available for mail merge operations and merge fields."
+    description: str = (
+        "Register or unregister a file (.ods spreadsheet, .csv, or .odb database) as a named "
+        "data source in LibreOffice, making it available for mail merge operations and merge fields."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "name": {"type": "string", "description": "The unique registration name for the data source (e.g., 'Customers', 'NewsletterList')."},
-            "file_path": {"type": "string", "description": "Path to the .ods, .csv, or .odb file to register. Required when action is 'register'."},
-            "action": {"type": "string", "enum": ["register", "unregister"], "description": "Action to perform: 'register' to add/update, or 'unregister' to remove.", "default": "register"},
+            "name": {
+                "type": "string",
+                "description": "The unique registration name for the data source (e.g., 'Customers', 'NewsletterList').",
+            },
+            "file_path": {
+                "type": "string",
+                "description": "Path to the .ods, .csv, or .odb file to register. Required when action is 'register'.",
+            },
+            "action": {
+                "type": "string",
+                "enum": ["register", "unregister"],
+                "description": "Action to perform: 'register' to add/update, or 'unregister' to remove.",
+                "default": "register",
+            },
         },
         "required": ["name"],
     }
@@ -192,7 +224,12 @@ class RegisterDataSource(ToolWriterMailMergeBase):
                 db_ctx.revokeObject(name)
 
             db_ctx.registerObject(name, file_url)
-            return {"status": "ok", "message": f"Data source '{name}' registered successfully pointing to '{file_path}'.", "name": name, "file_url": file_url}
+            return {
+                "status": "ok",
+                "message": f"Data source '{name}' registered successfully pointing to '{file_path}'.",
+                "name": name,
+                "file_url": file_url,
+            }
         except Exception as exc:
             log.exception("Error registering data source")
             return self._tool_error(f"Failed to register data source '{name}': {exc}")
@@ -203,16 +240,44 @@ class InsertField(ToolWriterMailMergeBase):
 
     name: str | None = "mail_merge_insert_field"
     intent: str | None = "edit"
-    description: str = "Insert a database mail merge field (e.g. <FirstName>, <Address>) at the specified position. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text with the merge field."
+    description: str = (
+        "Insert a database mail merge field (e.g. <FirstName>, <Address>) at the specified position. "
+        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
+        "Use target='search' with old_content to find and replace text with the merge field."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "column_name": {"type": "string", "description": "Name of the column/field to merge (e.g., 'FirstName', 'Company', 'Address')."},
-            "data_source_name": {"type": "string", "description": "Name of the registered data source. Defaults to '' or active data source.", "default": ""},
-            "table_name": {"type": "string", "description": "Name of the table or sheet (e.g., 'Sheet1', 'Contacts').", "default": ""},
-            "command_type": {"type": "string", "enum": ["table", "query", "command"], "description": "Data command type: 'table' (0), 'query' (1), or 'command' (2).", "default": "table"},
-            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the field.", "default": "selection"},
-            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+            "column_name": {
+                "type": "string",
+                "description": "Name of the column/field to merge (e.g., 'FirstName', 'Company', 'Address').",
+            },
+            "data_source_name": {
+                "type": "string",
+                "description": "Name of the registered data source. Defaults to '' or active data source.",
+                "default": "",
+            },
+            "table_name": {
+                "type": "string",
+                "description": "Name of the table or sheet (e.g., 'Sheet1', 'Contacts').",
+                "default": "",
+            },
+            "command_type": {
+                "type": "string",
+                "enum": ["table", "query", "command"],
+                "description": "Data command type: 'table' (0), 'query' (1), or 'command' (2).",
+                "default": "table",
+            },
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "full_document", "search"],
+                "description": "Where to insert the field.",
+                "default": "selection",
+            },
+            "old_content": {
+                "type": "string",
+                "description": "Text to find and replace if target = 'search'.",
+            },
         },
         "required": ["column_name"],
     }
@@ -293,7 +358,16 @@ class InsertField(ToolWriterMailMergeBase):
             log.exception("Error inserting merge field into document")
             return self._tool_error(f"Failed to insert merge field into document: {exc}")
 
-        return {"status": "ok", "message": f"Successfully inserted merge field '<{column_name}>'.", "field": {"column_name": column_name, "data_source_name": data_source_name, "table_name": table_name, "command_type": command_type_str}}
+        return {
+            "status": "ok",
+            "message": f"Successfully inserted merge field '<{column_name}>'.",
+            "field": {
+                "column_name": column_name,
+                "data_source_name": data_source_name,
+                "table_name": table_name,
+                "command_type": command_type_str,
+            },
+        }
 
 
 class ListFields(ToolWriterMailMergeBase):
@@ -301,7 +375,10 @@ class ListFields(ToolWriterMailMergeBase):
 
     name: str | None = "mail_merge_list_fields"
     intent: str | None = "examine"
-    description: str = "List all database merge fields currently placed in the active Writer document, including their column names, data source names, and table names."
+    description: str = (
+        "List all database merge fields currently placed in the active Writer document, "
+        "including their column names, data source names, and table names."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -359,41 +436,93 @@ class ListFields(ToolWriterMailMergeBase):
                 except Exception:
                     content = ""
 
-                merge_fields.append({"id": field_idx, "column_name": col_name, "data_source_name": db_name, "table_name": tbl_name, "presentation": presentation, "content": content})
+                merge_fields.append({
+                    "id": field_idx,
+                    "column_name": col_name,
+                    "data_source_name": db_name,
+                    "table_name": tbl_name,
+                    "presentation": presentation,
+                    "content": content,
+                })
 
-        return {"status": "ok", "count": len(merge_fields), "fields": merge_fields}
+        return {
+            "status": "ok",
+            "count": len(merge_fields),
+            "fields": merge_fields,
+        }
 
 
 class RunMerge(ToolWriterMailMergeBase):
     """Execute mail merge workflow to files, printer, or email using com.sun.star.text.MailMerge."""
 
     name: str | None = "mail_merge_run"
-
-    def is_async(self) -> bool:
-        return True
-
     intent: str | None = "edit"
-    description: str = "Execute a mail merge operation using LibreOffice's native MailMerge engine. Merges data from a registered data source into the document template and generates output files (ODT or PDF) or prints/emails."
+    description: str = (
+        "Execute a mail merge operation using LibreOffice's native MailMerge engine. "
+        "Merges data from a registered data source into the document template and generates "
+        "output files (ODT or PDF) or prints/emails."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "data_source_name": {"type": "string", "description": "Name of the registered data source to merge from."},
-            "table_name": {"type": "string", "description": "Name of the table, query, or sheet in the data source."},
-            "command_type": {"type": "string", "enum": ["table", "query", "command"], "description": "Command type: 'table' (0), 'query' (1), or 'command' (2).", "default": "table"},
-            "output_type": {"type": "string", "enum": ["file", "printer", "mail"], "description": "Destination for merge results: 'file' (default), 'printer', or 'mail'.", "default": "file"},
-            "output_path": {"type": "string", "description": "Directory path to save output files when output_type='file'."},
-            "save_as_single_file": {"type": "boolean", "description": "If True, merges all records into a single multi-page document. If False, creates separate files per record.", "default": False},
-            "file_format": {"type": "string", "enum": ["odt", "pdf"], "description": "Output file format: 'odt' or 'pdf'. Default 'odt'.", "default": "odt"},
-            "file_name_prefix": {"type": "string", "description": "Base filename prefix for output files, or column name when file_name_from_column=True.", "default": "MergedDocument"},
-            "file_name_from_column": {"type": "boolean", "description": "If True, uses values from the column specified in file_name_prefix to name individual files.", "default": False},
-            "filter": {"type": "string", "description": "Optional SQL WHERE filter clause to select specific records (e.g. \"City = 'London'\")."},
-            "document_url": {"type": "string", "description": "Optional URL/path to template document. Defaults to the active document."},
+            "data_source_name": {
+                "type": "string",
+                "description": "Name of the registered data source to merge from.",
+            },
+            "table_name": {
+                "type": "string",
+                "description": "Name of the table, query, or sheet in the data source.",
+            },
+            "command_type": {
+                "type": "string",
+                "enum": ["table", "query", "command"],
+                "description": "Command type: 'table' (0), 'query' (1), or 'command' (2).",
+                "default": "table",
+            },
+            "output_type": {
+                "type": "string",
+                "enum": ["file", "printer", "mail"],
+                "description": "Destination for merge results: 'file' (default), 'printer', or 'mail'.",
+                "default": "file",
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Directory path to save output files when output_type='file'.",
+            },
+            "save_as_single_file": {
+                "type": "boolean",
+                "description": "If True, merges all records into a single multi-page document. If False, creates separate files per record.",
+                "default": False,
+            },
+            "file_format": {
+                "type": "string",
+                "enum": ["odt", "pdf"],
+                "description": "Output file format: 'odt' or 'pdf'. Default 'odt'.",
+                "default": "odt",
+            },
+            "file_name_prefix": {
+                "type": "string",
+                "description": "Base filename prefix for output files, or column name when file_name_from_column=True.",
+                "default": "MergedDocument",
+            },
+            "file_name_from_column": {
+                "type": "boolean",
+                "description": "If True, uses values from the column specified in file_name_prefix to name individual files.",
+                "default": False,
+            },
+            "filter": {
+                "type": "string",
+                "description": "Optional SQL WHERE filter clause to select specific records (e.g. \"City = 'London'\").",
+            },
+            "document_url": {
+                "type": "string",
+                "description": "Optional URL/path to template document. Defaults to the active document.",
+            },
         },
         "required": ["data_source_name", "table_name"],
     }
     is_mutation: bool | None = True
     long_running: bool = True
-    timeout: float = 600.0
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         data_source_name = kwargs.get("data_source_name")
@@ -426,7 +555,9 @@ class RunMerge(ToolWriterMailMergeBase):
         elif doc and hasattr(doc, "getURL") and doc.getURL():
             doc_url = doc.getURL()
         else:
-            return self._tool_error("Document must be saved or a valid document_url provided before running mail merge.")
+            return self._tool_error(
+                "Document must be saved or a valid document_url provided before running mail merge."
+            )
 
         # MailMerge is SwXMailMerge on the global service manager, not a document-factory
         # service. doc.createInstance raises ServiceNotRegisteredException (same class of
@@ -483,7 +614,10 @@ class RunMerge(ToolWriterMailMergeBase):
 
         return {
             "status": "ok",
-            "message": (f"Mail merge completed successfully using data source '{data_source_name}' ({table_name}). Output destination: {output_path or output_type_str} ({file_format.upper()})."),
+            "message": (
+                f"Mail merge completed successfully using data source '{data_source_name}' ({table_name}). "
+                f"Output destination: {output_path or output_type_str} ({file_format.upper()})."
+            ),
             "output_type": output_type_str,
             "output_path": output_path,
             "save_as_single_file": save_as_single_file,

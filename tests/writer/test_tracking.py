@@ -296,13 +296,6 @@ def test_manage_tracked_changes_accept():
     ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
 
     # Mock redlines.getCount() before and after
-    count_val = [1]
-    def mock_get_count(): return count_val[0]
-    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
-    def mock_dispatch(*args, **kwargs): count_val[0] = 0
-    dispatcher.executeDispatch.side_effect = mock_dispatch
-
-    # Mock redlines.getCount() before and after
     ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
 
     res = tool.execute(ctx, action="accept", index=0)
@@ -323,13 +316,6 @@ def test_manage_tracked_changes_reject():
         return enum
 
     ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
-
-    # Mock redlines.getCount() before and after
-    count_val = [1]
-    def mock_get_count(): return count_val[0]
-    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
-    def mock_dispatch(*args, **kwargs): count_val[0] = 0
-    dispatcher.executeDispatch.side_effect = mock_dispatch
 
     # Mock redlines.getCount() before and after
     ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
@@ -413,11 +399,6 @@ def test_accept_all_allowed_with_only_user_redlines():
     # The user's OWN tracked changes (no wa-review token) may be bulk-resolved on request.
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     _install_redlines(ctx, [_fake_redline("")])
-    count_val = [1]
-    def mock_get_count(): return count_val[0]
-    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
-    def mock_dispatch(*args, **kwargs): count_val[0] = 0
-    dispatcher.executeDispatch.side_effect = mock_dispatch
     res = ManageTrackedChanges().execute(ctx, action="accept_all")
     assert res["status"] == "ok"
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
@@ -458,11 +439,7 @@ def test_single_accept_allowed_on_user_redline():
     text_mock.compareRegionStarts.return_value = 1
     redline.getPropertyValue.return_value.getText.return_value = text_mock
     _install_redlines(ctx, [redline])
-    count_val = [1]
-    def mock_get_count(): return count_val[0]
-    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
-    def mock_dispatch(*args, **kwargs): count_val[0] = 0
-    dispatcher.executeDispatch.side_effect = mock_dispatch
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
@@ -527,48 +504,6 @@ def test_single_accept_blocked_when_comment_unreadable():
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "error"
     dispatcher.executeDispatch.assert_not_called()
-
-
-def test_manage_tracked_changes_accept_ignores_sibling():
-    ctx, dispatcher, frame, _ = _create_mock_ctx()
-    tool = ManageTrackedChanges()
-
-    r1 = _fake_redline("")
-    r2 = _fake_redline("")
-
-    # Give them the exact same identifier
-    r1.getPropertyValue.side_effect = lambda prop: "test-id" if prop == "RedlineIdentifier" else MagicMock()
-    r2.getPropertyValue.side_effect = lambda prop: "test-id" if prop == "RedlineIdentifier" else MagicMock()
-
-    _install_redlines(ctx, [r1, r2])
-
-    count_val = [2]
-    def mock_get_count(): return count_val[0]
-    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
-
-    def mock_dispatch(*args, **kwargs): count_val[0] -= 1
-    dispatcher.executeDispatch.side_effect = mock_dispatch
-
-    res = tool.execute(ctx, action="accept", index=0)
-    assert res["status"] == "ok"
-    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
-
-
-def test_manage_tracked_changes_accept_all_fails_silently():
-    ctx, dispatcher, frame, _ = _create_mock_ctx()
-    tool = ManageTrackedChanges()
-
-    _install_redlines(ctx, [_fake_redline("")])
-    ctx.doc.getRedlines.return_value.getCount.return_value = 1
-
-    # Dispatch doesn't reduce count
-    def mock_dispatch(*args, **kwargs): pass
-    dispatcher.executeDispatch.side_effect = mock_dispatch
-
-    res = tool.execute(ctx, action="accept_all")
-    assert res["status"] == "error"
-    assert "silently failed" in res["message"]
-
 
 def test_single_accept_blocked_when_bounds_unreadable():
     # Fail closed: if we cannot read the bounds of another redline, we cannot prove

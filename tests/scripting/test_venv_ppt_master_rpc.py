@@ -46,13 +46,12 @@ def test_dispatch_tool_call_writes_response():
 
     assert handled is True
     mock_tool.assert_called_once_with(
-            "validate_ppt_master_project",
-            {"project_path": "/tmp/p"},
-            caller="ppt_master_venv",
-            allowed_tools=None,
-            script_session_id=None,
-            stop_checker=None,
-        )
+        "validate_ppt_master_project",
+        {"project_path": "/tmp/p"},
+        caller="ppt_master_venv",
+        allowed_tools=None,
+        script_session_id=None,
+    )
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None

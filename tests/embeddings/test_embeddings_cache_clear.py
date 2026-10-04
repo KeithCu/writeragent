@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch, MagicMock
 from plugin.embeddings.embeddings_cache import clear_folder_cache
 

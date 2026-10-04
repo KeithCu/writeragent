@@ -143,8 +143,7 @@ def portfolio_tearsheet(params: dict[str, Any], data: Any, context: dict[str, An
     except ImportError:
         return _missing_package_error("portfolio_tearsheet", "quantstats")
 
-    date_origin = str(context.get("date_origin", "1899-12-30"))
-    res = _resolve_df(data, date_origin=date_origin)
+    res = _resolve_df(data)
     df = res.df
 
     if df.empty:
@@ -153,8 +152,7 @@ def portfolio_tearsheet(params: dict[str, Any], data: Any, context: dict[str, An
     date_col = next((c for c in df.columns if str(c).strip().lower() in ("date", "datetime", "timestamp")), None)
     dates = None
     if date_col is not None:
-        from plugin.scripting.venv.coerce import convert_to_datetime
-        dates = convert_to_datetime(df[date_col], date_origin=date_origin, errors="coerce")
+        dates = pd.to_datetime(df[date_col], errors="coerce")
         df = df.drop(columns=[date_col])
 
     numeric_df = df.apply(pd.to_numeric, errors="coerce")
@@ -214,8 +212,7 @@ def efficient_frontier(params: dict[str, Any], data: Any, context: dict[str, Any
     except ImportError:
         return _missing_package_error("efficient_frontier", "PyPortfolioOpt")
         
-    date_origin = str(context.get("date_origin", "1899-12-30"))
-    res = _resolve_df(data, date_origin=date_origin)
+    res = _resolve_df(data)
     df = res.df
     
     try:

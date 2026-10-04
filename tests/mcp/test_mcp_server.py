@@ -4,10 +4,8 @@ from io import BytesIO
 
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
-
 class MockHandler:
     """Mock GenericRequestHandler for testing."""
-
     def __init__(self, headers, body=b""):
         self.headers = headers
         self.rfile = BytesIO(body)
@@ -25,7 +23,6 @@ class MockHandler:
 
     def end_headers(self):
         self.headers_ended = True
-
 
 def test_handle_mcp_post_unsupported_protocol_sets_content_length():
     """400 protocol-version rejection must frame the JSON body (Darwin urllib RST)."""
@@ -72,11 +69,14 @@ def test_handle_mcp_post_routing():
     mcp_protocol = MCPProtocolHandler(services)
 
     # We patch _handle_mcp to just record the call, to verify parameters
-    with patch.object(mcp_protocol, "_handle_mcp") as mock_handle_mcp:
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
         body_data = {"jsonrpc": "2.0", "method": "test"}
         body_bytes = json.dumps(body_data).encode("utf-8")
 
-        headers = {"Content-Length": str(len(body_bytes)), "X-Document-URL": "file:///test/doc.odt"}
+        headers = {
+            "Content-Length": str(len(body_bytes)),
+            "X-Document-URL": "file:///test/doc.odt"
+        }
 
         handler = MockHandler(headers, body_bytes)
 
@@ -92,13 +92,12 @@ def test_handle_mcp_post_routing():
         # Verify X-Document-URL logic
         assert kwargs.get("document_url") == "file:///test/doc.odt"
 
-
 def test_handle_mcp_post_no_doc_url():
     """Test handle_mcp_post with missing X-Document-URL header."""
     services = MagicMock()
     mcp_protocol = MCPProtocolHandler(services)
 
-    with patch.object(mcp_protocol, "_handle_mcp") as mock_handle_mcp:
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
         body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
         headers = {"Content-Length": str(len(body_bytes))}
         handler = MockHandler(headers, body_bytes)
@@ -108,14 +107,13 @@ def test_handle_mcp_post_no_doc_url():
         args, kwargs = mock_handle_mcp.call_args
         assert kwargs.get("document_url") is None
 
-
 def test_handle_mcp_post_invalid_json():
     """Test handle_mcp_post with invalid JSON body."""
     services = MagicMock()
     mcp_protocol = MCPProtocolHandler(services)
 
-    with patch.object(mcp_protocol, "_handle_mcp") as mock_handle_mcp:
-        body_bytes = b"{invalid_json}"
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        body_bytes = b'{invalid_json}'
         headers = {"Content-Length": str(len(body_bytes))}
         handler = MockHandler(headers, body_bytes)
 
@@ -131,12 +129,21 @@ def test_handle_mcp_post_invalid_json():
         assert response_data.get("status") == "error"
         assert response_data.get("code") == "PARSE_ERROR"
 
-
 def test_send_cors_headers_allowed():
     """Test shared CORS helper allows safe origins on MCP POST responses."""
     from plugin.mcp.cors import send_cors_headers
 
-    safe_origins = ["http://localhost", "https://localhost", "http://localhost:3000", "https://localhost:8443", "http://127.0.0.1", "https://127.0.0.1", "http://127.0.0.1:8080", "http://[::1]", "http://[::1]:3000"]
+    safe_origins = [
+        "http://localhost",
+        "https://localhost",
+        "http://localhost:3000",
+        "https://localhost:8443",
+        "http://127.0.0.1",
+        "https://127.0.0.1",
+        "http://127.0.0.1:8080",
+        "http://[::1]",
+        "http://[::1]:3000",
+    ]
 
     for origin in safe_origins:
         handler = MockHandler({"Origin": origin})
@@ -156,7 +163,12 @@ def test_send_cors_headers_allowed():
 def test_send_cors_headers_preflight_mode():
     from plugin.mcp.cors import send_cors_headers
 
-    handler = MockHandler({"Origin": "http://localhost:3000", "Access-Control-Request-Headers": "content-type, Mcp-Protocol-Version"})
+    handler = MockHandler(
+        {
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Headers": "content-type, Mcp-Protocol-Version",
+        }
+    )
     send_cors_headers(handler, preflight=True)
     headers_dict = dict(handler.sent_headers)
     assert headers_dict.get("Access-Control-Max-Age") == "86400"
@@ -168,7 +180,12 @@ def test_send_cors_headers_rejected():
     """Test shared CORS helper rejects unsafe origins."""
     from plugin.mcp.cors import send_cors_headers
 
-    unsafe_origins = ["http://localhost.attacker.com", "https://127.0.0.1.badguy.com", "http://example.com", "https://[::1].evil.net"]
+    unsafe_origins = [
+        "http://localhost.attacker.com",
+        "https://127.0.0.1.badguy.com",
+        "http://example.com",
+        "https://[::1].evil.net",
+    ]
 
     for origin in unsafe_origins:
         handler = MockHandler({"Origin": origin})
@@ -176,7 +193,6 @@ def test_send_cors_headers_rejected():
 
         headers_dict = dict(handler.sent_headers)
         assert "Access-Control-Allow-Origin" not in headers_dict
-
 
 def test_handle_mcp_post_missing_content_length():
     """Test missing Content-Length header returns a structured JSON-RPC error."""
@@ -199,13 +215,12 @@ def test_handle_mcp_post_missing_content_length():
     assert response_data["error"].get("code") == -32600
     assert "Invalid JSON-RPC" in response_data["error"].get("message", "")
 
-
 def test_handle_mcp_post_negative_content_length():
     """Test negative Content-Length header returns a 400 Bad Request error."""
     services = MagicMock()
     mcp_protocol = MCPProtocolHandler(services)
 
-    with patch.object(mcp_protocol, "_handle_mcp") as mock_handle_mcp:
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
         body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
         headers = {"Content-Length": "-100"}
         handler = MockHandler(headers, body_bytes)
@@ -218,7 +233,6 @@ def test_handle_mcp_post_negative_content_length():
         response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
         assert response_data.get("status") == "error"
         assert response_data.get("code") == "PARSE_ERROR"
-
 
 def test_handle_mcp_post_rejects_oversized_body_without_reading():
     """Content-Length above the cap is 413 and must not call rfile.read or _handle_mcp."""
@@ -345,14 +359,13 @@ def test_handle_error_timeout_does_not_call_super():
             server.handle_error(None, ("127.0.0.1", 1))
     super_handle.assert_not_called()
 
-
 def test_handle_mcp_post_truncated_json():
     """Test when Content-Length is larger than body (truncated JSON).
     Should hit invalid-json path and not call _handle_mcp."""
     services = MagicMock()
     mcp_protocol = MCPProtocolHandler(services)
 
-    with patch.object(mcp_protocol, "_handle_mcp") as mock_handle_mcp:
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
         # A valid json but we say it's much longer than it is.
         # Wait, if we use a valid json but rfile.read returns it, it might still parse valid!
         # Let's provide an actual truncated json.
@@ -368,7 +381,6 @@ def test_handle_mcp_post_truncated_json():
         response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
         assert response_data.get("status") == "error"
         assert response_data.get("code") == "PARSE_ERROR"
-
 
 def test_handle_mcp_invalid_json_rpc():
     """Test when JSON-RPC method format is unknown or invalid.
@@ -393,7 +405,6 @@ def test_handle_mcp_invalid_json_rpc():
     assert response_data["error"].get("code") == -32601  # Method not found
     assert "Unknown method" in response_data["error"].get("message", "")
 
-
 def test_handle_mcp_raises():
     """Ensure when _handle_mcp raises or its internal handler raises,
     the server returns a stable error envelope (500)."""
@@ -401,7 +412,7 @@ def test_handle_mcp_raises():
     mcp_protocol = MCPProtocolHandler(services)
 
     # We patch _mcp_ping (a valid method) to raise an exception
-    with patch.object(mcp_protocol, "_mcp_ping", side_effect=Exception("Test Internal Error")):
+    with patch.object(mcp_protocol, '_mcp_ping', side_effect=Exception("Test Internal Error")):
         body_data = {"jsonrpc": "2.0", "method": "ping", "id": 42}
         body_bytes = json.dumps(body_data).encode("utf-8")
         headers = {"Content-Length": str(len(body_bytes))}
@@ -427,8 +438,13 @@ def test_to_mcp_schema_injects_document_url():
     class DummyTool(ToolBase):
         name = "dummy_tool"
         description = "A dummy tool for testing schema injection."
-        parameters = {"type": "object", "properties": {"arg1": {"type": "string"}}, "required": ["arg1"]}
-
+        parameters = {
+            "type": "object",
+            "properties": {
+                "arg1": {"type": "string"}
+            },
+            "required": ["arg1"]
+        }
         def execute(self, ctx, **kwargs):
             return {"status": "ok"}
 
@@ -470,13 +486,18 @@ def test_handle_mcp_tools_call_parameter():
     tool_mock = MagicMock()
     tool_mock.name = "dummy_tool"
     tool_mock.long_running = False
-    tool_mock.is_async.return_value = False
     mcp_protocol.tool_registry = MagicMock()
     mcp_protocol.tool_registry.get.return_value = tool_mock
 
     # Patch execution to see what document_url it receives
     with patch.object(mcp_protocol, "_execute_with_backpressure") as mock_execute:
-        params = {"name": "dummy_tool", "arguments": {"arg1": "value", "document_url": "file:///my/custom/doc.odt"}}
+        params = {
+            "name": "dummy_tool",
+            "arguments": {
+                "arg1": "value",
+                "document_url": "file:///my/custom/doc.odt"
+            }
+        }
         mcp_protocol._mcp_tools_call(params, document_url="file:///default/header/doc.odt")
 
         # Verify execute was called with the document_url from arguments, and not the header's
