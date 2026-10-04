@@ -36,12 +36,12 @@ def _config_int(key):
 def test_calc_extend_streams_each_non_empty_cell():
     from plugin.calc.editselection import do_calc_extend_edit
 
-    model, sheet = _model_for_data((("A", ""),))
+    model, sheet = _model_for_data((("=1+1", ""),))
     stream_calls = []
 
     def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn):
         stream_calls.append((prompt, system_prompt, max_tokens))
-        apply_chunk_fn(" plus", False)
+        apply_chunk_fn("+2", False)
         on_done_fn()
 
     with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
@@ -50,9 +50,9 @@ def test_calc_extend_streams_each_non_empty_cell():
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, MagicMock(), is_edit=False)
 
-    assert stream_calls == [("A", "extend system", 50)]
-    assert sheet.getCellByPosition(0, 0).getString() == "A plus"
-    assert sheet.getCellByPosition(1, 0).getString() == ""
+    assert stream_calls == [("=1+1", "extend system", 50)]
+    assert sheet.getCellByPosition(0, 0).getFormula() == "=1+1+2"
+    assert sheet.getCellByPosition(1, 0).getFormula() == ""
 
 
 def test_calc_edit_skips_empty_cells():
@@ -82,14 +82,14 @@ def test_calc_edit_skips_empty_cells():
 def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
     from plugin.calc.editselection import do_calc_extend_edit
 
-    model, sheet = _model_for_data((("Original",),))
+    model, sheet = _model_for_data((("=1+1",),))
     input_box = MagicMock(return_value=("shorten", "extra system"))
     error = RuntimeError("provider failed")
     stream_calls = []
 
     def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn):
         stream_calls.append((prompt, system_prompt, max_tokens))
-        apply_chunk_fn("Partial", False)
+        apply_chunk_fn("=2", False)
         on_error_fn(error)
 
     with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
@@ -102,7 +102,7 @@ def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
         do_calc_extend_edit(MagicMock(), model, input_box, is_edit=True)
 
     assert stream_calls[0][1] == "extra system"
-    assert stream_calls[0][2] == len("Original") + 7
-    assert "ORIGINAL VERSION:\nOriginal" in stream_calls[0][0]
-    assert sheet.getCellByPosition(0, 0).getString() == "Original"
+    assert stream_calls[0][2] == len("=1+1") + 7
+    assert "ORIGINAL VERSION:\n=1+1" in stream_calls[0][0]
+    assert sheet.getCellByPosition(0, 0).getFormula() == "=1+1"
     msgbox.assert_called_once()
