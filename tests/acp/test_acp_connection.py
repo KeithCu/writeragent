@@ -559,3 +559,34 @@ class TestStdinWriteCapturesProc:
             time.sleep(0.01)
         assert stdin.written
         assert b'"id": 4' in stdin.written[0]
+
+
+def test_stop_flushes_before_terminate():
+    from unittest.mock import MagicMock
+
+    conn = ACPConnection(["dummy"])
+    mock_proc = MagicMock()
+    mock_stdin = MagicMock()
+    mock_proc.stdin = mock_stdin
+
+    events = []
+
+    def mock_write(_data):
+        events.append("write")
+
+    def mock_terminate():
+        events.append("terminate")
+
+    mock_stdin.write.side_effect = mock_write
+    mock_proc.terminate.side_effect = mock_terminate
+
+    conn._proc = mock_proc
+    conn._running = True
+    mock_proc.poll.return_value = None
+
+    conn.send_notification("session/cancel", {})
+    conn.stop()
+
+    assert "write" in events, "write was never called"
+    assert "terminate" in events, "terminate was never called"
+    assert events.index("write") < events.index("terminate")
