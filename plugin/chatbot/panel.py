@@ -1054,6 +1054,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
         try:
+            self._last_mcp_req_id = kwargs.get("req_id")
             from plugin.chatbot.tool_loop_actions import current_turn
 
             self._last_mcp_turn = current_turn(self)
@@ -1074,6 +1075,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         try:
+            if "req_id" in kwargs and kwargs["req_id"] != getattr(self, "_last_mcp_req_id", None):
+                return
             from plugin.chatbot.tool_loop_actions import current_turn, TurnController
             last_turn = getattr(self, "_last_mcp_turn", None)
             if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
@@ -1085,6 +1088,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self._panel_teardown or self.ctx is None:
                 return
             try:
+                if "req_id" in kwargs and kwargs["req_id"] != getattr(self, "_last_mcp_req_id", None):
+                    return
                 from plugin.chatbot.tool_loop_actions import current_turn, TurnController
                 last_turn = getattr(self, "_last_mcp_turn", None)
                 if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
