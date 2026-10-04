@@ -71,7 +71,7 @@ class TestChatModelLogic(unittest.TestCase):
     @patch('plugin.chatbot.tool_loop.sync_sidebar_text_model')
     @patch('plugin.chatbot.tool_loop.set_image_model', create=True)
     @patch('plugin.chatbot.tool_loop.get_config', create=True)
-    @patch('plugin.chatbot.tool_loop.get_current_endpoint')
+    @patch('plugin.framework.config.get_current_endpoint')
     @patch('plugin.framework.client.llm_client.LlmClient')
     def test_do_send_updates_model(self, mock_llm, mock_get_endpoint, mock_get_config, mock_set_image, mock_sync):
         mock_sync.return_value = "new-model-xyz"
@@ -84,7 +84,12 @@ class TestChatModelLogic(unittest.TestCase):
         doc_mock = MagicMock(spec=["getText", "supportsService"])
         doc_mock.supportsService.return_value = False
         with patch.object(self.listener, '_get_document_model', return_value=doc_mock), \
-             patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})):
+             patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x", "chat_max_tool_rounds": 5})), \
+             patch('plugin.chatbot.tool_loop.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x", "chat_max_tool_rounds": 5})), \
+             patch('plugin.chatbot.tool_loop.validate_api_config', return_value=(True, "")), \
+             patch('plugin.chatbot.tool_loop.running_turn', return_value=MagicMock()), \
+             patch('plugin.chatbot.tool_loop.current_turn', return_value=MagicMock()), \
+             patch.object(self.listener, '_start_tool_calling_async'):
 
             self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
             mock_sync.assert_called_once_with(self.ctx, self.model_selector)
@@ -92,7 +97,7 @@ class TestChatModelLogic(unittest.TestCase):
     @patch('plugin.chatbot.tool_loop.sync_sidebar_text_model', return_value="new-model-xyz")
     @patch('plugin.chatbot.tool_loop.set_image_model', create=True)
     @patch('plugin.chatbot.tool_loop.get_config', create=True)
-    @patch('plugin.chatbot.tool_loop.get_current_endpoint')
+    @patch('plugin.framework.config.get_current_endpoint')
     @patch('plugin.framework.client.llm_client.LlmClient')
     def test_image_model_updates(self, *args):
         mock_get_config = args[2]
@@ -107,7 +112,12 @@ class TestChatModelLogic(unittest.TestCase):
         doc_mock = MagicMock(spec=["getText", "supportsService"])
         doc_mock.supportsService.return_value = False
         with patch.object(self.listener, '_get_document_model', return_value=doc_mock), \
-             patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})):
+             patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x", "chat_max_tool_rounds": 5})), \
+             patch('plugin.chatbot.tool_loop.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x", "chat_max_tool_rounds": 5})), \
+             patch('plugin.chatbot.tool_loop.validate_api_config', return_value=(True, "")), \
+             patch('plugin.chatbot.tool_loop.running_turn', return_value=MagicMock()), \
+             patch('plugin.chatbot.tool_loop.current_turn', return_value=MagicMock()), \
+             patch.object(self.listener, '_start_tool_calling_async'):
 
             self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
             self.assertTrue(True)
