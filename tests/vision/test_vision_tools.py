@@ -125,14 +125,14 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
 
 
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is True
     assert vision_ocr_available(MagicMock()) is True
 
 
-@patch("plugin.framework.config.get_config_str", return_value="")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="")
 def test_vision_venv_configured_false_without_venv_path(_cfg):
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is False
@@ -141,7 +141,7 @@ def test_vision_venv_configured_false_without_venv_path(_cfg):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=True)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
     invalidate_vision_availability_cache()
     assert vision_packages_probe_ready(MagicMock()) is True
@@ -149,7 +149,7 @@ def test_vision_packages_probe_ready_true_when_probe_ready(_cfg, _exe, _probe):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=False)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):
     invalidate_vision_availability_cache()
     assert vision_packages_probe_ready(MagicMock()) is False
@@ -157,7 +157,7 @@ def test_vision_packages_probe_ready_false_when_probe_fails(_cfg, _exe, _probe):
 
 @patch("plugin.vision.vision_availability._probe_ready", return_value=True)
 @patch("plugin.vision.vision_availability._resolve_vision_python_exe", return_value="/venv/bin/python")
-@patch("plugin.framework.config.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
 def test_vision_venv_configured_true_even_when_probe_would_fail(_cfg, _exe, _probe):
     """Send/schema gate must not subprocess-probe; venv path alone is enough."""
     invalidate_vision_availability_cache()
