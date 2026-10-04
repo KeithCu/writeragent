@@ -392,3 +392,35 @@ def test_designs_module_has_no_hardcoded_install_prefix():
         src = inspect.getsource(mod)
         assert "/usr/lib/libreoffice" not in src
         assert "/opt/libreoffice" not in src
+
+def test_extract_otp_picture_capped_read():
+    import zipfile
+    import os
+    import tempfile
+    from plugin.draw.designs import _extract_otp_picture
+
+    with tempfile.TemporaryDirectory() as td:
+        otp_path = os.path.join(td, "test.otp")
+        with zipfile.ZipFile(otp_path, "w") as zf:
+            zf.writestr("Pictures/image.png", b"x" * (2 * 1024 * 1024 + 10))
+
+        # Test extraction fails due to limit
+        out_path = _extract_otp_picture(otp_path, td, 0)
+        assert out_path is None
+
+def test_enumerate_impress_designs_limit():
+    import tempfile
+    import os
+    from unittest.mock import patch
+    from plugin.draw.designs import enumerate_impress_designs
+
+    with tempfile.TemporaryDirectory() as td:
+        for i in range(1005):
+            open(os.path.join(td, f"file{i}.otp"), "w").close()
+
+        class MockCtx:
+            pass
+
+        with patch("plugin.draw.designs._iter_template_directories", return_value=[td]):
+            designs = enumerate_impress_designs(MockCtx())
+            assert len(designs) == 1000

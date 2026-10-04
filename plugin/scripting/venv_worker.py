@@ -242,10 +242,16 @@ def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         return
     try:
         pgid = os.getpgid(pid)
+        fallback = False
     except ProcessLookupError:
         pgid = pid
+        fallback = True
+
     try:
-        os.killpg(pgid, signal.SIGKILL)
+        if fallback and proc.poll() is None:
+            proc.kill()
+        else:
+            os.killpg(pgid, signal.SIGKILL)
     except ProcessLookupError:
         if proc.poll() is None:
             proc.kill()
@@ -281,6 +287,7 @@ class PythonWorkerManager:
     _io_lock: threading.Lock
     _primed: bool
     _retired: bool
+    _proc_lock: threading.Lock
 
     def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe
@@ -297,6 +304,7 @@ class PythonWorkerManager:
         self._serving_tool_call: bool = False
         self._primed = False
         self._retired = False
+        self._proc_lock = threading.Lock()
         self._stderr_drain: StderrTail | None = None
         self._stdin_writer_thread: threading.Thread | None = None
 
@@ -963,21 +971,23 @@ class PythonWorkerManager:
         # The top-of-function check can pass, then shutdown_all (or get())
         # sets _retired, and this call would still Popen. Re-check immediately
         # before spawn so that retry cannot start an untracked child.
-        if self._retired:
-            raise RuntimeError(
-                "Python worker was replaced by a new venv path and will not be restarted"
+        with self._proc_lock:
+            if self._retired:
+                raise RuntimeError(
+                    "Python worker was replaced by a new venv path and will not be restarted"
+                )
+            self._proc = subprocess.Popen(wrap_command_for_sandbox([self.exe, _HARNESS_PATH]), **popen_kw)
+            optimize_popen_pipes(self._proc)
+            # Live stderr drain: prevent 64KB pipe deadlock while parent blocks on stdin/stdout.
+            self._stderr_drain = start_stderr_drain(
+                self._proc.stderr,
+                name=f"venv-stderr-{self._proc.pid}",
             )
-        self._proc = subprocess.Popen(wrap_command_for_sandbox([self.exe, _HARNESS_PATH]), **popen_kw)
-        optimize_popen_pipes(self._proc)
-        # Live stderr drain: prevent 64KB pipe deadlock while parent blocks on stdin/stdout.
-        self._stderr_drain = start_stderr_drain(
-            self._proc.stderr,
-            name=f"venv-stderr-{self._proc.pid}",
-        )
-        log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
+            log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int) -> bytes:
-        assert self._proc is not None
+        proc = self._proc
+        assert proc is not None
         # Do not merge this with ipc.read_pickle_frame_with_timeout: the worker
         # path also poll()-short-circuits a dead child and (on the heartbeat
         # path) resets the deadline. Unifying those is a hang-regression risk
@@ -989,7 +999,8 @@ class PythonWorkerManager:
 
     def _read_response_bytes_select(self, stdout: IO[bytes], timeout_sec: float | int) -> bytes:
         """POSIX path: use select() to poll the pipe with a timeout."""
-        assert self._proc is not None
+        proc = self._proc
+        assert proc is not None
         # monotonic: a wall-clock step used to stretch the wait or kill the warm worker.
         end = time.monotonic() + timeout_sec
 
@@ -1005,7 +1016,7 @@ class PythonWorkerManager:
                     if not chunk:
                         return bytes()
                     buf.extend(chunk)
-                if self._proc is not None and self._proc.poll() is not None and not ready:
+                if proc.poll() is not None and not ready:
                     break
             return bytes(buf)
 
@@ -1205,11 +1216,12 @@ class PythonWorkerManager:
         return chunk or b""
 
     def _terminate_worker(self) -> None:
-        proc = self._proc
-        stderr_drain = self._stderr_drain
-        self._proc = None
-        self._primed = False
-        self._stderr_drain = None
+        with self._proc_lock:
+            proc = self._proc
+            stderr_drain = self._stderr_drain
+            self._proc = None
+            self._primed = False
+            self._stderr_drain = None
         if proc is None:
             if stderr_drain is not None:
                 stderr_drain.join(timeout=1)
@@ -1390,9 +1402,11 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
     if pool == WORKER_POOL_EMBEDDINGS:
         try:
             from plugin.embeddings.embedding_client import get_embedding_model
+            from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 
             model = get_embedding_model()
             if model:
+                timeout_val = embeddings_worker_timeout_sec(uno_ctx)
                 res = manager.execute(
                     action="run_trusted_action",
                     data={
@@ -1400,6 +1414,8 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
                         "helper": "warm_embedder",
                         "params": {"model": model},
                     },
+                    timeout_sec=timeout_val,
+                    allow_heartbeat=True,
                 )
                 if res.get("status") != "ok":
                     log.warning("Embedding model pre-warm returned status %s: %s", res.get("status"), res.get("message"))

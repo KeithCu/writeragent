@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import clone_text_range
+from plugin.doc.text_helpers import clone_text_range, get_string_without_tracked_deletions
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 
@@ -382,7 +382,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         cursor.gotoEndOfParagraph(False)
 
         for el in elements:
-            txt = el.getString()
+            txt = get_string_without_tracked_deletions(el)
             sty = el.getPropertyValue("ParaStyleName")
             doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
             doc_text.insertString(cursor, txt, False)

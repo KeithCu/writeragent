@@ -994,3 +994,37 @@ def test_doc_identity_url_repairs_file_slash_without_changing_normalize():
     assert _doc_identity_url("file:/tmp/note.odt") == _doc_identity_url("file:///tmp/note.odt")
 
 
+
+def test_resolve_document_by_url_reraises_disposed_on_nextelement():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.framework.uno_context import resolve_document_by_url, set_fallback_ctx, reset_desktop_create_is_unsafe_for_tests
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    desktop = MagicMock()
+    comps = MagicMock()
+    enum = MagicMock()
+
+    ctx.ServiceManager.createInstanceWithContext.return_value = desktop
+    desktop.getComponents.return_value = comps
+    comps.createEnumeration.return_value = enum
+    enum.hasMoreElements.return_value = True
+
+    # Simulate nextElement raising a disposed-like exception
+    class DisposedException(Exception):
+        pass
+
+    # We construct a mock exception that has "disposed" in its string representation or is com.sun.star.lang.DisposedException
+    exc = DisposedException("com.sun.star.lang.DisposedException: document is closed")
+    # Actually, _reraise_document_disposed in errors.py looks for "disposed" or DisposedException type.
+    enum.nextElement.side_effect = exc
+
+    # We need to bypass the desktop creation guard for the test
+    saved_ctx = set_fallback_ctx(ctx)
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(ctx, "file:///tmp/missing.odt")
+    finally:
+        set_fallback_ctx(saved_ctx)
+        reset_desktop_create_is_unsafe_for_tests()

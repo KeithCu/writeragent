@@ -218,28 +218,37 @@ class InsertMathDraw(ToolDrawSpecialBase):
             shape = ctx.doc.createInstance("com.sun.star.drawing.OLE2Shape")
             # Draw/Impress OLE: add to page first, then CLSID (see charts OLE path).
             page.add(shape)
-            shape.setPosition(Point(x, y))
-            shape.setSize(Size(_MIN_W_HMM, _MIN_H_HMM))
-            shape.CLSID = MATH_CLSID
+            try:
+                shape.setPosition(Point(x, y))
+                shape.setSize(Size(_MIN_W_HMM, _MIN_H_HMM))
+                shape.CLSID = MATH_CLSID
 
-            model = shape.Model
-            if model is None or not hasattr(model, "Formula"):
-                return self._tool_error("Math OLE model is not available on this build.")
-            model.Formula = res.starmath
+                model = shape.Model
+                if model is None or not hasattr(model, "Formula"):
+                    raise RuntimeError("Math OLE model is not available on this build.")
+                model.Formula = res.starmath
 
-            wh = _try_ole_shape_content_size_hmm(shape)
-            # A real formula can be narrower than the minimum box (a stacked
-            # fraction is ~499 x 2069 hmm). Discarding that pair because one
-            # side is under the floor replaced it with the length heuristic,
-            # which clips the height and overshoots the width. Clamp below.
-            if wh is None:
-                wh = _heuristic_size_hmm(res.starmath or formula)
-            w, h = wh
-            w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
-            h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
-            shape.setSize(Size(w, h))
-
+                wh = _try_ole_shape_content_size_hmm(shape)
+                # A real formula can be narrower than the minimum box (a stacked
+                # fraction is ~499 x 2069 hmm). Discarding that pair because one
+                # side is under the floor replaced it with the length heuristic,
+                # which clips the height and overshoots the width. Clamp below.
+                if wh is None:
+                    wh = _heuristic_size_hmm(res.starmath or formula)
+                w, h = wh
+                w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
+                h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
+                shape.setSize(Size(w, h))
+            except Exception:
+                try:
+                    page.remove(shape)
+                except Exception:
+                    pass
+                raise
         except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             return self._tool_error(f"Failed to insert math shape: {e}")
 
         return {"status": "ok", "message": "Math formula inserted successfully", "index": page.getCount() - 1, "page": page_index}

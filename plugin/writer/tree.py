@@ -369,7 +369,10 @@ class TreeService(ServiceBase):
                     anchor = vc.getStart()
                 finally:
                     if saved is not None:
-                        vc.gotoRange(saved, False)
+                        try:
+                            vc.gotoRange(saved, False)
+                        except Exception:
+                            pass
                     doc.unlockControllers()
                 para_ranges = self._doc_svc.get_paragraph_ranges(doc)
                 text_obj = doc.getText()

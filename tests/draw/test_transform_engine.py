@@ -225,3 +225,23 @@ def test_unmapped_command_on_a_range_does_not_format_the_whole_shape() -> None:
     assert calls == []
     assert controller.selected == []
     assert any("DefaultBullet" in warning for warning in eng.warnings)
+
+def test_insert_master_not_found_raises_warning():
+    from plugin.draw.transform_engine import SlideCommandEngine
+    from unittest.mock import MagicMock
+
+    class MockBridge:
+        def get_pages(self):
+            m = MagicMock()
+            m.getCount.return_value = 1
+            return m
+        def insert_slide_from_master(self, **kwargs):
+            raise ValueError("Master page not found")
+
+    engine = SlideCommandEngine(MagicMock())
+    engine.bridge = MockBridge()
+    engine.pages = engine.bridge.get_pages()
+
+    engine._apply_command({"InsertMasterSlide": 99})
+    assert "InsertMasterSlide: Master page not found" in engine.warnings
+    assert not any("InsertMasterSlide" in item for item in engine.applied)

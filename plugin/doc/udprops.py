@@ -155,3 +155,11 @@ def set_document_property(model: Any, name: str, value: Any) -> None:
 
         log.exception("set_document_property error (url=%s, readonly=%s)", doc_url, readonly)
         raise
+
+def remove_document_property(doc: Any, name: str) -> None:
+    try:
+        props = doc.getDocumentProperties().getUserDefinedProperties()
+        if props.getPropertySetInfo().hasPropertyByName(name):
+            props.removeProperty(name)
+    except Exception:
+        pass

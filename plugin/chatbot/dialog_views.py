@@ -1639,10 +1639,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             log.debug("TTS model id for voice fetch unavailable", exc_info=True)
             return ""
 
-    def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "") -> None:
+    def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "", key_ov: str | None = None) -> None:
         if self._closed or gen != self._debounce_gen: return
-
-        key_ov = self._api_key_override()
 
         models = None
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
@@ -1710,8 +1708,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             tts_model_id = self._tts_model_id_for_voice_fetch()
+            key_ov = self._api_key_override()
             self.run_in_background(
-                lambda: self._bg_fetch(gen, resolved, tts_model_id), name="settings-fetch",
+                lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name="settings-fetch",
             )
 
     def force_catalog_refresh(self) -> None:

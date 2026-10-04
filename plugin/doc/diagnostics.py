@@ -100,8 +100,13 @@ class DocumentHealthCheck(ToolBaseDummy):
                 for name in names:
                     try:
                         bm = bookmarks.getByName(name)
-                        anchor = bm.getAnchor()
-                        if anchor is None or not anchor.getString():
+                        try:
+                            _anchor = bm.getAnchor()
+                        except Exception:
+                            # The anchor might be missing entirely or the bookmark collapsed
+                            # so strictly getAnchor might fail.
+                            continue
+                        if _anchor is None or not _anchor.getString():
                             issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
                     except Exception:
                         issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
@@ -174,8 +179,10 @@ class SetDocumentProtection(ToolBaseDummy):
                         section.setProtectionPassword(password)
                     except AttributeError:
                         # Older LO versions may not support per-section
-                        # passwords; silently skip.
-                        pass
+                        # passwords via setProtectionPassword.
+                        # It requires byte arrays for ProtectionKey instead.
+                        import hashlib
+                        section.setPropertyValue("ProtectionKey", tuple(hashlib.sha256(password.encode('utf-8')).digest()))
             except Exception as exc:
                 log.warning("Could not set protection on section %d: %s", i, exc)
 

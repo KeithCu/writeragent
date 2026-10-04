@@ -533,10 +533,29 @@ class MCPProtocolHandler:
         document_url = handler.headers.get("X-Document-URL") or None
         self._handle_mcp(body, handler, document_url=document_url)
 
+    def _is_tunneled(self, handler: Any) -> bool:
+        """Check if the request arrived via a public tunnel."""
+        for header in ("x-forwarded-for", "x-forwarded-host", "cf-ray", "ngrok-skip-browser-warning"):
+            if handler.headers.get(header) or handler.headers.get(header.title()):
+                return True
+        from plugin.mcp import _shared_tunnel
+        if _shared_tunnel and getattr(_shared_tunnel, "is_running", False):
+            return True
+        return False
+
     # ── Simple handlers (body, headers, query) -> (status, dict) ─────
 
     def handle_debug_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         """GET /debug — show available debug actions."""
+        # Note: headers are just a dict here, so wrap it in a dummy handler structure
+        # or just pass a dummy to `_is_tunneled` which expects `handler.headers`.
+        _hdrs = headers
+        class _DummyHandler:
+            headers: Any = _hdrs
+
+        if self._is_tunneled(_DummyHandler()):
+            return (403, {"error": "Forbidden: Debug actions restricted to localhost (tunneled access blocked)"})
+
         tools = list(self.tool_registry.tool_names) if self.tool_registry else []
         return (
             200,
@@ -557,8 +576,8 @@ class MCPProtocolHandler:
         """POST /debug — execute debug actions."""
         # Security: restrict debug actions to localhost
         client_ip = handler.client_address[0]
-        if client_ip not in ("127.0.0.1", "::1", "localhost"):
-            log.warning("Blocked remote access to /debug from %s", client_ip)
+        if client_ip not in ("127.0.0.1", "::1", "localhost") or self._is_tunneled(handler):
+            log.warning("Blocked remote access to /debug from %s (tunneled=%s)", client_ip, self._is_tunneled(handler))
             self._send_json(handler, 403, {"error": "Forbidden: Debug actions restricted to localhost"})
             return
 
@@ -1136,6 +1155,13 @@ class MCPProtocolHandler:
     def _read_body(self, handler: Any) -> Any:
         """Read and parse JSON body from an HTTP handler."""
         content_length = int(handler.headers.get("Content-Length", 0))
+        if content_length < 0:
+            from plugin.framework.errors import AgentParsingError, format_error_payload
+
+            log.warning("Invalid negative Content-Length: %s", content_length)
+            err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
+            self._send_json(handler, 400, format_error_payload(err))
+            return None
         if content_length == 0:
             return {}
         raw = handler.rfile.read(content_length).decode("utf-8")

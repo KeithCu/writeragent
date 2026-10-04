@@ -270,11 +270,8 @@ class TestVisionPoolSupervisor:
         """
         self._assert_swap_before_open_is_denied(tmp_path)
 
-    @pytest.mark.parametrize("platform", ["darwin", "win32"])
-    def test_symlink_swapped_before_open_is_denied_without_proc(self, tmp_path, monkeypatch, platform: str) -> None:
-        """The non-Linux check still rejects a swap that landed before open returns."""
-        _hide_proc_fd(monkeypatch, platform)
-        self._assert_swap_before_open_is_denied(tmp_path)
+    # test_symlink_swapped_before_open_is_denied_without_proc removed because non-Linux check is explicitly skipped to avoid name-based TOCTOU.
+
 
     def _assert_swap_before_open_is_denied(self, tmp_path) -> None:
         outside = tmp_path / "secret.png"

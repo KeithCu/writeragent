@@ -376,6 +376,8 @@ def test_is_next_cell_boundary_markdown_and_code():
     assert _is_next_cell_boundary("Preformatted Text", "Out [1]: 42", None) is False
     # Fallback stdout style must not count as the next cell, or re-runs stack.
     assert _is_next_cell_boundary("WriterAgent Notebook Output", "old stdout", None) is False
+    assert _is_next_cell_boundary("Quotations", "A blockquote", None) is True
+    assert _is_next_cell_boundary("List 1 Start", "A list item", None) is True
 
 
 def test_paragraph_string_uses_selection_when_nonempty():
@@ -433,6 +435,44 @@ def test_clear_cell_output_uses_set_string_not_delete_contents():
     text.deleteContents.assert_not_called()
     sel.gotoRange.assert_called_once_with("end-pos", True)
     sel.setString.assert_called_once_with("")
+
+
+
+def test_clear_cell_output_stops_at_markdown_blockquote():
+    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Preformatted Text"
+    start.getString.return_value = "Array: [10 20 30]"
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Preformatted Text"
+    walker.getString.return_value = "Array: [10 20 30]"
+
+    def goto_next(_expand):
+        walker.ParaStyleName = "Quotations"
+        walker.getString.return_value = "A blockquote"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = "md-start"
+
+    range_start = MagicMock(name="range_start")
+    sel = MagicMock(name="sel")
+    sel.getString.return_value = "Array: [10 20 30]\n"
+
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    sel.setString.assert_called_once_with("")
+    walker.gotoStartOfParagraph.assert_called_once()
 
 
 def test_clear_cell_output_stops_at_markdown_cell_heading():
@@ -905,7 +945,8 @@ def test_run_cell_for_doc_hex_execution_error_does_not_msgbox():
         run_cell_for_doc_hex(ctx, doc, hex_id)
 
     boxed.assert_not_called()
-    assert apply_calls and apply_calls[0]["status"] == "error"
+    assert apply_calls
+    assert isinstance(apply_calls, list) and len(apply_calls) > 0 and isinstance(apply_calls[0], dict) and apply_calls[0].get("status") == "error"
 
 
 def test_clear_cell_output_preserves_spacer_before_next_heading():

@@ -734,3 +734,14 @@ def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
 
     names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
     assert "brainstorm_research_web" not in names
+
+def test_execute_excludes_find_tools_itself():
+    registry = MagicMock()
+    registry.get_schemas.return_value = [
+        _schema("find_tools", "finds tools"),
+        _schema("footnotes_insert", "insert a footnote"),
+    ]
+    registry.get_tools.return_value = []
+    names = [t.get("name") for t in FindTools().execute(_ctx(registry), domain="footnotes")["tools"]]
+    assert "find_tools" not in names
+    assert "footnotes_insert" in names

@@ -388,3 +388,36 @@ def test_prune_keeps_container_listener():
     assert container in notebook_controls._listener_refs
     assert form._doc_key_val in notebook_controls._wired_form_docs
     assert notebook_controls._wired_keys == set()
+
+def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
+    """doc listener retry must not call guarded get_runtime_uid."""
+    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-dummy-3"
+
+    ctx = MagicMock()
+    notebook_controls._install_doc_event_listener(ctx)
+    lis = notebook_controls._doc_listener
+
+    event = MagicMock()
+    event.EventName = "OnViewCreated"
+    event.ViewController.getModel.return_value = doc
+
+    state = MagicMock()
+    state.code_cells = [MagicMock()]
+
+    try:
+        with (
+            patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+            patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, MagicMock())),
+        ):
+            lis.on_document_event(event)
+        # Should not raise RuntimeError from get_runtime_uid
+    finally:
+        tg.GUARD_ON = was

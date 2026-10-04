@@ -63,6 +63,9 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
         try:
             master = slide.MasterPage
         except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             raise WriterAgentException("no_master", f"Could not resolve master page for slide {page_index}: {e}") from e
         if master is None:
             raise WriterAgentException("no_master", f"Slide {page_index} has no master page assigned.")
@@ -82,7 +85,10 @@ _SVC_SLIDENO = "com.sun.star.presentation.SlideNumberShape"
 def _doc_is_presentation(doc: Any) -> bool:
     try:
         return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         return False
 
 
@@ -93,12 +99,18 @@ def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
 def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
     try:
         n = int(page.getCount())
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         return
     for i in range(n):
         try:
             yield page.getByIndex(i)
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             continue
 
 
@@ -116,7 +128,10 @@ def _find_shape_on_page(page: Any, service_name: str) -> Any:
                 return shape
             if hasattr(shape, "supportsService") and shape.supportsService(service_name):
                 return shape
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             continue
     for shape in _iter_shapes_on_page(page):
         try:
@@ -127,7 +142,10 @@ def _find_shape_on_page(page: Any, service_name: str) -> Any:
                 nm = str(name)
                 if nm == service_name or nm.endswith("." + base):
                     return shape
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             continue
     return None
 
@@ -138,7 +156,10 @@ def _shape_get_string(shape: Any) -> str:
     try:
         if hasattr(shape, "getString"):
             return str(shape.getString() or "")
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         pass
     return ""
 
@@ -150,7 +171,10 @@ def _shape_set_string(shape: Any, text: str) -> bool:
         if hasattr(shape, "setString"):
             shape.setString(text)
             return True
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         log.debug("setString on header/footer shape failed", exc_info=True)
     return False
 
@@ -162,7 +186,10 @@ def _shape_get_visible(shape: Any) -> bool:
         if hasattr(shape, "getPropertyValue"):
             return bool(shape.getPropertyValue("Visible"))
         return bool(getattr(shape, "Visible", False))
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         return False
 
 
@@ -173,7 +200,10 @@ def _shape_set_visible(shape: Any, vis: bool) -> bool:
         if hasattr(shape, "setPropertyValue"):
             shape.setPropertyValue("Visible", vis)
             return True
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         log.debug("set Visible on header/footer shape failed", exc_info=True)
     return False
 
@@ -184,11 +214,17 @@ def _shape_get_datetime_fixed(shape: Any) -> bool:
     try:
         if hasattr(shape, "getPropertyValue"):
             return bool(shape.getPropertyValue("IsFixed"))
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         pass
     try:
         return bool(getattr(shape, "IsFixed", False))
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         return False
 
 
@@ -207,7 +243,10 @@ def _read_impress_master_hf_shapes(page: Any, out: Dict[str, Any]) -> None:
     out["IsDateTimeFixed"] = _shape_get_datetime_fixed(d)
     try:
         out["DateTimeFormat"] = page.getPropertyValue("DateTimeFormat")
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         out["DateTimeFormat"] = 0
 
 
@@ -275,6 +314,9 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
                 try:
                     props[prop_name] = page.getPropertyValue(prop_name)
                 except Exception as e:
+                    from plugin.framework.errors import is_disposed_exception
+                    if is_disposed_exception(e):
+                        raise
                     log.debug("Could not read property %s: %s", prop_name, e)
 
         return result
@@ -364,11 +406,17 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                     try:
                         page.setPropertyValue("IsFooterVisible", True)
                     except Exception as e:
+                        from plugin.framework.errors import is_disposed_exception
+                        if is_disposed_exception(e):
+                            raise
                         log.debug("Could not enable IsFooterVisible on master: %s", e)
                 if "header_text" in norm_kwargs and "is_header_visible" not in norm_kwargs:
                     try:
                         page.setPropertyValue("IsHeaderVisible", True)
                     except Exception as e:
+                        from plugin.framework.errors import is_disposed_exception
+                        if is_disposed_exception(e):
+                            raise
                         log.debug("Could not enable IsHeaderVisible on master: %s", e)
 
             updated_count = 0
@@ -381,7 +429,6 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                         updated_count += 1
                     except Exception as e:
                         from plugin.framework.errors import is_disposed_exception
-
                         if is_disposed_exception(e):
                             raise
                         log.debug("Could not set property %s: %s", prop_name, e)

@@ -292,6 +292,37 @@ def test_notification_batch_includes_session_id(monkeypatch):
     assert ("Mcp-Session-Id", "sess-batch") in sent
 
 
+def test_handle_debug_post_blocks_tunneled_request(monkeypatch):
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from tests.mcp.test_mcp_server import MockHandler
+
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+
+    # Test proxy header block
+    req1 = MockHandler({"X-Forwarded-For": "1.2.3.4"})
+    handler.handle_debug_post(req1)
+    assert 403 in req1.sent_responses
+
+    req2 = MockHandler({"Cf-Ray": "12345"})
+    handler.handle_debug_post(req2)
+    assert 403 in req2.sent_responses
+
+    # Test active tunnel block
+    req3 = MockHandler({})
+    mock_tunnel = MagicMock()
+    mock_tunnel.is_running = True
+    monkeypatch.setattr("plugin.mcp._shared_tunnel", mock_tunnel)
+    handler.handle_debug_post(req3)
+    assert 403 in req3.sent_responses
+
+    # Valid localhost request (no active tunnel)
+    req4 = MockHandler({})
+    mock_tunnel.is_running = False
+    with patch.object(handler, '_read_body', return_value={}):
+        handler.handle_debug_post(req4)
+    assert 200 in req4.sent_responses
+
 def test_http_server_stop_ends_sse_keepalive():
     """stop() must wake the SSE request thread instead of leaving it in select."""
     import socket

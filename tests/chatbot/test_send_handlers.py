@@ -339,6 +339,9 @@ def test_do_send_direct_image():
 
                 panel._do_send_direct_image("A cute dog", model)  # type: ignore
 
+                # Verify turn_session added the user prompt
+                panel.session.add_user_message.assert_called_with("A cute dog")
+
                 # Verify responses
                 assert "A cute dog" in panel.responses
                 assert "AI: Creating image...\n" in panel.responses

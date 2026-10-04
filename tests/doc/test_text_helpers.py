@@ -330,3 +330,39 @@ def test_text_helpers_import_does_not_load_calc_analyzer():
         env={**__import__("os").environ, "PYTHONPATH": repo_root},
     )
     assert result.returncode == 0, result.stdout + result.stderr
+class MockCursor:
+    def __init__(self, string):
+        self.string = string
+    def gotoStart(self, *args):
+        pass
+    def gotoEnd(self, *args):
+        pass
+    def getString(self):
+        return self.string
+
+class MockText:
+    def __init__(self, string):
+        self.string = string
+    def createTextCursor(self):
+        return MockCursor(self.string)
+
+class MockModel:
+    def __init__(self, chars, paras, string=""):
+        self.CharacterCount = chars
+        self.ParagraphCount = paras
+        self.string = string
+    def getText(self):
+        return MockText(self.string)
+
+def test_char_count_with_paras():
+    model = MockModel(10, 3)
+    # CharacterCount + ParagraphCount - 1 = 10 + 3 - 1 = 12
+    from plugin.doc.text_helpers import _writer_char_count
+    assert _writer_char_count(model) == 12
+
+def test_char_count_no_attr():
+    model = MockModel(None, None, "hello\nworld")
+    del model.CharacterCount
+    del model.ParagraphCount
+    from plugin.doc.text_helpers import _writer_char_count
+    assert _writer_char_count(model) == 11

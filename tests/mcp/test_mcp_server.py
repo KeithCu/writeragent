@@ -215,6 +215,25 @@ def test_handle_mcp_post_missing_content_length():
     assert response_data["error"].get("code") == -32600
     assert "Invalid JSON-RPC" in response_data["error"].get("message", "")
 
+def test_handle_mcp_post_negative_content_length():
+    """Test negative Content-Length header returns a 400 Bad Request error."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+
+    with patch.object(mcp_protocol, '_handle_mcp') as mock_handle_mcp:
+        body_bytes = b'{"jsonrpc": "2.0", "method": "test"}'
+        headers = {"Content-Length": "-100"}
+        handler = MockHandler(headers, body_bytes)
+
+        mcp_protocol.handle_mcp_post(handler)
+
+        mock_handle_mcp.assert_not_called()
+        assert 400 in handler.sent_responses
+
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
+
 def test_handle_mcp_post_truncated_json():
     """Test when Content-Length is larger than body (truncated JSON).
     Should hit invalid-json path and not call _handle_mcp."""
