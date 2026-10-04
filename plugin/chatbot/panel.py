@@ -424,6 +424,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _ppt_master_topic: str
     panel: Any
     audio_wav_path: str | None
+    _session_msg_count_before_send: int
     _current_agent_backend: Any
     _current_tool_call_id: str | None
     _approval_event: Any
@@ -492,6 +493,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._send_cancellation: Any = None
         self._terminal_status = "Ready"
         self._stt_inflight = False
+        self._session_msg_count_before_send = 0
         self._stt_kill = None
         self._send_busy = False
         self._in_librarian_mode = False
