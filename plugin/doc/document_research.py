@@ -512,9 +512,12 @@ def list_nearby_files(
         res_open = open_paths
         res_root = listing_root
 
-        if res_exclude is _USE_DEFAULT and active_model is not None:
-            active_path = get_document_path(active_model)
-            res_exclude = _normalize_path(active_path) if active_path else None
+        if res_exclude is _USE_DEFAULT:
+            if active_model is not None:
+                active_path = get_document_path(active_model)
+                res_exclude = _normalize_path(active_path) if active_path else None
+            else:
+                res_exclude = None
 
         if res_open is _USE_DEFAULT:
             res_open = _collect_open_file_urls(ctx, exclude_path=res_exclude, extensions=extensions)

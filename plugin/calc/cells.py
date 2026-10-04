@@ -117,8 +117,9 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
             try:
                 sheet_name = cell_range.getSpreadsheet().getName()
                 if isinstance(sheet_name, str):
-                    quoted = "'" in sheet_name or " " in sheet_name or "-" in sheet_name
-                    name_str = f"'{sheet_name}'" if quoted else sheet_name
+                    quoted = not sheet_name.isidentifier()
+                    escaped_name = sheet_name.replace("'", "''")
+                    name_str = f"'{escaped_name}'" if quoted else sheet_name
                     preview_range = f"{name_str}.{local}"
                 else:
                     preview_range = _format_sheet_address(range_name, local)

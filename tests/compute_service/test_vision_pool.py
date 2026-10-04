@@ -351,6 +351,34 @@ class TestVisionPoolSupervisor:
         assert err is None
         assert data == b"png-bytes"
 
+    @pytest.mark.parametrize("platform", ["darwin", "win32"])
+    def test_allowlisted_read_denies_swapped_symlink_on_non_linux(self, tmp_path, monkeypatch, platform: str) -> None:
+        """On macOS and Windows, a swapped symlink must be detected and denied post-open."""
+        _hide_proc_fd(monkeypatch, platform)
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        secret_dir = tmp_path / "secret_dir"
+        secret_dir.mkdir()
+        secret = secret_dir / "secret.png"
+        secret.write_bytes(b"secret-bytes")
+
+        inside = allowed / "img.png"
+        inside.write_bytes(b"allowed-bytes")
+
+        real_open = os.open
+
+        def open_swap_to_secret(path, flags, *args, **kwargs):
+            fd = real_open(path, flags, *args, **kwargs)
+            inside.unlink()
+            inside.symlink_to(secret)
+            return fd
+
+        with patch("compute_service.config.os.open", side_effect=open_swap_to_secret):
+            data, err = read_allowlisted_file(str(inside), [str(allowed)], max_bytes=1024)
+        assert data is None
+        assert err is not None
+        assert err.get("code") == "FILE_PATH_DENIED"
+
     def test_worker_crash_recovery(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=10)
         try:

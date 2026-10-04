@@ -1435,7 +1435,11 @@ class WriterStreamedRewriteSession:
             # We close the compound undo first, so we can undo the whole streamed operation
             self._compound_undo.close()
             try:
-                self.doc.getUndoManager().undo()
+                um = self.doc.getUndoManager() if hasattr(self.doc, "getUndoManager") else None
+                if um is not None:
+                    titles = um.getAllUndoActionTitles() if hasattr(um, "getAllUndoActionTitles") else ()
+                    if titles and titles[0] == self._UNDO_CONTEXT_TITLE:
+                        um.undo()
             except Exception:
                 pass
         finally:

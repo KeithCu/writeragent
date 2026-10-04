@@ -118,7 +118,7 @@ def test_execute_code_does_not_pump_idle():
         func()
         run_venv.assert_called_once()
         kwargs = run_venv.call_args.kwargs
-        assert kwargs.get("python_tool_domain") == ""
+        assert kwargs.get("python_tool_domain") is None
         assert kwargs.get("session_id") == "notebook:test"
         assert kwargs.get("script_session_id") == "doc:test"
         assert callable(kwargs.get("stop_checker"))

@@ -139,6 +139,21 @@ def test_list_nearby_truncated():
         assert len(result["files"]) == 2
 
 
+def test_list_nearby_files_no_active_model_returns_open_docs():
+    """When active_model is None and exclude_path is default, list other open documents without TypeError."""
+    ctx = MagicMock()
+    open_paths = {"/path/to/Doc1.odt": "file:///path/to/Doc1.odt"}
+    with patch("plugin.doc.document_research._collect_open_file_urls", return_value=open_paths) as mock_collect:
+        with patch("plugin.doc.document_research.resolve_listing_directory", return_value=None):
+            with patch("os.path.isfile", return_value=True):
+                result = list_nearby_files(ctx, None)
+    assert result["status"] == "ok"
+    assert len(result["files"]) == 1
+    assert result["files"][0]["name"] == "Doc1.odt"
+    mock_collect.assert_called_once()
+    assert mock_collect.call_args.kwargs.get("exclude_path") is None
+
+
 def test_get_work_directory():
     with tempfile.TemporaryDirectory() as tmp:
         ctx = MagicMock()

@@ -145,7 +145,7 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
 
     def _run() -> dict[str, Any]:
         try:
-            return run_code_in_user_venv(ctx, code, session_id=session_id, script_session_id=script_session_id, python_tool_domain="", stop_checker=_stopped)
+            return run_code_in_user_venv(ctx, code, session_id=session_id, script_session_id=script_session_id, stop_checker=_stopped)
         except Exception:
             if _stopped():
                 return {"status": "stopped", "message": "Stopped."}

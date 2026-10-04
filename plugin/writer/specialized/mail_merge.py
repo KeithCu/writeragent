@@ -525,9 +525,6 @@ class RunMerge(ToolWriterMailMergeBase):
     long_running: bool = True
     timeout: float = 300.0
 
-    def is_async(self) -> bool:
-        return True
-
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         data_source_name = kwargs.get("data_source_name")
         table_name = kwargs.get("table_name")

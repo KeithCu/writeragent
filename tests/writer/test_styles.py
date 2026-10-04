@@ -781,11 +781,10 @@ def test_apply_style_all_matches_applies_to_each():
     assert res["status"] == "ok" and res["applied_count"] == 3
     assert ap.call_count == 3
 
-def test_apply_style_all_matches_obeys_stop_checker():
+def test_apply_style_all_matches_does_not_abort_on_stop_checker():
     from plugin.writer.styles import ApplyStyle
 
     ranges = [MagicMock(), MagicMock(), MagicMock()]
-    # Stop checker returns True on the second call (index 1)
     calls = []
     def _stop():
         calls.append(1)
@@ -799,9 +798,9 @@ def test_apply_style_all_matches_obeys_stop_checker():
         res = ApplyStyle().execute(_style_ctx(stop_checker=_stop), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok"
-    assert res["applied_count"] == 1
-    assert "Tool stopped early by user" in res["message"]
-    assert ap.call_count == 1  # Only the first match was applied
+    assert res["applied_count"] == 3
+    assert "Tool stopped early" not in res["message"]
+    assert ap.call_count == 3  # All matches were applied (mutations are not aborted on stop)
 
 
 def test_apply_style_occurrence_out_of_range():
@@ -829,18 +828,21 @@ def test_apply_style_unknown_style_lists_names_and_suggests():
     assert "Did you mean 'Heading 1'" in res["message"]
     assert "Text body" in res["message"]
 
-def test_apply_style_all_matches_stops_early() -> None:
+def test_apply_style_all_matches_does_not_stop_early() -> None:
     from plugin.writer.styles import ApplyStyle
-
     from plugin.framework.tool import ToolContext
+
+    tool = ApplyStyle()
+    assert tool.is_async() is False
+
     doc = WriterDocStub()
     ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test")
     ctx.services.get = MagicMock(return_value=None)
 
-    # We will trigger the stop checker after 2 successful applications.
+    # Stop checker returns True, but document mutation must not abort early
     applied_count = 0
     def stop_checker():
-        return applied_count >= 2
+        return True
     ctx.stop_checker = stop_checker
 
     # Fake 4 find results
@@ -852,10 +854,7 @@ def test_apply_style_all_matches_stops_early() -> None:
         r.getStart.return_value = "start"
         r.getEnd.return_value = "end"
 
-    # We need to mock find_all_ranges
     with patch("plugin.writer.search.find_all_ranges", return_value=ranges):
-        # We also need to mock _apply_one to just return a dict and update applied_count
-        tool = ApplyStyle()
         tool._tool_error = lambda m: {"status": "error", "message": m}
 
         def mock_apply_one(*args, **kwargs):
@@ -870,5 +869,5 @@ def test_apply_style_all_matches_stops_early() -> None:
             res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
 
             assert res["status"] == "ok"
-            assert res["applied_count"] == 2
-            assert "Tool stopped early by user" in res["message"]
+            assert res["applied_count"] == 4
+            assert "Tool stopped early" not in res["message"]

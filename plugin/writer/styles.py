@@ -644,9 +644,6 @@ class ApplyStyle(FrameworkToolBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
-    def is_async(self) -> bool:
-        return True
-
     # Maps family to the UNO property that holds the style name.
     _PROPERTY_MAP: ClassVar[dict[str, str]] = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
 
@@ -761,11 +758,7 @@ class ApplyStyle(FrameworkToolBase):
             applied = 0
             reports = []
 
-            stop_checker = getattr(ctx, "stop_checker", None)
-
             for found in ranges:
-                if stop_checker and stop_checker():
-                    break
                 try:
                     ftext = found.getText()
                     c = ftext.createTextCursorByRange(found.getStart())
@@ -775,14 +768,7 @@ class ApplyStyle(FrameworkToolBase):
                 except Exception as e:
                     return self._tool_error("Applied to %d of %d; failed on one match: %s" % (applied, len(ranges), e))
 
-            if applied == 0 and len(ranges) > 0 and stop_checker and stop_checker():
-                return self._tool_error("Tool stopped by user before applying style to all matches.")
-
-            msg = "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied)
-            if applied < len(ranges) and stop_checker and stop_checker():
-                msg = "Tool stopped early by user. Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied)
-
-            result = {"status": "ok", "message": msg,
+            result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied),
                       "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": applied}
             result.update(self._merge_reports(reports))
             from plugin.writer.edit_review import review_recording_enabled

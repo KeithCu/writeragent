@@ -31,16 +31,28 @@ class _MockUndoManager:
         self.entered = False
         self.left = False
         self.undone = False
+        self.titles = []
+        self.discard_empty_context = False
 
     def enterUndoContext(self, title: str) -> None:
         self.entered = True
+        self.current_title = title
         assert "WriterAgent" in title
 
     def leaveUndoContext(self) -> None:
         self.left = True
+        if hasattr(self, "current_title"):
+            if not self.discard_empty_context:
+                self.titles.insert(0, self.current_title)
+            del self.current_title
+
+    def getAllUndoActionTitles(self):
+        return tuple(self.titles)
 
     def undo(self) -> None:
         self.undone = True
+        if self.titles:
+            self.titles.pop(0)
 
 
 class _MockDoc:
@@ -154,6 +166,22 @@ def test_writer_streamed_rewrite_session_abort_restores_original_text():
     assert doc.undo.undone is True
     assert doc.getPropertyValue("RecordChanges") is True
     assert doc.undo.left is True
+
+
+def test_writer_streamed_rewrite_session_abort_empty_does_not_undo_previous_edit():
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+
+    # If the context was empty and discarded by LibreOffice leaveUndoContext,
+    # the top undo title is the user's previous action, not the session title.
+    doc.undo.discard_empty_context = True
+    doc.undo.titles = ["Typing: hello"]
+    session.abort_and_restore()
+
+    assert doc.undo.undone is False
+    assert doc.undo.titles == ["Typing: hello"]
+    assert doc.getPropertyValue("RecordChanges") is True
 
 
 def test_writer_streamed_rewrite_session_fallback_keeps_generated_text():

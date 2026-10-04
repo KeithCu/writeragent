@@ -130,6 +130,9 @@ def start_native_script_run(
             try:
                 response = _run_prepared_rps(prepared)
             except Exception as exc:
+                from plugin.scripting.session_manager import release_script_document
+
+                release_script_document(prepared.get("script_session_id"))
                 log.exception("native script run failed")
                 t0 = prepared.get("t0") if isinstance(prepared, dict) else None
                 if isinstance(t0, (int, float)):

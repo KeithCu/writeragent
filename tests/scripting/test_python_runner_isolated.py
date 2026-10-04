@@ -2,15 +2,25 @@ def test_isolated_rps_pins_document():
     from plugin.scripting.python_runner import execute_and_insert_result
     from unittest.mock import patch, MagicMock
 
-    with patch("plugin.scripting.session_manager.pin_script_document") as m_pin, patch("plugin.scripting.session_manager.rps_session_id", return_value="sess_xyz"):
+    with (
+        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:token123") as m_pin,
+        patch("plugin.scripting.session_manager.release_script_document") as m_rel,
+        patch("plugin.scripting.session_manager.rps_session_id", return_value="sess_xyz"),
+        patch("plugin.scripting.python_runner.run_code_in_user_venv", return_value={"status": "ok", "result": 42}) as m_run,
+        patch("plugin.scripting.python_runner.is_calc", return_value=False),
+        patch("plugin.scripting.python_runner.is_writer", return_value=True),
+        patch("plugin.scripting.python_runner.format_result_for_writer", return_value=""),
+        patch("plugin.scripting.python_runner.is_draw", return_value=False),
+    ):
         ctx = MagicMock()
         doc = MagicMock()
 
-        try:
-            execute_and_insert_result(ctx, doc, "print(1)")
-        except Exception:
-            pass
+        outcome = execute_and_insert_result(ctx, doc, "print(1)")
         m_pin.assert_called_once_with(doc)
+        m_run.assert_called_once()
+        assert m_run.call_args.kwargs.get("script_session_id") == "doc:token123"
+        m_rel.assert_called_once_with("doc:token123")
+        assert outcome.get("ok") is True
 
 
 def test_reset_python_session_action_in_background():
