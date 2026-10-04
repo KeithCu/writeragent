@@ -16,7 +16,7 @@ from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import is_document_disposed
-from plugin.framework.async_stream import BlockingWaitStopped, run_blocking_in_thread
+from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.notebook import form_lookup
@@ -25,7 +25,7 @@ from plugin.notebook.notebook_controls import _doc_key, _resolve_para_style
 from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_NOTEBOOK_OUT, _insert_image_in_flow, _strip_ansi, output_para_style
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
-from plugin.scripting.venv_worker import run_code_in_user_venv, reset_python_session
+from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -138,24 +138,22 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
 
     script_session_id = pin_script_document(doc)
 
-    def _run() -> dict[str, Any]:
-        try:
-            return run_code_in_user_venv(ctx, code, session_id=session_id, script_session_id=script_session_id, python_tool_domain="")
-        finally:
-            release_script_document(script_session_id)
-
     busy_key = _doc_key(doc)
 
     def _stopped() -> bool:
         return _is_stop_requested(busy_key)
 
-    try:
-        return run_blocking_in_thread(ctx, _run, pump_idle=False, stop_checker=_stopped)
-    except BlockingWaitStopped:
-        # Teardown child so it drops the IO lock and next cell isn't busy.
-        reset_python_session(ctx, session_id)
-        # Returning status 'stopped' ensures run_cells recognizes the interruption.
-        return {"status": "stopped", "message": "Stopped."}
+    def _run() -> dict[str, Any]:
+        try:
+            return run_code_in_user_venv(ctx, code, session_id=session_id, script_session_id=script_session_id, python_tool_domain="", stop_checker=_stopped)
+        except Exception:
+            if _stopped():
+                return {"status": "stopped", "message": "Stopped."}
+            raise
+        finally:
+            release_script_document(script_session_id)
+
+    return run_blocking_in_thread(ctx, _run, pump_idle=False)
 
 
 # ---------------------------------------------------------------------------

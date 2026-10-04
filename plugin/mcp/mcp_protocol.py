@@ -419,7 +419,15 @@ class MCPProtocolHandler:
         if body is None:
             return
         document_url = handler.headers.get("X-Document-URL") or None
-        self._handle_mcp(body, handler, document_url=document_url)
+
+        tcp_server = getattr(handler, "server", None)
+        sock = getattr(handler, "connection", None)
+        stop_event = note_sse_keepalive(tcp_server, sock) if sock is not None else None
+        try:
+            self._handle_mcp(body, handler, document_url=document_url)
+        finally:
+            if stop_event is not None:
+                forget_sse_keepalive(tcp_server, sock)
 
     def handle_mcp_sse(self, handler: Any) -> None:
         """GET /mcp — SSE notification stream (keepalive)."""
@@ -615,12 +623,6 @@ class MCPProtocolHandler:
 
         if _reject_stale_session(handler, msg):
             return
-
-        # Handle cancellation notifications globally.
-        if isinstance(msg, dict) and msg.get("method") == "notifications/cancelled":
-            req_id_to_cancel = msg.get("params", {}).get("requestId")
-            if req_id_to_cancel is not None:
-                self._cancelled_requests.add(req_id_to_cancel)
 
         is_initialize = isinstance(msg, dict) and msg.get("method") == "initialize"
 
@@ -867,6 +869,12 @@ class MCPProtocolHandler:
         """
         if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
             return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
+
+        # Handle cancellation notifications globally.
+        if msg.get("method") == "notifications/cancelled":
+            req_id_to_cancel = msg.get("params", {}).get("requestId")
+            if req_id_to_cancel is not None:
+                self._cancelled_requests.add(req_id_to_cancel)
 
         # Notifications must not receive a JSON-RPC response (HTTP 202, empty body).
         if wire_types.is_jsonrpc_notification(msg):
