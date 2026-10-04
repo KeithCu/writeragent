@@ -37,10 +37,13 @@ log = logging.getLogger("writeragent.notebook")
 _running_docs: set[str] = set()
 
 # Stop is a separate signal so the busy guard never blocks it. The hamburger
-# sets it on the UI thread. ``execute_code`` waits on that same thread without
-# a VCL pump, so the click is delivered between cells (``flush_ui_idle``), not
-# during the in-flight wait. ``stop_checker`` still aborts that wait if another
-# thread sets the flag; the menu cannot.
+# sets the per-doc Event on the UI thread. Chat Stop only latches
+# SendCancellation on that same thread. ``execute_code`` waits without a VCL
+# pump, so neither click lands during the in-flight cell. Between cells,
+# ``flush_ui_idle`` delivers the click when no drain owns VCL. That flush
+# no-ops while a chat drain is the owner, and the drain is blocked inside
+# this Run All, so a chat-owned sequence uses ``pump_ui_idle`` instead
+# (depth <= 1 still pumps). ``_clear_stop`` does not reset the chat scope.
 _stop_flags: dict[str, threading.Event] = {}
 _stop_lock = threading.Lock()
 
@@ -71,10 +74,26 @@ def _stop_event(busy_key: str) -> threading.Event:
         return ev
 
 
+def _chat_stop_requested() -> bool:
+    """True when sidebar Stop has latched the active send scope.
+
+    What was wrong: Stop did nothing for the rest of a chat-owned Run All.
+    How: the chat Stop button only cancels ``SendCancellation``. Run All
+    watched the notebook Event, which that button never sets.
+    Why: the scope is on this thread, and ``_clear_stop`` does not reset it.
+    """
+    from plugin.framework.queue_executor import get_current_send_cancellation
+
+    scope = get_current_send_cancellation()
+    return scope is not None and scope.is_cancelled()
+
+
 def _is_stop_requested(busy_key: str) -> bool:
     with _stop_lock:
         ev = _stop_flags.get(busy_key)
-    return bool(ev is not None and ev.is_set())
+    if ev is not None and ev.is_set():
+        return True
+    return _chat_stop_requested()
 
 
 def _clear_stop(busy_key: str) -> None:
@@ -104,9 +123,10 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     livelocks (92% CPU, never returns) on notebooks with many in-flow form
     controls — the same bug ``flush_ui_idle`` documents after import. Drain
     *between* cells in Run All, never here. ``stop_checker`` is polled on this
-    wait, but the hamburger sets that flag on this same UI thread, so a Stop
-    click is not dispatched until the worker returns. Stop therefore skips
-    cells that have not started; it does not abort the in-flight cell.
+    wait (notebook Event or chat ``SendCancellation``). Both Stop buttons run
+    on this same UI thread, and this wait does not pump, so a click during the
+    cell is not seen until the worker returns. Stop therefore skips cells that
+    have not started; it does not abort the in-flight cell.
     """
     session_id = notebook_session_id(ctx, doc)
     if not session_id:
@@ -1166,16 +1186,44 @@ def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
     return len(cells)
 
 
+def _pump_between_notebook_cells(ctx: Any) -> None:
+    """Deliver a Stop click between cells.
+
+    What was wrong: Stop was ignored for the rest of a chat-owned Run All.
+    How: ``flush_ui_idle`` calls ``process_events_to_idle``, which does not
+    pump while a drain owner is set. The drain is blocked inside this Run
+    All, so the chat Stop click never runs, and that button never sets the
+    notebook Event.
+    Why: ``pump_ui_idle`` is the owner's pump and still delivers VCL at
+    depth 1. With no owner, keep ``flush_ui_idle`` (hamburger Stop, and the
+    tests that patch it). Do not pump inside ``execute_code`` (LayoutIdle).
+    """
+    from plugin.framework.async_drain_guard import get_drain_owner
+
+    try:
+        if get_drain_owner() is not None:
+            from plugin.framework.queue_executor import pump_ui_idle
+            from plugin.framework.uno_context import get_toolkit
+
+            pump_ui_idle(get_toolkit(ctx))
+            return
+        from plugin.notebook.writer_importer import flush_ui_idle
+
+        flush_ui_idle(ctx)
+    except Exception:
+        log.debug("notebook run: between-cell pump failed", exc_info=True)
+
+
 def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
     """Execute code cells from *start_index* in registry order.
 
     Holds the busy key for the whole sequence so a ▶ is skipped (``busy``).
     Stop does not take this guard. It is observed between cells: the in-flight
-    ``execute_code`` wait does not pump VCL, so a hamburger Stop cannot land
-    until that wait returns. Empty fields are skipped (single-cell ▶ still
-    errors). A missing code field is logged and skipped. A traceback is written
-    under the cell and the batch continues unless Stop was requested. Drain
-    between cells only.
+    ``execute_code`` wait does not pump VCL, so a Stop click cannot land until
+    that wait returns. Empty fields are skipped (single-cell ▶ still errors).
+    A missing code field is logged and skipped. A traceback is written under
+    the cell and the batch continues unless Stop was requested. Drain between
+    cells only.
     """
     state = load_registry(doc)
     if state is None:
@@ -1206,9 +1254,7 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
             if need_drain:
                 # LayoutIdle livelock is during execute, not this between-cell pump.
                 # Stop clicks are delivered here; check the flag before the next cell.
-                from plugin.notebook.writer_importer import flush_ui_idle
-
-                flush_ui_idle(ctx)
+                _pump_between_notebook_cells(ctx)
             if _is_stop_requested(busy_key):
                 stopped = True
                 break

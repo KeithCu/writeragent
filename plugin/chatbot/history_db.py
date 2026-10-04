@@ -149,6 +149,26 @@ class SQLite3History:
             conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
             conn.commit()
 
+    def replace_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Replace this session's rows in one transaction.
+
+        A delete that commits before the inserts leaves an empty session if a
+        later insert fails. Other session ids in the same file are untouched.
+        """
+        assert sqlite3 is not None
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            try:
+                conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
+                for msg in messages:
+                    conn.execute(
+                        "INSERT INTO message_store (session_id, message) VALUES (?, ?)",
+                        (self.session_id, json.dumps(msg)),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
 
 def _json_history_filename(session_id: str, history_dir: str) -> str:
     """One path segment under the history directory.
@@ -268,6 +288,14 @@ class JSONHistory:
                 os.remove(self.file_path)
             except OSError:
                 log.exception("JSONHistory: Error clearing history")
+
+    def replace_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Replace this session file in one ``os.replace``.
+
+        ``clear`` swallows ``OSError`` and leaves the old rows. A later append
+        then duplicates them. This write replaces the file or raises.
+        """
+        self._replace_messages(list(messages))
 
 
 # ---------------------------------------------------------------------------

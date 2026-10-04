@@ -346,6 +346,34 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return 320
 
 
+def _is_sha256_hex(value: Any) -> bool:
+    """True for a lowercase SHA-256 hex digest (url-derived chat session id)."""
+    if not isinstance(value, str) or len(value) != 64 or value != value.lower():
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
+    """Copy document-chat rows onto *new_session_id*.
+
+    What was wrong: ``clear()`` then ``get_messages()`` wiped the only store
+    when the regenerated id was the stored id, and a JSON ``clear`` that
+    swallowed ``OSError`` then appended onto the rows it failed to remove.
+    How: Save As re-entered setup after a partial property write, or
+    ``os.remove`` failed and the copy still ran.
+    Why: snapshot the source first and replace the destination in one write.
+    The caller skips this when the two ids are equal.
+    """
+    from plugin.chatbot.history_db import get_chat_history
+
+    messages = list(get_chat_history(old_session_id).get_messages())
+    get_chat_history(new_session_id).replace_messages(messages)
+
+
 def header_third_button_kind(model: Any) -> str:
     """Shared btn_latex slot: ``python_cell``, ``latex``, or ``""`` (hide).
 
@@ -1043,31 +1071,46 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "", ctx=self.ctx)
 
         session_id = get_document_property(model, "WriterAgentSessionID")
-        url = model.getURL() if (model and hasattr(model, "getURL")) else ""
+        url = ""
+        if model is not None and hasattr(model, "getURL"):
+            try:
+                raw_url = model.getURL()
+            except Exception:
+                raw_url = ""
+            url = raw_url if isinstance(raw_url, str) else ""
         if session_id:
             session_url = get_document_property(model, "WriterAgentSessionURL")
+            url_id = hashlib.sha256(url.encode("utf-8")).hexdigest() if url else ""
+            # What was wrong: Save As could clear the only chat history, or
+            # keep the original id so the new file shared that chat.
+            # How: a regenerated sha256 equal to the stored id called clear()
+            # before the copy read the rows. A copied file whose stored id is
+            # a 64-hex digest but has no WriterAgentSessionURL skipped the
+            # URL-change branch, then stamped the new URL onto that old id.
+            # A UUID from the first save of an untitled document is not a
+            # url-hash and must keep its history.
+            # Why: fork only when the id has to change. Snapshot and replace
+            # the destination. When the id already names this file, update
+            # the stored URL and leave the rows alone.
+            fork_to = ""
             if session_url and url and session_url != url:
-                log.info(f"Document URL changed from {session_url} to {url}. Regenerating session ID for copy isolation.")
+                fork_to = url_id
+            elif (not session_url) and url_id and _is_sha256_hex(session_id) and session_id != url_id:
+                fork_to = url_id
+            if fork_to and fork_to != session_id:
+                log.info("Document URL changed from %s to %s. Regenerating session ID for copy isolation.", session_url, url)
                 old_session_id = session_id
-                if url:
-                    session_id = hashlib.sha256(url.encode("utf-8")).hexdigest()
-                else:
-                    session_id = str(uuid.uuid4())
-                
                 try:
-                    from plugin.chatbot.history_db import get_chat_history
-                    old_db = get_chat_history(old_session_id)
-                    new_db = get_chat_history(session_id)
-                    new_db.clear()
-                    for msg in old_db.get_messages():
-                        new_db.add_message(msg["role"], msg["content"], msg.get("tool_calls"))
+                    _fork_doc_chat_history(str(old_session_id), fork_to)
                 except Exception:
-                    log.exception("Failed to copy chat history from %s to %s", old_session_id, session_id)
-
+                    log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
+                session_id = fork_to
                 if model:
                     set_document_property(model, "WriterAgentSessionID", session_id)
                     if url:
                         set_document_property(model, "WriterAgentSessionURL", url)
+            elif fork_to == session_id and model and url:
+                set_document_property(model, "WriterAgentSessionURL", url)
 
         if not session_id:
             if url:

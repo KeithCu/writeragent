@@ -343,6 +343,83 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
     assert len(form_lis) == 1
 
 
+def _play_button_doc(uid: str):
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = uid
+    run_ctrl = MagicMock()
+    run_model = MagicMock()
+    run_model.Name = "nb_run_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    run_ctrl.getModel.return_value = run_model
+    run_ctrl.queryInterface.return_value = run_ctrl
+    container = MagicMock()
+    container.getControls.return_value = (run_ctrl,)
+    state = MagicMock()
+    state.code_cells = [MagicMock()]
+    return doc, run_ctrl, container, state
+
+
+def _fire_doc_event(listener, doc, name: str) -> None:
+    event = MagicMock()
+    event.EventName = name
+    event.ViewController.getModel.return_value = doc
+    listener.on_document_event(event)
+
+
+def test_doc_event_does_not_attach_a_second_form_listener():
+    """A later load event must not add another ▶ listener on an already-wired doc."""
+    ctx = MagicMock()
+    doc, run_ctrl, container, state = _play_button_doc("uid-wire-once")
+    notebook_controls._install_doc_event_listener(ctx)
+    listener = notebook_controls._doc_listener
+    assert listener is not None
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+    ):
+        assert wire_all_notebook_run_buttons(ctx, doc) == 1
+        _fire_doc_event(listener, doc, "OnViewCreated")
+        _fire_doc_event(listener, doc, "OnLoad")
+        _fire_doc_event(listener, doc, "OnLoadFinished")
+
+    run_ctrl.addActionListener.assert_called_once()
+    container.addContainerListener.assert_called_once()
+    assert len(form_run_listeners(doc)) == 1
+
+
+def test_doc_event_retries_wire_when_file_open_had_no_container():
+    """A failed File Open wire discards the key so the view event can attach once."""
+    ctx = MagicMock()
+    doc, run_ctrl, container, state = _play_button_doc("uid-retry-container")
+    notebook_controls._install_doc_event_listener(ctx)
+    listener = notebook_controls._doc_listener
+    holder: dict[str, object] = {"container": None}
+
+    def _forms(_doc):
+        found = holder["container"]
+        if found is None:
+            return None, None
+        return MagicMock(), found
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_controls._form_and_container", side_effect=_forms),
+    ):
+        assert wire_all_notebook_run_buttons(ctx, doc) == 0
+        assert notebook_controls._doc_key(doc) not in notebook_controls._wired_form_docs
+        holder["container"] = container
+        _fire_doc_event(listener, doc, "OnViewCreated")
+        _fire_doc_event(listener, doc, "OnLoad")
+
+    run_ctrl.addActionListener.assert_called_once()
+    container.addContainerListener.assert_called_once()
+    assert len(form_run_listeners(doc)) == 1
+    assert notebook_controls._doc_key(doc) in notebook_controls._wired_form_docs
+
+
 def test_listener_counts_exclude_leftover_docs():
     """GHA 34643210006: leftover import-filter listeners inflated global counts."""
     leftover = MagicMock()

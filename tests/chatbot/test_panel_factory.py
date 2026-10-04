@@ -118,6 +118,122 @@ def test_setup_sessions_passes_panel_ctx_into_seeded_prompt():
     prompt.assert_called_once_with(model, "extra", ctx=el.ctx)
 
 
+def _save_as_sessions(tmp_path, props: dict, url: str):
+    """Run _setup_sessions against a temp history db. Returns (element, history getter)."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    el = _thin_panel_element()
+    el.ctx = object()
+    model = MagicMock()
+    model.getURL.return_value = url
+    db_path = str(tmp_path / "writeragent_history.db")
+
+    def _get(_model, name, default=None):
+        return props.get(name, default)
+
+    def _set(_model, name, value):
+        props[name] = value
+
+    def _history(session_id, path=None):
+        return get_chat_history(session_id, db_path)
+
+    with (
+        patch("plugin.chatbot.panel_factory.get_chat_system_prompt_for_document", return_value="SEEDED"),
+        patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
+        patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_set),
+        patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
+        patch("plugin.chatbot.panel.ChatSession", return_value=MagicMock()),
+    ):
+        el._setup_sessions(model, "")
+    return get_chat_history
+
+
+def test_setup_sessions_save_as_same_id_does_not_clear_history(tmp_path):
+    """A regenerated id that already matches the stored id must not wipe that chat."""
+    import hashlib
+
+    new_url = "file:///tmp/copy.odt"
+    new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
+    props = {
+        "WriterAgentSessionID": new_id,
+        "WriterAgentSessionURL": "file:///tmp/original.odt",
+    }
+    db_path = str(tmp_path / "writeragent_history.db")
+    from plugin.chatbot.history_db import get_chat_history
+
+    get_chat_history(new_id, db_path).add_message("user", "only copy", [{"id": "call-1"}])
+    history = _save_as_sessions(tmp_path, props, new_url)
+    assert props["WriterAgentSessionID"] == new_id
+    assert props["WriterAgentSessionURL"] == new_url
+    msgs = history(new_id, db_path).get_messages()
+    assert msgs == [{"role": "user", "content": "only copy", "tool_calls": [{"id": "call-1"}]}]
+
+
+def test_setup_sessions_missing_session_url_forks_url_hash_id(tmp_path):
+    """A copied file with a 64-hex id and no SessionURL must not keep the original chat id."""
+    import hashlib
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    old_url = "file:///tmp/original.odt"
+    new_url = "file:///tmp/copy.odt"
+    old_id = hashlib.sha256(old_url.encode("utf-8")).hexdigest()
+    new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
+    props = {"WriterAgentSessionID": old_id}
+    db_path = str(tmp_path / "writeragent_history.db")
+    get_chat_history(old_id, db_path).add_message("user", "from original")
+    history = _save_as_sessions(tmp_path, props, new_url)
+    assert props["WriterAgentSessionID"] == new_id
+    assert props["WriterAgentSessionURL"] == new_url
+    assert history(old_id, db_path).get_messages()[0]["content"] == "from original"
+    assert history(new_id, db_path).get_messages()[0]["content"] == "from original"
+
+
+def test_setup_sessions_untitled_uuid_keeps_history_on_first_save(tmp_path):
+    """The first save of an untitled document keeps its UUID chat."""
+    import hashlib
+    import uuid
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    new_url = "file:///tmp/first-save.odt"
+    session_id = str(uuid.uuid4())
+    url_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
+    props = {"WriterAgentSessionID": session_id}
+    db_path = str(tmp_path / "writeragent_history.db")
+    get_chat_history(session_id, db_path).add_message("user", "untitled chat")
+    history = _save_as_sessions(tmp_path, props, new_url)
+    assert props["WriterAgentSessionID"] == session_id
+    assert props["WriterAgentSessionURL"] == new_url
+    assert history(session_id, db_path).get_messages()[0]["content"] == "untitled chat"
+    assert history(url_id, db_path).get_messages() == []
+
+
+def test_setup_sessions_save_as_copies_once(tmp_path):
+    """A real URL change copies history once; a second setup does not duplicate it."""
+    import hashlib
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    old_url = "file:///tmp/original.odt"
+    new_url = "file:///tmp/copy.odt"
+    old_id = hashlib.sha256(old_url.encode("utf-8")).hexdigest()
+    new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
+    props = {"WriterAgentSessionID": old_id, "WriterAgentSessionURL": old_url}
+    db_path = str(tmp_path / "writeragent_history.db")
+    get_chat_history(old_id, db_path).add_message("assistant", "kept", [{"id": "call-9"}])
+    history = _save_as_sessions(tmp_path, props, new_url)
+    assert props["WriterAgentSessionID"] == new_id
+    assert props["WriterAgentSessionURL"] == new_url
+    copied = history(new_id, db_path).get_messages()
+    assert copied == [{"role": "assistant", "content": "kept", "tool_calls": [{"id": "call-9"}]}]
+    assert history(old_id, db_path).get_messages() == copied
+    history_again = _save_as_sessions(tmp_path, props, new_url)
+    assert history_again(new_id, db_path).get_messages() == copied
+
+
 def test_disposing_swallows_disposed_focus_restore():
     from unittest.mock import MagicMock
 
