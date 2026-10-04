@@ -44,8 +44,8 @@ except ImportError:
 log = logging.getLogger("writeragent.calc")
 
 
-def _output_anchor(output_range: str) -> tuple[int, int]:
-    """Column and row where an analysis report should start.
+def _output_anchor(output_range: str) -> tuple[str | None, int, int]:
+    """Sheet name (if any), Column, and row where an analysis report should start.
 
     What was wrong: ``output_range.rsplit(".", 1)[-1]`` treated the last dot
     as the sheet separator. A quoted or dotted name (``'Q1.Sales'!B2``) was
@@ -57,9 +57,10 @@ def _output_anchor(output_range: str) -> tuple[int, int]:
     ``.`` and ``!``. The write starts at the first cell, with ``$`` locks
     removed, then ``parse_address``.
     """
-    cell_part = split_sheet_prefix(output_range)[1]
+    sheet_name, cell_part = split_sheet_prefix(output_range)
     anchor = cell_part.replace("$", "").split(":", 1)[0].strip()
-    return parse_address(anchor)
+    col, row = parse_address(anchor)
+    return sheet_name, col, row
 
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
@@ -428,11 +429,8 @@ class AnalyzeDataTool(ToolBaseDummy):
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))
         except Exception as exc:
@@ -442,8 +440,8 @@ class AnalyzeDataTool(ToolBaseDummy):
             anchor_ref = output_range
 
             def _write() -> None:
-                col, row = _output_anchor(anchor_ref)
-                insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
+                sheet, col, row = _output_anchor(anchor_ref)
+                insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
             try:
                 execute_on_main_thread(_write)
@@ -457,12 +455,8 @@ class AnalyzeDataTool(ToolBaseDummy):
 
             plot_result = None
             if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
-
-                def _auto_plot() -> dict[str, Any] | None:
-                    return run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
-
                 # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
-                plot_result = execute_on_main_thread(_auto_plot)
+                plot_result = run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
             if plot_result is not None:
                 result = dict(result)
                 result["plot"] = plot_result

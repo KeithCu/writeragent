@@ -217,6 +217,36 @@ class TestAppendRichTextViaClipboard:
         assert "kept" in inserted
         bad.createEnumeration.assert_called()
 
+    def test_not_success_when_exception_in_copy_loop(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        good = _body_paragraph("kept")
+        doc.getText.return_value.createEnumeration.return_value = _uno_enum([good])
+        theme = MagicMock(user_color=1, assistant_color=2)
+
+        def _raise_on_insert(*args, **kwargs):
+            raise RuntimeError("insert failed")
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.process_events_to_idle"), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_raise_on_insert):
+            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+
+        assert ok is False
+
 class TestHistoryMessageBatching:
     def test_iter_batches_empty(self):
         assert list(iter_history_message_batches([])) == []

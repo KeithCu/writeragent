@@ -60,7 +60,7 @@ WebAgentRunner = Callable[[str, str, str | None], str | dict[str, Any]]
 LlmChatFn = Callable[[list[dict[str, str]], int], str]
 # Each pool task returns its own (run_web_agent, extraction llm_chat). The
 # parent llm_chat stays on the planning thread and is not safe to share.
-WorkerFactory = Callable[[], tuple[WebAgentRunner, LlmChatFn]]
+WorkerFactory = Callable[[], tuple[WebAgentRunner, LlmChatFn, Callable[[], None]]]
 StopChecker = Callable[[], bool] | None
 StatusCallback = Callable[[str], None] | None
 ProgressCallback = Callable[["ResearchProgress"], None] | None
@@ -215,20 +215,32 @@ def count_words(text: Any) -> int:
     return len(str(text).split())
 
 
-def trim_context_to_word_limit(context_list: list[str], max_words: int = MAX_CONTEXT_WORDS) -> list[str]:
+def trim_context_to_word_limit(learnings: list[str], context_chunks: list[str], max_words: int = MAX_CONTEXT_WORDS) -> list[str]:
     total_words = 0
+    for item in learnings:
+        words = count_words(item)
+        if total_words + words <= max_words:
+            total_words += words
+        else:
+            if total_words < max_words:
+                rem = max_words - total_words
+                total_words += rem
+            break
+
     trimmed_context: list[str] = []
-    for item in reversed(context_list):
+    for item in reversed(context_chunks):
         words = count_words(item)
         if total_words + words <= max_words:
             trimmed_context.insert(0, item)
             total_words += words
-        elif not trimmed_context:
+        elif not trimmed_context and total_words < max_words:
             text = " ".join(str(part) for part in item) if isinstance(item, list) else str(item)
-            trimmed_context.insert(0, " ".join(text.split()[:max_words]))
+            rem = max_words - total_words
+            trimmed_context.insert(0, " ".join(text.split()[:rem]))
             break
         else:
             break
+
     return trimmed_context
 
 
@@ -445,10 +457,26 @@ def synthesize_deep_report(
     *,
     sources: list[str] | None = None,
 ) -> str:
-    context_with_citations = list(learnings)
-    context_with_citations.extend(context_chunks)
-    trimmed = trim_context_to_word_limit(context_with_citations)
-    evidence = "\n\n".join(trimmed)
+    trimmed_chunks = trim_context_to_word_limit(learnings, context_chunks)
+
+    # Also trim learnings themselves if they exceed max_words
+    trimmed_learnings: list[str] = []
+    total_words = 0
+    for item in learnings:
+        words = count_words(item)
+        if total_words + words <= MAX_CONTEXT_WORDS:
+            trimmed_learnings.append(item)
+            total_words += words
+        else:
+            if total_words < MAX_CONTEXT_WORDS:
+                text = " ".join(str(part) for part in item) if isinstance(item, list) else str(item)
+                rem = MAX_CONTEXT_WORDS - total_words
+                trimmed_learnings.append(" ".join(text.split()[:rem]))
+            break
+
+    evidence_parts = list(trimmed_learnings)
+    evidence_parts.extend(trimmed_chunks)
+    evidence = "\n\n".join(evidence_parts)
     source_block = ""
     if sources:
         unique_sources = list(dict.fromkeys(s for s in sources if s))
@@ -495,6 +523,8 @@ def _partial_report_from_evidence(
 
 
 def _coerce_agent_result(result: str | dict[str, Any]) -> str:
+    if result is None:
+        return ""
     if isinstance(result, dict):
         if result.get("status") == "error":
             raise ToolExecutionError(
@@ -502,9 +532,11 @@ def _coerce_agent_result(result: str | dict[str, Any]) -> str:
                 code=str(result.get("code") or "TOOL_EXECUTION_ERROR"),
             )
         if result.get("status") == "ok":
-            return str(result.get("result") or "")
+            val = result.get("result")
+            return str(val) if val is not None else ""
         if "result" in result:
-            return str(result.get("result") or "")
+            val = result.get("result")
+            return str(val) if val is not None else ""
         raise ToolExecutionError(str(result.get("message") or "Sub-query research failed."))
     return str(result)
 
@@ -606,21 +638,27 @@ def _run_sub_queries_parallel(
         # worker_factory builds a fresh LlmClient + extraction chat on this
         # thread. Falling back to the shared callables is for unit tests that
         # do not open HTTP; production always passes a factory.
+        worker_cleanup = None
         if worker_factory is not None:
-            task_run_web_agent, task_llm_chat = worker_factory()
+            task_run_web_agent, task_llm_chat, worker_cleanup = worker_factory()
         else:
             task_run_web_agent, task_llm_chat = run_web_agent, llm_chat
-        return _process_one_sub_query(
-            sq,
-            run_web_agent=task_run_web_agent,
-            llm_chat=task_llm_chat,
-            stop_checker=stop_checker,
-            acc=acc,
-            max_sub_queries=max_sub_queries,
-            progress=progress,
-            status_callback=status_callback,
-            on_progress=on_progress,
-        )
+
+        try:
+            return _process_one_sub_query(
+                sq,
+                run_web_agent=task_run_web_agent,
+                llm_chat=task_llm_chat,
+                stop_checker=stop_checker,
+                acc=acc,
+                max_sub_queries=max_sub_queries,
+                progress=progress,
+                status_callback=status_callback,
+                on_progress=on_progress,
+            )
+        finally:
+            if worker_cleanup is not None:
+                worker_cleanup()
 
     # The `with ThreadPoolExecutor` form always shutdown(wait=True). A user
     # stop during extraction was therefore waited out, and the except below
@@ -758,7 +796,7 @@ def _run_adaptive_research_loop(
             break
 
     unique_learnings = list(dict.fromkeys(acc.learnings))
-    trimmed_context = trim_context_to_word_limit(acc.context_chunks)
+    trimmed_context = trim_context_to_word_limit(unique_learnings, acc.context_chunks)
     return {
         "learnings": unique_learnings,
         "citations": acc.citations,

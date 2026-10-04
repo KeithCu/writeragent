@@ -1058,8 +1058,10 @@ def test_web_research_caching_logic(tmp_path):
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
@@ -1110,8 +1112,10 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
         captured["kwargs"] = kwargs
         return ("hit_embedding", "caching unique", "english|cached similar", 0.78, "Cached Answer Content")
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
@@ -1151,8 +1155,10 @@ def test_web_research_caching_write(tmp_path):
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
@@ -1210,8 +1216,10 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     _web_cache_set(db_file, "research", word_key, "BARE SHALLOW", 50 * 1024 * 1024)
     _web_cache_set(db_file, "research", shallow_key, "PREFIXED SHALLOW", 50 * 1024 * 1024)
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
@@ -1228,8 +1236,10 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     assert _web_cache_get(db_file, "research", word_key, max_age_days=30) == "BARE SHALLOW"
     assert _web_cache_get(db_file, "research", shallow_key, max_age_days=30) == "PREFIXED SHALLOW"
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
@@ -1284,7 +1294,8 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=False), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
@@ -1325,8 +1336,10 @@ def test_web_research_cache_max_zero_does_not_serve_a_stale_report(tmp_path):
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=0), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.config.get_config", return_value="off"), \
@@ -1592,8 +1605,10 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
     ctx.ctx = MockContext()
     ctx.doc_type = "calc"
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", return_value=30), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
@@ -1630,8 +1645,10 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
     ctx.stop_checker = None
     ctx.send_cancellation = None
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", return_value=30), \
          patch("plugin.framework.config.get_config", return_value="off"), \
@@ -1650,3 +1667,71 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
 
 
 
+
+def test_chromium_cdp_enabled():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.stop_checker = None
+
+    def mock_get_config(key):
+        if key == "chatbot.web_research_browser":
+            return "chromium"
+        return "off"
+
+    with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
+         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._finish_cdp_browser") as mock_finish, \
+         patch("plugin.chatbot.web_research._run_web_agent", return_value={"status": "ok", "result": "done"}) as mock_run, \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int", return_value=1), \
+         patch("plugin.framework.client.llm_client.LlmClient"):
+
+         WebResearchTool().execute(ctx, query="test query")
+
+         mock_begin.assert_called_once_with(ctx.ctx, "chromium")
+         mock_finish.assert_called_once()
+
+         # The agent parameters should have cdp_enabled=True and cdp_url="ws://mock"
+         agent_params = mock_run.call_args.args[3]
+         assert agent_params.cdp_enabled is True
+         assert agent_params.cdp_url == "ws://mock"
+
+def test_cdp_connection_leak_early_exception():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.stop_checker = None
+
+    def mock_get_config(key):
+        if key == "chatbot.web_research_browser":
+            return "chrome"
+        return "off"
+
+    class FakeException(Exception):
+        pass
+
+    with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
+         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._finish_cdp_browser") as mock_finish, \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int", return_value=1), \
+         patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
+         patch("plugin.framework.client.llm_client.LlmClient"):
+
+         try:
+             WebResearchTool().execute(ctx, query="test query")
+         except FakeException:
+             pass
+
+         mock_begin.assert_called_once_with(ctx.ctx, "chrome")
+         # Important: Even though the exception was raised during LlmClient setup, _finish_cdp_browser must be called
+         mock_finish.assert_called_once()

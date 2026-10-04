@@ -407,8 +407,9 @@ def test_run_python_monaco_on_save_builtin_still_runs():
 
 def test_execute_and_insert_result_returns_error_on_failure():
     ctx = MagicMock()
-    with patch.object(pr, "run_code_in_user_venv", return_value={"status": "error", "message": "boom"}):
-        outcome = pr.execute_and_insert_result(ctx, MagicMock(), "bad()")
+    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "exec_code": "bad()", "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
+        with patch.object(pr, "_run_prepared_rps", return_value={"status": "error", "message": "boom"}):
+            outcome = pr.execute_and_insert_result(ctx, MagicMock(), "bad()")
     assert outcome["ok"] is False
     assert outcome["message"].startswith("boom")
 
@@ -837,3 +838,26 @@ def test_monaco_editor_available_respects_force_internal():
                 exe, ok = monaco_editor_available(ctx)
                 assert exe == "/fake/python"
                 assert ok is True
+
+def test_save_script_on_builtin_template():
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
+        with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
+            with patch("plugin.scripting.python_runner._picker_template_name", return_value=True):
+                with patch("plugin.scripting.python_runner.launch_monaco_editor") as mock_launch:
+                    with patch("plugin.framework.config.get_config_str", return_value="[Vision] extract_text"):
+                        pr._run_python_monaco(
+                            ctx=ctx,
+                            doc=doc,
+                            initial_code="print(1)",
+                            selected_script_name="[Vision] extract_text",
+                            exe="/venv/bin/python",
+                        )
+
+                        on_save = mock_launch.call_args.kwargs["on_save"]
+                        res = on_save(code="print(1)", _save_as_plain=False, action="save")
+
+    assert res["type"] == "error"
+    assert res["message"] == "Built-in helpers are read-only. Use Copy to My Scripts to customize."

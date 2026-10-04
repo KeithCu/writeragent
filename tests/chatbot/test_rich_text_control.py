@@ -362,6 +362,29 @@ class TestAppendTextChunk:
         cursor.setString.assert_called_once_with("")
         assert model.Text == "hello world"
 
+    def test_truncate_control_from_chunks_go_right(self):
+        control = MagicMock()
+        model = MagicMock(Text=" " * 40001)
+        cursor = MagicMock()
+        # Ensure it returns True so it doesn't break out of the while loop early
+        cursor.goRight.return_value = True
+        model.createTextCursor.return_value = cursor
+        control.getModel.return_value = model
+        # truncate_control_from bails out if start_len >= len(model.Text)
+        # 40000 < 40001 so it proceeds
+        truncate_control_from(control, 40000)
+
+        from unittest.mock import call
+        cursor.goRight.assert_has_calls([
+            call(8192, False),
+            call(8192, False),
+            call(8192, False),
+            call(8192, False),
+            call(7232, False),
+        ])
+        cursor.gotoEnd.assert_called_once_with(True)
+        cursor.setString.assert_called_once_with("")
+
 
 class TestLogRichScroll:
     def test_log_rich_scroll_increments_seq_when_verbose_enabled(self, caplog):

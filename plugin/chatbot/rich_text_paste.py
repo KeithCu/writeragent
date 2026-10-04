@@ -775,7 +775,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             _do_copy()
     else:
         _do_copy()
-    if inserted and not element_skipped:
+    if inserted and not element_skipped and not copy_failed_with_exception:
         return True, None
     reason = "element_skipped" if element_skipped else (
         "exception" if copy_failed_with_exception else "no_content_inserted"

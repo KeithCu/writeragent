@@ -491,7 +491,11 @@ class CalcRangeStub:
             row_vals = []
             for c in range(self._start_col, self._end_col + 1):
                 cell = self._sheet.getCellByPosition(c, r)
-                row_vals.append(cell.getFormula())
+                # UNO getFormulaArray returns strings for everything, but specifically original text if not a formula.
+                if cell.getType() == _CELL_FORMULA:
+                    row_vals.append(cell.getFormula())
+                else:
+                    row_vals.append(cell.getString())
             rows.append(tuple(row_vals))
         return tuple(rows)
 

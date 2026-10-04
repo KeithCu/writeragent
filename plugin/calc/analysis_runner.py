@@ -43,8 +43,9 @@ def calc_selection_to_a1(doc: Any) -> str | None:
         start = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}"
         end = f"{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
         cell_part = start if start == end else f"{start}:{end}"
-        if " " in sheet_name or "." in sheet_name:
-            return f"'{sheet_name}'.{cell_part}"
+        if " " in sheet_name or "." in sheet_name or "'" in sheet_name:
+            escaped_name = sheet_name.replace("'", "''")
+            return f"'{escaped_name}'.{cell_part}"
         return f"{sheet_name}.{cell_part}"
     except Exception:
         return None
@@ -63,9 +64,22 @@ def run_trusted_analysis(uno_ctx: Any, doc: Any, *, helper: str, params: dict[st
         raise ToolExecutionError("Provide data_range or data", code="ANALYSIS_ERROR")
 
     from plugin.calc.calc_addin_data import _resolve_python_data
+    from plugin.framework.queue_executor import execute_on_main_thread
 
-    tool_ctx = calc_tool_context(uno_ctx, doc)
-    py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+    def _read_data() -> tuple[Any, str | None, dict[str, Any]]:
+        tool_ctx = calc_tool_context(uno_ctx, doc)
+        data_out, error_out = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+
+        ctx_out: dict[str, Any] = {}
+        try:
+            bridge = CalcBridge(doc)
+            ctx_out["sheet_name"] = bridge.get_active_sheet().getName()
+        except Exception:
+            pass
+        return data_out, error_out, ctx_out
+
+    py_data, err, context = execute_on_main_thread(_read_data)
+
     if err:
         raise ToolExecutionError(err, code="ANALYSIS_ERROR")
     if py_data is None:
@@ -75,12 +89,6 @@ def run_trusted_analysis(uno_ctx: Any, doc: Any, *, helper: str, params: dict[st
     if isinstance(params, dict) and params:
         spec["params"] = params
 
-    context: dict[str, Any] = {}
-    try:
-        bridge = CalcBridge(doc)
-        context["sheet_name"] = bridge.get_active_sheet().getName()
-    except Exception:
-        pass
     if task_hint:
         context["task_hint"] = str(task_hint)
     if dr:
