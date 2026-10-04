@@ -187,19 +187,10 @@ def get_document_context_for_chat(
                     return f"[Document text reading failed. Active selection: {sel_text}]"
                 return "[Document content unavailable]"
 
-            # What was wrong: the split threshold was max_context // 2. A document
-            # that still fit (half < doc_len <= max_context) took a head window and
-            # a tail window that overlapped, so the middle was repeated, and the
-            # "middle omitted" note stayed off because doc_len was not past the budget.
-            # One slice when the document fits. Head and tail only when it does not.
-            # Those windows cannot overlap: together they are max_context characters
-            # and the body is longer than that, so the tail starts after the head.
-            use_head_tail = include_end and doc_len > max_context
-            if use_head_tail:
+            if include_end and doc_len > (max_context // 2):
                 start_chars = max_context // 2
                 end_chars = max_context - start_chars
-                # Document text goes from 0 to doc_len, we take end_chars.
-                excerpt_windows = [(0, start_chars), (max(0, doc_len - end_chars), doc_len)]
+                excerpt_windows = [(0, start_chars), (doc_len - end_chars, doc_len)]
             else:
                 start_chars = 0
                 end_chars = 0
@@ -219,13 +210,12 @@ def get_document_context_for_chat(
                     if end_offset - start_offset > max_selection_span:
                         end_offset = start_offset + max_selection_span
 
-            if use_head_tail:
-                tail_start = max(0, doc_len - end_chars)
+            if include_end and doc_len > (max_context // 2):
                 start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
-                end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
+                end_excerpt = _text_helpers._read_writer_text_slice(model, doc_len - end_chars, end_chars)
                 start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-                end_excerpt = _inject_markers_into_excerpt(end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
-                middle_note = "\n\n[... middle of document omitted ...]\n\n"
+                end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]")
+                middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
                 return _with_math_ole_chat_hint(
                     model,
                     "Document length: %d characters.\n\n%s%s%s" % (doc_len, start_excerpt, middle_note, end_excerpt),
@@ -278,6 +268,7 @@ def _inject_markers_into_excerpt(
     after = excerpt_text[local_end:]
     out = prefix + before + "[SELECTION_START]" + between + "[SELECTION_END]" + after + suffix
     return out
+
 
 
 # Resolver-only TreeService used when plugin.main has not registered writer_tree
@@ -773,11 +764,7 @@ class DocumentService(ServiceBase):
         return _find_paragraph_for_range(anchor, para_ranges, text_obj)
 
     def resolve_locator(self, doc: Any, locator: str) -> dict[str, Any]:
-        """Resolve a locator string to a paragraph index.
-
-        Unresolvable locators raise ``ToolExecutionError``. See module
-        ``resolve_locator``.
-        """
+        """Resolve a locator string to a paragraph index or other document position."""
         return resolve_locator(doc, locator)
 
     def yield_to_gui(self) -> None:

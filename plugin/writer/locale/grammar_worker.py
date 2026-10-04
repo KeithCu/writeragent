@@ -216,7 +216,10 @@ def run_grammar_check(
     try:
         from plugin.framework.config import get_grammar_provider, user_config_dir
 
-        provider = (chunk[0][0].provider if chunk and chunk[0][0].provider else "") or get_grammar_provider()
+        # Always use the job's explicit provider if present, even if it is not
+        # the current default config, so that background retry and cache
+        # identity don't desync with the UI check that enqueued it.
+        provider = chunk[0][0].provider if chunk and chunk[0][0].provider else get_grammar_provider()
         spec = _SINGLE_SENTENCE_PROVIDERS.get(provider)
         if spec is not None:
             cfg_dir = user_config_dir() or ""
