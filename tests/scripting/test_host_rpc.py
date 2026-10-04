@@ -283,6 +283,34 @@ def test_execute_tool_prefers_script_session_document():
     assert registry.execute.call_args.args[1].doc is bound
 
 
+def test_execute_tool_uses_pinned_document_not_front_window():
+    from plugin.scripting.session_manager import pin_script_document, release_script_document
+
+    focused = MagicMock()
+    bound = MagicMock()
+    registry = MagicMock()
+    registry._services = {}
+    registry.execute.return_value = {"status": "ok"}
+    token = pin_script_document(bound)
+    try:
+        with (
+            patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+            patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
+            patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
+            patch("plugin.main.get_tools", return_value=registry),
+            patch("plugin.doc.doc_type.is_draw", return_value=True),
+            patch("plugin.doc.doc_type.is_calc", return_value=False),
+            patch("plugin.doc.doc_type.is_writer", return_value=False),
+        ):
+            execute_tool("shape_upsert", {"action": "create"}, script_session_id=token)
+        mock_desktop.assert_not_called()
+        mock_active.assert_not_called()
+        assert registry.execute.call_args.args[1].doc is bound
+    finally:
+        release_script_document(token)
+
+
 def test_handle_tool_call_frame_refuses_when_stopped():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:

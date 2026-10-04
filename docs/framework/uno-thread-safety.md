@@ -232,7 +232,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Hidden Document Loader | `plugin/doc/document_research.py` | `open_document_for_read()` guards hidden component model. |
 | Desktop Enumeration | `plugin/doc/document_research.py` | `_office_model_from_desktop_element()` guards enumerated desktop models. |
 | Scripting Calc Resolver | `plugin/scripting/document_scripts.py` | `get_calc_document_from_ctx()` wraps the active sheet. Enumeration fallback returns one Calc model, or the cached session id when several workbooks are open; otherwise `None`. |
-| Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. |
+| Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. A `doc:` pin from chat `run_venv_python_script` returns `guard_uno` of that object and does not enumerate the desktop. |
 | Calc Add-in Doc Lookup | `plugin/calc/python/function.py` | `_get_calc_doc()` returns `None` off-main (#402), guards on-main. |
 | Calc Cell Editor Selection | `plugin/calc/python/editor.py` | `_get_active_calc_cell()` guards active cell interface. |
 | Graphic Export Bridge | `plugin/writer/images/image_tools.py` | `export_graphic_to_bytes()` resolves via `get_ctx()`. |

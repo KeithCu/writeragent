@@ -141,6 +141,24 @@ def _maybe_dispatch_ppt_master_response(
     )
 
 
+def host_script_session_id(request_session_id: Any, script_session_id: str | None) -> str | None:
+    """Document id for host tool RPC.
+
+    An explicit pin (chat ``ctx.doc``) wins. Otherwise the worker namespace
+    id on the request is used (Run Python Script, ``=PY()``, PPT-Master).
+    The child does not choose this value, and a pin is not written into the
+    request, so Isolated mode still gets a fresh namespace.
+    """
+    explicit = script_session_id.strip() if isinstance(script_session_id, str) else ""
+    if explicit:
+        return explicit
+    if isinstance(request_session_id, str):
+        raw = request_session_id.strip()
+        if raw:
+            return raw
+    return None
+
+
 def _maybe_dispatch_intermediate_response(
     response: dict[str, Any],
     *,
@@ -504,6 +522,7 @@ class PythonWorkerManager:
         cancellation_scope: Any | None = None,
         python_tool_domain: str | None = None,
         caller: str = "script",
+        script_session_id: str | None = None,
     ) -> dict[str, Any]:
         request = self._build_request(
             code,
@@ -528,6 +547,7 @@ class PythonWorkerManager:
             cancellation_scope=cancellation_scope,
             python_tool_domain=python_tool_domain,
             caller=caller,
+            script_session_id=script_session_id,
         )
 
     def _execute_ipc_attempts(
@@ -543,6 +563,7 @@ class PythonWorkerManager:
         cancellation_scope: Any | None,
         python_tool_domain: str | None,
         caller: str,
+        script_session_id: str | None = None,
     ) -> dict[str, Any]:
         for attempt in range(2):
             try:
@@ -560,8 +581,10 @@ class PythonWorkerManager:
                 from plugin.scripting.host_rpc import resolve_allowed_tools
 
                 allowed_tools = resolve_allowed_tools(python_tool_domain)
-                raw_session = request.get("session_id")
-                script_session_id = raw_session.strip() if isinstance(raw_session, str) and raw_session.strip() else None
+                # Pin wins over the kernel session id. Chat passes doc:… and
+                # leaves request session_id unset. RPS / =PY() / PPT-Master
+                # omit the pin and keep the request id.
+                resolved_script_session_id = host_script_session_id(request.get("session_id"), script_session_id)
 
                 # A tool_call frame can already have mutated the document. A later
                 # pipe error must not resend the original script (the write-timeout
@@ -627,7 +650,7 @@ class PythonWorkerManager:
                                 on_worker_event=on_worker_event,
                                 stop_checker=stop_checker,
                                 cancellation_scope=cancellation_scope,
-                                script_session_id=script_session_id,
+                                script_session_id=resolved_script_session_id,
                             )
                         finally:
                             self._serving_tool_call = False
@@ -765,11 +788,15 @@ class PythonWorkerManager:
         heartbeat_grace_sec: int | None = None,
         on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
         python_tool_domain: str | None = None,
+        script_session_id: str | None = None,
     ) -> dict[str, Any]:
         """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
 
         Without *session_id*, each execute uses a fresh namespace in the child. With
         *session_id*, the child reuses one LocalPythonExecutor per id.
+
+        *script_session_id* is host-only. Tool RPC resolves the document from it
+        ahead of *session_id*. It is not sent to the child.
 
         Cold start: spawn + auto-imports run first under :data:`WARM_WORKER_TIMEOUT_SEC`
         and are not charged against *timeout_sec*.
@@ -798,6 +825,7 @@ class PythonWorkerManager:
                 heartbeat_grace_sec=heartbeat_grace_sec,
                 on_heartbeat=on_heartbeat,
                 python_tool_domain=python_tool_domain,
+                script_session_id=script_session_id,
             )
         finally:
             self._release_io()
@@ -1312,6 +1340,7 @@ def run_code_in_user_venv(
     bindings: dict[str, Any] | None = None,
     timeout_sec: int | None = None,
     session_id: str | None = None,
+    script_session_id: str | None = None,
     init_script: str | None = None,
     init_session_id: str | None = None,
     init_script_hash: str | None = None,
@@ -1333,6 +1362,10 @@ def run_code_in_user_venv(
     *active_domain* is unused (chat specialized domain). *python_tool_domain*
     scopes venv→LO tool RPC: ``None`` = all tools, ``""`` = disabled (``=PY()``),
     a domain name = that domain's proxies. See ``plugin.scripting.host_rpc``.
+
+    *script_session_id* is host-only. Tool RPC resolves the document from it
+    ahead of *session_id*. Chat passes a ``doc:`` pin so ``wa.*`` uses
+    ``ctx.doc`` without putting that id on the child namespace.
     """
     del active_domain  # chat specialized domain is not the tool-RPC allowlist
     if not action and not (code or "").strip():
@@ -1360,6 +1393,7 @@ def run_code_in_user_venv(
         on_heartbeat=on_heartbeat,
         action=action,
         python_tool_domain=python_tool_domain,
+        script_session_id=script_session_id,
     )
 
 

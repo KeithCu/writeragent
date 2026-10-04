@@ -103,7 +103,7 @@ Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`
 
 ### Venv ↔ LibreOffice tool RPC
 
-**Current (production):** data-in/data-out for `=PY()` (tool RPC disabled during recalc). **Run Python Script…** / chat `run_venv_python_script` can also send `tool_call` frames on the same Pickle5 pipe; the host dispatches via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) → `ToolRegistry.execute()` and replies until the code-result frame. Optional proxy kwargs that are `None` are omitted so tool defaults apply.
+**Current (production):** data-in/data-out for `=PY()` (tool RPC disabled during recalc). **Run Python Script…** / chat `run_venv_python_script` can also send `tool_call` frames on the same Pickle5 pipe; the host dispatches via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) → `ToolRegistry.execute()` and replies until the code-result frame. Optional proxy kwargs that are `None` are omitted so tool defaults apply. Chat pins `ctx.doc` for that execute (`doc:…`, host-only). `wa.draw` / `wa.shape` bind to that document. The pin is not the worker `session_id`, so Isolated mode still starts a fresh kernel. Run Python Script and PPT-Master keep using their `rps:` / `ppt_master:` ids when no pin is set.
 
 **Wire:** worker writes `{"type": "tool_call", "id", "tool", "args"}`; host replies `{"status", "id", "result"|"message"}`. No extra frame type. Domain allowlists (`python_tool_domain`) stay on the host. Sketch / usage: [core §7 — tool RPC](../enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc).
 

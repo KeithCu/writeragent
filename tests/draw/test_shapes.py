@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.draw.shapes import (
+    AlignShapes,
+    GetDrawSummary,
     GroupShapes,
     UpsertShape,
     _ENHANCED_CUSTOM_SHAPE_ENGINE,
@@ -480,3 +484,54 @@ def test_shape_upsert_execute_line_zero_height():
     assert rejected["status"] == "error", rejected
     doc.createInstance.assert_called_once_with("com.sun.star.drawing.LineShape")
     assert ("setSize", 4000, 0) in events
+
+
+class DisposedException(Exception):
+    """Type name matches is_disposed_exception."""
+
+
+def test_shape_upsert_disposed_page_is_not_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=0)
+
+
+def test_shape_upsert_bad_page_stays_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=3)
+    assert out["status"] == "error"
+    assert "Invalid page index" in out["message"]
+
+
+def test_shape_summary_disposed_page_is_not_missing_page():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.resolve_slide.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            GetDrawSummary().execute(ctx, page=0)
+
+
+def test_align_shapes_disposed_page_is_not_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=0)
+
+
+def test_align_shapes_bad_page_stays_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
+        out = AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=9)
+    assert out["status"] == "error"
+    assert "Invalid page index" in out["message"]

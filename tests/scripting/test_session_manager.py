@@ -178,6 +178,26 @@ def test_document_for_script_session_matches_ppt_master_url() -> None:
     assert missing is None
 
 
+def test_document_for_script_session_returns_pinned_doc_not_desktop() -> None:
+    from unittest.mock import MagicMock, patch
+
+    deck = MagicMock(name="deck")
+    token = session_manager.pin_script_document(deck)
+    assert token is not None and token.startswith("doc:")
+    try:
+        with patch("plugin.scripting.session_manager.get_desktop") as mock_desktop:
+            found = session_manager.document_for_script_session(MagicMock(), token)
+        mock_desktop.assert_not_called()
+        assert found is deck
+    finally:
+        session_manager.release_script_document(token)
+    with patch("plugin.scripting.session_manager.get_desktop") as mock_desktop:
+        missing = session_manager.document_for_script_session(MagicMock(), token)
+    mock_desktop.assert_not_called()
+    assert missing is None
+    assert session_manager.pin_script_document(None) is None
+
+
 def test_document_for_script_session_matches_url_not_focused() -> None:
     from unittest.mock import MagicMock, patch
 

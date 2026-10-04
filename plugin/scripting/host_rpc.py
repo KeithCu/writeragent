@@ -384,6 +384,8 @@ def execute_tool(
         # had no session id. Named scripts already resolve document_for_script_session
         # before get_active_document. Why this works: the IPC request now carries
         # ppt_master:{url}, and that lookup matches the open component's URL.
+        # Chat run_venv_python_script passes a doc: pin of ctx.doc the same way.
+        # That pin is host-only and is not the worker namespace id.
         doc = document_for_script_session(uno_ctx, script_session_id)
         if doc is None:
             doc = get_active_document(uno_ctx)

@@ -329,7 +329,13 @@ class GetDrawSummary(ToolDrawShapeBase):
             page = DrawBridge.resolve_slide(ctx.doc, actual_idx)
         except IndexError:
             return self._tool_error("Invalid page index: %s" % actual_idx)
-        except Exception:
+        except Exception as exc:
+            # What was wrong: a disposed document was reported as "No draw page".
+            # How: resolve_slide raises DisposedException, and this handler
+            # treated every other Exception as a missing page.
+            # Why this works: re-raise disposal so the tool layer reports it.
+            if is_disposed_exception(exc):
+                raise
             return self._tool_error("No draw page available.")
 
         shapes = []
@@ -659,7 +665,14 @@ class UpsertShape(ToolDrawShapeBase):
 
         try:
             page = bridge.get_pages().getByIndex(actual_idx)
-        except Exception:
+        except Exception as exc:
+            # What was wrong: DisposedException became "Invalid page index".
+            # How: get_pages/getByIndex raise when the document is gone, and
+            # this handler mapped every Exception to a bad index.
+            # Why this works: re-raise disposal; a real bad index still
+            # returns the page-index error.
+            if is_disposed_exception(exc):
+                raise
             return self._tool_error("Invalid page index: %s" % actual_idx)
 
         if page is None:
@@ -957,7 +970,14 @@ def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any |
         actual_idx = bridge.get_active_page_index()
     try:
         page = bridge.get_pages().getByIndex(actual_idx)
-    except Exception:
+    except Exception as exc:
+        # What was wrong: align/distribute/diagram reported a disposed page
+        # as "Invalid page index". How: getByIndex raises DisposedException
+        # and this handler treated every Exception as a bad index.
+        # Why this works: re-raise disposal; a real bad index still returns
+        # the page-index error to the caller.
+        if is_disposed_exception(exc):
+            raise
         return None, actual_idx, "Invalid page index: %s" % actual_idx
     if page is None:
         return None, actual_idx, "No draw page available."
