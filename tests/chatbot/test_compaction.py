@@ -510,7 +510,8 @@ def test_is_context_overflow_error_false(text):
 
 def test_should_retry_overflow_reasons_and_attempts():
     assert C.should_retry_overflow(0, "ok") is True
-    assert C.should_retry_overflow(1, "below_threshold") is True
+    # tokens_before == tokens_after should skip ratio check for below_threshold
+    assert C.should_retry_overflow(1, "below_threshold", 1000, 1000) is True
     assert C.should_retry_overflow(2, "ok") is True
     assert C.should_retry_overflow(3, "ok") is False
     for reason in ("nothing_to_compact", "no_window", "failed", "aborted", "disabled"):
