@@ -211,3 +211,15 @@ def test_rename_slide_ok():
 def test_rename_slide_missing_name():
     out = RenameSlide().execute(_ctx(), page=0, name="")
     assert out["status"] == "error"
+
+def test_duplicate_slide_false_success_guard():
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 2
+        bridge.duplicate_slide.return_value = None
+
+        out = DuplicateSlide().execute(ctx, page=0)
+
+    assert out["status"] == "error"
+    assert "Failed to duplicate slide" in out.get("message", "")
