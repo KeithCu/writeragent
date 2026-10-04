@@ -985,8 +985,9 @@ def test_run_cell_for_doc_hex_setup_error_shows_msgbox():
         patch("plugin.notebook.notebook_runner.save_registry"),
         patch("plugin.notebook.notebook_runner.msgbox") as boxed,
     ):
-        run_cell_for_doc_hex(ctx, doc, hex_id)
-        execute.assert_not_called()
+            run_cell_for_doc_hex(ctx, doc, hex_id)
+            execute.assert_not_called()
+            boxed.assert_called_once_with(ctx, "WriterAgent", "Code cell is empty.")
 def test_clear_cell_output_preserves_spacer_before_next_heading():
     """Delete stdout but not the empty paragraph immediately before the next cell."""
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
