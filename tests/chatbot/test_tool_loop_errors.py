@@ -582,6 +582,9 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
+    # MagicMock._stopped is truthy. The worker treats that as Stop and
+    # returns before compact, so the aborted-compact path never runs.
+    client._stopped = False
     q = MagicMock()
     from plugin.chatbot.tool_loop_actions import current_turn
 

@@ -57,6 +57,8 @@ class UserStopped(Exception):
 
 
 def _raise_if_stopped(response: dict[str, Any]) -> None:
+    # The host llm_request reply must include code USER_STOPPED. Without it
+    # rpc_llm raises RuntimeError and run_turn keeps stepping.
     if response.get("code") == "USER_STOPPED":
         raise UserStopped(str(response.get("message") or "Stopped by user."))
 

@@ -33,6 +33,52 @@ def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
     assert out.get("result") != "caught"
 
 
+def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force local_python_executor.timeout onto its ThreadPoolExecutor path."""
+    import signal
+
+    real_signal = signal.signal
+
+    def _signal(signum, handler):
+        if signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", _signal)
+
+
+def test_timeout_fallback_keeps_sandbox_session_context(monkeypatch: pytest.MonkeyPatch):
+    """Windows / non-main timeout thread must still see the workbook session."""
+    from plugin.scripting.venv.venv_sandbox import current_sandbox_session_id, sandbox_execute_active
+
+    _refuse_sigalrm(monkeypatch)
+    seen: dict[str, object] = {}
+
+    def probe() -> int:
+        seen["sid"] = current_sandbox_session_id()
+        seen["active"] = sandbox_execute_active()
+        return 1
+
+    isolated = run_sandboxed_code("result = probe()", bindings={"probe": probe}, timeout_sec=8)
+    assert isolated["status"] == "ok", isolated
+    assert seen["sid"] is None
+    assert seen["active"] is True
+
+    sid = "calc:file:///timeout-fallback-workbook"
+    try:
+        shared = run_sandboxed_code(
+            "result = probe()",
+            bindings={"probe": probe},
+            session_id=sid,
+            timeout_sec=8,
+        )
+        assert shared["status"] == "ok", shared
+        assert seen["sid"] == sid
+        assert seen["active"] is True
+    finally:
+        reset_sandbox_session(sid)
+
+
 def test_run_sandboxed_code_injects_bindings():
     code = "result = image"
     out = run_sandboxed_code(code, bindings={"image": b"png-bytes"})

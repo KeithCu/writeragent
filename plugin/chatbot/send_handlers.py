@@ -33,7 +33,7 @@ from plugin.framework.client.errors import format_error_for_display
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
-from plugin.framework.queue_executor import llm_request_lane
+from plugin.framework.queue_executor import capture_send_stop, llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
@@ -447,12 +447,15 @@ class SendHandlersMixin:
         with suppress_disposed("LRU update", logger=log, exc_info=True):
             update_lru_history(base_size_int, "image_base_size_lru", "")
 
+        # Spawn-time scope. The body must not call resolve_stop_checker or
+        # read _send_cancellation: Stop clears the field and the next send replaces it.
+        cancel_scope, stop_checker = capture_send_stop(self)
+
         def run_direct_image() -> None:
             try:
                 from plugin.main import get_tools
 
-                cancel_scope = getattr(self, "_send_cancellation", None)
-                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=self.resolve_stop_checker(), doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
                 image_args: dict[str, Any] = {"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_int, "image_model": image_model_text}
@@ -556,7 +559,9 @@ class SendHandlersMixin:
 
         drain_q, q = _send_worker_queues(self)
         self._current_agent_backend = adapter
-        cancel_scope = getattr(self, "_send_cancellation", None)
+        # Spawn-time scope. run_agent must not call resolve_stop_checker:
+        # Stop clears the field and the next send replaces it.
+        cancel_scope, stop_checker = capture_send_stop(self)
         if cancel_scope is not None and hasattr(adapter, "stop"):
             cancel_scope.register_on_cancel(adapter.stop)
 
@@ -591,7 +596,7 @@ class SendHandlersMixin:
                     lean_system_prompt += "\n\n" + extra
 
                 with llm_request_lane():
-                    adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=self.resolve_stop_checker())
+                    adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=stop_checker)
             except Exception as e:
                 log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
 
@@ -777,11 +782,12 @@ class SendHandlersMixin:
         from plugin.chatbot.web_research_chat import format_sub_agent_conversation_history
 
         history_text = format_sub_agent_conversation_history(self.session, current_query=query_text)
+        # Spawn-time scope. run_search must not call resolve_stop_checker or
+        # read _send_cancellation: Stop clears the field and the next send replaces it.
+        cancel_scope, stop_checker = capture_send_stop(self)
 
         def run_search() -> None:
             doc_type = getattr(self, "cached_doc_type", None) or "writer"
-            cancel_scope = getattr(self, "_send_cancellation", None)
-            stop_checker = self.resolve_stop_checker()
             try:
                 # If librarian mode, clear active_run_librarian and run librarian
 

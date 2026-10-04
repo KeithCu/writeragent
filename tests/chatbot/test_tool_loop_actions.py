@@ -495,6 +495,93 @@ def test_execute_fn_skips_draw_bridge_for_writer():
         _restore_main(old_main)
 
 
+@pytest.mark.parametrize("bypass", [True, 1, "yes"])
+def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
+    """A tool-call dict cannot turn off the main-thread guard.
+
+    What was wrong: execute_fn spread the model/peer JSON into
+    ToolRegistry.execute. bypass_thread_guard is keyword-only, so a true
+    value skipped execute_safe and ran the body on this worker.
+    """
+    import json
+
+    from plugin.framework.tool import ToolRegistry
+
+    calls: list[str] = []
+    seen: list[dict] = []
+
+    class Probe:
+        name = "sync_probe"
+        description = "x"
+        parameters = {"type": "object", "properties": {"note": {"type": "string"}}}
+        uno_services = None
+        doc_types = None
+
+        def get_parameters(self, doc_type=None):
+            return self.parameters
+
+        def get_description(self, doc_type=None):
+            return self.description
+
+        def validate(self, *, doc_type=None, **kwargs):
+            return True, None
+
+        def is_async(self):
+            return False
+
+        def execute(self, ctx, **kwargs):
+            calls.append("execute")
+            seen.append(dict(kwargs))
+            return {"status": "ok"}
+
+        def execute_safe(self, ctx, **kwargs):
+            calls.append("execute_safe")
+            seen.append(dict(kwargs))
+            return {"status": "ok", "note": kwargs.get("note")}
+
+    class RecordingRegistry(ToolRegistry):
+        def __init__(self, services):
+            super().__init__(services)
+            self.seen = None
+
+        def execute(self, tool_name, ctx, *, bypass_thread_guard=False, **kwargs):
+            self.seen = (bypass_thread_guard, dict(kwargs))
+            return super().execute(tool_name, ctx, bypass_thread_guard=bypass_thread_guard, **kwargs)
+
+    reg = RecordingRegistry(MagicMock())
+    reg.register(Probe())  # type: ignore[arg-type]
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    args = {"bypass_thread_guard": bypass, "note": "keep"}
+    fake_main = types.ModuleType("plugin.main")
+    fake_main.get_tools = lambda: reg  # type: ignore[attr-defined]
+    old_main = sys.modules.get("plugin.main")
+    sys.modules["plugin.main"] = fake_main
+    box: dict = {}
+
+    def fake_marshal(fn):
+        box["marshalled"] = True
+        return fn()
+
+    def worker():
+        box["out"] = execute_fn("sync_probe", args, None, MagicMock())
+
+    try:
+        with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+            thread = threading.Thread(target=worker, name="tool-sync-probe")
+            thread.start()
+            thread.join()
+    finally:
+        _restore_main(old_main)
+
+    assert args == {"bypass_thread_guard": bypass, "note": "keep"}
+    assert reg.seen == (False, {"note": "keep"})
+    assert box.get("marshalled") is True
+    assert calls == ["execute_safe"]
+    assert seen == [{"note": "keep"}]
+    assert json.loads(box["out"]) == {"status": "ok", "note": "keep"}
+
+
 def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     """A new send aborts the first turn. Late puts and a clear do not land on it."""
     import queue
@@ -990,3 +1077,61 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
         send._append_response("\n[Stopped by user]\n")
         send._append_response(" late")
     mock_set.assert_not_called()
+
+
+def test_tool_worker_keeps_spawn_scope_after_next_send():
+    """execute_fn must use the scope captured at spawn, not the panel field."""
+    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+
+    host = FakeHost()
+    old = SendCancellation()
+    host._send_cancellation = old
+    calls = []
+
+    def resolve():
+        scope = host._send_cancellation
+        calls.append(scope)
+        return bind_send_stop_checker(scope, lambda: False)
+
+    host.resolve_stop_checker = resolve
+    host._active_execute_tool_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    seen = {}
+    registry, old_main = _install_fake_main_registry()
+
+    def registry_execute(_name, ctx, **_kwargs):
+        seen["scope"] = ctx.send_cancellation
+        seen["checker"] = ctx.stop_checker
+        return {"status": "ok"}
+
+    registry.execute.side_effect = registry_execute
+    started = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+            interpreter.execute(
+                SpawnToolWorkerEffect(
+                    call_id="call_old",
+                    func_name="apply_document_content",
+                    func_args_str="{}",
+                    func_args={"content": "hi"},
+                    is_async=True,
+                )
+            )
+        assert calls == [old]
+        new = SendCancellation()
+        old.cancel()
+        host._send_cancellation = new
+
+        def boom():
+            calls.append(host._send_cancellation)
+            raise AssertionError("resolve_stop_checker inside worker")
+
+        host.resolve_stop_checker = boom
+        started[0]()
+    finally:
+        _restore_main(old_main)
+
+    assert calls == [old]
+    assert seen["scope"] is old
+    assert seen["checker"]() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False

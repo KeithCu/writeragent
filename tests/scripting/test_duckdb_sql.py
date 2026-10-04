@@ -732,6 +732,43 @@ def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions)
     assert host.execute("SELECT x FROM secret").fetchone()[0] == 7
 
 
+def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions, monkeypatch):
+    """SIGALRM fallback thread must not open another workbook's catalog."""
+    import signal
+
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    other = "calc:file:///other-workbook-timeout"
+    seed = _execute_request(
+        "import pandas as pd\n"
+        "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
+        "result = 1",
+        None,
+        session_id=other,
+    )
+    assert seed["status"] == "ok", seed
+
+    real_signal = signal.signal
+
+    def _refuse_alarm(signum, handler):
+        if signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", _refuse_alarm)
+    stolen = _execute_request(
+        "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
+        "result = raw('calc:file:///other-workbook-timeout').execute("
+        "'SELECT x FROM secret').fetchone()[0]",
+        None,
+        session_id="calc:file:///this-workbook-timeout",
+    )
+    assert stolen["status"] == "error", stolen
+    assert stolen.get("result") != 7
+    message = str(stolen.get("message") or "")
+    assert "secret" in message.lower() or "catalog" in message.lower()
+
+
 def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
     from plugin.scripting.venv.worker_harness import _execute_request
 

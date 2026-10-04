@@ -96,6 +96,31 @@ def test_parse_finished_keeps_apostrophe():
     assert parsed["exported"] is True
 
 
+def test_rpc_llm_raises_user_stopped(monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.ipc import UserStopped, rpc_llm
+
+    monkeypatch.setattr("plugin.ppt_master.venv.ipc._write_frame", lambda payload: None)
+    monkeypatch.setattr(
+        "plugin.ppt_master.venv.ipc._read_host_response",
+        lambda context: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
+    )
+    with pytest.raises(UserStopped, match="Stopped by user."):
+        rpc_llm(messages=[{"role": "user", "content": "x"}])
+
+
+def test_rpc_llm_without_stop_code_is_runtime_error(monkeypatch: pytest.MonkeyPatch):
+    """A stop-shaped message without code is a generic error and does not end the turn."""
+    from plugin.ppt_master.venv.ipc import rpc_llm
+
+    monkeypatch.setattr("plugin.ppt_master.venv.ipc._write_frame", lambda payload: None)
+    monkeypatch.setattr(
+        "plugin.ppt_master.venv.ipc._read_host_response",
+        lambda context: {"status": "error", "message": "LLM request stopped by user."},
+    )
+    with pytest.raises(RuntimeError, match="LLM request stopped by user."):
+        rpc_llm(messages=[{"role": "user", "content": "x"}])
+
+
 def test_rpc_tool_raises_user_stopped(monkeypatch: pytest.MonkeyPatch):
     from plugin.ppt_master.venv.ipc import UserStopped, rpc_tool
 
