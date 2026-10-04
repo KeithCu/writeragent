@@ -422,6 +422,32 @@ def test_apply_character_properties() -> None:
     assert target._properties["CharUnderline"] == 1
 
 
+def test_apply_character_properties_italic_is_not_oblique() -> None:
+    """Without pyuno, italic falls back to FontSlant.ITALIC (2), not OBLIQUE (1)."""
+    target = FakePropertyObject({"CharPosture": 0})
+    results = visual_helpers.apply_character_properties(target, italic=True)
+    assert results == {"CharPosture": True}
+    assert target._properties["CharPosture"] == 2
+
+
+def test_apply_character_properties_italic_uses_named_font_slant(monkeypatch) -> None:
+    """italic=True must pass FontSlant.ITALIC, the same named constant calc uses."""
+    import sys
+    import types
+
+    slant = types.ModuleType("com.sun.star.awt.FontSlant")
+    slant.NONE = "none-sentinel"
+    slant.OBLIQUE = "oblique-sentinel"
+    slant.ITALIC = "italic-sentinel"
+    monkeypatch.setitem(sys.modules, "com.sun.star.awt.FontSlant", slant)
+
+    target = FakePropertyObject({"CharPosture": 0})
+    visual_helpers.apply_character_properties(target, italic=True)
+    assert target._properties["CharPosture"] == "italic-sentinel"
+    visual_helpers.apply_character_properties(target, italic=False)
+    assert target._properties["CharPosture"] == "none-sentinel"
+
+
 def test_apply_character_properties_invalid_color() -> None:
     target = FakePropertyObject({"CharColor": 0})
     results = visual_helpers.apply_character_properties(target, color="nope")

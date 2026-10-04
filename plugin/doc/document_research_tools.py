@@ -46,19 +46,24 @@ class ListNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import execute_on_main_thread
 
         filt = kwargs.get("filter")
         file_kind_raw = kwargs.get("file_kind")
         file_kind: Literal["documents", "images"] = "images" if file_kind_raw == "images" else "documents"
 
-        def _run() -> dict[str, Any]:
-            return list_nearby_files(ctx.ctx, ctx.doc, filter=filt, file_kind=file_kind)
-
-        if on_main_thread():
-            return _run()
-        return execute_on_main_thread(_run)
+        # Execute off main thread because listing directory scans can take time.
+        # list_nearby_files handles marshaling UNO requests to the main thread internally.
+        stop_checker = getattr(ctx, "stop_checker", None)
+        try:
+            return list_nearby_files(
+                ctx.ctx,
+                ctx.doc,
+                filter=filt,
+                file_kind=file_kind,
+                stop_checker=stop_checker,
+            )
+        except InterruptedError:
+            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
 
 
 class ListOpenDocuments(ToolBase):
@@ -85,7 +90,7 @@ class ListOpenDocuments(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
         from plugin.doc.document_research import get_open_documents
 
         def _run() -> dict[str, Any]:
@@ -97,7 +102,10 @@ class ListOpenDocuments(ToolBase):
 
         if on_main_thread():
             return _run()
-        return execute_on_main_thread(_run)
+        try:
+            return execute_on_main_thread(_run)
+        except SendCancelled:
+            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
 
 
 class GetGuidance(ToolBase):

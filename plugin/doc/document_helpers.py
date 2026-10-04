@@ -187,10 +187,19 @@ def get_document_context_for_chat(
                     return f"[Document text reading failed. Active selection: {sel_text}]"
                 return "[Document content unavailable]"
 
-            if include_end and doc_len > (max_context // 2):
+            # What was wrong: the split threshold was max_context // 2. A document
+            # that still fit (half < doc_len <= max_context) took a head window and
+            # a tail window that overlapped, so the middle was repeated, and the
+            # "middle omitted" note stayed off because doc_len was not past the budget.
+            # One slice when the document fits. Head and tail only when it does not.
+            # Those windows cannot overlap: together they are max_context characters
+            # and the body is longer than that, so the tail starts after the head.
+            use_head_tail = include_end and doc_len > max_context
+            if use_head_tail:
                 start_chars = max_context // 2
                 end_chars = max_context - start_chars
-                excerpt_windows = [(0, start_chars), (doc_len - end_chars, doc_len)]
+                # Document text goes from 0 to doc_len, we take end_chars.
+                excerpt_windows = [(0, start_chars), (max(0, doc_len - end_chars), doc_len)]
             else:
                 start_chars = 0
                 end_chars = 0
@@ -210,12 +219,13 @@ def get_document_context_for_chat(
                     if end_offset - start_offset > max_selection_span:
                         end_offset = start_offset + max_selection_span
 
-            if include_end and doc_len > (max_context // 2):
+            if use_head_tail:
+                tail_start = max(0, doc_len - end_chars)
                 start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
-                end_excerpt = _text_helpers._read_writer_text_slice(model, doc_len - end_chars, end_chars)
+                end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
                 start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-                end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]")
-                middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
+                end_excerpt = _inject_markers_into_excerpt(end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
+                middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,
                     "Document length: %d characters.\n\n%s%s%s" % (doc_len, start_excerpt, middle_note, end_excerpt),
@@ -270,28 +280,125 @@ def _inject_markers_into_excerpt(
     return out
 
 
-def resolve_locator(model: Any, locator: str) -> dict[str, int]:
-    """Resolve a locator string to a paragraph index or other document position.
+# Resolver-only TreeService used when plugin.main has not registered writer_tree
+# (unit tests, and any call before WriterModule.initialize). One instance so
+# repeated misses do not subscribe a new cache listener each time.
+_FALLBACK_WRITER_TREE: Any = None
 
-    Broader than bookmarks: ``paragraph:``, ``heading:``, ``chapter_number:``,
-    and ``bookmark:``. Left here because ``plugin.writer.specialized.bookmarks``
-    only owns bookmark tools. ``heading:`` is sibling-ordinal path;
-    ``chapter_number:`` is the Chapter Numbering paint label.
+
+def _unresolved_locator(locator: str) -> ToolExecutionError:
+    """Locator string that is not ``type:value``."""
+    return ToolExecutionError(
+        "Cannot resolve locator '%s'. Use type:value such as paragraph:N, "
+        "heading:1.2, chapter_number:3.1, bookmark:NAME, heading_text:Title, "
+        "section:NAME, or page:N." % locator
+    )
+
+
+def _writer_tree_service() -> Any:
+    """Return the process TreeService, or one resolver-only fallback.
+
+    The registered service shares the heading-tree cache and bookmark map
+    with navigation. The fallback exists so a locator still resolves when
+    this function runs outside bootstrap (pytest, or before the writer
+    module loads). Its document service is a plain DocumentService.
+    """
+    import sys
+
+    global _FALLBACK_WRITER_TREE
+
+    main_mod = sys.modules.get("plugin.main")
+    services = getattr(main_mod, "_services", None) if main_mod is not None else None
+    if services is not None:
+        getter = getattr(services, "get", None)
+        if callable(getter):
+            tree = getter("writer_tree")
+            if tree is not None and hasattr(tree, "resolve_writer_locator"):
+                return tree
+
+    if _FALLBACK_WRITER_TREE is not None:
+        return _FALLBACK_WRITER_TREE
+
+    from types import SimpleNamespace
+
+    from plugin.writer.tree import TreeService
+
+    class _Events:
+        def subscribe(self, *_args: Any, **_kwargs: Any) -> None:
+            return None
+
+    class _Bookmarks:
+        def get_mcp_bookmark_map(self, _doc: Any) -> dict[Any, Any]:
+            return {}
+
+    _FALLBACK_WRITER_TREE = TreeService(
+        SimpleNamespace(
+            document=DocumentService(),
+            writer_bookmarks=_Bookmarks(),
+            events=_Events(),
+        )
+    )
+    return _FALLBACK_WRITER_TREE
+
+
+def _dispatch_writer_locator(model: Any, loc_type: str, loc_value: str) -> dict[str, Any]:
+    """Resolve a locator ``TreeService.resolve_writer_locator`` owns.
+
+    What was wrong: ``heading_text:``, ``section:``, ``page:``, and a bookmark
+    name that was missing or already deleted fell out of ``resolve_locator``
+    as paragraph 0. A bookmark that still had a name but whose anchor could
+    not be placed did the same, because the live ``bookmark:`` branch called
+    ``find_paragraph_for_range`` and returned its fallback 0. Navigation,
+    ``get_page_objects``, and ``clone_heading_block`` then changed the first
+    paragraph and returned success. ``TreeService.resolve_writer_locator``
+    already rejected a missing name, but the live branch never called it.
+    Why: every ``bookmark:`` goes through that resolver, which rejects an
+    anchor that does not land on a paragraph. ``ValueError`` (``page:abc``
+    fails ``int()`` before the resolver's own error) becomes
+    ``ToolExecutionError`` because the tool registry re-raises ``ValueError``
+    as a programmer error. A result with no paragraph index is an error, not
+    paragraph 0.
+    """
+    tree = _writer_tree_service()
+    try:
+        resolved = tree.resolve_writer_locator(model, loc_type, loc_value)
+    except ToolExecutionError:
+        raise
+    except ValueError as exc:
+        raise ToolExecutionError("Cannot resolve %s:%s — %s" % (loc_type, loc_value, exc)) from exc
+    if not isinstance(resolved, dict) or not isinstance(resolved.get("para_index"), int):
+        raise ToolExecutionError("Cannot resolve %s:%s" % (loc_type, loc_value))
+    return resolved
+
+
+def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
+    """Resolve a locator string to a paragraph index.
+
+    ``paragraph:``, ``heading:`` (sibling-ordinal), and ``chapter_number:``
+    (Chapter Numbering paint label) are resolved here. Every ``bookmark:``
+    goes to ``TreeService.resolve_writer_locator``, including a name that
+    still exists. ``heading_text:``, ``section:``, ``page:``, and any other
+    writer locator go there too. A missing bookmark, or a bookmark whose
+    anchor does not land on a paragraph, raises ``ToolExecutionError``.
     """
     loc_type, sep, loc_value = locator.partition(":")
-    if not sep:
-        return {"para_index": 0}
+    if not sep or not loc_type:
+        raise _unresolved_locator(locator)
 
     if loc_type == "paragraph":
-        return {"para_index": int(loc_value)}
+        try:
+            return {"para_index": int(loc_value)}
+        except (TypeError, ValueError) as exc:
+            raise ToolExecutionError("Cannot resolve paragraph:%s" % loc_value) from exc
 
     if loc_type == "heading":
-        parts = []
         try:
             parts = [int(p) for p in loc_value.split(".")]
-        except Exception:
-            logging.getLogger(__name__).exception("resolve_locator heading parse error")
-            return {"para_index": 0}
+        except (TypeError, ValueError) as exc:
+            raise ToolExecutionError(
+                "Cannot resolve heading:%s — use a sibling-ordinal path such as heading:1.2."
+                % loc_value
+            ) from exc
 
         tree = _text_helpers.build_heading_tree(model)
         node: _text_helpers.HeadingTreeNode = tree
@@ -299,6 +406,8 @@ def resolve_locator(model: Any, locator: str) -> dict[str, int]:
             children = node["children"]
             if 1 <= part <= len(children):
                 node = children[part - 1]
+            elif len(children) > 0:
+                node = children[-1]
             else:
                 break
         return {"para_index": node["para_index"]}
@@ -315,15 +424,11 @@ def resolve_locator(model: Any, locator: str) -> dict[str, int]:
             )
         return {"para_index": found["para_index"]}
 
-    if loc_type == "bookmark":
-        if hasattr(model, "getBookmarks"):
-            bms = model.getBookmarks()
-            if bms.hasByName(loc_value):
-                anchor = bms.getByName(loc_value).getAnchor()
-                para_ranges = _get_paragraph_ranges(model)
-                return {"para_index": _find_paragraph_for_range(anchor, para_ranges, model.getText())}
-
-    return {"para_index": 0}
+    # bookmark: is not resolved here. The old branch returned
+    # find_paragraph_for_range's fallback 0 when the anchor could not be
+    # placed, so a stale name still navigated to the first paragraph.
+    # TreeService.resolve_writer_locator rejects that anchor.
+    return _dispatch_writer_locator(model, loc_type, loc_value)
 
 
 def is_cacheable_doc_key(key: str) -> bool:
@@ -667,8 +772,12 @@ class DocumentService(ServiceBase):
         """Return the 0-based paragraph index that contains anchor."""
         return _find_paragraph_for_range(anchor, para_ranges, text_obj)
 
-    def resolve_locator(self, doc: Any, locator: str) -> dict[str, int]:
-        """Resolve a locator string to a paragraph index or other document position."""
+    def resolve_locator(self, doc: Any, locator: str) -> dict[str, Any]:
+        """Resolve a locator string to a paragraph index.
+
+        Unresolvable locators raise ``ToolExecutionError``. See module
+        ``resolve_locator``.
+        """
         return resolve_locator(doc, locator)
 
     def yield_to_gui(self) -> None:

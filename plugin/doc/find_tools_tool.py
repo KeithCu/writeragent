@@ -100,7 +100,13 @@ def sidebar_only_tool_names(
     doc_type: str | None = None,
     uno_services_supported: frozenset[str] | None = None,
 ) -> frozenset[str]:
-    """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master)."""
+    """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master).
+
+    The live document is not forwarded to the registry. With a document open,
+    callers must pass ``doc_type`` and ``uno_services_supported`` (as
+    ``direct_flat`` does). Otherwise ``get_tools`` rejects every tool that
+    declares ``uno_services``, the name set is empty, and those tools leak.
+    """
     try:
         from plugin.framework.prompts import IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, WRITER_SIDEBAR_ONLY_DOMAINS
 
@@ -188,8 +194,25 @@ class FindTools(ToolBase):
             schemas = []
         else:
             schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
+            from plugin.mcp.mcp_protocol import drop_unavailable_domains
+            schemas = drop_unavailable_domains(schemas, registry, getattr(ctx, "ctx", None))
 
-        sidebar_only = sidebar_only_tool_names(registry, doc)
+        # What was wrong: this called sidebar_only_tool_names(registry, doc)
+        # without doc_type or uno_services_supported. The helper no longer
+        # forwards the live doc, so with a document open get_tools rejected
+        # every tool that declares uno_services. The ppt-master name set was
+        # empty and find_tools(domain="ppt-master") returned those schemas.
+        # Writer sidebar-only domains are forced to schemas=[] above; only
+        # IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS uses this filter. direct_flat
+        # already passes the cached fields. Why: pass the same fields from
+        # ctx so an open Draw/Impress document hides ppt-master, matching
+        # the no-document and direct_flat paths.
+        sidebar_only = sidebar_only_tool_names(
+            registry,
+            doc,
+            doc_type=getattr(ctx, "doc_type", None),
+            uno_services_supported=getattr(ctx, "uno_services_supported", None),
+        )
         tools: list[dict[str, Any]] = []
         for s in (schemas or []):
             if not isinstance(s, dict):
@@ -197,7 +220,7 @@ class FindTools(ToolBase):
             name = s.get("name")
             if not isinstance(name, str) or not name:
                 continue
-            if name == _FINISH_TOOL or name.startswith(_GATEWAY_PREFIX) or name in sidebar_only:
+            if name == _FINISH_TOOL or name.startswith(_GATEWAY_PREFIX) or name in sidebar_only or name == self.name:
                 continue
             tools.append(s)
         tools.sort(key=lambda s: str(s.get("name") or ""))

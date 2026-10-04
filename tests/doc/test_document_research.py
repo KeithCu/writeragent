@@ -17,12 +17,14 @@ from plugin.doc.document_research import (
     _collect_open_file_urls,
     _system_path_from_url,
     close_document_research_document,
+    get_open_documents,
     guess_doc_type_from_path,
     get_document_directory,
     get_work_directory,
     list_nearby_files,
     open_document_for_read,
     resolve_listing_directory,
+    resolve_path_or_name,
 )
 from plugin.doc.text_helpers import normalize_file_url
 from plugin.framework.url_utils import path_to_file_url
@@ -391,6 +393,59 @@ def test_close_document_research_document_closes_temporary_open():
     model.close.assert_called_once_with(True)
 
 
+def test_resolve_path_or_name_accepts_file_url_without_listing_filter():
+    """file:/// URLs from list_nearby_files / list_open_documents are absolute targets."""
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget.ods")
+        with open(budget, "wb"):
+            pass
+        canonical = path_to_file_url(budget)
+        legacy = "file:" + canonical[len("file://") :]
+        with (
+            patch("plugin.doc.document_research.uno.fileUrlToSystemPath", return_value=budget) as mock_conv,
+            patch("plugin.doc.document_research.list_nearby_files") as mock_list,
+        ):
+            path, url = resolve_path_or_name(MagicMock(), MagicMock(), canonical)
+            legacy_path, legacy_url = resolve_path_or_name(MagicMock(), MagicMock(), legacy)
+        mock_list.assert_not_called()
+        expected = os.path.normpath(os.path.abspath(budget))
+        assert path == expected
+        assert legacy_path == expected
+        assert url == path_to_file_url(expected)
+        assert legacy_url == url
+        assert mock_conv.call_args_list[1].args[0] == canonical
+
+
+def test_resolve_path_or_name_missing_file_url_is_not_a_listing_filter():
+    missing = "file:///no/such/Budget.ods"
+    with (
+        patch("plugin.doc.document_research.uno.fileUrlToSystemPath", return_value="/no/such/Budget.ods"),
+        patch("plugin.doc.document_research.list_nearby_files") as mock_list,
+    ):
+        path, err = resolve_path_or_name(MagicMock(), MagicMock(), missing)
+    assert path is None
+    assert err == f"No file matching {missing!r}"
+    mock_list.assert_not_called()
+
+
+def test_resolve_path_or_name_basename_still_uses_listing():
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget.ods")
+        notes = os.path.join(tmp, "Notes.odt")
+        for sibling in (budget, notes):
+            with open(sibling, "wb"):
+                pass
+        model = MagicMock()
+        with (
+            patch("plugin.doc.document_research.get_document_path", return_value=None),
+            patch("plugin.doc.document_research._collect_open_file_urls", return_value={}),
+            patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp),
+        ):
+            path, url = resolve_path_or_name(MagicMock(), model, "Budget.ods")
+        assert path == os.path.normpath(budget)
+        assert url == path_to_file_url(path)
+
+
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(MagicMock(), "calc"))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, mock_resolve):
@@ -432,6 +487,46 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
     )
     assert args[1] == target
     assert args[2] == flags
+    opened_model.close.assert_not_called()
+
+
+@patch("plugin.doc.document_research.get_document_type")
+@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
+@patch("plugin.doc.document_research.os.path.isfile", return_value=True)
+def test_open_document_for_read_closes_unsupported_type(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
+    """Unknown types must not leave the hidden component loaded."""
+    from plugin.doc.doc_type import DocumentType
+
+    opened_model = MagicMock()
+    mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
+    mock_dtype.return_value = DocumentType.UNKNOWN
+    for attempt in range(2):
+        model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/photo.png")
+        assert model is None
+        assert doc_type is None
+        assert err is not None and "Unsupported document type" in err
+        assert opened_for_document_research is False
+        assert opened_model.close.call_count == attempt + 1
+    assert opened_model.close.call_count == 2
+    opened_model.close.assert_called_with(True)
+
+
+@patch("plugin.doc.document_research.get_document_type")
+@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
+@patch("plugin.doc.document_research.os.path.isfile", return_value=True)
+def test_open_document_for_read_closes_when_post_load_raises(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
+    """An exception after loadComponentFromURL must not abandon the component."""
+    opened_model = MagicMock()
+    mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
+    mock_dtype.side_effect = RuntimeError("type probe failed")
+    model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
+    assert model is None
+    assert doc_type is None
+    assert err is not None and "type probe failed" in err
+    assert opened_for_document_research is False
+    opened_model.close.assert_called_once_with(True)
 
 
 def test_nearby_uno_env_does_not_open_second_scalc_factory():
@@ -466,3 +561,117 @@ def test_is_same_document_uses_uid_not_identity():
     a, b = Doc(None, "file:///x.odt"), Doc(None, "file:///x.odt")
     assert _is_same_document(a, b) is True
     assert _is_same_document(Doc(None, ""), Doc(None, "")) is False
+
+
+class _DisposedException(Exception):
+    pass
+
+
+def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
+    """A dead desktop enumeration must not look like no documents are open."""
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = _DisposedException("enum dead")
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    docs = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            try:
+                docs = get_open_documents(MagicMock())
+            except Exception as exc:
+                raise AssertionError("generic handler swallowed a disposed desktop") from exc
+        except ListenerBoundary as boundary:
+            assert boundary.kind == "disposed"
+            return
+    raise AssertionError(f"disposed desktop reported as an empty document list: {docs!r}")
+
+
+def test_get_open_documents_disposed_component_access_is_not_empty():
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    desktop.getComponents.side_effect = _DisposedException("desktop gone")
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            try:
+                get_open_documents(MagicMock())
+            except Exception as exc:
+                raise AssertionError("generic handler swallowed a disposed desktop") from exc
+        except ListenerBoundary as boundary:
+            assert boundary.kind == "disposed"
+            return
+    raise AssertionError("disposed desktop did not leave get_open_documents")
+
+
+def test_get_open_documents_empty_desktop_is_not_disposed():
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    desktop.getComponents.return_value = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            docs = get_open_documents(MagicMock())
+        except ListenerBoundary as boundary:
+            raise AssertionError(f"empty document list reported as {boundary.kind}") from boundary
+    assert docs == []
+
+
+def test_get_open_documents_off_thread_is_not_an_empty_list():
+    """A caller's except Exception must not hide the main-thread check."""
+    import threading
+
+    from plugin.framework import thread_guard as tg
+    from plugin.framework.uno_listeners import ListenerBoundary
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("release bundles stub the main-thread guard")
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    previous_testing = os.environ.get("WRITERAGENT_TESTING")
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    holder: dict[str, BaseException] = {}
+
+    def _call() -> None:
+        try:
+            try:
+                get_open_documents(MagicMock())
+            except Exception as exc:
+                holder["swallowed"] = exc
+        except BaseException as exc:
+            holder["exc"] = exc
+
+    try:
+        worker = threading.Thread(target=_call, name="bg-open-docs")
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert "swallowed" not in holder
+        exc = holder.get("exc")
+        assert isinstance(exc, ListenerBoundary)
+        assert exc.kind == "thread"
+    finally:
+        tg.GUARD_ON = was
+        if previous_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = previous_testing
+
+
+def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = RuntimeError("not disposed")
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            get_open_documents(MagicMock())
+        except ListenerBoundary as boundary:
+            raise AssertionError(f"runtime error reported as {boundary.kind}") from boundary
+        except RuntimeError as exc:
+            assert "not disposed" in str(exc)
+            return
+    raise AssertionError("runtime error was reported as an empty document list")

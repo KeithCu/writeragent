@@ -169,6 +169,11 @@ class DelegateToSpecializedBase(ToolBase):
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = _field_from_tool_arguments(arguments, "domain")
         if domain in self._READ_ONLY_DOMAINS:
+            if domain == "vision":
+                # USE_SUB_AGENT delegates run ExtractStructureFromImage with insert_into_document=True.
+                from plugin.framework.constants import USE_SUB_AGENT
+                if USE_SUB_AGENT:
+                    return True
             return False
         return super().requires_document_lock(arguments)
 
@@ -204,7 +209,8 @@ class DelegateToSpecializedBase(ToolBase):
                 if status_callback:
                     status_callback(_("Running local OCR on selected image(s)..."))
                 # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
-                return ExtractStructureFromImage().execute(ctx, insert_into_document=True)
+                vision_tool = ExtractStructureFromImage()
+                return vision_tool.execute(ctx, insert_into_document=True)
 
         if domain == "document_research" and not USE_SUB_AGENT:
             return self._tool_error(
@@ -288,20 +294,53 @@ class DelegateToSpecializedBase(ToolBase):
         # caller guard allows this loop (not only ctx.caller == "chat").
         prev_active_domain = getattr(ctx, "active_domain", None)
         ctx.active_domain = domain
-        # When an inner peer send ran, the outer must Ready (not keep tooling).
+        # When an accepted inner peer send ran, the outer must Ready (not keep tooling).
         peer_send_invoked = False
-        # Only send_peer_result counts as peer delivery on a Peer-work receiving turn.
+        # Only an accepted send_peer_result counts as peer delivery on a
+        # Peer-work receiving turn. A model call that returns PEER_NOT_FOUND,
+        # PEER_SIDEBAR_NOT_OPEN, PEER_QUEUE_FULL, or PEER_NOT_CHAT_MODE is not
+        # delivery.
         peer_result_send_invoked = False
         # Inner tool results that already carry web-research-style `instruction`
         # (create_sheet, etc.) so specialized finish can forward them to the outer.
         captured_tool_results: list[Any] = []
         create_sheet_ran = False
 
+        def _note_peer_send_result(name: str, result: Any) -> None:
+            """Record delivery only after the tool returns accepted.
+
+            What was wrong: tool_call_handler set peer_result_send_invoked when
+            the model called send_peer_result, before the tool ran. A
+            PEER_NOT_FOUND / PEER_SIDEBAR_NOT_OPEN / PEER_QUEUE_FULL /
+            PEER_NOT_CHAT_MODE payload still looked like delivery, so
+            annotate_outer_peer_wait stamped idle-after-send and skipped
+            delivery-still-required. The asking peer waited for a reply that
+            was never queued. Why this change: the adapter sees the real
+            return value. Only status ok and accepted true counts.
+            """
+            nonlocal peer_send_invoked, peer_result_send_invoked
+            if domain != "document_research":
+                return
+            from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
+
+            if name not in PEER_TOOL_NAMES:
+                return
+            if not (
+                isinstance(result, dict)
+                and result.get("status") == "ok"
+                and result.get("accepted") is True
+            ):
+                return
+            peer_send_invoked = True
+            if name == PEER_RESULT_TOOL_NAME:
+                peer_result_send_invoked = True
+
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
                 if isinstance(result, dict) and result.get("instruction"):
                     captured_tool_results.append(result)
+                _note_peer_send_result(self.name, result)
                 return result
 
         try:
@@ -388,13 +427,11 @@ class DelegateToSpecializedBase(ToolBase):
             document_open_step_index = 0
 
             def tool_call_handler(step: Any) -> None:
-                nonlocal document_open_step_index, peer_send_invoked, peer_result_send_invoked, create_sheet_ran
+                nonlocal document_open_step_index, create_sheet_ran
                 if step.name == "create_sheet":
                     create_sheet_ran = True
-                if domain == "document_research" and step.name in ("send_peer_work", "send_peer_result"):
-                    peer_send_invoked = True
-                if domain == "document_research" and step.name == "send_peer_result":
-                    peer_result_send_invoked = True
+                # Peer delivery is recorded in _note_peer_send_result from the
+                # tool return, not from this pre-execution call.
                 if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
                     from plugin.chatbot.web_research_chat import document_open_step_chat_text
 
@@ -425,9 +462,10 @@ class DelegateToSpecializedBase(ToolBase):
         else:
             payload = dict(payload)
 
-        # Peer-work receiving turn: nested specialize (or research without
-        # send_peer_result) is not delivery — stamp still-required before Ready.
-        # send_peer_work alone is not delivery on this path; only send_peer_result is.
+        # Peer-work receiving turn: nested specialize (or research without an
+        # accepted send_peer_result) is not delivery — stamp still-required
+        # before Ready. A failed send_peer_result leaves this flag false so
+        # the inner agent can retry. send_peer_work alone is not delivery.
         if not peer_result_send_invoked and _outer_turn_is_peer_work(ctx):
             from plugin.framework.prompts import annotate_outer_peer_delivery_pending
 
