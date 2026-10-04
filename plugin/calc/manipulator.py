@@ -35,14 +35,14 @@ if TYPE_CHECKING:
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
     from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
-    from com.sun.star.table import BorderLine, TableSortField
+    from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
 else:
     try:
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
         from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
-        from com.sun.star.table import BorderLine, TableSortField
+        from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
     except ImportError:
         pass
 
@@ -54,7 +54,7 @@ from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, is_compatible_temporal_template, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
 from plugin.calc.error_detector import get_calc_error_name
 from plugin.calc.inspector import _format_category_from_type
-from plugin.framework.errors import safe_json_loads
+from plugin.framework.errors import safe_json_loads, is_disposed_exception
 from plugin.framework.uno_context import get_ctx
 
 
@@ -191,6 +191,8 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
                         # Wait, if we return a 2D array, write_formula_range can process it and adjust its target range.
                         return [[val.strip() for val in row] for row in rows]
             except Exception as e:
+                if is_disposed_exception(e):
+                    raise
                 log.debug("Failed to read sample csv: %s", e)
 
     return None
@@ -263,6 +265,22 @@ class CellManipulator:
 
     def _apply_borders(self, obj: Any, color: int) -> None:
         """Apply borders to a cell or range object."""
+        try:
+            import uno
+            line = uno.createUnoStruct("com.sun.star.table.BorderLine2")
+            setattr(line, "Color", color)
+            line.OuterLineWidth = 50
+            line.LineStyle = BorderLineStyle.SOLID
+
+            obj.setPropertyValue("TopBorder2", line)
+            obj.setPropertyValue("BottomBorder2", line)
+            obj.setPropertyValue("LeftBorder2", line)
+            obj.setPropertyValue("RightBorder2", line)
+            return
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
+            pass
 
         line = BorderLine()
         setattr(line, "Color", color)
@@ -289,7 +307,9 @@ class CellManipulator:
             # Get cell
             try:
                 cell = sheet.getCellRangeByName(cell_address)
-            except Exception:
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
                 cell = None
             if not cell:
                 raise CalcError(f"Cell not found: {cell_address}", code="CALC_CELL_NOT_FOUND", details={"address": cell_address})
@@ -322,6 +342,8 @@ class CellManipulator:
                         raise Exception("Formula error")
                     return cell.getValue()
                 except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
                     # Formula error
                     error_code = cell.getError()
                     raise CalcError(f"Formula error in {cell_address}: {self._get_error_name(error_code)}", code="CALC_FORMULA_ERROR", details={"address": cell_address, "error_code": error_code, "error_name": self._get_error_name(error_code)}) from e
@@ -332,6 +354,8 @@ class CellManipulator:
             # Re-raise our calc errors
             raise
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             # Wrap other exceptions
             raise CalcError(f"Failed to get cell value: {str(e)}", code="CALC_CELL_VALUE_ERROR", details={"address": cell_address, "original_error": str(e), "error_type": type(e).__name__}) from e
 
@@ -381,6 +405,8 @@ class CellManipulator:
                     self._set_number_format(address_or_range, number_format)
                 log.info("Cell %s style updated.", address_or_range.upper())
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Style application failed for %s", address_or_range)
             raise CalcError(str(e)) from e
 
@@ -400,7 +426,9 @@ class CellManipulator:
             language = getattr(locale, "Language", None) or ""
             if language:
                 return locale
-        except Exception:
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.debug("CharLocale unavailable; using en-US fallback", exc_info=True)
         return uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
 
@@ -443,6 +471,8 @@ class CellManipulator:
             cell_range.clearContents(23)
             log.info("Range %s cleared.", range_str.upper())
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Range clear failed for %s", range_str)
             raise CalcError(str(e)) from e
 
@@ -462,6 +492,8 @@ class CellManipulator:
                 cell_range.setPropertyValue("HoriJustify", CENTER)
                 cell_range.setPropertyValue("VertJustify", V_CENTER)
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Cell merge failed for %s", range_str)
             raise CalcError(str(e)) from e
 
@@ -501,6 +533,8 @@ class CellManipulator:
             log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
             return f"Range {range_str} sorted {direction} by column {sort_column}."
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Sort failed for %s", range_str)
             raise CalcError(str(e)) from e
 
@@ -524,7 +558,9 @@ class CellManipulator:
         """Built-in ``[HH]:MM:SS`` key (formatindex 43), with queryKey/addNew fallback."""
         try:
             return int(formats.getFormatIndex(43, locale))
-        except Exception:
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.debug("getFormatIndex(43) failed; falling back to queryKey", exc_info=True)
         key = formats.queryKey("[HH]:MM:SS", locale, False)
         if key == -1:
@@ -570,6 +606,8 @@ class CellManipulator:
             try:
                 serial = duration_serial_from_iso(stripped)
             except Exception as e:
+                if is_disposed_exception(e):
+                    raise
                 log.debug("Duration convert failed for %r: %s", stripped, e)
                 meta["kind"] = "text"
                 meta["restore_format"] = True
@@ -589,6 +627,8 @@ class CellManipulator:
                 meta["detected_key"] = int(detected_key)
                 return float(serial), "", meta
             except Exception as e:
+                if is_disposed_exception(e):
+                    raise
                 # NotNumericException and peers → ordinary text fallback (S4).
                 if "NotNumeric" not in type(e).__name__:
                     log.debug("ISO convert failed for %r: %s", stripped, e)
@@ -632,7 +672,9 @@ class CellManipulator:
                 try:
                     cell = sheet.getCellByPosition(col, r)
                     key = int(cell.getPropertyValue("NumberFormat"))
-                except Exception:
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
                     continue
                 if key == 0:
                     continue
@@ -643,7 +685,9 @@ class CellManipulator:
                             category_cache[key] = _format_category_from_type(props.getPropertyValue("Type"))
                         if key not in format_code_cache:
                             format_code_cache[key] = props.getPropertyValue("FormatString")
-                    except Exception:
+                    except Exception as e:
+                        if is_disposed_exception(e):
+                            raise
                         if key not in category_cache:
                             category_cache[key] = None
                         if key not in format_code_cache:
@@ -745,9 +789,11 @@ class CellManipulator:
                     flat_vals = []
                     for r in formula_or_values:
                         row_vals = list(r)
+                        if len(row_vals) > num_cols:
+                            raise CalcError(f"Row has {len(row_vals)} columns but the target range has {num_cols}. The array is too wide.")
                         if num_cols > len(row_vals):
                             row_vals.extend([""] * (num_cols - len(row_vals)))
-                        flat_vals.extend(row_vals[:num_cols])
+                        flat_vals.extend(row_vals)
                     formula_or_values = flat_vals
 
                 if len(formula_or_values) != total_cells:
@@ -827,7 +873,9 @@ class CellManipulator:
                         cell = sheet.getCellByPosition(col, row)
                         try:
                             key = int(cell.getPropertyValue("NumberFormat"))
-                        except Exception:
+                        except Exception as e:
+                            if is_disposed_exception(e):
+                                raise
                             key = 0
                         if meta["restore_format"]:
                             s29_snapshots.append((col, row, key))
@@ -836,7 +884,9 @@ class CellManipulator:
                                 try:
                                     props = formats.getByKey(key)
                                     category_cache[key] = _format_category_from_type(props.getPropertyValue("Type"))
-                                except Exception:
+                                except Exception as e:
+                                    if is_disposed_exception(e):
+                                        raise
                                     category_cache[key] = None
                             dest_categories[(col, row)] = category_cache[key]
                     cell_idx += 1
@@ -891,7 +941,9 @@ class CellManipulator:
                     decisions.append(row_dec)
                 try:
                     self._apply_temporal_format_runs(sheet, start, decisions)
-                except Exception:
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
                     log.exception("Date/time format pass failed for range %s", range_str)
                     # S30: count cells that needed apply, not preserve-only temporals.
                     apply_n = sum(1 for row_dec in decisions for d in row_dec if isinstance(d, tuple) and d[0] == "apply")
@@ -916,13 +968,15 @@ class CellManipulator:
             # not a write-path fault.
             raise
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             # UNO often yields str(e) == ""; keep a usable message for the agent.
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__
             log.exception("Range formula write failed for %s", range_str)
             raise CalcError(msg) from e
 
     @staticmethod
-    def _array_probe_origin(used: Any, avoid_col: int) -> tuple[int, int]:
+    def _array_probe_origin(used: Any, avoid_col: int, avoid_row: int) -> tuple[int, int]:
         """``(column, first_row)`` for the two-cell ``ROWS``/``COLUMNS`` probe.
 
         The probe sits two columns to the right of the used area and the
@@ -937,13 +991,14 @@ class CellManipulator:
         col = min(max(int(used.EndColumn), avoid_col) + 2, max_col)
         row = 0
         overlaps_used = col <= int(used.EndColumn) and int(used.StartRow) <= 1 and int(used.EndRow) >= 0
-        if overlaps_used:
-            row = int(used.EndRow) + 1
+        overlaps_target = col <= avoid_col and 0 <= 1 and avoid_row >= 0
+        if overlaps_used or overlaps_target:
+            row = max(int(used.EndRow), avoid_row) + 1
             if row + 1 > max_row:
                 raise CalcError("Cannot measure the array formula: no free cells below the used area in column XFD.")
         return col, row
 
-    def _measure_array(self, sheet: Any, formula: str, *, avoid_col: int) -> tuple[int, int]:
+    def _measure_array(self, sheet: Any, formula: str, *, avoid_col: int, avoid_row: int = 0) -> tuple[int, int]:
         """``(rows, columns)`` of *formula*'s result, measured by LibreOffice.
 
         ``=ROWS(expr)`` and ``=COLUMNS(expr)`` are entered as array formulas
@@ -955,7 +1010,7 @@ class CellManipulator:
         cursor = sheet.createCursor()
         cursor.gotoEndOfUsedArea(False)
         used = cursor.getRangeAddress()
-        col, row0 = self._array_probe_origin(used, avoid_col)
+        col, row0 = self._array_probe_origin(used, avoid_col, avoid_row)
         expr = formula[1:] if formula.startswith("=") else formula
         sizes: list[int] = []
         try:
@@ -974,7 +1029,9 @@ class CellManipulator:
                     probe = sheet.getCellRangeByPosition(col, row, col, row)
                     probe.setArrayFormula("")
                     probe.clearContents(23)
-                except Exception:
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
                     pass
         return sizes[0], sizes[1]
 
@@ -989,7 +1046,9 @@ class CellManipulator:
             if not rng.getArrayFormula():
                 return None
             return addr
-        except Exception:
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
             return None
 
     def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int]) -> dict[str, Any]:
@@ -1004,7 +1063,7 @@ class CellManipulator:
         c1, r1 = start
         c2, r2 = end
         explicit = (c1, r1) != (c2, r2)
-        rows, cols = self._measure_array(sheet, formula, avoid_col=c2)
+        rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_row=r2)
 
         def block_name(a: int, b: int, c: int, d: int) -> str:
             return "%s%d:%s%d" % (index_to_column(a), b + 1, index_to_column(c), d + 1)
@@ -1013,6 +1072,8 @@ class CellManipulator:
         if explicit:
             target = (c1, r1, c2, r2)
             height, width = r2 - r1 + 1, c2 - c1 + 1
+            if height * width > MAX_ARRAY_CELLS:
+                raise CalcError("The target range is %d x %d cells, over the %d-cell limit." % (height, width, MAX_ARRAY_CELLS))
             if rows > height or cols > width:
                 notes.append("The result is %d x %d but the range is %d x %d: the rest is cut (result_does_not_fit)." % (rows, cols, height, width))
             elif rows < height or cols < width:
@@ -1047,7 +1108,9 @@ class CellManipulator:
             try:
                 rng.setArrayFormula("")
                 rng.clearContents(23)
-            except Exception:
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
                 pass
             raise CalcError("The formula returns an error (%s, code %d)." % (anchor.getString() or "error", int(anchor.Error)))
         preview = [list(r) for r in rng.getDataArray()[:5]]
@@ -1087,6 +1150,8 @@ class CellManipulator:
             log.info("%s", msg)
             return {"message": msg, "rows_copied": rows, "cols_copied": cols}
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__
             log.exception("Range copy failed from %s onto %s", source_str, dest_str)
             raise CalcError(msg) from e
@@ -1104,6 +1169,8 @@ class CellManipulator:
             log.info("%d row(s) deleted starting from row %d.", count, row_num)
             return f"{count} row(s) deleted starting from row {row_num}."
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Row deletion failed")
             raise CalcError(str(e)) from e
 
@@ -1117,6 +1184,8 @@ class CellManipulator:
             log.info("%d column(s) deleted starting from column %s.", count, col_letter.upper())
             return f"{count} column(s) deleted starting from column {col_letter.upper()}."
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Column deletion failed")
             raise CalcError(str(e)) from e
 

@@ -18,36 +18,36 @@ def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
 
 
 def test_array_probe_sits_two_columns_right_of_used_area():
-    col, row = CellManipulator._array_probe_origin(_used(0, 20, 3), avoid_col=1)
+    col, row = CellManipulator._array_probe_origin(_used(0, 20, 3), avoid_col=1, avoid_row=0)
     assert (col, row) == (5, 0)
 
 
 def test_array_probe_clears_the_target_column():
-    col, row = CellManipulator._array_probe_origin(_used(0, 20, 3), avoid_col=10)
+    col, row = CellManipulator._array_probe_origin(_used(0, 20, 3), avoid_col=10, avoid_row=0)
     assert (col, row) == (12, 0)
 
 
 def test_array_probe_shifts_below_used_rows_when_clamped_onto_xfd():
     # Used area already at XFD. min(..., 16383) used to overwrite rows 0–1.
-    col, row = CellManipulator._array_probe_origin(_used(0, 10, 16383), avoid_col=5)
+    col, row = CellManipulator._array_probe_origin(_used(0, 10, 16383), avoid_col=5, avoid_row=0)
     assert col == 16383
     assert row == 11
 
 
 def test_array_probe_stays_on_row_zero_when_xfd_used_rows_start_lower():
     # Data only on row 5 of XFD: rows 0–1 are outside the used rectangle.
-    col, row = CellManipulator._array_probe_origin(_used(5, 5, 16383), avoid_col=0)
+    col, row = CellManipulator._array_probe_origin(_used(5, 5, 16383), avoid_col=0, avoid_row=0)
     assert (col, row) == (16383, 0)
 
 
 def test_array_probe_does_not_shift_when_clamp_is_still_outside_used_columns():
-    col, row = CellManipulator._array_probe_origin(_used(0, 10, 16381), avoid_col=0)
+    col, row = CellManipulator._array_probe_origin(_used(0, 10, 16381), avoid_col=0, avoid_row=0)
     assert (col, row) == (16383, 0)
 
 
 def test_array_probe_refuses_when_xfd_has_no_rows_left():
     with pytest.raises(CalcError, match="column XFD"):
-        CellManipulator._array_probe_origin(_used(0, 1_048_575, 16383), avoid_col=0)
+        CellManipulator._array_probe_origin(_used(0, 1_048_575, 16383), avoid_col=0, avoid_row=0)
 
 
 def test_measure_array_does_not_write_the_used_xfd_cells():
@@ -89,7 +89,7 @@ def test_measure_array_does_not_write_the_used_xfd_cells():
         def getCellByPosition(self, _col: int, _row: int) -> _Cell:
             return _Cell()
 
-    rows, cols = CellManipulator(MagicMock())._measure_array(_Sheet(), "=A1:A3", avoid_col=1)
+    rows, cols = CellManipulator(MagicMock())._measure_array(_Sheet(), "=A1:A3", avoid_col=1, avoid_row=0)
 
     assert (rows, cols) == (3, 3)
     # Measure writes, then the finally block clears the same two cells.
@@ -99,3 +99,46 @@ def test_measure_array_does_not_write_the_used_xfd_cells():
     assert written[2][2] == "" and written[3][2] == ""
     assert cleared == [(16383, 5), (16383, 6)]
     assert all(row not in (0, 1) for _col, row, _formula in written)
+
+def test_write_formula_range_rejects_wide_array():
+    bridge = MagicMock()
+    rng = MagicMock()
+    addr = MagicMock()
+    addr.StartColumn = 0
+    addr.EndColumn = 1
+    addr.StartRow = 0
+    addr.EndRow = 1
+    rng.getRangeAddress.return_value = addr
+    bridge.resolve_range_or_address.return_value = rng
+    manipulator = CellManipulator(bridge)
+    from unittest.mock import patch
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
+        with pytest.raises(CalcError, match="is too wide"):
+            manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
+def test_write_array_formula_explicit_rejects_large_range():
+    manipulator = CellManipulator(MagicMock())
+    sheet = MagicMock()
+    manipulator._measure_array = MagicMock(return_value=(2, 2))
+
+    # 1000 * 1000 = 1000000 > MAX_ARRAY_CELLS (which is 100000)
+    start = (0, 0)
+    end = (999, 999)
+
+    with pytest.raises(CalcError, match="limit"):
+        manipulator._write_array_formula(sheet, "=1", start, end)
+
+def test_re_raise_disposed_exception():
+    manipulator = CellManipulator(MagicMock())
+    sheet = MagicMock()
+
+    # We mock getCellRangeByName to raise a RuntimeError matching disposed exception
+    class DisposedException(RuntimeError):
+        pass
+
+    sheet.getCellRangeByName.side_effect = DisposedException("A mock disposed error")
+
+    from plugin.framework.errors import is_disposed_exception
+    assert is_disposed_exception(DisposedException("A mock disposed error"))
+
+    with pytest.raises(DisposedException):
+        manipulator.safe_get_cell_value(sheet, "A1")

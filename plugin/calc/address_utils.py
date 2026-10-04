@@ -191,6 +191,8 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
         if end_row_num < 1:
             raise ValueError(f"Invalid row number in end cell address: {end_row_num}")
         end_row = end_row_num - 1
+        if start_col > end_col or start_row > end_row:
+            raise ValueError(f"Invalid cell range: start cell must be top-left and end cell bottom-right: '{range_str}'")
     else:
         end_col = start_col
         end_row = start_row
