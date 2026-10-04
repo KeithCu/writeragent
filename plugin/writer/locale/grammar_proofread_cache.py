@@ -110,13 +110,39 @@ def _is_complete_sentence(canon: str) -> bool:
 
 
 def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len: int) -> list[dict[str, Any]]:
-    """Clip or drop errors that reference positions beyond the canonical sentence length."""
+    """Clip or drop errors that reference positions beyond the canonical sentence length.
+
+    What was wrong: ``effective_len <= 0`` dropped Harper inserts
+    (``n_error_length == 0``), and ``start >= canonical_len`` dropped an
+    insert at the canonical end. ``cache_put_sentence`` then stored the
+    sentence with no errors. A zero-width point with
+    ``0 <= start <= canonical_len`` stays, including its suggestions and
+    rule id. Positive lengths still clip, and still drop when they start
+    at or past that end. Negative starts, non-ints, and bools are dropped.
+    """
     clipped: list[dict[str, Any]] = []
     for e in errors:
         start = e.get("n_error_start", 0)
+        length = e.get("n_error_length", 0)
+        if (
+            isinstance(start, bool)
+            or isinstance(length, bool)
+            or not isinstance(start, int)
+            or not isinstance(length, int)
+            or start < 0
+            or length < 0
+            or start > canonical_len
+        ):
+            continue
+        if length == 0:
+            # Missing length used to fall through ``effective_len <= 0`` and
+            # drop. Only an explicit zero is an insert; an omitted length is
+            # not one.
+            if "n_error_length" in e:
+                clipped.append(e)
+            continue
         if start >= canonical_len:
             continue
-        length = e.get("n_error_length", 0)
         effective_len = min(length, canonical_len - start)
         if effective_len <= 0:
             continue
