@@ -1593,6 +1593,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                                     else:
                                                         self._set_status(_(prior_status))
                                             self.queue_executor.post(_disable_stop)
+
                                         speak_text_async(
                                             content_to_speak,
                                             on_complete=_on_speech_complete,
