@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 from plugin.framework.queue_executor import SendCancelled
 from plugin.doc.document_research_specialized import DelegateReadDocument

@@ -1,5 +1,3 @@
-import pytest
-import threading
 from unittest.mock import MagicMock
 from plugin.framework.queue_executor import _current_send_cancellation, SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler

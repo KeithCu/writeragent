@@ -31,18 +31,15 @@ import tempfile
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from plugin.framework.deal_shim import (
-    DEAL_MAX_ARGV,
     DEAL_MAX_COL_INDEX,
     DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
     DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
     UNDER_CROSSHAIR,
     ascii_bounded,
     deal,
     inverse_ensure,
-    str_bounded,
 )
 
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
