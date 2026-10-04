@@ -44,6 +44,7 @@ class IngestState(TypedDict):
     chunks: NotRequired[list[dict[str, Any]]]
     upserted: NotRequired[int]
     dim: NotRequired[int]
+    heartbeat_fn: NotRequired[Any]
 
 
 def rows_to_chunks(state: IngestState) -> dict[str, Any]:
@@ -212,6 +213,7 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
         upserted = 0
         dim = schema_dim or 0
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+        heartbeat_fn = state.get("heartbeat_fn")
 
         for batch_index, start in enumerate(range(0, len(all_chunks), batch_size)):
             window = all_chunks[start : start + batch_size]
@@ -241,6 +243,8 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
                 upserted += 1
 
             conn.commit()
+            if heartbeat_fn is not None:
+                heartbeat_fn({"phase": "embed", "chunks": upserted})
             count = corpus_chunk_count(conn)
             _write_meta(state, chunk_count_override=count, dim=dim)
             log.debug(
@@ -352,6 +356,7 @@ def ingest_paragraphs(
     build_fts: bool = False,
     build_vectors: bool = True,
     fill_vector_gaps: bool = False,
+    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Run the LangGraph ingest pipeline for changed paragraph rows.
 
@@ -378,6 +383,8 @@ def ingest_paragraphs(
         "rows": list(rows or []),
         "delete_keys": list(delete_keys or []),
     }
+    if heartbeat_fn is not None:
+        initial["heartbeat_fn"] = heartbeat_fn
     final = _get_ingest_graph().invoke(initial)
     upserted = int(final.get("upserted") or 0)
     dim = int(final.get("dim") or 0)

@@ -77,6 +77,11 @@ def test_stop_speech_terminates_proc():
     with patch("plugin.audio.tts_service._play_proc", mock_proc):
         assert is_speaking() is True
         stop_speech()
+        import time
+        for _ in range(10):
+            if mock_proc.terminate.call_count > 0:
+                break
+            time.sleep(0.01)
         mock_proc.terminate.assert_called_once()
 
 

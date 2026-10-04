@@ -217,3 +217,17 @@ def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
     assert result["status"] == "ok"
     mock_main.assert_called_once()
     mock_client.assert_called_once()
+
+
+def test_insert_viz_result_into_doc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.viz import insert_viz_result_into_doc
+    class MockCtx:
+        def stop_checker(self):
+            return True
+
+    doc = None
+    ctx = MockCtx()
+    result = {"status": "ok", "result": "val"}
+
+    res = insert_viz_result_into_doc(ctx, doc, result)
+    assert res == 0

@@ -538,6 +538,11 @@ class TestStdinWriteCapturesProc:
         conn._proc = _proc_nulled_on_bool(conn, stdin)
         conn._running = True
         conn.send_notification("session/cancel", {"sessionId": "s"})
+        import time
+        for _ in range(50):
+            if stdin.written:
+                break
+            time.sleep(0.01)
         assert stdin.written
         assert b"session/cancel" in stdin.written[0]
 
@@ -547,5 +552,10 @@ class TestStdinWriteCapturesProc:
         conn._proc = _proc_nulled_on_bool(conn, stdin)
         conn._running = True
         conn.send_response(4, result={"outcome": {"outcome": "cancelled"}})
+        import time
+        for _ in range(50):
+            if stdin.written:
+                break
+            time.sleep(0.01)
         assert stdin.written
         assert b'"id": 4' in stdin.written[0]

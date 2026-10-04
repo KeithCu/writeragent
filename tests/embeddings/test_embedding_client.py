@@ -130,3 +130,25 @@ def test_embed_texts_malformed_worker_result(ctx, config_data):
     ):
         with pytest.raises(ToolExecutionError, match="malformed"):
             embed_texts(ctx, ["hello"])
+
+def test_embed_texts_stop_checker_plumbing(ctx, config_data):
+    worker_result = {
+        "model": DEFAULT_EMBEDDING_MODEL,
+        "dim": 384,
+        "vectors": [[0.1, 0.2]],
+        "indices": [0],
+    }
+    def stop_checker():
+        return False
+
+    cancellation_scope = object()
+
+    with (
+        patch("plugin.embeddings.embedding_client.get_config", side_effect=lambda k: config_data.get(k, "")),
+        patch("plugin.embeddings.embedding_client.embeddings_worker_timeout_sec", return_value=120),
+        patch("plugin.embeddings.embedding_client.run_trusted_worker_action", return_value=worker_result) as mock_run,
+    ):
+        embed_texts(ctx, ["hello"], stop_checker=stop_checker, cancellation_scope=cancellation_scope)
+
+    assert mock_run.call_args.kwargs["stop_checker"] is stop_checker
+    assert mock_run.call_args.kwargs["cancellation_scope"] is cancellation_scope

@@ -108,6 +108,7 @@ class WriteDocumentSection(ToolWriterSpecialBase):
     description: str = "Insert or replace a section of document content with formatted HTML."
     is_mutation: bool | None = True
     long_running: bool = True
+    timeout: float = 600.0
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

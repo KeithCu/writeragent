@@ -162,7 +162,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
     return run_vision(ctx, spec, png_bytes, context=context)
 
 
-def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True) -> dict[str, Any]:
+def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, stop_checker: Any = None) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
@@ -202,6 +202,9 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
     results: list[dict[str, Any]] = []
     for image_name in target_names:
+        if stop_checker and stop_checker():
+            break
+
         per_params = dict(params_dict)
         per_params["image_name"] = image_name
         result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
@@ -216,6 +219,8 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
+        if stop_checker and stop_checker():
+            break
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
             def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:

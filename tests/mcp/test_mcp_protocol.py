@@ -470,3 +470,15 @@ def test_timeout_zero_rejects_async_tool():
     assert isinstance(result, dict)
     assert result["status"] == "error"
     assert result["code"] == "TOOL_EXECUTION_ERROR"
+
+
+def test_named_async_tools_declare_positive_timeout():
+    """Tools moved off the UI thread must satisfy the MCP async timeout gate."""
+    from plugin.chatbot.writing import WriteDocumentSection
+    from plugin.ppt_master.tools import ExportPresentationProject
+    from plugin.writer.specialized.mail_merge import RunMerge
+
+    for tool in (WriteDocumentSection(), ExportPresentationProject(), RunMerge()):
+        assert tool.is_async() is True
+        assert getattr(tool, "timeout", 0) > 0
+

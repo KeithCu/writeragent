@@ -576,12 +576,13 @@ def _get_all_calc_chart_names(doc: Any) -> set[str]:
         sheets = doc.getSheets()
         for name in sheets.getElementNames():
             names.update(sheets.getByName(name).getCharts().getElementNames())
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
     return names
 
 
-def _find_calc_chart_and_sheet(doc: Any, chart_name: str) -> tuple[Any | None, Any | None]:
+def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None = None) -> tuple[Any | None, Any | None]:
     """Find a chart object and its parent sheet across all sheets in a Calc document.
 
     Note: Chart names in Calc are document-wide objects (e.g. Chart_0, Chart_1).
@@ -590,13 +591,20 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str) -> tuple[Any | None, A
     """
     try:
         sheets = doc.getSheets()
+        if sheet_name and sheets.hasByName(sheet_name):
+            sheet = sheets.getByName(sheet_name)
+            charts = sheet.getCharts()
+            if charts.hasByName(chart_name):
+                return charts.getByName(chart_name), sheet
+
         for name in sheets.getElementNames():
             sheet = sheets.getByName(name)
             charts = sheet.getCharts()
             if charts.hasByName(chart_name):
                 return charts.getByName(chart_name), sheet
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
     return None, None
 
 
@@ -620,10 +628,10 @@ def _ole2_shape_at(page: Any, index: int) -> Any | None:
         raise
 
 
-def _resolve_chart(doc: Any, chart_name: str) -> Any | None:
+def _resolve_chart(doc: Any, chart_name: str, sheet_name: str | None = None) -> Any | None:
     """Resolve a chart object by name across Calc, Writer, or Draw."""
     if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
-        chart_obj, _ = _find_calc_chart_and_sheet(doc, chart_name)
+        chart_obj, _ = _find_calc_chart_and_sheet(doc, chart_name, sheet_name)
         return chart_obj
     elif supportsService(doc, "com.sun.star.text.TextDocument"):
         objects = doc.getEmbeddedObjects()
@@ -685,8 +693,9 @@ class ListCharts(ToolBaseDummy):
                     for name in charts.getElementNames():
                         chart_obj = charts.getByName(name)
                         result.append(self._get_summary(chart_obj, name, sheet_name=sheet_name))
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
 
         elif supportsService(doc, "com.sun.star.text.TextDocument"):
             objects = doc.getEmbeddedObjects()
@@ -754,7 +763,7 @@ class GetChartInfo(ToolBaseDummy):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         chart_name = kwargs["name"]
-        chart_obj = _resolve_chart(doc, chart_name)
+        chart_obj = _resolve_chart(doc, chart_name, kwargs.get("sheet"))
 
         if not chart_obj:
             return self._tool_error(f"Chart '{chart_name}' not found.")
@@ -892,7 +901,7 @@ class UpsertChart(ToolBaseDummy):
 
         elif action == "edit":
             chart_name = kwargs["name"]
-            chart_obj = _resolve_chart(doc, chart_name)
+            chart_obj = _resolve_chart(doc, chart_name, kwargs.get("sheet"))
 
             if not chart_obj:
                 return self._tool_error(f"Chart '{chart_name}' not found.")
@@ -1148,7 +1157,8 @@ class UpsertChart(ToolBaseDummy):
                 _drop_writer_chart_insert(doc, text, chart_obj, name)
                 raise
         else:
-            log.error("Could not obtain chart model after retries. Chart might be empty/invisible.")
+            _drop_writer_chart_insert(doc, text, chart_obj, name)
+            return self._tool_error("Cannot access chart content.")
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
         if chart_doc:
@@ -1165,7 +1175,7 @@ class UpsertChart(ToolBaseDummy):
             except Exception as e:
                 log.debug("Failed direct chart_doc model update: %s", e)
 
-        _process_events(ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
+        _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
 
     def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
@@ -1198,14 +1208,16 @@ class UpsertChart(ToolBaseDummy):
             shape.Name = name
 
             chart_doc = _chart_document_from_host(shape)
-            if chart_doc:
-                chart_doc.setDiagram(chart_doc.createInstance(service))
-                _apply_chart_styling(chart_doc, **kwargs)
+            if not chart_doc:
+                _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
+                return self._tool_error("Cannot access chart content.")
+            chart_doc.setDiagram(chart_doc.createInstance(service))
+            _apply_chart_styling(chart_doc, **kwargs)
         except Exception:
             _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
             raise
 
-        _process_events(ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
+        _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
 
 
@@ -1224,7 +1236,7 @@ class DeleteChart(ToolBaseDummy):
         chart_name = kwargs["name"]
 
         if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
-            chart_obj, sheet = _find_calc_chart_and_sheet(doc, chart_name)
+            chart_obj, sheet = _find_calc_chart_and_sheet(doc, chart_name, kwargs.get("sheet"))
             if not chart_obj or not sheet:
                 return self._tool_error(f"Chart '{chart_name}' not found.")
             sheet.getCharts().removeByName(chart_name)

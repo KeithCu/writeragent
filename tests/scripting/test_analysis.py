@@ -474,3 +474,18 @@ def test_helper_golden_metrics(helper, call, metric_keys, requires):
     assert result["helper"] == helper
     for key in metric_keys:
         assert key in result["metrics"], f"missing metric {key!r} for {helper}"
+
+
+import pytest
+def test_insert_analysis_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.analysis_egress import insert_analysis_result_into_calc
+    class MockCtx:
+        def stop_checker(self):
+            return True
+
+    doc = None
+    ctx = MockCtx()
+    result = {"status": "ok", "result": "val"}
+
+    res = insert_analysis_result_into_calc(doc, ctx, result)
+    assert res == 0

@@ -222,7 +222,7 @@ class ImageService:
         api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model()
         return EndpointImageProvider(api_config, self.ctx)
 
-    def generate_image(self, prompt: str, provider_name: str | None = None, status_callback: Any = None, **kwargs: Any) -> tuple[list[str], str]:
+    def generate_image(self, prompt: str, provider_name: str | None = None, status_callback: Any = None, stop_checker: Any = None, **kwargs: Any) -> tuple[list[str], str]:
         provider = self.get_provider(provider_name or "endpoint")
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")
@@ -242,4 +242,4 @@ class ImageService:
             if k not in kwargs:
                 kwargs[k] = v
 
-        return provider.generate(prompt, status_callback=status_callback, **kwargs)
+        return provider.generate(prompt, status_callback=status_callback, stop_checker=stop_checker, **kwargs)
