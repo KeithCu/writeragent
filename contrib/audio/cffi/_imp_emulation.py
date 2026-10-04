@@ -8,7 +8,8 @@ except ImportError:
     # Note that this is used only for tests or for the old ffi.verify().
     # This is copied from the source code of Python 3.11.
 
-    from _imp import (is_builtin, is_frozen)
+    from _imp import (acquire_lock, release_lock,
+                      is_builtin, is_frozen)
 
     from importlib._bootstrap import _load
 

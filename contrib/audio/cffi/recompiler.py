@@ -1,7 +1,4 @@
-import io
-import os
-import sys
-import sysconfig
+import io, os, sys, sysconfig
 from . import ffiplatform, model
 from .error import VerificationError
 from .cffi_opcode import *

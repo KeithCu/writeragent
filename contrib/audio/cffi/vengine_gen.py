@@ -1,8 +1,7 @@
 #
 # DEPRECATED: implementation for ffi.verify()
 #
-import sys
-import os
+import sys, os
 import types
 
 from . import model

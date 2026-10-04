@@ -209,9 +209,8 @@ class DelegateToSpecializedBase(ToolBase):
                 if status_callback:
                     status_callback(_("Running local OCR on selected image(s)..."))
                 # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
-                tool = ExtractStructureFromImage()
-                tool_ctx = ctx
-                return tool.execute(tool_ctx, insert_into_document=True)
+                vision_tool = ExtractStructureFromImage()
+                return vision_tool.execute(ctx, insert_into_document=True)
 
         if domain == "document_research" and not USE_SUB_AGENT:
             return self._tool_error(

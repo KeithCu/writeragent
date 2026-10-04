@@ -1,5 +1,4 @@
-import sys
-import os
+import sys, os
 from .error import VerificationError
 
 

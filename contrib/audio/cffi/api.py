@@ -1,5 +1,4 @@
-import sys
-import types
+import sys, types
 from .lock import allocate_lock
 from .error import CDefError
 from . import model
@@ -415,7 +414,7 @@ class FFI(object):
         if (replace_with.startswith('*')
                 and '&[' in self._backend.getcname(cdecl, '&')):
             replace_with = '(%s)' % replace_with
-        elif replace_with and replace_with[0] not in '[(':
+        elif replace_with and not replace_with[0] in '[(':
             replace_with = ' ' + replace_with
         return self._backend.getcname(cdecl, replace_with)
 

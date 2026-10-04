@@ -1,3 +1,4 @@
+import re
 
 with open("plugin/notebook/notebook_controls.py", "r") as f:
     code = f.read()

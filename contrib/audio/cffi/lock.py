@@ -9,7 +9,7 @@ else:
     try:
         from _thread import allocate_lock
     except ImportError:
-        pass
+        from _dummy_thread import allocate_lock
 
 
 ##import sys

@@ -365,7 +365,7 @@ class CParser:
                 decls[0]["decl"],
                 (c_ast.Enum, c_ast.Struct, c_ast.Union, c_ast.IdentifierType),
             ):
-                decls_0_tail = cast("Any", decls[0]["decl"])
+                decls_0_tail = cast(Any, decls[0]["decl"])
                 while not isinstance(decls_0_tail, c_ast.TypeDecl):
                     decls_0_tail = decls_0_tail.type
                 if decls_0_tail.declname is None:
@@ -412,7 +412,7 @@ class CParser:
                     self._add_identifier(fixed_decl.name, fixed_decl.coord)
 
             fixed_decl = fix_atomic_specifiers(
-                cast("c_ast.Decl | c_ast.Typedef", fixed_decl)
+                cast(c_ast.Decl | c_ast.Typedef, fixed_decl)
             )
             declarations.append(fixed_decl)
 
@@ -1484,7 +1484,7 @@ class CParser:
             type=decl or c_ast.TypeDecl(None, None, None, None),
             coord=coord,
         )
-        return cast("c_ast.Typename", self._fix_decl_name_type(typename, spec["type"]))
+        return cast(c_ast.Typename, self._fix_decl_name_type(typename, spec["type"]))
 
     # BNF: abstract_declarator_opt : pointer? direct_abstract_declarator?
     def _parse_abstract_declarator_opt(self) -> Optional[c_ast.Node]:

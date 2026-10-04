@@ -8,7 +8,7 @@ No code changes needed - just provide instruction files!
 
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Any
 
 
 class ExternalMailMergeSystem:
@@ -237,14 +237,14 @@ def main():
         mode=args.mode
     )
     
-    print("\n🎉 Mail merge setup complete!")
+    print(f"\n🎉 Mail merge setup complete!")
     print(f"📁 All documents saved to: {args.output}/")
     print(f"📋 Total tasks ready: {len(tasks)}")
-    print("\n💡 Next steps:")
+    print(f"\n💡 Next steps:")
     print(f"   1. Review task documents in {args.output}/")
     print(f"   2. Edit {instruction_file} to customize instructions")
-    print("   3. Re-run this script to regenerate with new instructions")
-    print("   4. Assign tasks to agents")
+    print(f"   3. Re-run this script to regenerate with new instructions")
+    print(f"   4. Assign tasks to agents")
 
 
 if __name__ == "__main__":

@@ -1120,6 +1120,7 @@ class TestStopClearsAudioWavPath:
     def test_disposing_clears_audio_wav_path(self) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
+        from plugin.chatbot.send_state import StopSendEffect
 
         from plugin.chatbot.send_state import SendEvent, SendEventKind
         # We need the listener to execute StopSendEffect.

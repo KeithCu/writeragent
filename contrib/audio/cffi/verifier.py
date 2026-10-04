@@ -1,11 +1,7 @@
 #
 # DEPRECATED: implementation for ffi.verify()
 #
-import sys
-import os
-import binascii
-import shutil
-import io
+import sys, os, binascii, shutil, io
 from . import __version_verifier_modules__
 from . import ffiplatform
 from .error import VerificationError
