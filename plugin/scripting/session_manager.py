@@ -826,6 +826,8 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
         return None
     if prefix == "calc" and key.endswith(":init"):
         key = key[: -len(":init")]
+    if prefix == "ppt_master" and key == "active":
+        return None
     if not key:
         return None
     try:

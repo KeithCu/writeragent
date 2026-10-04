@@ -1878,3 +1878,39 @@ def test_endpoint_and_native_do_not_split():
     assert "sentences" not in captured
     assert oneshot == {"system": "Hi. Not done yet"}
 
+
+def test_stop_speech_kokoro_race_generation():
+    from plugin.audio.tts_service import stop_speech
+
+    with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
+        bg_tasks = []
+        def fake_run(func, **kwargs):
+            bg_tasks.append(func)
+        mock_run.side_effect = fake_run
+
+        # Fake active state
+        import plugin.audio.tts_service
+        plugin.audio.tts_service._speech_active = True
+
+        # We simulate the token logic by patching get_kokoro_inflight_token
+        # It should capture the token synchronously inside stop_speech.
+        mock_token_1 = object()
+        with patch("plugin.audio.kokoro_pool.get_kokoro_inflight_token", return_value=mock_token_1):
+            stop_speech()
+            assert len(bg_tasks) == 1
+
+        # Utterance B starts, now the pool would have a different token
+        # But we just ensure the deferred task uses the captured mock_token_1
+
+        class MockCancel:
+            called = False
+            token_seen = None
+            @classmethod
+            def cancel(cls, token):
+                cls.called = True
+                cls.token_seen = token
+
+        with patch("plugin.audio.kokoro_pool.cancel_kokoro_inflight", side_effect=MockCancel.cancel):
+            bg_tasks[0]()
+            assert MockCancel.called
+            assert MockCancel.token_seen is mock_token_1

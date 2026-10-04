@@ -500,7 +500,7 @@ def shutdown_kokoro_pool() -> None:
 
 
 def get_kokoro_inflight_token() -> object | None:
-    """Get the token for the current ONNX job, if any, to target cancellation."""
+    """Return an opaque token for the active job, or None."""
     with _POOL_LOCK:
         pool = _POOL
     if pool is not None:
@@ -509,7 +509,10 @@ def get_kokoro_inflight_token() -> object | None:
 
 
 def cancel_kokoro_inflight(token: object | None = None) -> None:
-    """Abort the current ONNX job without dropping an idle warm worker."""
+    """Abort the current ONNX job without dropping an idle warm worker.
+
+    If token is provided, only aborts if that specific job is still running.
+    """
     with _POOL_LOCK:
         pool = _POOL
     if pool is not None:
