@@ -387,7 +387,7 @@ def grep_nearby_files(
 
     subset_norm = str(file_subset).strip() if file_subset else None
 
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
 
     def _resolve() -> tuple[list[FileEntry], bool, str | None]:
         return resolve_grep_candidates(
@@ -453,7 +453,10 @@ def grep_nearby_files(
         finally:
             def _close() -> None:
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
-            execute_on_main_thread(_close)
+            try:
+                execute_on_main_thread(_close)
+            except SendCancelled:
+                close_document_research_document(model, opened_for_document_research=opened_for_document_research)
 
         _process_events_if_available(ctx)
 

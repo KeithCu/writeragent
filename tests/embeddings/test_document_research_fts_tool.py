@@ -127,7 +127,6 @@ def test_search_nearby_files_file_subset_single_match(tmp_path):
     db = tmp_path / "corpus.db"
     db.write_text("sqlite", encoding="utf-8")
     meta.write_text(json.dumps({"schema_version": "6", "embedding_model": "model"}), encoding="utf-8")
-
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
             with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
