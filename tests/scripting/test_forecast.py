@@ -245,16 +245,19 @@ def test_duplicate_dates_are_aggregated():
     assert any("Aggregated 1 duplicate" in flag for flag in result["flags"])
 
 
-def test_insert_forecast_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_insert_forecast_result_into_calc_inserts_even_if_stopped() -> None:
+    from unittest.mock import MagicMock, patch
     from plugin.scripting.forecast import insert_forecast_result_into_calc
     class MockCtx:
         def stop_checker(self):
             return True
 
-    doc = None
+    doc = MagicMock()
     ctx = MockCtx()
-    result = {"status": "ok", "result": "val"}
+    result = {"status": "ok", "tables": [{"columns": ["Date", "Forecast"], "rows": [["2024-01-01", 10.0]]}]}
 
-    # Normally this would raise or do something. We just check if it returns 0.
-    res = insert_forecast_result_into_calc(doc, ctx, result)
-    assert res == 0
+    with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
+        res = insert_forecast_result_into_calc(doc, ctx, result)
+        assert res == 1
+        mock_insert.assert_called_once()
+

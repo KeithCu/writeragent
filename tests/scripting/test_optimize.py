@@ -1,4 +1,3 @@
-import pytest
 import pandas as pd
 import numpy as np
 
@@ -100,15 +99,19 @@ def test_run_optimize_dispatcher():
     assert result["status"] == "ok"
 
 
-def test_insert_optimize_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_insert_optimize_result_into_calc_inserts_even_if_stopped() -> None:
+    from unittest.mock import MagicMock, patch
     from plugin.scripting.optimize import insert_optimize_result_into_calc
     class MockCtx:
         def stop_checker(self):
             return True
 
-    doc = None
+    doc = MagicMock()
     ctx = MockCtx()
-    result = {"status": "ok", "result": "val"}
+    result = {"status": "ok", "tables": [{"columns": ["Var", "Value"], "rows": [["x", 1.0]]}]}
 
-    res = insert_optimize_result_into_calc(doc, ctx, result)
-    assert res == 0
+    with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
+        res = insert_optimize_result_into_calc(doc, ctx, result)
+        assert res == 1
+        mock_insert.assert_called_once()
+

@@ -102,9 +102,6 @@ class ForecastDataTool(ToolBaseDummy):
         if output_range and result.get("status") == "ok":
 
             def _write() -> None:
-                stop_checker = getattr(ctx, "stop_checker", None)
-                if callable(stop_checker) and stop_checker() is True:
-                    return
                 # What was wrong: the sheet from parse_output_anchor was discarded,
                 # so Sheet1.D1 or 'Q1.Sales'!B2 wrote on the active sheet and
                 # overwrote live cells. How: only col/row reached the inserter.
