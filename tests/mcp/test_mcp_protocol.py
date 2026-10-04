@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """MCP protocol document echo and tools/call thread-guard. No LibreOffice."""
+
 import json
 import threading
 from unittest.mock import MagicMock, patch
@@ -31,6 +32,7 @@ def test_attach_document_echo_shape_and_absence():
     _attach_document_echo(r3, doc)
     assert r3["document"]["name"] == "keep"
 
+
 def test_long_running_precomputes_echo_without_post_execute_doc_access():
     """Echo is captured once inside _prepare_mcp_execution (main-thread marshal); the worker path must not
     call _attach_document_echo or re-read the proxied doc after the tool body runs."""
@@ -53,6 +55,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
             return _Tool()
 
         def execute(self, name, context, **kwargs):
+            assert "bypass_thread_guard" not in kwargs
             return {"status": "ok"}
 
     class _FakeMainThread:
@@ -81,9 +84,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
     registry = _Registry()
     handler = MCPProtocolHandler(_FakeServices(registry))
 
-    with patch("plugin.mcp.mcp_protocol._document_echo_payload",
-               return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo, \
-         patch("plugin.mcp.mcp_protocol._attach_document_echo") as mock_attach:
+    with patch("plugin.mcp.mcp_protocol._document_echo_payload", return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo, patch("plugin.mcp.mcp_protocol._attach_document_echo") as mock_attach:
         result = handler._execute_long_running("any_tool", {}, document_url="file:///doc.odt")
 
     assert result["status"] == "ok"
@@ -139,7 +140,7 @@ class _Services:
 
 
 class _SyncProbe(ToolBase):
-    """Real tool so execute_safe's disposed-document check runs. long_running defaults to True."""
+    """Real tool so execute_safe's disposed-document check runs."""
 
     name = "sync_probe"
     description = "probe"
@@ -147,7 +148,7 @@ class _SyncProbe(ToolBase):
     uno_services = None
     doc_types = None
     is_mutation = True
-    long_running = True
+    long_running = False
     requires_document = True
 
     def __init__(self):
@@ -164,6 +165,41 @@ def _handler(doc, tool):
     return MCPProtocolHandler(_Services(registry, doc))
 
 
+def _watch_execute_safe(handler, *, record_safe: bool = True):
+    """Fail if MCP passes bypass_thread_guard. Optionally count execute_safe entries.
+
+    record_safe=False leaves tool.execute_safe as the real method so callers can
+    identify it as the registry runner (the marshal tests).
+    """
+    registry = handler.tool_registry
+    real_execute = registry.execute
+    seen: list[dict] = []
+
+    def execute(tool_name, ctx, *args, **kwargs):
+        assert args == ()
+        assert "bypass_thread_guard" not in kwargs
+        tool = registry.get(tool_name)
+        safe_calls: list[dict] = []
+        original_safe = None
+        if record_safe and tool is not None:
+            original_safe = tool.execute_safe
+
+            def execute_safe(ctx, **tool_kwargs):
+                safe_calls.append(dict(tool_kwargs))
+                return original_safe(ctx, **tool_kwargs)
+
+            tool.execute_safe = execute_safe
+        try:
+            return real_execute(tool_name, ctx, *args, **kwargs)
+        finally:
+            seen.append({"kwargs": dict(kwargs), "execute_safe": len(safe_calls)})
+            if original_safe is not None and tool is not None:
+                tool.execute_safe = original_safe
+
+    registry.execute = execute
+    return seen
+
+
 def _payload(result):
     if isinstance(result, dict) and "content" in result:
         return json.loads(result["content"][0]["text"])
@@ -176,9 +212,11 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
 
     What was wrong: the key bound to ToolRegistry.execute's keyword-only flag,
     which calls tool.execute and skips the disposed-document check.
+    MCP must drop the key and must not pass the keyword at all.
     """
     tool = _SyncProbe()
     handler = _handler(_DisposedDoc(), tool)
+    seen = _watch_execute_safe(handler)
     args = {"bypass_thread_guard": bypass, "note": "keep"}
 
     direct = handler._execute_long_running("sync_probe", dict(args), document_url="file:///gone.odt")
@@ -195,32 +233,37 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
     assert debug["code"] == "DOCUMENT_DISPOSED"
     assert backpressure["code"] == "DOCUMENT_DISPOSED"
     assert tool.body_calls == []
+    assert seen and all(call["execute_safe"] == 1 for call in seen)
+    assert all("bypass_thread_guard" not in call["kwargs"] for call in seen)
+    assert all(call["kwargs"].get("note") == "keep" for call in seen)
 
 
 def test_tools_call_keeps_real_arguments_when_stripping_bypass():
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)
-    result = handler._execute_long_running(
-        "sync_probe",
-        {"bypass_thread_guard": True, "note": "keep"},
-        document_url="file:///live.odt",
-    )
+    seen = _watch_execute_safe(handler)
+    result = handler._execute_long_running("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
     assert result["status"] == "ok"
     assert result["note"] == "keep"
     assert tool.body_calls == [{"note": "keep"}]
+    assert seen == [{"kwargs": {"note": "keep"}, "execute_safe": 1}]
 
 
 def test_long_running_bypass_still_marshals_to_the_main_thread():
-    """Sync long-running tools/call must not run the body on the HTTP worker.
+    """Sync tools/call must marshal execute_safe, not call tool.execute on the worker.
 
-    bypass_thread_guard=True used to call tool.execute on that worker.
+    A client bypass value used to call tool.execute on that worker. MCP must not pass the keyword.
     """
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)
+    seen = _watch_execute_safe(handler, record_safe=False)
     marshalled = []
 
     def fake_marshal(fn):
         marshalled.append(threading.current_thread().name)
+        free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
+        runner = free["runner"]
+        assert getattr(runner, "__func__", None) is ToolBase.execute_safe
         return {"status": "ok", "marshalled": True}
 
     box = {}
@@ -236,16 +279,22 @@ def test_long_running_bypass_still_marshals_to_the_main_thread():
     assert marshalled == ["http-worker"]
     assert tool.body_calls == []
     assert _payload(box["result"])["marshalled"] is True
+    assert seen and all("bypass_thread_guard" not in call["kwargs"] for call in seen)
+    assert all(set(call["kwargs"]) <= {"note"} for call in seen)
 
 
 def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
     tool = _SyncProbe()
     tool.long_running = False
     handler = _handler(_LiveDoc(), tool)
+    seen = _watch_execute_safe(handler, record_safe=False)
     marshalled = []
 
     def fake_marshal(fn):
         marshalled.append("marshal")
+        free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
+        runner = free["runner"]
+        assert getattr(runner, "__func__", None) is ToolBase.execute_safe
         return {"status": "ok", "marshalled": True}
 
     box = {}
@@ -263,6 +312,8 @@ def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
     assert tool.body_calls == []
     assert box["debug"]["marshalled"] is True
     assert box["direct"]["marshalled"] is True
+    assert len(seen) == 2
+    assert all("bypass_thread_guard" not in call["kwargs"] for call in seen)
 
 
 class _NoHeaders:
@@ -283,10 +334,7 @@ def test_notification_batch_includes_session_id(monkeypatch):
     services = MagicMock()
     services.tools = MagicMock()
     mcp = MCPProtocolHandler(services)
-    batch = [
-        {"jsonrpc": "2.0", "method": "notifications/initialized"},
-        {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {}},
-    ]
+    batch = [{"jsonrpc": "2.0", "method": "notifications/initialized"}, {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {}}]
     mcp._handle_mcp(batch, handler)
     handler.send_response.assert_called_with(202)
     assert ("Mcp-Session-Id", "sess-batch") in sent
@@ -319,9 +367,10 @@ def test_handle_debug_post_blocks_tunneled_request(monkeypatch):
     # Valid localhost request (no active tunnel)
     req4 = MockHandler({})
     mock_tunnel.is_running = False
-    with patch.object(handler, '_read_body', return_value={}):
+    with patch.object(handler, "_read_body", return_value={}):
         handler.handle_debug_post(req4)
     assert 200 in req4.sent_responses
+
 
 def test_http_server_stop_ends_sse_keepalive():
     """stop() must wake the SSE request thread instead of leaving it in select."""
@@ -440,3 +489,136 @@ def test_mcp_execute_with_backpressure_captures_send_cancellation() -> None:
     assert prepare_call.args[0] == handler._prepare_mcp_execution
     assert prepare_call.kwargs.get("bound_scope") is scope
     assert prepare_call.kwargs.get("send_cancellation") is scope
+
+def test_async_long_running_uses_execute_safe_without_bypass_keyword():
+    """is_async tools are the long-running path and still use execute_safe."""
+
+    class _AsyncProbe(ToolBase):
+        name = "async_probe"
+        description = "probe"
+        parameters = {"type": "object", "properties": {"note": {"type": "string"}}}
+        uno_services = None
+        doc_types = None
+        requires_document = True
+        long_running = True
+        timeout = 30
+
+        def __init__(self):
+            self.body_calls: list[dict] = []
+
+        def is_async(self):
+            return True
+
+        def execute(self, ctx, **kwargs):
+            self.body_calls.append(dict(kwargs))
+            return {"status": "ok", "note": kwargs.get("note")}
+
+    tool = _AsyncProbe()
+    handler = _handler(_LiveDoc(), tool)
+    seen = _watch_execute_safe(handler)
+    marshalled = []
+
+    def fail_marshal(fn):
+        marshalled.append(fn)
+        raise AssertionError("is_async MCP tool must not be marshalled to the main thread")
+
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fail_marshal):
+        result = handler._execute_long_running("async_probe", {"bypass_thread_guard": False, "note": "keep"}, document_url="file:///live.odt")
+
+    assert marshalled == []
+    assert result["status"] == "ok"
+    assert result["note"] == "keep"
+    assert tool.body_calls == [{"note": "keep"}]
+    assert seen == [{"kwargs": {"note": "keep"}, "execute_safe": 1}]
+
+
+def test_long_running_flag_without_is_async_stays_on_backpressure():
+    """long_running=True is not a second path that passes bypass_thread_guard."""
+    tool = _SyncProbe()
+    tool.long_running = True
+    handler = _handler(_LiveDoc(), tool)
+    with patch.object(handler, "_execute_long_running", side_effect=AssertionError("long_running flag must not select the worker path")) as mock_lr, patch.object(handler, "_execute_with_backpressure", return_value={"status": "ok"}) as mock_bp:
+        handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True}})
+    assert mock_bp.called
+    assert not mock_lr.called
+
+
+def test_async_tools_are_long_running():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from unittest.mock import patch, MagicMock
+
+    class MockAsyncTool(ToolBase):
+        name = "async_mock"
+        timeout = 10
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def is_async(self):
+            return True
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["async_mock"] = MockAsyncTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    with patch.object(handler, "_execute_long_running", return_value={"status": "ok"}) as mock_lr:
+        handler._mcp_tools_call({"name": "async_mock", "arguments": {}})
+        assert mock_lr.called
+
+
+def test_document_url_not_popped_when_declared():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from unittest.mock import patch, MagicMock
+
+    class MockDocUrlTool(ToolBase):
+        name = "doc_url_mock"
+        parameters = {"properties": {"document_url": {"type": "string"}}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["doc_url_mock"] = MockDocUrlTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    with patch.object(handler, "_execute_with_backpressure", return_value={"status": "ok"}) as mock_bp:
+        handler._mcp_tools_call({"name": "doc_url_mock", "arguments": {"document_url": "test"}})
+        assert mock_bp.call_args[0][1] == {"document_url": "test"}
+
+
+def test_timeout_zero_rejects_async_tool():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from unittest.mock import MagicMock
+
+    class MockAsyncNoTimeoutTool(ToolBase):
+        name = "async_no_timeout"
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def is_async(self):
+            return True
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["async_no_timeout"] = MockAsyncNoTimeoutTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    result = handler._prepare_mcp_execution("async_no_timeout", {}, None)
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+
+
+def test_named_async_tools_declare_positive_timeout():
+    """Tools moved off the UI thread must satisfy the MCP async timeout gate."""
+    from plugin.chatbot.writing import WriteDocumentSection
+    from plugin.ppt_master.tools import ExportPresentationProject
+    from plugin.writer.specialized.mail_merge import RunMerge
+
+    for tool in (WriteDocumentSection(), ExportPresentationProject(), RunMerge()):
+        assert tool.is_async() is True
+        assert getattr(tool, "timeout", 0) > 0
+
