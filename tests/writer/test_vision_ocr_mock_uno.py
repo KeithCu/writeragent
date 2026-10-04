@@ -363,6 +363,25 @@ def test_mock_ocr_multi_select_reverse_click_order(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_mock_ocr_stop_checker_aborts_without_insert(ctx, doc):
+    """If stop_checker returns True, run_and_insert_vision_for_selection returns USER_STOPPED."""
+    from plugin.vision.vision_runner import run_and_insert_vision_for_selection
+
+    fixture = _build_labeled_fixture(ctx, doc, image_count=2)
+    ctx.stop_checker = lambda: True
+    try:
+        _select_whole_document(doc)
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure")
+        assert result.get("status") == "error"
+        assert result.get("code") == "USER_STOPPED"
+        body = doc.getText().getString()
+        _assert_strict_order(body, "T0", "T1", "T3")
+    finally:
+        _cleanup_temp_paths(fixture["temp_paths"])
+
+
+@native_test
+@with_native_doc("writer")
 def test_mock_ocr_mid_loop_failure_leaves_partial_insert(ctx, doc):
     """Image 2 OCR fails: image 1 inserted, 2–3 untouched, labels and graphics remain."""
     fixture = _build_labeled_fixture(ctx, doc, image_count=3)

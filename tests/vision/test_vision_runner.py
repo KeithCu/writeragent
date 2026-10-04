@@ -23,6 +23,7 @@ from plugin.vision.vision_runner import (
 
 def test_get_selected_image_bytes_decodes_png():
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     raw = b"fake-png-bytes"
     with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=base64.b64encode(raw).decode("ascii")):
@@ -31,6 +32,7 @@ def test_get_selected_image_bytes_decodes_png():
 
 def test_get_selected_image_bytes_raises_when_no_selection():
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     with patch("plugin.vision.vision_runner.get_selected_image_base64", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
@@ -62,6 +64,7 @@ def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_me
 
 def test_run_trusted_vision_rejects_unknown_helper():
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     with pytest.raises(ToolExecutionError) as exc:
         run_trusted_vision(ctx, doc, helper="not_real")
@@ -93,6 +96,7 @@ def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_visio
 @patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_selected.return_value = b"sel"
     assert resolve_vision_image_bytes(ctx, doc, image_name="") == b"sel"
@@ -103,6 +107,7 @@ def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
@@ -116,6 +121,7 @@ def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     mock_get_obj.return_value = None
     with pytest.raises(ToolExecutionError) as exc:
@@ -255,6 +261,7 @@ def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pair
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[])
 def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
     ctx = MagicMock()
+    ctx.stop_checker = None
     doc = MagicMock()
     with pytest.raises(ToolExecutionError) as exc:
         run_and_insert_vision_for_selection(ctx, doc, helper="extract_text")

@@ -203,14 +203,26 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
     target_names = execute_on_main_thread(_discover_names)
 
+    if stop_checker is None:
+        stop_checker = getattr(ctx, "stop_checker", None)
+    from plugin.framework.queue_executor import SendCancelled
+
     results: list[dict[str, Any]] = []
     for image_name in target_names:
-        if stop_checker and stop_checker():
-            break
+        if stop_checker is not None and stop_checker():
+            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
 
         per_params = dict(params_dict)
         per_params["image_name"] = image_name
-        result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
+        try:
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
+        except SendCancelled:
+            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+        except Exception as exc:
+            if getattr(type(exc), "__name__", "") == "SendCancelled":
+                return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+            raise
+
         if result.get("status") == "error":
             # Image 1 may already be inserted. Keep status=error and stop the loop
             # (tests/writer/test_vision_ocr_mock_uno.py). Attach what landed so the
