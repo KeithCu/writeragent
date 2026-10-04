@@ -97,8 +97,6 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **`plugin.framework.client` package init is lazy.** HTTP / errors / provider detection load immediately; `LlmClient`, embeddings, and analysis load on attribute access. LibrePy may import `requests` / `provider_detection`. Do not import `llm_client` or embeddings from LibrePy paths.
 
-- **Stop / cancellation policy:** When Stop is clicked, abort waiting on network/HTTP/IPC packets immediately (e.g. streaming LLM, image generation API, subprocess waits). However, do **not** abort document mutations (inserting pictures, appending in-flight text chunks, writing analysis/plots to sheets). Once data is generated and in hand, let it land in the document cleanly rather than implementing complicated defensive abort code or throwing away work. For voice/speech: clicking Stop while recording ends the take and transcribes it into the query box—do **not** abort transcription, throw away the audio, or auto-submit the transcript to the model.
-
 UNO helpers are intentionally split (`uno_context`, `text_helpers` / `doc_type` / `udprops`, `document_helpers` for chat context / `DocumentService`, `dialogs`)—there is no monolithic `uno_helpers.py`.
 
 ---
@@ -133,7 +131,6 @@ Do not reuse the names **`logging`**, module **`log`**, or gettext **`_`** for u
 - `calc_functions_*.py` alphabet splits are intentional; do not merge them.
 - Do **not** drop `plugin/calc/analyzer.py` from the LibrePy bundle (reserved for later use).
 - Do **not** slim `trusted_action_registry.py` / `venv_diagnostics.py` for LibrePy while those modules still work.
-- Do **not** add defensive `stop_checker` checks inside document mutations (e.g. `apply_chunk`, `_insert_or_replace`, plot/table insertion) or abort speech-to-text on Stop.
 
 ---
 

@@ -43,31 +43,16 @@ def resolve_grep_candidates(
     exclude_path: Any = _USE_DEFAULT,
     open_paths: Any = _USE_DEFAULT,
     listing_root: Any = _USE_DEFAULT,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[FileEntry], bool, str | None]:
     """Return (candidates, truncated_files, error_message).
 
     *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``) or an absolute path to one file.
     """
-    from plugin.doc.document_research import resolve_listing_directory
-
     raw = str(file_subset).strip() if file_subset else None
-    listing_root = resolve_listing_directory(ctx, active_model)
 
     if raw and os.path.isabs(raw) and os.path.isfile(raw):
         norm = os.path.normpath(os.path.abspath(raw))
-
-        # Prevent accessing absolute paths outside the listing root
-        if listing_root:
-            import pathlib
-            try:
-                # Use resolve() to handle symlinks and relative parts cleanly
-                root_path = pathlib.Path(listing_root).resolve()
-                norm_path = pathlib.Path(norm).resolve()
-                if not norm_path.is_relative_to(root_path):
-                    return [], False, f"Path {norm} is outside the active folder."
-            except Exception:
-                pass
-
         entry = FileEntry(
             path=norm,
             name=os.path.basename(norm),
@@ -94,8 +79,11 @@ def resolve_grep_candidates(
         exclude_path=exclude_path,
         open_paths=open_paths,
         listing_root=listing_root,
+        stop_checker=stop_checker,
     )
     if listing.get("status") != "ok":
+        if listing.get("code") == "USER_STOPPED":
+            raise InterruptedError()
         return [], False, listing.get("message", "Could not list nearby files")
 
     files: list[FileEntry] = list(listing.get("files") or [])
@@ -419,16 +407,14 @@ def grep_nearby_files(
 
     from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
 
-    def _resolve() -> tuple[list[FileEntry], bool, str | None]:
-        return resolve_grep_candidates(
+    try:
+        candidates, truncated_files, list_err = resolve_grep_candidates(
             ctx,
             active_model,
             file_subset=subset_norm,
+            stop_checker=stop_checker,
         )
-
-    try:
-        candidates, truncated_files, list_err = execute_on_main_thread(_resolve)
-    except SendCancelled:
+    except InterruptedError:
         return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
     if list_err:

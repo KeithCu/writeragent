@@ -102,7 +102,7 @@ def test_writer_image_result_returns_path_only():
     assert out["image_path"] == "/tmp/plot.svg"
 
 
-def test_calc_image_result_inserts_even_if_stopped():
+def test_calc_image_result_aborts_insert_if_stopped():
     tool = RunVenvPythonScript()
     ctx = MagicMock()
     ctx.doc_type = "calc"
@@ -118,16 +118,17 @@ def test_calc_image_result_inserts_even_if_stopped():
             "plugin.framework.queue_executor.execute_on_main_thread",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ) as main_thread,
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet", return_value=True) as insert,
+        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
         patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
     assert out["status"] == "ok"
-    assert out["image_inserted"] is True
+    assert out["image_inserted"] is False
     assert out["image_path"] == "/tmp/plot.svg"
-    assert main_thread.call_count == 1
-    insert.assert_called_once()
+    assert "stopped by user" in out["message"]
+    assert main_thread.call_count == 0
+    insert.assert_not_called()
 
 
 def test_insert_image_result_on_sheet_none_doc_is_failure():

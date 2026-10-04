@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Callable
 
 import uno
 
@@ -377,6 +377,7 @@ def _scan_directory(
     exclude_path: str | None,
     open_paths: dict[str, str],
     max_entries: int,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[FileEntry], bool]:
     entries: list[FileEntry] = []
     truncated = False
@@ -389,7 +390,9 @@ def _scan_directory(
         raise OSError(f"Cannot list directory {directory!r}: {e}") from e
 
     candidates: list[tuple[str, tuple[str, os.stat_result]]] = []
-    for name in names:
+    for idx, name in enumerate(names):
+        if idx % 50 == 0 and stop_checker and stop_checker():
+            raise InterruptedError("USER_STOPPED")
         if _should_skip_filename(name):
             continue
         ext = os.path.splitext(name)[1].lower()
@@ -490,6 +493,7 @@ def list_nearby_files(
     exclude_path: Any = _USE_DEFAULT,
     open_paths: Any = _USE_DEFAULT,
     listing_root: Any = _USE_DEFAULT,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """List nearby files for the outer document_research agent.
 
@@ -498,16 +502,37 @@ def list_nearby_files(
 
     Returns a dict with ``files``, ``truncated``, and optional ``listing_root``.
     """
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import execute_on_main_thread
+
     extensions = _extensions_for_file_kind(file_kind)
-    if exclude_path is _USE_DEFAULT and active_model is not None:
-        active_path = get_document_path(active_model)
-        exclude_path = _normalize_path(active_path) if active_path else None
 
-    if open_paths is _USE_DEFAULT:
-        open_paths = _collect_open_file_urls(ctx, exclude_path=exclude_path, extensions=extensions)
+    def _fetch_uno_state() -> tuple[Any, Any, Any]:
+        res_exclude = exclude_path
+        res_open = open_paths
+        res_root = listing_root
 
-    if listing_root is _USE_DEFAULT:
-        listing_root = resolve_listing_directory(ctx, active_model)
+        if res_exclude is _USE_DEFAULT and active_model is not None:
+            active_path = get_document_path(active_model)
+            res_exclude = _normalize_path(active_path) if active_path else None
+
+        if res_open is _USE_DEFAULT:
+            res_open = _collect_open_file_urls(ctx, exclude_path=res_exclude, extensions=extensions)
+
+        if res_root is _USE_DEFAULT:
+            res_root = resolve_listing_directory(ctx, active_model)
+
+        return res_exclude, res_open, res_root
+
+    if on_main_thread():
+        exclude_path, open_paths, listing_root = _fetch_uno_state()
+    else:
+        from plugin.framework.queue_executor import SendCancelled
+        try:
+            exclude_path, open_paths, listing_root = execute_on_main_thread(_fetch_uno_state)
+        except SendCancelled:
+            return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+
     if listing_root:
         try:
             files, truncated = _scan_directory(
@@ -517,8 +542,11 @@ def list_nearby_files(
                 exclude_path=exclude_path,
                 open_paths=open_paths,
                 max_entries=max_entries,
+                stop_checker=stop_checker,
             )
             return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root}
+        except InterruptedError:
+            return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
         except OSError as e:
             return {"status": "error", "message": str(e), "details": {"path": listing_root}}
 

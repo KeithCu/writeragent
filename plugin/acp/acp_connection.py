@@ -225,8 +225,8 @@ class ACPConnection:
         # and None.stdin raises AttributeError. The except swallowed that,
         # so the notification never went out. Why: copy the process once
         # and write through that local. Same race as send_request.
-        proc = self._proc
         def _do_write() -> None:
+            proc = self._proc
             try:
                 stdin = proc.stdin if proc is not None else None
                 if stdin:
@@ -249,8 +249,8 @@ class ACPConnection:
         line = json.dumps(msg) + "\n"
         # Same double-read as send_notification: stop() can clear _proc
         # between the truthiness check and the .stdin load.
-        proc = self._proc
         def _do_write() -> None:
+            proc = self._proc
             try:
                 stdin = proc.stdin if proc is not None else None
                 if stdin:

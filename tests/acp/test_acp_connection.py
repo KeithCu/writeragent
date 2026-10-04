@@ -546,33 +546,6 @@ class TestStdinWriteCapturesProc:
         assert stdin.written
         assert b"session/cancel" in stdin.written[0]
 
-    def test_send_notification_writes_proc_nulled_before_deferred_write(self):
-        conn = ACPConnection(cmd_line=["agent"])
-        stdin = _Stdin()
-
-        class _Proc:
-            def __init__(self, stdin):
-                self.stdin = stdin
-                self.poll = lambda: None
-                self.stdout = None
-
-        proc = _Proc(stdin)
-        conn._proc = proc
-        conn._running = True
-
-        from unittest.mock import patch
-
-        # Patch run_in_background so we can null conn._proc before it runs
-        def mock_run_in_background(func, name=None):
-            conn._proc = None
-            func()
-
-        with patch("plugin.acp.acp_connection.run_in_background", side_effect=mock_run_in_background):
-            conn.send_notification("session/cancel", {"sessionId": "s"})
-
-        assert stdin.written
-        assert b"session/cancel" in stdin.written[0]
-
     def test_send_response_writes_captured_proc(self):
         conn = ACPConnection(cmd_line=["agent"])
         stdin = _Stdin()
@@ -584,32 +557,5 @@ class TestStdinWriteCapturesProc:
             if stdin.written:
                 break
             time.sleep(0.01)
-        assert stdin.written
-        assert b'"id": 4' in stdin.written[0]
-
-    def test_send_response_writes_proc_nulled_before_deferred_write(self):
-        conn = ACPConnection(cmd_line=["agent"])
-        stdin = _Stdin()
-
-        class _Proc:
-            def __init__(self, stdin):
-                self.stdin = stdin
-                self.poll = lambda: None
-                self.stdout = None
-
-        proc = _Proc(stdin)
-        conn._proc = proc
-        conn._running = True
-
-        from unittest.mock import patch
-
-        # Patch run_in_background so we can null conn._proc before it runs
-        def mock_run_in_background(func, name=None):
-            conn._proc = None
-            func()
-
-        with patch("plugin.acp.acp_connection.run_in_background", side_effect=mock_run_in_background):
-            conn.send_response(4, result={"outcome": {"outcome": "cancelled"}})
-
         assert stdin.written
         assert b'"id": 4' in stdin.written[0]

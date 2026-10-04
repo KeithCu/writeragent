@@ -1205,12 +1205,15 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
         # had already exited. Why: only the get waits on the queue. A
         # worker Empty is the function's exception and must propagate.
         try:
-            item = q.get(timeout=0.1 if poll else None)
+            item = q.get(timeout=0.1 if (poll or not pump_idle) else None)
         except queue.Empty:
             if stop_checker is not None and stop_checker():
                 raise BlockingWaitStopped("stopped")
             if pump_idle and toolkit is not None:
                 pump_ui_idle(toolkit)
+            elif not pump_idle:
+                from plugin.framework.queue_executor import pump_main_thread_work_queue
+                pump_main_thread_work_queue()
             continue
         kind, data = item
         if not isinstance(kind, BlockingPumpKind):

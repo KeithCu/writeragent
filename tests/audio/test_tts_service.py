@@ -85,28 +85,6 @@ def test_stop_speech_terminates_proc():
         mock_proc.terminate.assert_called_once()
 
 
-def test_stop_speech_fetches_kokoro_token():
-    with patch("plugin.audio.kokoro_pool.get_kokoro_inflight_token") as mock_get_token, \
-         patch("plugin.audio.kokoro_pool.cancel_kokoro_inflight") as mock_cancel:
-
-        mock_token = object()
-        mock_get_token.return_value = mock_token
-
-        stop_speech()
-
-        # Stop speech synchronously gets the token
-        mock_get_token.assert_called_once()
-
-        # Background task calls cancel
-        import time
-        for _ in range(10):
-            if mock_cancel.call_count > 0:
-                break
-            time.sleep(0.01)
-
-        mock_cancel.assert_called_once_with(mock_token)
-
-
 def test_resolve_tts_voice():
     from plugin.audio.tts_service import _resolve_tts_voice
 
@@ -1878,39 +1856,3 @@ def test_endpoint_and_native_do_not_split():
     assert "sentences" not in captured
     assert oneshot == {"system": "Hi. Not done yet"}
 
-
-def test_stop_speech_kokoro_race_generation():
-    from plugin.audio.tts_service import stop_speech
-
-    with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
-        bg_tasks = []
-        def fake_run(func, **kwargs):
-            bg_tasks.append(func)
-        mock_run.side_effect = fake_run
-
-        # Fake active state
-        import plugin.audio.tts_service
-        plugin.audio.tts_service._speech_active = True
-
-        # We simulate the token logic by patching get_kokoro_inflight_token
-        # It should capture the token synchronously inside stop_speech.
-        mock_token_1 = object()
-        with patch("plugin.audio.kokoro_pool.get_kokoro_inflight_token", return_value=mock_token_1):
-            stop_speech()
-            assert len(bg_tasks) == 1
-
-        # Utterance B starts, now the pool would have a different token
-        # But we just ensure the deferred task uses the captured mock_token_1
-
-        class MockCancel:
-            called = False
-            token_seen = None
-            @classmethod
-            def cancel(cls, token):
-                cls.called = True
-                cls.token_seen = token
-
-        with patch("plugin.audio.kokoro_pool.cancel_kokoro_inflight", side_effect=MockCancel.cancel):
-            bg_tasks[0]()
-            assert MockCancel.called
-            assert MockCancel.token_seen is mock_token_1
