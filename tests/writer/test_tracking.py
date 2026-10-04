@@ -221,16 +221,86 @@ def _redline_property_set():
     return redline_mock, span_cursor
 
 
+def test_manage_tracked_changes_bypasses_self_resolve_invariant():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = ManageTrackedChanges()
+
+    user_redline = _fake_redline("user edit")
+    agent_redline = _fake_redline(_AGENT_COMMENT)
+
+    # We mock it so that the dispatcher mistakenly resolves the agent edit!
+    def _create_enum():
+        enum = MagicMock()
+        # The first time it is called (to get redlines list), both are present.
+        # The second time (before dispatch), both are present.
+        # The third time (after dispatch), only user_redline is present.
+        call_count = getattr(_create_enum, "call_count", 0)
+        if call_count >= 2:
+            enum.hasMoreElements.side_effect = [True, False]
+            enum.nextElement.return_value = user_redline
+        else:
+            enum.hasMoreElements.side_effect = [True, True, False]
+            enum.nextElement.side_effect = [user_redline, agent_redline]
+        _create_enum.call_count = call_count + 1
+        return enum
+    _create_enum.call_count = 0
+
+    ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
+
+    # To pass overlap check, make sure they don't overlap.
+    # When text.compareRegionStarts is called, it returns 1.
+    text_mock = MagicMock()
+    text_mock.compareRegionStarts.return_value = 1
+
+    start_mock1 = MagicMock()
+    start_mock1.getText.return_value = text_mock
+
+    start_mock2 = MagicMock()
+    start_mock2.getText.return_value = text_mock
+
+    # Provide mocked properties based on what's requested
+    def _get_user_prop(name):
+        if name in ("RedlineStart", "RedlineEnd"):
+            return start_mock1
+        return "user edit"
+    user_redline.getPropertyValue.side_effect = _get_user_prop
+
+    def _get_agent_prop(name):
+        if name in ("RedlineStart", "RedlineEnd"):
+            return start_mock2
+        return _AGENT_COMMENT
+    agent_redline.getPropertyValue.side_effect = _get_agent_prop
+
+    # Try to accept index 0 (the user edit)
+    # But because of our mock, the dispatcher removes the agent edit instead
+    res = tool.execute(ctx, action="accept", index=0)
+
+    assert res["status"] == "error"
+    assert "Agent edit was resolved" in res["message"]
+    ctx.doc.getUndoManager().undo.assert_called_once()
+
 def test_manage_tracked_changes_accept():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     tool = ManageTrackedChanges()
 
     redline_mock, span_cursor = _redline_property_set()
-    enum_mock = MagicMock()
-    enum_mock.hasMoreElements.side_effect = [True, False]
-    enum_mock.nextElement.return_value = redline_mock
 
-    ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
+    # We need to mock createEnumeration to return a new enum each time.
+    def _create_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, False]
+        enum.nextElement.return_value = redline_mock
+        return enum
+
+    ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
+
+    # Mock redlines.getCount() before and after
+    count_val = [1]
+    def mock_get_count(): return count_val[0]
+    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
+    def mock_dispatch(*args, **kwargs): count_val[0] = 0
+    dispatcher.executeDispatch.side_effect = mock_dispatch
 
     # Mock redlines.getCount() before and after
     ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
@@ -245,11 +315,21 @@ def test_manage_tracked_changes_reject():
     tool = ManageTrackedChanges()
 
     redline_mock, span_cursor = _redline_property_set()
-    enum_mock = MagicMock()
-    enum_mock.hasMoreElements.side_effect = [True, False]
-    enum_mock.nextElement.return_value = redline_mock
 
-    ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
+    def _create_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, False]
+        enum.nextElement.return_value = redline_mock
+        return enum
+
+    ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
+
+    # Mock redlines.getCount() before and after
+    count_val = [1]
+    def mock_get_count(): return count_val[0]
+    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
+    def mock_dispatch(*args, **kwargs): count_val[0] = 0
+    dispatcher.executeDispatch.side_effect = mock_dispatch
 
     # Mock redlines.getCount() before and after
     ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
@@ -333,6 +413,11 @@ def test_accept_all_allowed_with_only_user_redlines():
     # The user's OWN tracked changes (no wa-review token) may be bulk-resolved on request.
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     _install_redlines(ctx, [_fake_redline("")])
+    count_val = [1]
+    def mock_get_count(): return count_val[0]
+    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
+    def mock_dispatch(*args, **kwargs): count_val[0] = 0
+    dispatcher.executeDispatch.side_effect = mock_dispatch
     res = ManageTrackedChanges().execute(ctx, action="accept_all")
     assert res["status"] == "ok"
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
@@ -373,7 +458,11 @@ def test_single_accept_allowed_on_user_redline():
     text_mock.compareRegionStarts.return_value = 1
     redline.getPropertyValue.return_value.getText.return_value = text_mock
     _install_redlines(ctx, [redline])
-    ctx.doc.getRedlines.return_value.getCount.side_effect = [1, 0]
+    count_val = [1]
+    def mock_get_count(): return count_val[0]
+    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
+    def mock_dispatch(*args, **kwargs): count_val[0] = 0
+    dispatcher.executeDispatch.side_effect = mock_dispatch
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
@@ -438,6 +527,48 @@ def test_single_accept_blocked_when_comment_unreadable():
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "error"
     dispatcher.executeDispatch.assert_not_called()
+
+
+def test_manage_tracked_changes_accept_ignores_sibling():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = ManageTrackedChanges()
+
+    r1 = _fake_redline("")
+    r2 = _fake_redline("")
+
+    # Give them the exact same identifier
+    r1.getPropertyValue.side_effect = lambda prop: "test-id" if prop == "RedlineIdentifier" else MagicMock()
+    r2.getPropertyValue.side_effect = lambda prop: "test-id" if prop == "RedlineIdentifier" else MagicMock()
+
+    _install_redlines(ctx, [r1, r2])
+
+    count_val = [2]
+    def mock_get_count(): return count_val[0]
+    ctx.doc.getRedlines.return_value.getCount.side_effect = mock_get_count
+
+    def mock_dispatch(*args, **kwargs): count_val[0] -= 1
+    dispatcher.executeDispatch.side_effect = mock_dispatch
+
+    res = tool.execute(ctx, action="accept", index=0)
+    assert res["status"] == "ok"
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
+
+
+def test_manage_tracked_changes_accept_all_fails_silently():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = ManageTrackedChanges()
+
+    _install_redlines(ctx, [_fake_redline("")])
+    ctx.doc.getRedlines.return_value.getCount.return_value = 1
+
+    # Dispatch doesn't reduce count
+    def mock_dispatch(*args, **kwargs): pass
+    dispatcher.executeDispatch.side_effect = mock_dispatch
+
+    res = tool.execute(ctx, action="accept_all")
+    assert res["status"] == "error"
+    assert "silently failed" in res["message"]
+
 
 def test_single_accept_blocked_when_bounds_unreadable():
     # Fail closed: if we cannot read the bounds of another redline, we cannot prove
