@@ -242,3 +242,8 @@ def test_database_context_and_mail_merge_are_not_document_factory_services():
     assert merged["status"] == "ok", merged
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.text.MailMerge", comp_ctx)
     doc.createInstance.assert_not_called()
+
+
+def test_run_merge_is_sync():
+    assert RunMerge().is_async() is False
+

@@ -1,6 +1,112 @@
 
 
-from plugin.writer.html_export import inject_ruby_into_html, xtext_to_content
+from unittest.mock import MagicMock, patch
+
+from plugin.writer.html_export import _range_to_content_via_temp_doc, inject_ruby_into_html, xtext_to_content
+
+
+class _Enum:
+    def __init__(self, items: list) -> None:
+        self._items = list(items)
+
+    def hasMoreElements(self) -> bool:
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+class _Portion:
+    def getPropertyValue(self, name: str) -> str:
+        return ""
+
+    def getString(self) -> str:
+        return "Hello"
+
+
+def _para(style: str):
+    element = MagicMock()
+    element.getString.return_value = "Hello"
+
+    def _prop(name: str) -> str:
+        if name == "ParaStyleName":
+            return style
+        return ""
+
+    element.getPropertyValue.side_effect = _prop
+    return element
+
+
+def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False) -> tuple[str, MagicMock]:
+    """Run a two-paragraph selection export against a mocked scratch document."""
+    temp_doc = MagicMock()
+    temp_text = MagicMock()
+    temp_cursor = MagicMock()
+    temp_doc.getText.return_value = temp_text
+    temp_text.createTextCursor.return_value = temp_cursor
+    styles = MagicMock()
+    styles.hasByName.return_value = has_style
+    temp_doc.getStyleFamilies.return_value.getByName.return_value = styles
+    if set_style_raises:
+        def _set(name: str, value: object) -> None:
+            if name == "ParaStyleName":
+                raise RuntimeError("style missing from scratch document")
+
+        temp_cursor.setPropertyValue.side_effect = _set
+
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([_para(style), _para(style)])
+    source = MagicMock()
+    source.getText.return_value = text
+
+    def _portions(element, truncated_out=None):
+        yield (_Portion(), "Hello")
+
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
+        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
+        patch("plugin.writer.html_export._element_overlaps", return_value=True),
+        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
+        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
+        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
+        patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
+        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch(
+            "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
+            side_effect=lambda xhtml, parents, overrides: xhtml,
+        ),
+    ):
+        html = _range_to_content_via_temp_doc(
+            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+        )
+    return html, temp_cursor
+
+
+def test_range_export_keeps_text_when_paragraph_style_is_missing():
+    """A style absent from the scratch doc must not turn the selection into \"\"."""
+    html, cursor = _range_export("Petition Heading", has_style=False)
+    assert "Hello" in html
+    assert html != ""
+    styled = [call for call in cursor.setPropertyValue.call_args_list if call.args and call.args[0] == "ParaStyleName"]
+    assert styled == []
+    assert [call.args[0] for call in cursor.setString.call_args_list] == ["Hello", "Hello"]
+
+
+def test_range_export_applies_paragraph_style_when_scratch_has_it():
+    html, cursor = _range_export("Standard", has_style=True)
+    assert "Hello" in html
+    styled = [call.args for call in cursor.setPropertyValue.call_args_list if call.args and call.args[0] == "ParaStyleName"]
+    assert styled == [("ParaStyleName", "Standard"), ("ParaStyleName", "Standard")]
+
+
+def test_range_export_keeps_text_when_setting_paragraph_style_raises():
+    html, cursor = _range_export("Standard", has_style=True, set_style_raises=True)
+    assert "Hello" in html
+    assert html != ""
+    assert cursor.setString.call_count == 2
 
 
 def test_xtext_to_content_none_is_empty():

@@ -899,12 +899,16 @@ class PageInsertBreak(ToolWriterPageBase):
             if not view_cursor:
                 return self._tool_error("Could not obtain view cursor.")
 
+            # BreakType is a paragraph property. A collapsed model cursor at the
+            # view start applies it to the paragraph that contains the selection.
+            # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
+            # and this path must not move that selection. insertControlCharacter
+            # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
+            # text; do not put that back.
             from com.sun.star.style.BreakType import PAGE_BEFORE
             text = view_cursor.getText()
-            cursor = text.createTextCursorByRange(view_cursor)
+            cursor = text.createTextCursorByRange(view_cursor.getStart())
             cursor.setPropertyValue("BreakType", PAGE_BEFORE)
-            # Optionally insert a paragraph break so the break actually applies cleanly
-            text.insertControlCharacter(cursor, 0, False)  # 0 = PARAGRAPH_BREAK
             return {"status": "ok", "message": "Page break inserted."}
         except Exception as e:
             return self._tool_error(f"Error inserting page break: {e}")

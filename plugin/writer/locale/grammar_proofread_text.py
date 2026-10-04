@@ -327,12 +327,20 @@ def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_id
 
 
 def _provider_error_span(window: str, item: dict[str, Any], wrong: str) -> tuple[int, int] | None:
-    """Return a validated provider-native span relative to *window*, when present."""
+    """Return a validated provider-native span relative to *window*, when present.
+
+    What was wrong: ``length <= 0`` rejected Harper inserts (``start == end``).
+    ``normalize_errors_for_text`` then failed ``anchor_wrong_in_window`` on the
+    empty ``wrong`` and dropped the issue, so the sentence looked clean.
+    A point with ``0 <= start <= len(window)`` is kept. Negative starts,
+    non-ints, bools, and spans past the end still return None.
+    """
     start = item.get("n_error_start")
     length = item.get("n_error_length")
     if isinstance(start, bool) or isinstance(length, bool) or not isinstance(start, int) or not isinstance(length, int):
         return None
-    if start < 0 or length <= 0 or start + length > len(window):
+    # ``start == len(window)`` is the insert position after the last character.
+    if start < 0 or length < 0 or start > len(window) or start + length > len(window):
         return None
     if wrong and window[start : start + length] != wrong:
         return None
@@ -460,11 +468,15 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
             if expanded_wrong == correct:
                 continue
 
-        # 3. Check for span collisions
-        span = (pos, pos + length)
-        if _is_span_overlapping(span, used_spans):
-            continue
-        used_spans.append(span)
+        # 3. Check for span collisions.
+        # A zero-width insert is a point, not a character range. Recording it
+        # in ``used_spans`` would make a later positive span that covers that
+        # point look overlapping and drop a diagnostic that used to be kept.
+        if length > 0:
+            span = (pos, pos + length)
+            if _is_span_overlapping(span, used_spans):
+                continue
+            used_spans.append(span)
 
         # 4. Build and append the NormalizedProofError
         err = _build_normalized_error(pos, length, it, correct, idx)
@@ -488,7 +500,9 @@ def reconcile_active_and_paragraph_spans(
     """Return the active sentence spans that need background enqueuing.
 
     An active span needs checking if its start offset matches an uncached sentence
-    in the paragraph.
+    in the paragraph. Start-only matching assumes ``split_into_sentences`` yields
+    non-overlapping spans (unique starts). A splitter that reused a start with a
+    different end would coalesce those sentences; match ``(start, end)`` then.
     """
     uncached_starts = {start for start, _end, _text in uncached_paragraph_spans}
     return [

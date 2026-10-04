@@ -757,6 +757,7 @@ class ApplyStyle(FrameworkToolBase):
                 ranges = [ranges[occ]]
             applied = 0
             reports = []
+
             for found in ranges:
                 try:
                     ftext = found.getText()
@@ -766,6 +767,7 @@ class ApplyStyle(FrameworkToolBase):
                     applied += 1
                 except Exception as e:
                     return self._tool_error("Applied to %d of %d; failed on one match: %s" % (applied, len(ranges), e))
+
             result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied),
                       "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": applied}
             result.update(self._merge_reports(reports))
@@ -1038,8 +1040,9 @@ class StyleCreate(ToolWriterStyleBase):
             if actual_parent:
                 try:
                     new_style.setParentStyle(actual_parent)
-                except Exception:
+                except Exception as e:
                     log.warning("Failed to set parent_style '%s' on new style", actual_parent, exc_info=True)
+                    return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}")
 
             # Apply properties
             applied_font = None
@@ -1057,7 +1060,8 @@ class StyleCreate(ToolWriterStyleBase):
                 except Exception:
                     log.warning("Failed to set property %s on new style", prop_name, exc_info=True)
 
-            # Register style
+            # Register before conditional rules so a failed ParaStyleConditions
+            # write can remove the half-created style instead of leaving it.
             style_family.insertByName(style_name, new_style)
 
             # Apply conditional rules
@@ -1073,8 +1077,16 @@ class StyleCreate(ToolWriterStyleBase):
                     conditions.append(nv)
                 try:
                     new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
-                except Exception:
+                except Exception as cond_err:
                     log.warning("Failed to set ParaStyleConditions on new style", exc_info=True)
+                    # We must not silently drop conditional rules; if the property isn't writable or fails,
+                    # we must fail loudly. We roll back the style creation so we don't leave a half-created style.
+                    try:
+                        if style_family.hasByName(style_name):
+                            style_family.removeByName(style_name)
+                    except Exception as rb_err:
+                        log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
+                    return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
 
         except Exception as e:
             log.exception("Failed to create style '%s' in %s", style_name, family)

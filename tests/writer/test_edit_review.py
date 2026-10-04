@@ -366,15 +366,20 @@ def test_record_mutation_does_not_tag_when_after_scan_incomplete():
 # ------------------------------------------- _pending_tokens reliability + wait_for_review fail-closed
 
 def test_pending_tokens_reliable_lists_only_session_tokens():
-    from plugin.writer.edit_review import EditReviewSession
+    # Pending is the intersection of this session's prefix with registered ChangeRecords.
+    # An orphan tag (same prefix, never registered) must not appear: it has no review row.
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
     mine = session._session_token_prefix() + "0"
+    orphan = session._session_token_prefix() + "1"
+    session.changes = [ChangeRecord(mine, "bm", "", "", "", "")]
     session.doc = _redlines_doc([_FakeRl("i1", comment=mine),
-                                 _FakeRl("i2", comment="wa-review:other:0"),
-                                 _FakeRl("i3", comment="")])
+                                 _FakeRl("i2", comment=orphan),
+                                 _FakeRl("i3", comment="wa-review:other:0"),
+                                 _FakeRl("i4", comment="")])
     pending, ok = session._pending_tokens()
-    assert ok is True and pending == {mine}   # other-session + empty comments excluded
+    assert ok is True and pending == {mine}   # orphan, other-session, and empty comments excluded
 
 
 def test_pending_tokens_unreliable_on_silent_truncation():
@@ -423,6 +428,61 @@ def test_wait_for_review_completes_on_reliable_empty():
          _patch.object(session, "cleanup"):
         result = session.wait_for_review(timeout=1.0, poll=0.01)
     assert result["complete"] is True and result["timed_out"] is False
+
+
+def test_wait_for_review_orphan_token_does_not_block_after_registered_change_resolves():
+    # The registered change's token is gone. An unregistered wa-review tag from a failed
+    # tag or a failed missing-bookmark clear is still on a redline. That used to keep
+    # wait_for_review looping; the user has no review row for it.
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = session._token(0)
+    orphan = session._token(1)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([
+        _FakeRl("orphan", comment=orphan),
+        _FakeRl("user", comment="a user redline"),
+    ])
+    result = session.wait_for_review(timeout=0.2, poll=0.05)
+    assert result["complete"] is True
+    assert result["timed_out"] is False
+    assert [change["id"] for change in result["changes"]] == [registered]
+
+
+def test_wait_for_review_still_waits_on_open_registered_change_beside_orphan():
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = session._token(0)
+    orphan = session._token(1)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([
+        _FakeRl("open", comment=registered),
+        _FakeRl("orphan", comment=orphan),
+    ])
+    result = session.wait_for_review(timeout=0.0, poll=0.01)
+    assert result["complete"] is False
+    assert result["timed_out"] is True
+    assert result["changes"][0]["outcome"] == "pending"
+
+
+def test_wait_for_review_unreliable_scan_does_not_complete_on_empty_intersection():
+    # The partial scan sees only an orphan. getCount() says more redlines exist, so the
+    # registered token might be in the unseen tail. Do not declare the review complete.
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = session._token(0)
+    orphan = session._token(1)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([_FakeRl("orphan", comment=orphan)], count=3)
+    result = session.wait_for_review(timeout=0.0, poll=0.01)
+    assert result["complete"] is False
+    assert result["timed_out"] is True
 
 
 def test_record_mutation_does_not_tag_when_before_snapshot_unreliable():
@@ -483,6 +543,50 @@ def test_record_mutation_does_not_register_when_anchor_insert_fails():
 
     assert result == "r" and applied["n"] == 1
     assert session.changes == []
+
+
+def test_record_mutation_missing_bookmark_still_untags_and_does_not_register_orphan():
+    # The clear is still attempted. orphans>0 (token left on the redline) does not become
+    # a ChangeRecord, and _outcome is not given an empty-bookmark special case.
+    from unittest.mock import patch as _patch
+
+    from plugin.writer.edit_review import EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    rl = _FakeRl("a")
+    calls: list[str] = []
+
+    def tag(redlines, token):
+        calls.append(token)
+        if token == "":
+            return False, 1
+        for item in redlines:
+            item.comment = token
+        return True, 0
+
+    start = MagicMock()
+    end = MagicMock()
+    rl.getPropertyValue = lambda name: start if name == "RedlineStart" else end
+    text = MagicMock()
+    cursor = MagicMock()
+    start.getText.return_value = text
+    text.createTextCursorByRange.return_value = cursor
+    cursor.getText.return_value = text
+    text.insertTextContent.side_effect = RuntimeError("bookmark insert failed")
+
+    with (
+        _patch.object(session, "_redline_idents", return_value=(set(), True)),
+        _patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl], True)),
+        _patch("plugin.writer.edit_review._tag_new_redlines", side_effect=tag),
+        _patch("plugin.writer.edit_review._string_skipping_redline", return_value=""),
+    ):
+        result = session.record_mutation(lambda: "r")
+
+    assert result == "r"
+    assert session.changes == []
+    assert calls == [session._token(0), ""]
+    assert rl.comment == session._token(0)
 
 
 def test_wait_for_review_aborts_immediately_when_document_disposed():

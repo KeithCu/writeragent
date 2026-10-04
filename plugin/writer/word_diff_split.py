@@ -207,7 +207,7 @@ class SplitResult:
         )
 
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
 
 
 @deal.post(lambda result: isinstance(result, list))
@@ -238,10 +238,23 @@ def _word_tokens(tokens: list[Token]) -> list[Token]:
     return [t for t in tokens if t.is_word]
 
 
-@deal.pre(
-    lambda old, new, threshold=0.6: (not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE))
-    and (not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE))
-)
+def _deal_split_change_ok_pytest(old: object, new: object, threshold: object = 0.6) -> bool:
+    # Selection text is longer than DEAL_MAX_SOURCE. The cap raised
+    # PreContractError before the diff ran. The body accepts any text.
+    # CrossHair keeps the short strings. Arguments are unused.
+    return True
+
+
+def _deal_split_change_ok_crosshair(old: object, new: object, threshold: object = 0.6) -> bool:
+    return (not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE)) and (
+        not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE)
+    )
+
+
+_deal_split_change_ok = _deal_split_change_ok_crosshair if UNDER_CROSSHAIR else _deal_split_change_ok_pytest
+
+
+@deal.pre(lambda old, new, threshold=0.6: _deal_split_change_ok(old, new, threshold))
 @deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
 def split_change(old: str, new: str, threshold: float = 0.6) -> SplitResult:
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.

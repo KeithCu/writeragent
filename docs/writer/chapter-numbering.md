@@ -46,6 +46,11 @@ does **not** move `CharacterCount`; freshness then depends on the document
 modify listener emitting `document:cache_invalidated`. Covered by
 `test_chapter_number_cache_refreshes_on_numbering_toggle_uno`.
 
+`ProximityService._flatten_tree` uses that same `CharacterCount` fingerprint,
+and it only reuses a flat list when the heading tree object it was just
+handed is the one it flattened. A programmatic edit the modify listener
+misses still rebuilds next/previous/sibling/parent navigation.
+
 ## Tests
 
 Enable/disable Chapter Numbering in `@with_native_doc(..., reuse=False)` tests

@@ -513,6 +513,47 @@ def test_create_style_rejects_para_adjust_integer():
 
 
 @patch("plugin.writer.styles.NamedValue")
+def test_create_style_conditional_failure_rolls_back(mock_nv):
+    family = _style_family({"Standard": MagicMock(), "Heading 1": MagicMock()})
+
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+    new_style = MagicMock()
+    mock_ctx.doc._created["com.sun.star.style.ConditionalParagraphStyle"] = new_style
+
+    # Track inserted styles so hasByName returns True during the rollback check,
+    # but False during the initial check.
+    inserted_styles = set()
+    original_has_by_name = family.hasByName.side_effect
+
+    def _has_by_name(n):
+        if n in inserted_styles:
+            return True
+        return original_has_by_name(n)
+
+    family.hasByName.side_effect = _has_by_name
+
+    def _insert_by_name(n, s):
+        inserted_styles.add(n)
+
+    family.insertByName.side_effect = _insert_by_name
+
+    # Make setting conditions fail
+    new_style.setPropertyValue.side_effect = RuntimeError("Boom")
+
+    nv_instance = MagicMock()
+    mock_nv.return_value = nv_instance
+
+    tool = StyleCreate()
+    rules = [{"context": "Table", "target_style": "Heading 1"}]
+    res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
+
+    assert res["status"] == "error"
+    assert "Boom" in res["message"]
+    family.insertByName.assert_called_once_with("CondStyle", new_style)
+    family.removeByName.assert_called_once_with("CondStyle")
+
+
+@patch("plugin.writer.styles.NamedValue")
 def test_create_style_conditional(mock_nv):
     family = _style_family({"Standard": MagicMock(), "Heading 1": MagicMock()})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
@@ -716,11 +757,13 @@ def test_plain_properties_use_set_property_value():
 
 # ---- D2: apply_style all_matches / occurrence -------------------------------
 
-def _style_ctx():
+def _style_ctx(stop_checker=None):
     ctx = MagicMock()
     fam = MagicMock()
     fam.hasByName.return_value = True
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
+    if stop_checker is not None:
+        ctx.stop_checker = stop_checker
     return ctx
 
 
@@ -733,10 +776,31 @@ def test_apply_style_all_matches_applies_to_each():
          patch("plugin.writer.format.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+        res = ApplyStyle().execute(_style_ctx(stop_checker=lambda: False), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok" and res["applied_count"] == 3
     assert ap.call_count == 3
+
+def test_apply_style_all_matches_does_not_abort_on_stop_checker():
+    from plugin.writer.styles import ApplyStyle
+
+    ranges = [MagicMock(), MagicMock(), MagicMock()]
+    calls = []
+    def _stop():
+        calls.append(1)
+        return len(calls) > 1
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
+         patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
+        res = ApplyStyle().execute(_style_ctx(stop_checker=_stop), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "ok"
+    assert res["applied_count"] == 3
+    assert "Tool stopped early" not in res["message"]
+    assert ap.call_count == 3  # All matches were applied (mutations are not aborted on stop)
 
 
 def test_apply_style_occurrence_out_of_range():
@@ -763,3 +827,47 @@ def test_apply_style_unknown_style_lists_names_and_suggests():
     assert res["status"] == "error"
     assert "Did you mean 'Heading 1'" in res["message"]
     assert "Text body" in res["message"]
+
+def test_apply_style_all_matches_does_not_stop_early() -> None:
+    from plugin.writer.styles import ApplyStyle
+    from plugin.framework.tool import ToolContext
+
+    tool = ApplyStyle()
+    assert tool.is_async() is False
+
+    doc = WriterDocStub()
+    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test")
+    ctx.services.get = MagicMock(return_value=None)
+
+    # Stop checker returns True, but document mutation must not abort early
+    applied_count = 0
+    def stop_checker():
+        return True
+    ctx.stop_checker = stop_checker
+
+    # Fake 4 find results
+    ranges = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]
+    for i, r in enumerate(ranges):
+        text_mock = MagicMock()
+        text_mock.createTextCursorByRange.return_value = MagicMock()
+        r.getText.return_value = text_mock
+        r.getStart.return_value = "start"
+        r.getEnd.return_value = "end"
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=ranges):
+        tool._tool_error = lambda m: {"status": "error", "message": m}
+
+        def mock_apply_one(*args, **kwargs):
+            nonlocal applied_count
+            applied_count += 1
+            return {"applied_direct": 1}
+
+        tool._apply_one = mock_apply_one
+        tool._merge_reports = lambda rep: {}
+
+        with patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
+            res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
+
+            assert res["status"] == "ok"
+            assert res["applied_count"] == 4
+            assert "Tool stopped early" not in res["message"]

@@ -67,3 +67,25 @@ def test_search_return_offsets_rejects_regex():
 
     res = SearchInDocument().execute(MagicMock(doc=MagicMock()), pattern="a+", regex=True, return_offsets=True)
     assert res["status"] == "error" and res["code"] == "INVALID_PARAM"
+
+
+def test_find_ranges_regex_case_caps_at_max_search_replacements():
+    from plugin.writer.search import find_ranges_regex_case, _MAX_SEARCH_REPLACEMENTS
+
+    doc = MagicMock()
+    doc.createSearchDescriptor.return_value = MagicMock()
+    doc.findFirst.return_value = MagicMock()
+    doc.findNext.side_effect = lambda found, sd: MagicMock()
+    out = find_ranges_regex_case(doc, "x", True, True, all_matches=True)
+    assert len(out) == _MAX_SEARCH_REPLACEMENTS
+
+
+def test_find_lo_regex_ranges_caps_at_max_search_replacements():
+    from plugin.writer.search import find_lo_regex_ranges, _MAX_SEARCH_REPLACEMENTS
+
+    doc = MagicMock()
+    doc.createSearchDescriptor.return_value = MagicMock()
+    doc.findFirst.return_value = MagicMock()
+    doc.findNext.side_effect = lambda found, sd: MagicMock()
+    out = find_lo_regex_ranges(doc, "x", all_matches=True)
+    assert len(out) == _MAX_SEARCH_REPLACEMENTS
