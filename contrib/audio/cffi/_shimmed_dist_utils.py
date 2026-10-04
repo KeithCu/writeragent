@@ -21,13 +21,6 @@ else:
 
 try:
     # bring in just the bits of distutils we need, whether they really came from setuptools or stdlib-embedded distutils
-    from distutils import log, sysconfig
-    from distutils.ccompiler import CCompiler
-    from distutils.command.build_ext import build_ext
-    from distutils.core import Distribution, Extension
-    from distutils.dir_util import mkpath
-    from distutils.errors import DistutilsSetupError, CompileError, LinkError
-    from distutils.log import set_threshold, set_verbosity
 
     if sys.platform == 'win32':
         try:

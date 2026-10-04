@@ -35,14 +35,14 @@ def extract_docx_paragraphs(path: str) -> list[str]:
     """Body paragraphs from a .docx file (python-docx)."""
     try:
         from docx import Document
-    except ImportError:
+    except ImportError as exc:
         log.debug("python-docx not installed — docx extract skipped for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"python-docx not installed — docx extract skipped for {path}") from exc
     try:
         document = Document(path)
-    except Exception:
+    except Exception as exc:
         log.debug("extract_docx_paragraphs failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_docx_paragraphs failed for {path}") from exc
     passages: list[str] = []
     for paragraph in document.paragraphs:
         try:
@@ -56,8 +56,8 @@ def extract_docx_paragraphs(path: str) -> list[str]:
     return passages
 
 
-def extract_spreadsheet_rows(path: str) -> list[str]:
-    """One passage per non-empty row from .xlsx/.xls (pandas + openpyxl/xlrd)."""
+def extract_spreadsheet_rows(path: str) -> list[str] | None:
+    """One passage per non-empty row from .xlsx/.xls (pandas + openpyxl/xlrd). Returns None on failure."""
     ext = Path(path).suffix.lower()
     if ext == ".xlsx":
         engine = "openpyxl"
@@ -69,15 +69,15 @@ def extract_spreadsheet_rows(path: str) -> list[str]:
         import pandas as pd
     except ImportError:
         log.debug("pandas not installed — spreadsheet extract skipped for %s", path, exc_info=True)
-        return []
+        return None
     try:
         sheets = pd.read_excel(path, engine=engine, sheet_name=None, header=None)
     except ImportError:
         log.debug("%s engine not installed — spreadsheet extract skipped for %s", engine, path, exc_info=True)
-        return []
+        return None
     except Exception:
         log.debug("extract_spreadsheet_rows failed for %s", path, exc_info=True)
-        return []
+        return None
 
     rows: list[str] = []
     for sheet_name, frame in sheets.items():
@@ -97,8 +97,9 @@ def extract_csv_rows(path: str) -> list[str]:
                 cells = [cell.strip() for cell in row if str(cell).strip()]
                 if cells:
                     rows.append("\t".join(cells))
-    except OSError:
+    except OSError as exc:
         log.debug("extract_csv_rows failed for %s", path, exc_info=True)
+        raise RuntimeError(f"extract_csv_rows failed for {path}") from exc
     return rows
 
 
@@ -106,9 +107,9 @@ def extract_plaintext_paragraphs(path: str) -> list[str]:
     """Plain .txt: blank-line paragraphs, else one passage per non-empty line."""
     try:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as exc:
         log.debug("extract_plaintext_paragraphs failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_plaintext_paragraphs failed for {path}") from exc
     parts = [part.strip() for part in text.split("\n\n") if part.strip()]
     if len(parts) > 1:
         return parts
@@ -126,9 +127,9 @@ def extract_rtf_paragraphs(path: str) -> list[str]:
     """Best-effort RTF paragraph text for cross-file routing (not a full RTF parser)."""
     try:
         raw = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as exc:
         log.debug("extract_rtf_paragraphs failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_rtf_paragraphs failed for {path}") from exc
     text = raw.replace("\\par", "\n").replace("\\line", "\n")
     text = _RTF_CONTROL.sub("", text)
     text = text.replace("{", "").replace("}", "")
@@ -140,11 +141,16 @@ def _texts_from_ooxml_slide_xml(xml_bytes: bytes) -> str:
         root = ET.fromstring(xml_bytes)
     except Exception:
         return ""
-    parts: list[str] = []
-    for node in root.iter(f"{_DRAWML_NS}t"):
-        if node.text and node.text.strip():
-            parts.append(node.text.strip())
-    return " ".join(parts)
+    paras: list[str] = []
+    for p_node in root.iter(f"{_DRAWML_NS}p"):
+        parts: list[str] = []
+        for t_node in p_node.iter(f"{_DRAWML_NS}t"):
+            if t_node.text:
+                parts.append(t_node.text)
+        para_text = "".join(parts).strip()
+        if para_text:
+            paras.append(para_text)
+    return "\n".join(paras)
 
 
 def extract_pptx_passages(path: str) -> list[str]:
@@ -224,6 +230,7 @@ def extract_pptx_passages(path: str) -> list[str]:
                                             passages.append(f"[Notes: Slide{index}]\t{notes}")
                     except Exception:
                         pass
-    except (OSError, zipfile.BadZipFile, ET.ParseError):
+    except (OSError, zipfile.BadZipFile, ET.ParseError) as exc:
         log.debug("extract_pptx_passages failed for %s", path, exc_info=True)
+        raise RuntimeError(f"extract_pptx_passages failed for {path}") from exc
     return passages

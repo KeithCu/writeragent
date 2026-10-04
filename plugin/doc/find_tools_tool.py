@@ -194,6 +194,8 @@ class FindTools(ToolBase):
             schemas = []
         else:
             schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
+            from plugin.mcp.mcp_protocol import drop_unavailable_domains
+            schemas = drop_unavailable_domains(schemas, registry, getattr(ctx, "ctx", None))
 
         # What was wrong: this called sidebar_only_tool_names(registry, doc)
         # without doc_type or uno_services_supported. The helper no longer

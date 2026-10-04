@@ -123,9 +123,10 @@ def describe_data(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Extended EDA summary — Excel Data Analysis / describe() plus column quality."""
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     if df.empty:
         return _ok_result(
@@ -202,9 +203,10 @@ def kpi_summary(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Aggregate KPI table for selected numeric columns (Python-in-Excel init helper)."""
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     missing = [m for m in metrics if m not in df.columns]
     if missing:
@@ -234,13 +236,14 @@ def detect_outliers(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Flag outliers using IQR, z-score, or sklearn IsolationForest."""
     import numpy as np
     import pandas as pd
     from scipy import stats as scipy_stats
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     if df.empty:
         return _ok_result("detect_outliers", metrics={"outlier_count": 0}, tables=[], flags=[], metadata=coerced.metadata)
@@ -304,8 +307,8 @@ class QuickStats:
     numeric_columns: list[str]
     record_count: int
 
-    def __init__(self, data: Any, *, numeric_columns: list[str] | None = None, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> None:
-        coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    def __init__(self, data: Any, *, numeric_columns: list[str] | None = None, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None, date_origin: str = "1899-12-30") -> None:
+        coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
         self.df = coerced.df
         self.metadata = coerced.metadata
         cols = numeric_columns or coerced.metadata.get("numeric_cols") or _numeric_columns(self.df)
@@ -339,6 +342,7 @@ def quick_stats(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Template entry. ``QuickStats`` is the class; Run Python Script imports this name."""
     return QuickStats(
@@ -359,9 +363,10 @@ def clean_and_prepare(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Lightweight cleaning — type coercion, optional dedupe, simple imputation."""
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df.copy()
     actions: list[str] = []
 
@@ -415,9 +420,10 @@ def pivot_aggregate(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Excel PivotTable wrapper around pandas pivot_table."""
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     try:
         pivoted = df.pivot_table(index=index, columns=columns, values=values, aggfunc=aggfunc, fill_value=0)
@@ -443,9 +449,10 @@ def group_summary(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Group-by aggregate summary (Excel SUBTOTAL / pivot rows)."""
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     missing = [m for m in ([by] if isinstance(by, str) else list(by)) + metrics if m not in df.columns]
     if missing:
@@ -471,21 +478,22 @@ def compare_periods(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """YoY / QoQ style period-over-period change.
 
     ``agg`` defaults to ``sum`` (revenue). A price or a rate needs ``mean`` or
     ``last`` — summing those was a silent wrong answer.
     """
-    import pandas as pd
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df.copy()
     if date_col not in df.columns or value_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Need columns {date_col!r} and {value_col!r}", helper="compare_periods")
     agg_name = str(agg or "sum").strip().lower()
     if agg_name not in ("sum", "mean", "last"):
         return _error_result("INVALID_PARAM", f"agg must be sum, mean, or last, got {agg_name!r}", helper="compare_periods")
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    from plugin.scripting.venv.coerce import convert_to_datetime
+    df[date_col] = convert_to_datetime(df[date_col], date_origin=date_origin, errors="coerce")
     df = df.dropna(subset=[date_col, value_col])
     freq = {"Y": "YE", "Q": "QE", "M": "ME"}.get(period.upper(), period)
     grouped = df.set_index(date_col).sort_index()[value_col].resample(freq).agg(agg_name).reset_index()
@@ -510,9 +518,10 @@ def correlation_matrix(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Pairwise correlations — Excel CORREL matrix, top pairs above threshold."""
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     numeric = df.select_dtypes(include="number")
     if numeric.shape[1] < 2:
@@ -553,9 +562,10 @@ def run_regression(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """OLS / linear regression — Excel LINEST / trendline equivalent."""
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     if target not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown target {target!r}", helper="run_regression")
@@ -636,6 +646,7 @@ def cluster_numeric(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Cluster numeric columns with sklearn KMeans.
 
@@ -646,7 +657,7 @@ def cluster_numeric(
     import pandas as pd
     from sklearn.cluster import KMeans
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
     try:
         numeric_cols = _numeric_columns(df, columns)
@@ -726,6 +737,7 @@ def monte_carlo(
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
+    date_origin: str = "1899-12-30",
 ) -> dict[str, Any]:
     """Monte Carlo simulation on a numeric series (pandas-montecarlo)."""
     try:
@@ -733,7 +745,7 @@ def monte_carlo(
     except ImportError:
         return _missing_package_error("monte_carlo", "pandas-montecarlo")
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df
 
     if df.empty:
@@ -794,7 +806,8 @@ def monte_carlo(
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
     sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+    date_origin = str(context.get("date_origin", "1899-12-30"))
+    common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint, "date_origin": date_origin}
 
     if name == "describe_data":
         return describe_data(data, include_outliers=params.get("include_outliers", True), max_cols=params.get("max_cols", MAX_COLS), **common)

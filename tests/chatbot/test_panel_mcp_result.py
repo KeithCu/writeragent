@@ -7,7 +7,7 @@ def get_dummy_listener():
         def __init__(self):
             self.ctx = MagicMock()
             self._panel_teardown = False
-            self._last_mcp_turn = None
+            self._last_mcp_turn = {}
 
         def _append_response(self, text):
             pass
@@ -23,7 +23,7 @@ def test_on_mcp_result_drops_stale_turn():
     current_turn._alive = True
 
     old_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
-    listener._last_mcp_turn = old_turn
+    listener._last_mcp_turn = {"": old_turn}
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=current_turn):
         with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
@@ -36,7 +36,7 @@ def test_on_mcp_result_drops_dead_turn():
     current_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
     current_turn._alive = False
 
-    listener._last_mcp_turn = current_turn
+    listener._last_mcp_turn = {"": current_turn}
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=current_turn):
         with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
@@ -49,7 +49,7 @@ def test_on_mcp_result_posts_on_valid_turn():
     current_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
     current_turn._alive = True
 
-    listener._last_mcp_turn = current_turn
+    listener._last_mcp_turn = {"": current_turn}
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=current_turn):
         with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):

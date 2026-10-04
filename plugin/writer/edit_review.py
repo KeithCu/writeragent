@@ -48,6 +48,7 @@ import uuid
 from typing import Any, Callable, ClassVar, Iterator
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.i18n import _
 from plugin.writer import review_scan as _review_scan
 
 log = logging.getLogger(__name__)
@@ -1283,6 +1284,7 @@ class WriterStreamedRewriteSession:
         # When True (opt-in flag), the agent's edit is collapsed into one tracked
         # change for the user to review even if they did not have Track Changes on.
         self.track_reviewable = track_reviewable
+        self.last_write_error: Exception | None = None
         # Before the undo context, RecordChanges, and setString(""). See
         # refuse_tracked_insert_or_delete: setString with tracking off accepts
         # deletions and flattens insertions in this range.
@@ -1311,13 +1313,19 @@ class WriterStreamedRewriteSession:
 
     def append_chunk(self, chunk: str) -> None:
         """Append streamed text to the visible range and shadow buffer."""
+        # AI/DEV INVARIANT: Do NOT raise or re-raise exceptions here if chunk application fails.
+        # Raising inside append_chunk or apply_chunk triggers on_error(), popping an error dialog
+        # and calling abort_and_restore() which throws away what the user already received.
+        # If an individual paint fails or Stop is clicked, log at warning and record last_write_error
+        # so finish() can report degraded success if the text failed to write to the document.
         if not chunk:
             return
         self.generated_text += chunk
         try:
             self.text_range.setString(self.generated_text)
-        except Exception as e:
-            raise RuntimeError(f"Failed to append chunk: {e}") from e
+        except Exception as exc:
+            self.last_write_error = exc
+            logging.getLogger(__name__).warning("streamed rewrite: chunk apply failed", exc_info=True)
 
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
@@ -1342,9 +1350,13 @@ class WriterStreamedRewriteSession:
                         self.doc.setPropertyValue("RecordChanges", True)
                     except Exception:
                         log.exception("streamed rewrite: empty result could not restore RecordChanges")
+                if self.last_write_error is not None:
+                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
                 return None
 
             if not (self.was_recording or self.track_reviewable):
+                if self.last_write_error is not None:
+                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
                 return None
 
             try:
@@ -1471,6 +1483,7 @@ class WriterStreamedAppendSession:
         self.appended_text = ""
         self.track_reviewable = track_reviewable
         self.was_recording = False
+        self.last_write_error: Exception | None = None
         # Before the undo context and before RecordChanges is turned off. append_chunk's
         # setString(original_text + continuation) and finish()'s setString(original_text)
         # would accept deletions and flatten insertions. See refuse_tracked_insert_or_delete.
@@ -1491,13 +1504,19 @@ class WriterStreamedAppendSession:
 
     def append_chunk(self, chunk: str) -> None:
         """Append streamed text after the original (tracking off; one redline created at finish)."""
+        # AI/DEV INVARIANT: Do NOT raise or re-raise exceptions here if chunk application fails.
+        # Raising inside append_chunk or apply_chunk triggers on_error(), popping an error dialog
+        # and calling abort_and_restore() which throws away what the user already received.
+        # If an individual paint fails or Stop is clicked, log at warning and record last_write_error
+        # so finish() can report degraded success if the text failed to write to the document.
         if not chunk:
             return
         self.appended_text += chunk
         try:
             self.text_range.setString(self.original_text + self.appended_text)
-        except Exception:
-            raise RuntimeError("streamed append: chunk apply failed")
+        except Exception as exc:
+            self.last_write_error = exc
+            logging.getLogger(__name__).warning("streamed append: chunk apply failed", exc_info=True)
 
     def finish(self) -> str | None:
         """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
@@ -1511,8 +1530,12 @@ class WriterStreamedAppendSession:
                         self.doc.setPropertyValue("RecordChanges", True)
                     except Exception:
                         pass
+                if self.last_write_error is not None:
+                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
                 return None
             if not (self.was_recording or self.track_reviewable):
+                if self.last_write_error is not None:
+                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
                 return None
 
             before_ids = None
