@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from plugin.scripting.viz import get_viz_script_templates, parse_viz_script_header, run_viz
 
@@ -121,6 +122,40 @@ def test_insert_image_payload_writer_uses_product_display_name():
 
         insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
     assert ins.call_args.kwargs["description"] == "LibrePy plot"
+
+
+def test_insert_image_payload_calc_passes_target_doc():
+    """Calc egress must insert on the script document, not the front window."""
+    ctx = MagicMock()
+    doc = MagicMock(name="target")
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
+    with (
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
+    ):
+        from plugin.scripting.viz import insert_image_payload_for_doc
+
+        insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
+    insert.assert_called_once_with(ctx, payload, doc=doc)
+
+
+def test_insert_image_payload_calc_surfaces_egress_failure():
+    ctx = MagicMock()
+    doc = MagicMock(name="target")
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"x"}
+    from plugin.calc.python.image_egress import ImageEgressError
+
+    with (
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch(
+            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            side_effect=ImageEgressError("target sheet has no DrawPage; image was not inserted"),
+        ),
+        pytest.raises(ImageEgressError),
+    ):
+        from plugin.scripting.viz import insert_image_payload_for_doc
+
+        insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
 
 
 # --- Viz Run Python Script templates (from test_viz_templates.py) ---
