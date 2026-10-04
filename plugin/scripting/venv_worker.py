@@ -1167,6 +1167,8 @@ class PythonWorkerManager:
             return self._read_exact_before_deadline(stdout, n, deadline_holder[0], stop_checker)
 
         while True:
+            if stop_checker is not None and stop_checker():
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
             frame_bytes = self._read_frame_bytes(stdout, _read_exact)
             if not frame_bytes:
                 return b""

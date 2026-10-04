@@ -280,7 +280,6 @@ def _inject_markers_into_excerpt(
     return out
 
 
-
 # Resolver-only TreeService used when plugin.main has not registered writer_tree
 # (unit tests, and any call before WriterModule.initialize). One instance so
 # repeated misses do not subscribe a new cache listener each time.
@@ -774,7 +773,11 @@ class DocumentService(ServiceBase):
         return _find_paragraph_for_range(anchor, para_ranges, text_obj)
 
     def resolve_locator(self, doc: Any, locator: str) -> dict[str, Any]:
-        """Resolve a locator string to a paragraph index or other document position."""
+        """Resolve a locator string to a paragraph index.
+
+        Unresolvable locators raise ``ToolExecutionError``. See module
+        ``resolve_locator``.
+        """
         return resolve_locator(doc, locator)
 
     def yield_to_gui(self) -> None:

@@ -123,7 +123,7 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
         )
 
     ingest_mock.assert_not_called()
-    sync_mock.assert_called_once()
+    sync_mock.assert_not_called()
     assert result["indexed_paragraphs"] == 0
 
 
