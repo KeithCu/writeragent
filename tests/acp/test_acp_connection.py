@@ -563,7 +563,6 @@ class TestStdinWriteCapturesProc:
         from unittest.mock import patch
 
         # Patch run_in_background so we can null conn._proc before it runs
-        original_run = None
         def mock_run_in_background(func, name=None):
             conn._proc = None
             func()
@@ -605,7 +604,6 @@ class TestStdinWriteCapturesProc:
         from unittest.mock import patch
 
         # Patch run_in_background so we can null conn._proc before it runs
-        original_run = None
         def mock_run_in_background(func, name=None):
             conn._proc = None
             func()
