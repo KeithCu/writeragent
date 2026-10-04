@@ -384,7 +384,8 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
             # For a single result, run_and_insert_vision_for_selection does not return a list.
             # Wrap the entire result as an individual result so _finish_rps_execution can insert it.
             # It also adds context with image_name so the egress logic can figure out the anchor.
-            context_name = image_name or (result.get("image_names")[0] if result.get("image_names") else None)
+            image_names = result.get("image_names")
+            context_name = image_name or (image_names[0] if image_names else None)
             indiv_res = dict(result)
             if context_name:
                 indiv_res["context"] = {"image_name": context_name}
