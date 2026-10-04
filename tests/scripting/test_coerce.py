@@ -48,7 +48,6 @@ def test_numeric_headers_and_mixed_columns_keep_their_text():
 
 def test_convert_to_datetime_nanoseconds_regression():
     from plugin.scripting.venv.coerce import convert_to_datetime
-    import pandas as pd
 
     # 46242 is 2026-08-08 under 1899-12-30 default origin.
     # On the old behavior (pd.to_datetime([46242])), this resulted in 1970-01-01 00:00:00.000046242

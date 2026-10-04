@@ -222,7 +222,7 @@ class ChatSession:
 
 from plugin.framework.uno_listeners import BaseActionListener, BaseKeyListener, BaseTextListener
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
-from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, StartRecordingEffect, StartSendEffect, StopRecordingEffect, StopSendEffect, UpdateUIEffect
+from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, StartRecordingEffect, StartSendEffect, StopRecordingEffect, StopSendEffect, TranscribeOnlyEffect, UpdateUIEffect
 from plugin.chatbot.sidebar_state import LogSidebarEffect, SidebarCompositeState, SidebarEvent, SidebarEventKind, sidebar_next_state
 
 log = logging.getLogger(__name__)
@@ -1449,6 +1449,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # VCL tick so the listener returns first.
                 self.queue_executor.post(self._run_send_drain)
 
+            case TranscribeOnlyEffect():
+                self._run_transcribe_only()
+
             case StopSendEffect():
                 log.info("Stop clicked (cancel in-flight send)")
                 from plugin.chatbot.tool_loop_actions import abort_turn
@@ -1466,12 +1469,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if scope is not None:
                     scope.cancel()
 
-                # Clear audio path so an aborted send doesn't attach this recording to the next one
-                from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
-                clear_pending_audio_wav(self)
+                # AI/DEV INVARIANT: Do NOT clear audio_wav_path or kill in-flight STT here.
+                # If Stop is clicked while recording or transcribing, we want speech-to-text to finish
+                # and populate the query box so the user's spoken words are preserved and not discarded.
 
                 self._stop_requested_fallback = True
-                self._kill_inflight_stt()
                 from plugin.doc.peer_message import drop_listener_queue
 
                 drop_listener_queue(self)
@@ -1533,6 +1535,41 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             log.debug("has_text sync skipped", exc_info=True)
             return
         self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(str(text).strip())}))
+
+    def _run_transcribe_only(self) -> None:
+        """Transcribe recorded audio into the query box without sending to the model."""
+        def _bg_transcribe() -> None:
+            wav_path = getattr(self, "audio_wav_path", None)
+            if not wav_path:
+                def _done_no_wav() -> None:
+                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                self.queue_executor.post(_done_no_wav)
+                return
+
+            from plugin.framework.client.model_fetcher import get_stt_model
+            from plugin.audio.stt_service import uses_local_stt
+            stt_model = get_stt_model() if not uses_local_stt() else "base"
+            transcript = ""
+            try:
+                transcript = self._transcribe_audio(wav_path, stt_model)
+            except Exception:
+                log.exception("Error during transcribe-only STT")
+            finally:
+                self.audio_wav_path = None
+
+            def _finish_ui() -> None:
+                if transcript and self.query_control and self.query_control.getModel():
+                    from plugin.chatbot.dialogs import get_control_text, set_control_text
+                    existing = (get_control_text(self.query_control) or "").strip()
+                    new_text = (existing + "\n" + transcript).strip() if existing else transcript
+                    set_control_text(self.query_control, new_text)
+                self._sync_has_text_from_query()
+                self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+
+            self.queue_executor.post(_finish_ui)
+
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(_bg_transcribe)
 
     def _run_send_drain(self) -> None:
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
@@ -1757,6 +1794,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     try:
                         transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
                         if self._terminal_status == "Stopped":
+                            # AI/DEV INVARIANT: If Stop was clicked during transcription, do NOT auto-submit
+                            # to the LLM, but DO populate query_control so user's speech is preserved.
+                            if transcript and self.query_control and self.query_control.getModel():
+                                from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+                                existing = (get_control_text(self.query_control) or "").strip()
+                                new_text = (existing + "\n" + transcript).strip() if existing else transcript
+                                set_control_text(self.query_control, new_text)
+                                self._sync_has_text_from_query()
                             return
                         if transcript:
                             query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
@@ -2114,7 +2160,9 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
                     send_listener.stop_control.getModel().Enabled = False
             return
     send = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
-    if send is None or not send.is_busy:
+    is_rec = getattr(send, "is_recording", False) is True
+    is_busy = getattr(send, "is_busy", False) is True
+    if not is_busy and not is_rec:
         return
     log.info("StopButtonListener: STOP_CLICKED (mousePressed)")
     send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
@@ -2233,7 +2281,9 @@ class StopButtonListener(BaseActionListener):
             from plugin.audio.tts_service import is_speaking, stop_speech
             if is_speaking():
                 stop_speech()
-                if not getattr(self.send_listener, "_send_busy", False):
+                is_rec = getattr(getattr(self.send_listener, "sidebar_state", None), "send", None)
+                is_recording = getattr(is_rec, "is_recording", False) is True
+                if not getattr(self.send_listener, "_send_busy", False) and not is_recording:
                     # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
                     # hands-free, or the TTS poll would arm the mic again.
                     self.send_listener.exit_hands_free_record()

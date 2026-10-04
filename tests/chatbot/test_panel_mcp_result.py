@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 from plugin.chatbot.panel import SendButtonListener
 from plugin.chatbot.tool_loop_actions import TurnController
