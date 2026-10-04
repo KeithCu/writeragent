@@ -308,6 +308,100 @@ def test_with_left_body_locked_order_and_restore():
     assert order == ["leave", "lock", "scan", "unlock", "restore"]
 
 
+def _quiet_writer(elements):
+    """Writer stub whose page scan has nothing to hop, plus a view cursor."""
+    from plugin.tests.testing_utils import WriterDocStub
+
+    doc = WriterDocStub(elements)
+    empty = _empty_named_collection()
+    doc.getGraphicObjects = lambda: empty
+    doc.getTextTables = lambda: empty
+    doc.getTextFrames = lambda: empty
+    draw = MagicMock()
+    draw.getCount.return_value = 0
+    doc.getDrawPage = lambda: draw
+    vc = MagicMock()
+    vc.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    doc.getCurrentController = lambda: MagicMock(getViewCursor=lambda: vc)
+    return doc
+
+
+class _RecordingDocumentService:
+    """Records the paragraph index get_page_objects resolved, then returns a page."""
+
+    def __init__(self, resolve=None):
+        self.seen = []
+        self._resolve = resolve
+
+    def resolve_locator(self, doc, locator):
+        if self._resolve is not None:
+            return self._resolve(doc, locator)
+        from plugin.doc.document_helpers import resolve_locator
+
+        return resolve_locator(doc, locator)
+
+    def get_page_for_paragraph(self, _model, para_index):
+        self.seen.append(para_index)
+        return 5
+
+
+def test_get_page_objects_heading_text_uses_that_paragraph():
+    from plugin.tests.testing_utils import ElementStub
+
+    tool = GetPageObjects()
+    doc = _quiet_writer(
+        [
+            ElementStub("Preamble"),
+            ElementStub("Introduction", outline_level=1),
+        ]
+    )
+    svc = _RecordingDocumentService()
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document = svc
+    result = tool.execute(ctx, locator="heading_text:Introduction")
+    assert result["status"] == "ok"
+    assert result["page"] == 5
+    assert svc.seen == [1]
+
+
+def test_get_page_objects_missing_heading_text_is_an_error():
+    from plugin.tests.testing_utils import ElementStub
+
+    tool = GetPageObjects()
+    doc = _quiet_writer([ElementStub("Preamble")])
+    svc = _RecordingDocumentService()
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document = svc
+    result = tool.execute(ctx, locator="heading_text:Missing")
+    assert result["status"] == "error"
+    assert "No heading matching 'Missing'" in result["message"]
+    assert svc.seen == []
+
+
+def test_get_page_objects_paragraph_zero_is_a_real_index():
+    tool = GetPageObjects()
+    doc = MagicMock()
+    doc.getText.return_value.getStart.side_effect = RuntimeError("leave failed")
+    doc.getGraphicObjects.return_value = _empty_named_collection()
+    doc.getTextTables.return_value = _empty_named_collection()
+    doc.getTextFrames.return_value = _empty_named_collection()
+    draw = MagicMock()
+    draw.getCount.return_value = 0
+    doc.getDrawPage.return_value = draw
+    vc = MagicMock()
+    vc.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
+    svc = _RecordingDocumentService(resolve=lambda _doc, _locator: {"para_index": 0})
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document = svc
+    result = tool.execute(ctx, locator="paragraph:0")
+    assert result["status"] == "ok"
+    assert svc.seen == [0]
+
+
 def test_execute_skips_lock_when_page_hop_fails():
     """Empty page is valid — a failed hop must not lock (or invent a cell)."""
     tool = GetPageObjects()

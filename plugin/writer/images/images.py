@@ -124,6 +124,7 @@ class ImageGenerate(ToolWriterImageBase):
         prompt = args.get("prompt", "")
 
         status_callback = getattr(ctx, "status_callback", None)
+        stop_checker = getattr(ctx, "stop_checker", None)
         mt_timeout = float(get_config_int("request_timeout"))
         provider = args.get("provider") or "endpoint"
         if provider == "aihorde":
@@ -200,6 +201,7 @@ class ImageGenerate(ToolWriterImageBase):
             height=height,
             aspect_ratio=aspect,
             status_callback=status_callback,
+            stop_checker=stop_checker,
             **args_copy,
         )
 
@@ -209,6 +211,8 @@ class ImageGenerate(ToolWriterImageBase):
         img_path = paths[0]
 
         def _insert_or_replace() -> str:
+            # Bytes are already in hand. Stop may abort the network wait above;
+            # it does not skip this document insert.
             if is_edit:
                 replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
                 if not replaced:
@@ -218,6 +222,10 @@ class ImageGenerate(ToolWriterImageBase):
             return "Image generated and inserted from %s." % provider
 
         msg = _run_on_main(_insert_or_replace, timeout=mt_timeout)
+
+        # Stop after the download must not turn a finished insert into an error.
+        # generate_image still receives stop_checker, so a network wait can abort.
+        # The insert itself is a document mutation and already ran.
 
         if provider in ("endpoint", "openrouter"):
             image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
@@ -658,7 +666,7 @@ class ImageDownload(ToolWriterImageBase):
     description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: false)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
+        "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: true)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
         "required": ["url"],
     }
 
@@ -666,7 +674,10 @@ class ImageDownload(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         url = kwargs.get("url", "")
 
-        verify_ssl = kwargs.get("verify_ssl", False)
+        verify_ssl = kwargs.get("verify_ssl", True)
+        # A missing or null flag must not turn verification off.
+        if verify_ssl is None:
+            verify_ssl = True
         force = kwargs.get("force", False)
 
         local_path = _download_image_to_cache(url, verify_ssl=verify_ssl, force=force)
@@ -903,10 +914,14 @@ class ImageReplace(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _download_image_to_cache(url: str, verify_ssl: bool = False, force: bool = False) -> str:
+def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = False) -> str:
     """Download an image URL to the local cache directory.
 
     Returns the local file path. Uses a URL-based hash for caching.
+
+    TLS certificates are verified unless the caller passes ``verify_ssl=False``.
+    Image replace and image insert use this default, so an https URL is not
+    fetched with hostname checks disabled.
     """
 
     os.makedirs(_IMAGE_CACHE_DIR, exist_ok=True)
@@ -933,6 +948,9 @@ def _download_image_to_cache(url: str, verify_ssl: bool = False, force: bool = F
 
     log.info("image_download: downloading %s -> %s", url, local_path)
 
+    # What was wrong: the default was verify_ssl=False, so ImageReplace (and
+    # ImageInsert / ImageDownload) downloaded https URLs with CERT_NONE.
+    # Why this fixes it: verification stays on unless the caller opts out.
     if verify_ssl:
         context = None
     else:

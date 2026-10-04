@@ -1,7 +1,14 @@
-
+import pytest
 
 from plugin.doc.udprops import get_document_property, set_document_property
-from plugin.writer.edit_review import WriterCompoundUndo, WriterStreamedRewriteSession, build_writer_rewrite_prompt
+from plugin.writer.edit_review import (
+    TRACKED_SELECTION_MESSAGE,
+    TrackedChangesInSelection,
+    WriterCompoundUndo,
+    WriterStreamedAppendSession,
+    WriterStreamedRewriteSession,
+    build_writer_rewrite_prompt,
+)
 
 
 class _MutableTextRange:
@@ -23,6 +30,7 @@ class _MockUndoManager:
     def __init__(self):
         self.entered = False
         self.left = False
+        self.undone = False
 
     def enterUndoContext(self, title: str) -> None:
         self.entered = True
@@ -31,16 +39,21 @@ class _MockUndoManager:
     def leaveUndoContext(self) -> None:
         self.left = True
 
+    def undo(self) -> None:
+        self.undone = True
+
 
 class _MockDoc:
     def __init__(self, recording=True):
         self.props = {"RecordChanges": recording}
+        self.writes = []
         self.undo = _MockUndoManager()
 
     def getPropertyValue(self, name):
         return self.props[name]
 
     def setPropertyValue(self, name, value):
+        self.writes.append((name, value))
         self.props[name] = value
 
     def getUndoManager(self):
@@ -136,7 +149,9 @@ def test_writer_streamed_rewrite_session_abort_restores_original_text():
     session.append_chunk("Partial")
     session.abort_and_restore()
 
-    assert text_range.getString() == "Original"
+    # The actual text restoration is now handled by doc.getUndoManager().undo() which is mocked.
+    # We check that undo was called.
+    assert doc.undo.undone is True
     assert doc.getPropertyValue("RecordChanges") is True
     assert doc.undo.left is True
 
@@ -165,6 +180,35 @@ def test_writer_streamed_rewrite_session_finish_without_tracking_leaves_undo_con
     assert doc.undo.entered is True
     assert session.finish() is None
     assert doc.undo.left is True
+    assert text_range.getString() == "Original"
+
+
+def test_writer_streamed_rewrite_session_empty_finish_restores_original():
+    """No model text must not erase the selection or record a deletion of it."""
+    for recording in (False, True):
+        doc = _MockDoc(recording=recording)
+        text_range = _MutableTextRange()
+        session = WriterStreamedRewriteSession(doc, text_range, "Original")
+
+        assert text_range.getString() == ""
+        assert session.finish() is None
+        assert text_range.getString() == "Original"
+        # Recording ends as the document started it. A tracked deletion would
+        # have left the range "" after turning RecordChanges back on.
+        assert doc.getPropertyValue("RecordChanges") is recording
+        assert doc.undo.left is True
+
+
+def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():
+    """Whitespace the model sent is a real rewrite, not an empty result."""
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+
+    session.append_chunk(" ")
+    assert session.finish() is None
+    assert text_range.getString() == " "
+    assert doc.getPropertyValue("RecordChanges") is True
 
 
 def test_writer_compound_undo_enter_close_and_idempotent():
@@ -260,6 +304,8 @@ def test_document_helpers_import_does_not_load_calc_analyzer():
         "    _mod = types.ModuleType('pyuno')\n"
         "    _mod.getComponentContext = lambda: None\n"
         "    sys.modules['pyuno'] = _mod\n"
+        "if 'uno' not in sys.modules:\n"
+        "    sys.modules['uno'] = types.ModuleType('uno')\n"
         "import plugin.doc.document_helpers\n"
         "assert 'plugin.calc.analyzer' not in sys.modules\n"
         "assert 'plugin.calc.bridge' not in sys.modules\n"
@@ -461,3 +507,435 @@ def test_cache_listener_dedupes_by_uid_and_recycle_does_not_evict_new():
     _clear_cache_listener_state()
 
 
+# --- Extend/Edit Selection must not accept or flatten existing redlines ---
+
+
+class _Portion:
+    def __init__(self, portion_type, redline_type=None, text="x"):
+        self._portion_type = portion_type
+        self._redline_type = redline_type
+        self._text = text
+
+    def getPropertyValue(self, name):
+        if name == "TextPortionType":
+            return self._portion_type
+        if name == "RedlineType":
+            if self._redline_type is None:
+                raise RuntimeError("no redline type")
+            return self._redline_type
+        raise RuntimeError(name)
+
+    def getString(self):
+        return self._text
+
+
+class _PortionEnum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+class _Paragraph:
+    def __init__(self, portions):
+        self._portions = list(portions)
+
+    def createEnumeration(self):
+        return _PortionEnum(self._portions)
+
+    def getString(self):
+        return "".join(portion.getString() for portion in self._portions)
+
+    def getPropertyValue(self, name):
+        raise RuntimeError("paragraph has no %s" % name)
+
+
+class _RedlineCursor(_MutableTextRange):
+    """Cursor enumeration yields paragraphs; each paragraph yields portions."""
+
+    def __init__(self, paragraphs):
+        super().__init__()
+        self._paragraphs = list(paragraphs)
+        self.set_calls = []
+
+    def setString(self, value):
+        self.set_calls.append(value)
+        super().setString(value)
+
+    def createEnumeration(self):
+        return _PortionEnum(self._paragraphs)
+
+
+class _PortionCursor(_MutableTextRange):
+    """Range whose own enumeration is the portion list (a paragraph selection)."""
+
+    def __init__(self, portions):
+        super().__init__()
+        self._portions = list(portions)
+        self.set_calls = []
+
+    def setString(self, value):
+        self.set_calls.append(value)
+        super().setString(value)
+
+    def createEnumeration(self):
+        return _PortionEnum(self._portions)
+
+
+class _BoomEnum:
+    def hasMoreElements(self):
+        raise RuntimeError("enum failed")
+
+
+class _BoomCursor(_MutableTextRange):
+    def __init__(self):
+        super().__init__()
+        self.set_calls = []
+
+    def setString(self, value):
+        self.set_calls.append(value)
+        super().setString(value)
+
+    def createEnumeration(self):
+        return _BoomEnum()
+
+
+class _IndexSelection:
+    def __init__(self, text_range):
+        self._text_range = text_range
+
+    def getByIndex(self, index):
+        return self._text_range
+
+
+class _MenuController:
+    def __init__(self, text_range):
+        self._selection = _IndexSelection(text_range)
+
+    def getSelection(self):
+        return self._selection
+
+
+class _MenuDoc(_MockDoc):
+    def __init__(self, text_range, recording=True):
+        super().__init__(recording=recording)
+        self.CurrentController = _MenuController(text_range)
+
+
+def _tracked_cursor(kind):
+    return _RedlineCursor([
+        _Paragraph([
+            _Portion("Text", text="Hello"),
+            _Portion("Redline", kind),
+            _Portion("Text", text="there"),
+            _Portion("Redline", kind),
+        ])
+    ])
+
+
+@pytest.mark.parametrize("kind", ["Insert", "Delete"])
+@pytest.mark.parametrize("session_cls", [WriterStreamedRewriteSession, WriterStreamedAppendSession])
+def test_streamed_session_refuses_tracked_insert_or_delete(kind, session_cls):
+    doc = _MockDoc(recording=True)
+    text_range = _tracked_cursor(kind)
+    with pytest.raises(TrackedChangesInSelection) as raised:
+        session_cls(doc, text_range, "Hello there")
+    assert str(raised.value) == TRACKED_SELECTION_MESSAGE
+    assert text_range.set_calls == []
+    assert doc.writes == []
+    assert doc.props["RecordChanges"] is True
+    assert doc.undo.entered is False
+
+
+def test_streamed_session_refuses_portion_level_insert():
+    doc = _MockDoc(recording=True)
+    text_range = _PortionCursor([
+        _Portion("Text", text="Hello"),
+        _Portion("Redline", "Insert"),
+        _Portion("Text", text="x"),
+        _Portion("Redline", "Insert"),
+    ])
+    with pytest.raises(TrackedChangesInSelection):
+        WriterStreamedAppendSession(doc, text_range, "Hellox")
+    assert text_range.set_calls == []
+    assert doc.writes == []
+    assert doc.undo.entered is False
+
+
+def test_streamed_session_refuses_unreadable_redline_type():
+    class _Unreadable(_Portion):
+        def getPropertyValue(self, name):
+            if name == "TextPortionType":
+                return "Redline"
+            raise RuntimeError("type unreadable")
+
+    doc = _MockDoc(recording=True)
+    text_range = _PortionCursor([_Portion("Text", text="Hello"), _Unreadable("Redline")])
+    with pytest.raises(TrackedChangesInSelection):
+        WriterStreamedRewriteSession(doc, text_range, "Hello")
+    assert text_range.set_calls == []
+    assert doc.writes == []
+
+
+def test_streamed_session_refuses_when_portion_walk_fails():
+    doc = _MockDoc(recording=True)
+    text_range = _BoomCursor()
+    with pytest.raises(TrackedChangesInSelection):
+        WriterStreamedRewriteSession(doc, text_range, "Hello")
+    assert text_range.set_calls == []
+    assert doc.writes == []
+    assert doc.undo.entered is False
+
+
+def test_streamed_rewrite_allows_format_redline():
+    doc = _MockDoc(recording=True)
+    text_range = _RedlineCursor([
+        _Paragraph([_Portion("Text", text="Hello"), _Portion("Redline", "Format")])
+    ])
+    session = WriterStreamedRewriteSession(doc, text_range, "Hello")
+    assert text_range.set_calls == [""]
+    assert doc.props["RecordChanges"] is False
+    assert session.finish() is None
+
+
+def test_streamed_append_allows_format_redline_and_still_appends():
+    doc = _MockDoc(recording=True)
+    text_range = _RedlineCursor([
+        _Paragraph([_Portion("Redline", "Format"), _Portion("Text", text="Hi")])
+    ])
+    session = WriterStreamedAppendSession(doc, text_range, "Hi")
+    assert doc.props["RecordChanges"] is False
+    session.append_chunk("!")
+    assert text_range.set_calls == ["Hi!"]
+
+
+def test_menu_message_matches_session_exception():
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2].joinpath("plugin/writer/editselection.py").read_text(encoding="utf-8")
+    assert TRACKED_SELECTION_MESSAGE in src
+
+
+def test_do_extend_selection_refuses_deletion_only_without_writing(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _RedlineCursor([
+        _Paragraph([
+            _Portion("Redline", "Delete"),
+            _Portion("Text", text="gone"),
+            _Portion("Redline", "Delete"),
+        ])
+    ])
+    doc = _MenuDoc(text_range, recording=True)
+    messages = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
+
+    editselection.do_extend_selection(object(), doc, object())
+
+    assert streams == []
+    assert len(messages) == 1
+    assert "Extend Selection" in messages[0][1]
+    assert messages[0][2] == TRACKED_SELECTION_MESSAGE
+    assert text_range.set_calls == []
+    assert doc.writes == []
+    assert doc.undo.entered is False
+
+
+def test_do_edit_selection_refuses_tracked_insert_before_prompt(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _tracked_cursor("Insert")
+    doc = _MenuDoc(text_range, recording=True)
+    messages = []
+    prompts = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(
+        editselection,
+        "prompt_for_edit_instructions",
+        lambda *args, **kwargs: prompts.append(args) or ("x", ""),
+    )
+    monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
+
+    editselection.do_edit_selection(object(), doc, object())
+
+    assert prompts == []
+    assert streams == []
+    assert len(messages) == 1
+    assert "Edit Selection" in messages[0][1]
+    assert messages[0][2] == TRACKED_SELECTION_MESSAGE
+    assert text_range.set_calls == []
+    assert doc.writes == []
+
+
+def test_do_extend_selection_clean_range_still_streams(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
+    monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+    monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
+
+    editselection.do_extend_selection(object(), doc, object())
+
+    assert messages == []
+    assert len(streams) == 1
+    assert text_range.getString() == "Hello"
+    assert doc.props["RecordChanges"] is False
+
+
+def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+    monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
+
+    editselection.do_edit_selection(object(), doc, object())
+
+    assert messages == []
+    assert len(streams) == 1
+    assert text_range.getString() == ""
+
+
+
+def test_do_extend_selection_observes_stop_checker(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
+    monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+
+    class _Ctx:
+        def stop_checker(self) -> bool:
+            return True
+
+    def stream_completion_mock(*args, **kwargs):
+        streams.append(args)
+        assert "stop_checker" not in kwargs
+        apply_chunk = args[5]
+        # Stop does not drop a chunk already in hand (#1273).
+        apply_chunk("more")
+
+    monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
+
+    editselection.do_extend_selection(_Ctx(), doc, object())
+
+    assert len(streams) == 1
+    assert text_range.getString() == "Hellomore"
+
+
+def test_do_edit_selection_observes_stop_checker(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+
+    class _Ctx:
+        def stop_checker(self) -> bool:
+            return True
+
+    def stream_completion_mock(*args, **kwargs):
+        streams.append(args)
+        assert "stop_checker" not in kwargs
+        apply_chunk = args[5]
+        # Stop does not drop a chunk already in hand (#1273).
+        apply_chunk("more")
+
+    monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
+
+    editselection.do_edit_selection(_Ctx(), doc, object())
+
+    assert len(streams) == 1
+    assert text_range.getString() == "more"
+
+
+def test_stop_checker_exception_fails_closed():
+    from plugin.framework.queue_executor import bind_send_stop_checker
+
+    class MockScope:
+        def is_cancelled(self):
+            raise ValueError("Some internal error")
+
+    # When scope raises an error, bind_send_stop_checker returns True
+    checker1 = bind_send_stop_checker(MockScope())
+    assert checker1() is True
+
+    def failing_fallback():
+        raise ValueError("Some internal error")
+
+    checker2 = bind_send_stop_checker(None, fallback=failing_fallback)
+    assert checker2() is True
+
+    checker3 = bind_send_stop_checker(MockScope(), fallback=failing_fallback)
+    assert checker3() is True
+
+
+def test_do_extend_selection_failure_visible(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
+    monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+
+    def stream_completion_mock(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, stop_checker=None):
+        on_error(ValueError("simulated stream failure"))
+
+    monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
+
+    editselection.do_extend_selection(object(), doc, object())
+
+    assert len(messages) == 1
+    assert "simulated stream failure" in messages[0][2]

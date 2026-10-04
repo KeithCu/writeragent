@@ -27,6 +27,7 @@ from typing import Any
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
+from plugin.doc.paragraph_search import confirm_paragraph_index
 from plugin.doc.text_helpers import (
     apply_chapter_number,
     clone_text_range,
@@ -36,6 +37,16 @@ from plugin.doc.text_helpers import (
 
 
 log = logging.getLogger("writeragent.writer.nav.tree")
+
+
+def _bookmark_anchor_not_placed(bookmark_name: str) -> ToolExecutionError:
+    """Bookmark name exists, but its anchor is not a paragraph in this document."""
+    return ToolExecutionError(
+        "Bookmark '%s' anchor is not in the document. "
+        "It may be stale after an edit, save, or bookmark_cleanup. "
+        "Use heading_text:<text> or call get_document_tree to refresh bookmarks."
+        % bookmark_name
+    )
 
 
 def _heading_tree_fingerprint(doc: Any) -> int | None:
@@ -287,9 +298,7 @@ class TreeService(ServiceBase):
             if not bm_sup.hasByName(heading_bookmark):
                 raise ToolExecutionError("Bookmark '%s' not found" % heading_bookmark)
             bm = bm_sup.getByName(heading_bookmark)
-            anchor = bm.getAnchor()
-            para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-            heading_para_index = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, doc.getText())
+            heading_para_index = self._paragraph_for_bookmark(doc, heading_bookmark, bm)
 
         if heading_para_index is None:
             raise ToolExecutionError("Provide locator, heading_para_index, or heading_bookmark")
@@ -369,7 +378,10 @@ class TreeService(ServiceBase):
                     anchor = vc.getStart()
                 finally:
                     if saved is not None:
-                        vc.gotoRange(saved, False)
+                        try:
+                            vc.gotoRange(saved, False)
+                        except Exception:
+                            pass
                     doc.unlockControllers()
                 para_ranges = self._doc_svc.get_paragraph_ranges(doc)
                 text_obj = doc.getText()
@@ -436,11 +448,32 @@ class TreeService(ServiceBase):
                     hint += " Existing bookmarks: " + ", ".join(existing[:10])
             raise ToolExecutionError(hint)
         bm = bookmarks.getByName(bookmark_name)
-        anchor = bm.getAnchor()
+        para_idx = self._paragraph_for_bookmark(doc, bookmark_name, bm)
+        return {"para_index": para_idx}
+
+    def _paragraph_for_bookmark(self, doc: Any, bookmark_name: str, bookmark: Any) -> int:
+        """Paragraph index for a bookmark that still has a name.
+
+        What was wrong: ``find_paragraph_for_range`` returns 0 when the anchor
+        cannot be placed. A stale ``_mcp_`` mark after save/reopen or
+        ``bookmark_cleanup`` still has a name, so this returned paragraph 0
+        and navigation edited the first paragraph.
+        Why: ``confirm_paragraph_index`` keeps 0 only when the anchor start
+        is inside that paragraph. Anything else is an error, not a location.
+        """
+        try:
+            anchor = bookmark.getAnchor()
+        except Exception as exc:
+            raise _bookmark_anchor_not_placed(bookmark_name) from exc
+        if anchor is None:
+            raise _bookmark_anchor_not_placed(bookmark_name)
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         text_obj = doc.getText()
         para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-        return {"para_index": para_idx}
+        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+        if placed is None:
+            raise _bookmark_anchor_not_placed(bookmark_name)
+        return placed
 
     def _find_heading_by_text(self, doc: Any, search_text: str) -> dict[str, Any] | None:
         """Find heading by text (case-insensitive, fuzzy)."""

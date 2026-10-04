@@ -24,7 +24,7 @@ import uuid
 from typing import Any, ClassVar, Iterator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
+from plugin.doc.paragraph_search import confirm_paragraph_index, find_paragraph_for_range, get_paragraph_ranges
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
@@ -182,15 +182,24 @@ class BookmarkService(ServiceBase):
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
                 para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj)
-                if para_idx >= 0:
-                    result[para_idx] = name
+                # What was wrong: a failed placement returns 0, so a stale
+                # _mcp_ mark was stored as the bookmark for the first paragraph.
+                # Why: confirm_paragraph_index keeps 0 only when the anchor is
+                # actually there. An unplaced mark is omitted and later removed.
+                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+                if placed is not None:
+                    result[placed] = name
         except Exception:
             log.exception("Failed to get MCP bookmark map")
 
         return result
 
     def ensure_heading_bookmarks(self, doc: Any) -> dict[int, str]:
-        """Ensure every heading has an _mcp_ bookmark. Returns map."""
+        """Ensure every heading has an _mcp_ bookmark. Returns map.
+
+        Also removes ``_mcp_`` bookmarks that are no longer on a heading.
+        Demoting a heading used to leave the point mark in the document forever.
+        """
         if _SAVE_HOOK_DEPTH == 0:
             self._restore_abandoned(doc)
         existing_map = self.get_mcp_bookmark_map(doc)
@@ -216,17 +225,58 @@ class BookmarkService(ServiceBase):
                         needs_bookmark.append((para_index, element.getStart()))
             para_index += 1
 
-        if needs_bookmark:
+        # Names already on a current heading. New inserts are not in the
+        # document yet, so they cannot appear in this stale list.
+        kept = set(bookmark_map.values())
+        stale = self._demoted_mcp_names(doc, kept) if _SAVE_HOOK_DEPTH == 0 else []
+
+        if needs_bookmark or stale:
             with self._untracked(doc):
                 for para_idx, start_range in needs_bookmark:
                     bm_name = "_mcp_%s" % uuid.uuid4().hex[:8]
                     if self._insert_named_bookmark(doc, text, bm_name, start_range):
                         bookmark_map[para_idx] = bm_name
+                # What was wrong: ensure only added marks. A heading demoted
+                # back to body kept its _mcp_ bookmark, so later navigation
+                # still treated that paragraph as the section.
+                # Why: delete _mcp_ names that are not on a heading now.
+                # Skipped during the save hook, which strips and restores the
+                # whole set itself. User bookmarks are not _mcp_.
+                if stale:
+                    self._remove_named_bookmarks(doc, stale)
 
         # No doc.store(): this runs inside READ tools. Locators stay in
         # memory and are stripped from the next user Save.
         self._ensure_save_listener(doc)
         return bookmark_map
+
+    def _demoted_mcp_names(self, doc: Any, kept: set[str]) -> list[str]:
+        """``_mcp_`` names that are not on a current heading."""
+        if not hasattr(doc, "getBookmarks"):
+            return []
+        try:
+            names = doc.getBookmarks().getElementNames()
+        except Exception:
+            log.exception("Failed to list heading bookmarks for prune")
+            return []
+        stale: list[str] = []
+        for name in names:
+            if isinstance(name, str) and name.startswith("_mcp_") and name not in kept:
+                stale.append(name)
+        return stale
+
+    def _remove_named_bookmarks(self, doc: Any, names: list[str]) -> None:
+        """Remove these bookmarks. Caller holds ``_untracked``."""
+        if not names or not hasattr(doc, "getBookmarks"):
+            return
+        bookmarks = doc.getBookmarks()
+        text = doc.getText()
+        for name in names:
+            try:
+                bm = bookmarks.getByName(name)
+                text.removeTextContent(bm)
+            except Exception:
+                log.exception("Failed to remove demoted heading bookmark %s", name)
 
     def find_nearest_heading_bookmark(self, para_index: int, bookmark_map: Any) -> dict[str, Any] | None:
         """Find nearest heading bookmark at or before para_index."""
@@ -592,13 +642,24 @@ class BookmarkResolve(ToolWriterBookmarkBase):
             return self._tool_error(hint)
 
         bm = bookmarks.getByName(bookmark_name)
-        anchor = bm.getAnchor()
+        try:
+            anchor = bm.getAnchor()
+        except Exception:
+            return self._tool_error("Bookmark '%s' anchor is not in the document." % bookmark_name)
 
-        # Find paragraph index
+        # Find paragraph index. A failed placement is 0, which is also a real
+        # first paragraph — confirm before reporting it.
         doc_svc = ctx.services.document
         para_ranges = doc_svc.get_paragraph_ranges(doc)
         text_obj = doc.getText()
         para_idx = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+        if placed is None:
+            return self._tool_error(
+                "Bookmark '%s' anchor is not in the document. It may be stale after an edit, save, or bookmark_cleanup."
+                % bookmark_name
+            )
+        para_idx = placed
 
         result = {"status": "ok", "bookmark": bookmark_name, "paragraph_index": para_idx}
 

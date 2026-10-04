@@ -102,6 +102,33 @@ def test_search_in_document_regex(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer")
+def test_find_chained_range_bounds(ctx, doc):
+    from plugin.writer.search import find_chained_range
+    text = doc.getText()
+    cursor = text.createTextCursor()
+
+    # Setup document with surrounding text
+    cursor.setString("Prefix text Line 1 match")
+    cursor.gotoEnd(False)
+    text.insertControlCharacter(cursor, 0, False)
+    cursor.gotoEnd(False)
+
+    cursor.setString("Line 2 match More text")
+    cursor.gotoEnd(False)
+
+    search_string = "Line 1 match\nLine 2 match"
+    rng = find_chained_range(doc, search_string)
+
+    assert rng is not None
+    if isinstance(rng, list):
+        rng = rng[0]
+    matched_text = rng.getString()
+
+    assert matched_text == search_string, "Matched text included extra paragraph content!"
+
+
+@native_test
 def test_advanced_search_tool():
     return
 

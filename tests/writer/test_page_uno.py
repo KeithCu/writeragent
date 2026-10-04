@@ -257,3 +257,40 @@ def test_disable_header_refuses_first_page_letterhead(ctx, doc):
     assert "header_first" in res["message"]
     assert style.getPropertyValue("HeaderIsOn") is True
     assert "First-page letterhead" in style.getPropertyValue("HeaderTextFirst").getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_no_anchor(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.setString("This is a paragraph with some text.")
+
+    view_cursor = doc.getCurrentController().getViewCursor()
+    view_cursor.gotoStart(False)
+    view_cursor.goRight(10, True) # Select "This is a "
+
+    assert view_cursor.getString() == "This is a "
+
+    tool = PageInsertBreak()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = tool.execute(tool_ctx)
+
+    assert res["status"] == "ok"
+
+    # SwXTextViewCursor implements XTextViewCursor, not XParagraphCursor.
+    # gotoEndOfParagraph exists only on a model TextCursor and always raises
+    # AttributeError here, so the paragraph checks never ran. gotoStart would
+    # also drop the selection this path must leave on the original ten characters.
+    assert view_cursor.getString() == "This is a "
+
+    para = text.createTextCursorByRange(view_cursor.getStart())
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    assert para.getString() == "This is a paragraph with some text."
+
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    assert para.getPropertyValue("BreakType") == PAGE_BEFORE
+    assert view_cursor.getString() == "This is a "

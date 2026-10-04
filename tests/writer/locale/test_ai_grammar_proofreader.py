@@ -502,6 +502,14 @@ class TestTypingIntegration:
         assert len(res.aErrors) == 1
         mock_queue_fixture.enqueue.assert_not_called()
 
+    def test_enqueue_misses_persists_identity(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
+        pr = _make_proofreader()
+        pr._enqueue_misses("test-doc", "Some text.", "en-US", [(0, 10, "Some text.")], "custom-ident")
+
+        mock_queue_fixture.enqueue.assert_called_once()
+        item = mock_queue_fixture.enqueue.call_args[0][0]
+        assert item.provider == "custom-ident"
+
     def test_paragraph_edit_middle_miss(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
         pr = _make_proofreader()
         sentences = ["First sentence.", "Second sentence.", "Third sentence."]
@@ -561,6 +569,24 @@ class TestTypingIntegration:
             res = pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
         assert res.aErrors == ()
         mock_queue_fixture.enqueue.assert_not_called()
+
+    def test_do_proofreading_does_not_retry_failed_empty_result(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """A failed ProofreadingResult create must not be attempted again.
+
+        The handler used to call _create_empty_result a second time with the
+        same arguments. That second failure escaped onto the Linguistic worker.
+        """
+        pr = _make_proofreader()
+        with patch.object(
+            proofreader,
+            "_create_empty_result",
+            side_effect=RuntimeError("createUnoStruct failed"),
+        ) as mock_create:
+            with pytest.raises(RuntimeError, match="createUnoStruct failed"):
+                pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+        assert mock_create.call_count == 1
 
     def test_harper_incremental_returns_only_active_sentence_errors(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
@@ -824,6 +850,118 @@ class TestTypingIntegration:
         mock_bind.assert_called_once_with(pr.ctx, "test-doc")
 
 
+def _writer_model() -> MagicMock:
+    model = MagicMock()
+    model.supportsService.side_effect = lambda service: service == "com.sun.star.text.TextDocument"
+    return model
+
+
+def test_ensure_persistence_bound_passes_current_text_component() -> None:
+    """The linguistic id is not a model lookup. Bind the desktop's Writer."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    writer = _writer_model()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = writer
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None) as mock_load,
+        ):
+            proofreader._ensure_persistence_bound(ctx, "2")
+            again_loads = mock_load.call_count
+            proofreader._ensure_persistence_bound(ctx, "2")
+        bound = gp.get_persistence(ctx, "2")
+        assert bound is not None
+        assert bound._model is writer
+        assert mock_load.call_count == again_loads
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
+def test_ensure_persistence_bound_uses_only_open_writer() -> None:
+    """Current component is not Writer; the single open Writer is this call."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    writer = _writer_model()
+    calc = MagicMock()
+    calc.supportsService.return_value = False
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.side_effect = [writer]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = calc
+    desktop.getComponents.return_value = comps
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "4")
+        bound = gp.get_persistence(ctx, "4")
+        assert bound is not None
+        assert bound._model is writer
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
+def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
+    """Several open Writers and a non-RuntimeUID key is not a bind."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    first = _writer_model()
+    second = _writer_model()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [first, second]
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.framework.uno_context.get_runtime_uid", return_value=""),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "2")
+        assert "2" not in gp.grammar_registry.doc_persistence_instances
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
+def test_ensure_persistence_bound_returns_when_no_writer() -> None:
+    """No model is not an error, and it must not register an unbound instance."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = False
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "9")
+        assert gp.get_document_model_for_id(ctx, "9") is None
+        assert "9" not in gp.grammar_registry.doc_persistence_instances
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+
 def test_proofreader_broadcast_proofread_again_notifies_listeners(
     mock_config_fixture, mock_locale_fixture
 ) -> None:
@@ -1009,3 +1147,70 @@ def test_try_harper_fast_path_emits_starting_when_ensure() -> None:
     assert phases == ["start", "request"]
     assert mock_status.call_args_list[-1].kwargs.get("result") == "Starting Harper…"
     assert not any(c.args[0] == "done" for c in mock_status.call_args_list)
+
+def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component() -> None:
+    """It must bind the correct Writer job doc even if Draw/Impress is focused."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    ctx = MagicMock()
+    draw_comp = MagicMock()
+    draw_comp.supportsService.return_value = False
+
+    writer_match = _writer_model()
+    writer_other = _writer_model()
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [writer_other, writer_match]
+
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = draw_comp
+    desktop.getComponents.return_value = comps
+
+    gp.grammar_registry.clear_all(ctx)
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+            patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["other-id", "match-id"]),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "match-id")
+        bound = gp.get_persistence(ctx, "match-id")
+        assert bound is not None
+        assert bound._model is writer_match
+    finally:
+        gp.clear_all_document_persistence(ctx)
+
+def test_ignore_rule_fails_loudly_when_doc_id_unresolved(mock_config_fixture, mock_locale_fixture) -> None:
+    pr = _make_proofreader()
+    with patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore, \
+         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
+         patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
+        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found"):
+            pr.ignoreRule("test-rule", mock_locale_fixture)
+    mock_ignore.assert_not_called()
+    mock_log.warning.assert_any_call("[grammar] ignoreRule: failed to resolve doc_id; cannot ignore rule")
+
+def test_reset_ignore_rules_fails_loudly_when_doc_id_unresolved(mock_config_fixture) -> None:
+    pr = _make_proofreader()
+    with patch("plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main") as mock_reset, \
+         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
+         patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
+        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found"):
+            pr.resetIgnoreRules()
+    mock_reset.assert_not_called()
+    mock_log.warning.assert_any_call("[grammar] resetIgnoreRules: failed to resolve doc_id; cannot reset")
+
+def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
+    pr = _make_proofreader()
+
+    with patch.object(pr, "_active_grammar_provider", return_value="languagetool"):
+        pr.doProofreading("test-doc", "Some text.", mock_locale_fixture, 0, 10, ())
+
+    mock_queue_fixture.enqueue.assert_called_once()
+    item = mock_queue_fixture.enqueue.call_args[0][0]
+    assert item.provider == "languagetool"

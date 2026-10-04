@@ -247,8 +247,6 @@ def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False) ->
         sd.SearchCaseSensitive = case_sens
         found = doc.findFirst(sd)
         while found is not None:
-            if len(ranges) >= _MAX_SEARCH_REPLACEMENTS:
-                return ranges
             ranges.append(found)
             found = find_next_after_match(doc, found, sd)
         if ranges:
@@ -301,9 +299,42 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
             text = found.getText()
             chain_ok = True
 
+            anchor_cursor = text.createTextCursorByRange(found)
+            anchor_cursor.gotoStartOfParagraph(False)
+            anchor_cursor.gotoEndOfParagraph(True)
+            anchor_para_text = get_string_without_tracked_deletions(anchor_cursor)
+
+            is_anchor_first = (anchor_idx == 0)
+            is_anchor_last = (anchor_idx == len(parts) - 1)
+
+            ok, anchor_offset_len = _paragraph_matches_part(
+                anchor_para_text,
+                parts[anchor_idx],
+                head=is_anchor_last,
+                tail=is_anchor_first
+            )
+
+            if not ok:
+                found = find_next_after_match(doc, found, sd)
+                continue
+
+            first_start_cursor = None
+            last_end_cursor = None
+
+            anchor_start_cursor = text.createTextCursorByRange(found)
+            anchor_start_cursor.gotoStartOfParagraph(False)
+
+            if is_anchor_first:
+                first_start_cursor = text.createTextCursorByRange(anchor_start_cursor)
+                if anchor_offset_len:
+                    first_start_cursor.goRight(anchor_offset_len, False)
+            if is_anchor_last:
+                last_end_cursor = text.createTextCursorByRange(anchor_start_cursor)
+                if anchor_offset_len:
+                    last_end_cursor.goRight(anchor_offset_len, False)
+
             forward_cursor = text.createTextCursorByRange(found)
             forward_cursor.gotoRange(found.getEnd(), False)
-            last_end_cursor = None
 
             for i in range(anchor_idx + 1, len(parts)):
                 if not forward_cursor.gotoNextParagraph(False):
@@ -321,7 +352,8 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                     break
                 if is_last:
                     last_end_cursor = text.createTextCursorByRange(forward_cursor)
-                    last_end_cursor.goRight(offset_len, False)
+                    if offset_len:
+                        last_end_cursor.goRight(offset_len, False)
 
             if not chain_ok:
                 found = find_next_after_match(doc, found, sd)
@@ -329,7 +361,6 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
 
             backward_cursor = text.createTextCursorByRange(found)
             backward_cursor.gotoRange(found.getStart(), False)
-            first_start_cursor = None
 
             for i in range(anchor_idx - 1, -1, -1):
                 if not backward_cursor.gotoPreviousParagraph(False):
@@ -347,7 +378,8 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                     break
                 if is_first:
                     first_start_cursor = text.createTextCursorByRange(backward_cursor)
-                    first_start_cursor.goRight(offset_len, False)
+                    if offset_len:
+                        first_start_cursor.goRight(offset_len, False)
 
             if chain_ok:
                 start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
@@ -362,8 +394,6 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                     if not all_matches:
                         return result_range
                     matched_ranges.append(result_range)
-                    if len(matched_ranges) >= _MAX_SEARCH_REPLACEMENTS:
-                        return matched_ranges
                 except Exception:
                     log.debug("Failed creating combined XTextRange", exc_info=True)
 
@@ -603,7 +633,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
         return doc.findFirst(sd)
     out: list[Any] = []
     found = doc.findFirst(sd)
-    while found is not None and len(out) < _MAX_SEARCH_REPLACEMENTS:
+    while found is not None:
         out.append(found)
         found = find_next_after_match(doc, found, sd)
     return out

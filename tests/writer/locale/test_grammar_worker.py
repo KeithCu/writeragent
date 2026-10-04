@@ -23,7 +23,7 @@ from plugin.writer.locale.grammar_worker import (
     run_llm_and_cache_batch,
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
-from plugin.writer.locale.grammar_work_queue import GrammarWorkItem
+from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue
 from .test_grammar_work_queue import _grammar_obs_call_sites_present
 
 
@@ -71,14 +71,14 @@ def test_worker_build_chunks_truncates_batch_and_single() -> None:
         batch_items, MagicMock(), batch_size=8, max_chars=10, detect_lang_enabled=False
     )
     assert len(chunks) == 1 and len(chunks[0]) == 2
-    assert chunks[0][0][1] == "A" * 10
-    assert chunks[0][1][1] == "B" * 10
+    assert chunks[0][0][1] == "A" * 100
+    assert chunks[0][1][1] == "B" * 80
 
     single_chunks, _instr = _worker_build_chunks(
         [(_item(long_a), long_a)], MagicMock(), batch_size=8, max_chars=10, detect_lang_enabled=False
     )
     assert len(single_chunks) == 1
-    assert single_chunks[0][0][1] == "A" * 10
+    assert single_chunks[0][0][1] == "A" * 100
 
     short = "Hi."
     short_chunks, _instr = _worker_build_chunks(
@@ -181,7 +181,7 @@ def test_detect_languages_for_chunk_langdetect_mode() -> None:
     ec = _ec(detect_lang_mode="langdetect")
     with patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.get_cached_language", return_value=None), \
          patch("plugin.writer.locale.grammar_worker.persisted_grammar_skip_lang_detect", return_value=False), \
-         patch("plugin.framework.client.langdetect_service.detect_languages", return_value=["fr-FR"]), \
+         patch("plugin.writer.locale.langdetect_service.detect_languages", return_value=["fr-FR"]), \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"):
         detected = detect_languages_for_chunk([(item, item.text)], "", ec)
     ec.client.chat_completion_sync.assert_not_called()
@@ -319,7 +319,7 @@ def test_fill_from_cache_and_persistence() -> None:
     ec.grammar_bcp47 = "fr-FR"
 
     with patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.get_cached_language", side_effect=lambda t: "en-US" if t == a.text else None), \
-         patch("plugin.writer.locale.grammar_worker.persisted_grammar_skip_lang_detect", side_effect=lambda _ctx, _doc, t: t == b.text), \
+         patch("plugin.writer.locale.grammar_worker.persisted_grammar_skip_lang_detect", side_effect=lambda _ctx, _doc, t, *_rest: t == b.text), \
          patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.put_cached_language") as mock_put:
         res = _fill_from_cache_and_persistence([(a, a.text), (b, b.text), (c, c.text)], ec)
 
@@ -526,7 +526,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
         run_llm_and_cache_batch([item])
     
         # 1. Verify document update was triggered
-        mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP")
+        mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0)
     
         # 2. Verify grammar check was done with ja-JP
         args, _ = mock_client_inst.chat_completion_sync.call_args_list[1]
@@ -765,6 +765,110 @@ def test_grammar_batch_empty_response_emits_failed_no_requeue() -> None:
     mock_requeue.assert_not_called()
     mock_put.assert_not_called()
     gq.enqueue.assert_not_called()
+
+
+def test_language_mismatch_requeue_does_not_store_clean_rejected_locale() -> None:
+    """A rejected CharLocale must not be cached clean, or the sentence never retags."""
+    from plugin.writer.locale.grammar_worker import _run_language_validation
+
+    kept = _item("Hello.", inflight_key="k1")
+    rejected = _item("Bonjour.", inflight_key="k2")
+    gq = MagicMock()
+    ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        gq=gq,
+        model="m",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=64,
+    )
+    with (
+        patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", return_value=["en-US", "fr-FR"]),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
+    ):
+        decision = _run_language_validation([(kept, kept.text), (rejected, rejected.text)], "en-US", "", ec)
+    mock_put.assert_not_called()
+    assert decision is not None
+    assert len(decision.requeues) == 1
+    gq.enqueue.assert_called_once()
+    enqueued = gq.enqueue.call_args.args[0]
+    assert enqueued.text == "Bonjour."
+    assert enqueued.grammar_bcp47 == "fr-FR"
+    assert enqueued.original_bcp47 == "en-US"
+    assert isinstance(enqueued.enqueue_seq, int)
+
+
+def test_persisted_grammar_skip_does_not_adopt_legacy() -> None:
+    """A language probe must not retag a locale-blind row."""
+    from plugin.writer.locale.grammar_worker import persisted_grammar_skip_lang_detect
+
+    mock_p = MagicMock()
+    mock_p.get.return_value = []
+    with (
+        patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p),
+        patch("plugin.writer.locale.grammar_proofread_cache.sentence_identity_fp", return_value="fp"),
+    ):
+        assert persisted_grammar_skip_lang_detect(object(), "doc", "Hello.", "en-US") is True
+    mock_p.get.assert_called_once_with("fp", "en-US", adopt_legacy=False)
+
+
+def test_inplace_locale_retarget_mints_seq_and_drops_older() -> None:
+    """Detected-locale key is visible to inflight_superseded. An older seq is dropped."""
+    from plugin.writer.locale.grammar_proofread_locale import grammar_inflight_key
+    from plugin.writer.locale.grammar_worker import LanguageValidationDecision, _worker_process_chunk
+
+    text = "Bonjour."
+    item = _item(text, seq=3, inflight_key="old-key")
+    new_key = grammar_inflight_key(item.doc_id, "fr-FR", text, True)
+    q = GrammarWorkQueue()
+    ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        gq=q,
+        model="m",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=64,
+    )
+    decision = LanguageValidationDecision(target_bcp47="fr-FR", result_chunk=[(item, text)])
+    seen: list[GrammarWorkItem] = []
+
+    def _capture(chunk: list[tuple[GrammarWorkItem, str]], *_args: object) -> None:
+        seen.append(chunk[0][0])
+
+    with (
+        patch("plugin.writer.locale.grammar_worker._run_language_validation", return_value=decision),
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check", side_effect=_capture),
+    ):
+        _worker_process_chunk([(item, text)], ec, "en-US", True, "")
+    assert len(seen) == 1
+    retargeted = seen[0]
+    assert retargeted.grammar_bcp47 == "fr-FR"
+    assert retargeted.inflight_key == new_key
+    assert q._latest_seq[new_key] == retargeted.enqueue_seq
+    assert q.inflight_superseded(new_key, retargeted.enqueue_seq) is False
+    assert q.note_inflight_generation(new_key, retargeted.enqueue_seq + 1) is False
+    assert q.inflight_superseded(new_key, retargeted.enqueue_seq) is True
+
+    stale = GrammarWorkQueue()
+    stale._latest_seq[new_key] = 10**9
+    stale_ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        gq=stale,
+        model="m",
+        original_bcp47="en-US",
+        grammar_bcp47="en-US",
+        max_tok=64,
+    )
+    with (
+        patch("plugin.writer.locale.grammar_worker._run_language_validation", return_value=decision),
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_grammar,
+    ):
+        _worker_process_chunk([(item, text)], stale_ec, "en-US", True, "")
+    mock_grammar.assert_not_called()
+    assert stale._latest_seq[new_key] == 10**9
 
 
 def test_grammar_mismatch_requeue_skips_cache_placeholder() -> None:

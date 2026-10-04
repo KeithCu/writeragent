@@ -174,3 +174,63 @@ class TestTreeServiceSearch:
         assert ("chapter_number:1.1") in (str(raised.value))
         assert ("sibling-ordinal") in (str(raised.value))
 
+    def test_resolve_page_locator_unlocks_even_if_gotoRange_raises(self):
+        doc = MagicMock()
+        controller = MagicMock()
+        vc = MagicMock()
+
+        doc.getCurrentController.return_value = controller
+        controller.getViewCursor.return_value = vc
+
+        # Make jumpToPage work but gotoRange raise an exception to simulate text tables/frames nesting
+        vc.jumpToPage = MagicMock()
+        vc.jumpToStartOfPage = MagicMock()
+        vc.getStart = MagicMock()
+        vc.gotoRange = MagicMock(side_effect=RuntimeError("Cannot jump to nested range"))
+
+        # we can't easily patch clone_text_range since it's used inside resolve_writer_locator,
+        # but resolve_writer_locator uses the `vc` we just mocked.
+        # Actually clone_text_range creates a mock clone if it's mock
+
+        # Make the paragraph search logic mock out successfully
+        self.tree_svc._doc_svc.get_paragraph_ranges.return_value = []
+        self.tree_svc._doc_svc.find_paragraph_for_range.return_value = 1
+
+        result = self.tree_svc.resolve_writer_locator(doc, "page", "5")
+
+        # Verify result is valid
+        assert result["para_index"] == 1
+
+        # Verify jumpToPage was called
+        vc.jumpToPage.assert_called_once_with(5)
+
+        # VERY IMPORTANT: Verify unlockControllers was still called despite the exception in gotoRange
+        doc.lockControllers.assert_called_once()
+        doc.unlockControllers.assert_called_once()
+
+
+def test_ensure_writer_tree_loads_onto_bare_native_context():
+    """Clone heading's context often has only document + events.
+
+    That used to return "writer_nav module not loaded" instead of attaching
+    writer_bookmarks and writer_tree, which TreeService's constructor needs.
+    """
+    from plugin.framework.service import ServiceRegistry
+    from plugin.writer.structural import _ensure_writer_tree
+
+    services = ServiceRegistry()
+    services.register("document", MagicMock())
+    services.register("events", MagicMock())
+    ctx = MagicMock()
+    ctx.services = services
+
+    tree = _ensure_writer_tree(ctx)
+    assert tree is services.get("writer_tree")
+    assert services.get("writer_bookmarks") is not None
+    assert _ensure_writer_tree(ctx) is tree
+
+    missing_events = ServiceRegistry()
+    missing_events.register("document", MagicMock())
+    ctx_missing = MagicMock()
+    ctx_missing.services = missing_events
+    assert _ensure_writer_tree(ctx_missing) is None

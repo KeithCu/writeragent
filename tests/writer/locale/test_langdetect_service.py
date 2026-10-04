@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for plugin.framework.client.langdetect_service."""
+"""Tests for plugin.writer.locale.langdetect_service."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.client.langdetect_service import detect_languages
+from plugin.writer.locale.langdetect_service import detect_languages
 from plugin.framework.constants import EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import long_trusted_worker_timeout_sec
@@ -24,8 +24,8 @@ def ctx():
 def test_detect_languages_happy_path(ctx) -> None:
     worker_result = {"languages": ["fr-FR", None]}
     with (
-        patch("plugin.framework.client.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
-        patch("plugin.framework.client.langdetect_service.run_trusted_worker_action", return_value=worker_result) as mock_run,
+        patch("plugin.writer.locale.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
+        patch("plugin.writer.locale.langdetect_service.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         out = detect_languages(ctx, ["Bonjour.", ""])
 
@@ -41,9 +41,9 @@ def test_detect_languages_happy_path(ctx) -> None:
 
 def test_detect_languages_worker_error(ctx) -> None:
     with (
-        patch("plugin.framework.client.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
+        patch("plugin.writer.locale.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch(
-            "plugin.framework.client.langdetect_service.run_trusted_worker_action",
+            "plugin.writer.locale.langdetect_service.run_trusted_worker_action",
             side_effect=ToolExecutionError("Embeddings venv not configured", code="LANGDETECT_ERROR"),
         ),
         pytest.raises(ToolExecutionError, match="Embeddings venv not configured"),
@@ -54,8 +54,8 @@ def test_detect_languages_worker_error(ctx) -> None:
 def test_detect_languages_mismatched_batch(ctx) -> None:
     worker_result = {"languages": ["en-US"]}
     with (
-        patch("plugin.framework.client.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
-        patch("plugin.framework.client.langdetect_service.run_trusted_worker_action", return_value=worker_result),
+        patch("plugin.writer.locale.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
+        patch("plugin.writer.locale.langdetect_service.run_trusted_worker_action", return_value=worker_result),
         pytest.raises(ToolExecutionError, match="mismatched batch"),
     ):
         detect_languages(ctx, ["a", "b"])

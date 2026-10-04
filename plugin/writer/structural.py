@@ -22,7 +22,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import clone_text_range
+from plugin.doc.text_helpers import clone_text_range, get_string_without_tracked_deletions
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 
@@ -151,11 +152,19 @@ class GetPageObjects(ToolBase):
             locator = kwargs.get("locator")
             para_idx = kwargs.get("paragraph")
             if locator:
+                # What was wrong: resolve_locator turned heading_text/section/page
+                # and a missing bookmark into paragraph 0, and this .get defaulted
+                # a missing index to 0 as well. The scan then ran on that page and
+                # returned status ok.
+                # Why: an unresolved locator is a tool error. Paragraph 0 is still
+                # valid when the resolver actually returns it.
                 try:
                     resolved = doc_svc.resolve_locator(doc, locator)
-                    para_idx = resolved.get("para_index", 0)
-                except ValueError as e:
+                    para_idx = resolved.get("para_index")
+                except (ValueError, ToolExecutionError) as e:
                     return self._tool_error(str(e))
+                if para_idx is None:
+                    return self._tool_error("Cannot resolve locator: %s" % locator)
             if para_idx is not None:
                 page = doc_svc.get_page_for_paragraph(doc, para_idx)
             else:
@@ -326,8 +335,37 @@ def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int | None:
         doc_svc = ctx.services.document
         resolved = doc_svc.resolve_locator(ctx.doc, locator)
         para_index = resolved.get("para_index")
+        if para_index is None:
+            raise ToolExecutionError("Cannot resolve locator: %s" % locator)
 
     return para_index
+
+
+def _ensure_writer_tree(ctx: ToolContext) -> Any:
+    """Return ``writer_tree``, attaching it to this context when it was never loaded.
+
+    What was wrong: clone heading only did ``ctx.services.get("writer_tree")``.
+    Native tool contexts from ``TestingFactory.create_context`` register
+    document and events and nothing else, so the lookup missed and the tool
+    returned "writer_nav module not loaded" even though those two services
+    are enough to construct the writer tree. TreeService reads
+    ``writer_bookmarks`` in ``__init__``, so that service has to land first.
+    An already-registered tree is left alone (bootstrap path).
+    """
+    services = ctx.services
+    existing = services.get("writer_tree")
+    if existing is not None:
+        return existing
+    if services.get("document") is None or services.get("events") is None:
+        return None
+    if services.get("writer_bookmarks") is None:
+        from plugin.writer.specialized.bookmarks import BookmarkService
+
+        services.register("writer_bookmarks", BookmarkService(services))
+    from plugin.writer.tree import TreeService
+
+    services.register("writer_tree", TreeService(services))
+    return services.get("writer_tree")
 
 
 class CloneHeadingBlock(ToolBaseDummy):
@@ -341,14 +379,18 @@ class CloneHeadingBlock(ToolBaseDummy):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
-
-        para_index = _resolve_para_index(ctx, kwargs)
+        try:
+            para_index = _resolve_para_index(ctx, kwargs)
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc))
         if para_index is None:
             return self._tool_error("Provide locator or paragraph_index.")
 
-        # Use writer_tree service to find the heading node and block size
-        tree_svc = ctx.services.get("writer_tree")
+        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
+
+        # Use writer_tree service to find the heading node and block size.
+        # Load it onto this context when the caller did not bootstrap the writer module.
+        tree_svc = _ensure_writer_tree(ctx)
         if tree_svc is None:
             return self._tool_error("writer_nav module not loaded; cannot resolve heading block.")
 
@@ -376,15 +418,34 @@ class CloneHeadingBlock(ToolBaseDummy):
         if not elements:
             return self._tool_error("Could not collect heading block paragraphs.")
 
-        # Insert duplicates after the last element of the block
+        # Insert duplicates after the last element of the block.
+        # Snapshot text and style first. The cursor is created from the last
+        # block paragraph, and insertControlCharacter(PARAGRAPH_BREAK) at that
+        # paragraph's end retargets its UNO range onto the new paragraph.
+        # Re-reading the live range on the next iteration therefore clones the
+        # paragraph just inserted (the heading) instead of the source body, so
+        # the last paragraph is "My Heading" and the tracked-deletion-stripped
+        # body never gets written. get_string_without_tracked_deletions has to
+        # run before that split so the body clone is the visible text.
+        clones: list[tuple[str, Any]] = []
+        for el in elements:
+            clones.append((
+                get_string_without_tracked_deletions(el),
+                el.getPropertyValue("ParaStyleName"),
+            ))
+
         last = elements[-1]
         cursor = doc_text.createTextCursorByRange(last)
         cursor.gotoEndOfParagraph(False)
 
-        for el in elements:
-            txt = el.getString()
-            sty = el.getPropertyValue("ParaStyleName")
+        for txt, sty in clones:
             doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+            # This cursor is already in the new paragraph after the break
+            # (insertString fills it). gotoNextParagraph would skip that empty
+            # paragraph and write into whatever follows the block. html_export's
+            # temp-doc cursor stays before the break and must step forward;
+            # this one must not. Collapse to the end after styling so the next
+            # break is after the clone, not inside it.
             doc_text.insertString(cursor, txt, False)
             cursor.gotoStartOfParagraph(False)
             cursor.gotoEndOfParagraph(True)
