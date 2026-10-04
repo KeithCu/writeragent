@@ -211,7 +211,17 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
         from plugin.framework.thread_guard import on_main_thread
 
         if not on_main_thread():
-            _egress_fail("image insertion must run on the main thread")
+            # What was wrong: this check called _egress_fail, which raises at
+            # runtime but is only a Call in the AST. The thread-safety linter
+            # treats an early exit as Return or Raise, so it still flagged the
+            # get_calc_document_from_ctx below as unguarded UNO access.
+            # How: the off-main path ended in a helper call. Why: a literal
+            # raise is the exit the linter recognizes, and it still refuses to
+            # touch the document off the main thread.
+            log.debug(
+                "insert_image_result_on_sheet: image insertion must run on the main thread"
+            )
+            raise ImageEgressError("image insertion must run on the main thread")
 
         from plugin.calc.calc_utils import get_cell_geometry
         from plugin.scripting.document_scripts import get_calc_document_from_ctx
