@@ -1066,6 +1066,10 @@ class StyleCreate(ToolWriterStyleBase):
                 except Exception:
                     log.warning("Failed to set property %s on new style", prop_name, exc_info=True)
 
+            # Register before conditional rules so a failed ParaStyleConditions
+            # write can remove the half-created style instead of leaving it.
+            style_family.insertByName(style_name, new_style)
+
             # Apply conditional rules
             if family == "ParagraphStyles" and conditional_rules:
                 conditions = []
@@ -1089,9 +1093,6 @@ class StyleCreate(ToolWriterStyleBase):
                     except Exception as rb_err:
                         log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
                     return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
-
-            # Register style
-            style_family.insertByName(style_name, new_style)
 
         except Exception as e:
             log.exception("Failed to create style '%s' in %s", style_name, family)
