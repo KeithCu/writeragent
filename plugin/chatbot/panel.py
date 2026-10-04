@@ -445,6 +445,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _mcp_event_bus: Any
     _turn: Any
     _last_mcp_turn: dict[str, Any]
+    _last_mcp_req_id: int | str | None
 
     def clear_pending_audio_wav(self) -> None:
         """Clear and delete any un-sent audio recording."""
@@ -521,6 +522,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # The queue, stripper, and document model live on ``_turn``.
         self._turn = None
         self._last_mcp_turn = {}
+        self._last_mcp_req_id = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
