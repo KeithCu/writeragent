@@ -141,9 +141,12 @@ def _notify_drain_idle() -> None:
     # calls ``get_drain_owner()``, which takes this same non-reentrant lock.
     with _drain_lock:
         callbacks = list(_drain_idle_callbacks)
+        _drain_idle_callbacks.clear()
     for cb in callbacks:
         try:
             cb()
+        except RecursionError:
+            raise
         except Exception:
             log.exception("drain idle callback failed")
 
