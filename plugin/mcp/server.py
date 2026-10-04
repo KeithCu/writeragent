@@ -476,8 +476,8 @@ class HttpServer:
         if not self._running:
             return
         self._running = False
+        threads_to_join = []
         try:
-            threads_to_join = []
             if self._server:
                 # The SSE state registry tracks active threads (via note_sse_keepalive,
                 # which routes use) so we can wait for in-flight requests to complete.

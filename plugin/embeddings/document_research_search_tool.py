@@ -148,7 +148,7 @@ class SearchEmbeddings(ToolBase):
 
         if context_result.get("empty"):
             from plugin.embeddings.embeddings_indexer import get_failed_indexing_message
-            failed_msg = get_failed_indexing_message(context_result["folder_key"])
+            failed_msg = get_failed_indexing_message(str(context_result.get("folder_key") or ""))
             if failed_msg:
                 return {
                     "status": "error",
