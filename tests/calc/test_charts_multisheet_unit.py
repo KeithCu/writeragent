@@ -8,6 +8,7 @@
 #
 """Unit tests for Calc multi-sheet chart helpers and non-empty exception formatting (no UNO required)."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from plugin.calc.charts import (
     _format_chart_exception_msg,
@@ -154,6 +155,192 @@ def test_manage_charts_schema_impress_strips_calc_fields():
     assert "data_range" in calc
     assert "headers" not in calc
     assert "rows" not in calc
+
+
+class _UnoRuntimeException(Exception):
+    """Stand-in for com.sun.star.uno.RuntimeException (empty str, Message set)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("")
+        self.Message = message
+
+
+def _empty_uno_struct(*_args, **_kwargs):
+    """Same shape as the leaked pytest uno.createUnoStruct stub: no .X."""
+    return SimpleNamespace()
+
+
+def _calc_chart_create_parts():
+    from plugin.calc.charts import UpsertChart
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    charts = MagicMock()
+    sheet.getCharts.return_value = charts
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=5)
+    bridge = MagicMock()
+    bridge.get_active_sheet.return_value = sheet
+    bridge.get_cell_range.return_value = cell_range
+    chart_doc = MagicMock()
+    chart_doc.HasLegend = True
+    return UpsertChart(), ctx, charts, chart_doc, bridge
+
+
+def test_legend_position_uses_chart_legend_position_enum():
+    """Alignment is ChartLegendPosition, and a successful create keeps the chart."""
+    from plugin.calc.charts import _CHART_LEGEND_POSITION_ENUM, _apply_chart_styling
+
+    chart_doc = MagicMock()
+    chart_doc.HasLegend = True
+    with patch("plugin.calc.charts.uno.Enum", return_value="legend-bottom") as enum:
+        _apply_chart_styling(chart_doc, legend_position="bottom")
+    enum.assert_called_once_with(_CHART_LEGEND_POSITION_ENUM, "BOTTOM")
+    assert _CHART_LEGEND_POSITION_ENUM == "com.sun.star.chart.ChartLegendPosition"
+    assert chart_doc.getLegend.return_value.Alignment == "legend-bottom"
+
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    chart_doc.HasLegend = True
+    with (
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts.uno.Enum", return_value="legend-right") as enum,
+    ):
+        result = tool.execute(ctx, action="create", chart_type="bar", data_range="A1:B6", legend_position="right")
+    assert result["status"] == "ok"
+    enum.assert_called_once_with("com.sun.star.chart.ChartLegendPosition", "RIGHT")
+    charts.removeByName.assert_not_called()
+
+
+def test_legend_runtime_exception_removes_inserted_calc_chart():
+    """A legend RuntimeException after addNewByName must not leave the chart behind."""
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+
+    def _raise_runtime(type_name, member):
+        raise _UnoRuntimeException(f"unknown type {type_name}.{member}")
+
+    with (
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts.uno.Enum", side_effect=_raise_runtime),
+    ):
+        result = tool.execute(ctx, action="create", chart_type="column", data_range="A1:B6", legend_position="top")
+
+    assert result["status"] == "error"
+    assert result.get("code") == "CHART_CREATE_ERROR"
+    added = charts.addNewByName.call_args[0][0]
+    charts.removeByName.assert_called_once_with(added)
+    assert "RuntimeException" in result["message"] or "unknown type" in result["message"]
+
+
+def test_calc_diagram_failure_after_insert_removes_chart():
+    """A property set that fails after insert removes the new chart."""
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    chart_doc.setDiagram.side_effect = _UnoRuntimeException("diagram rejected")
+    with (
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+    ):
+        result = tool.execute(ctx, action="create", chart_type="bar", data_range="A1:B6")
+    assert result["status"] == "error"
+    added = charts.addNewByName.call_args[0][0]
+    charts.removeByName.assert_called_once_with(added)
+
+
+def test_missing_calc_chart_model_removes_insert():
+    tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
+    with (
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=None),
+        patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+    ):
+        result = tool.execute(ctx, action="create", chart_type="line", data_range="A1:B6")
+    assert result["status"] == "error"
+    assert "Cannot access chart content" in result["message"]
+    added = charts.addNewByName.call_args[0][0]
+    charts.removeByName.assert_called_once_with(added)
+
+
+def test_edit_legend_failure_does_not_remove_existing_chart():
+    from plugin.calc.charts import UpsertChart, _drop_failed_chart_insert
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=MagicMock()),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=MagicMock()),
+        patch("plugin.calc.charts._apply_chart_styling", side_effect=_UnoRuntimeException("legend")),
+        patch("plugin.calc.charts._drop_failed_chart_insert", wraps=_drop_failed_chart_insert) as drop,
+    ):
+        result = UpsertChart().execute(ctx, action="edit", name="Chart_0", legend_position="bottom")
+    assert result["status"] == "error"
+    assert result.get("code") == "CHART_EDIT_ERROR"
+    drop.assert_not_called()
+
+
+def test_draw_legend_failure_removes_shape():
+    tool, _ctx, _charts, chart_doc, _bridge = _calc_chart_create_parts()
+    ctx = MagicMock()
+    page = MagicMock()
+    shape = MagicMock()
+    ctx.doc.createInstance.return_value = shape
+    ctx.doc.getCurrentController.return_value.getCurrentPage.return_value = page
+    rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
+
+    def _raise_runtime(type_name, member):
+        raise _UnoRuntimeException(f"unknown type {type_name}.{member}")
+
+    with (
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts.uno.Enum", side_effect=_raise_runtime),
+        patch("plugin.calc.charts._process_events", return_value=True),
+    ):
+        try:
+            tool._create_draw_chart(ctx, rect, "com.sun.star.chart.BarDiagram", legend_position="left")
+        except _UnoRuntimeException:
+            pass
+        else:
+            raise AssertionError("legend failure should propagate after the shape is removed")
+    page.add.assert_called_once_with(shape)
+    page.remove.assert_called_once_with(shape)
+
+
+def test_writer_drop_falls_back_to_embedded_objects():
+    from plugin.calc.charts import _drop_writer_chart_insert
+
+    doc = MagicMock()
+    text = MagicMock()
+    chart_obj = MagicMock()
+    text.removeTextContent.side_effect = RuntimeError("not in this text")
+    embeds = doc.getEmbeddedObjects.return_value
+    embeds.hasByName.return_value = True
+    _drop_writer_chart_insert(doc, text, chart_obj, "Chart_2")
+    embeds.removeByName.assert_called_once_with("Chart_2")
+
+    text.removeTextContent.side_effect = None
+    _drop_writer_chart_insert(doc, text, chart_obj, "Chart_2")
+    text.removeTextContent.assert_called_with(chart_obj)
+    assert embeds.removeByName.call_count == 1
+
+
+def test_legend_position_none_hides_legend_without_enum():
+    from plugin.calc.charts import _apply_chart_styling
+
+    chart_doc = MagicMock()
+    chart_doc.HasLegend = True
+    with patch("plugin.calc.charts.uno.Enum") as enum:
+        _apply_chart_styling(chart_doc, legend_position="none")
+    assert chart_doc.HasLegend is False
+    enum.assert_not_called()
 
 
 def test_manage_charts_validate_create_requires_data_or_arrays():
