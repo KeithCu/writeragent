@@ -220,6 +220,8 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+`query_folder_sql` is an async chat tool. Sheet, named-range, and hidden sibling reads stay on the UI thread (`execute_on_main_thread` when the caller is not already there). `run_folder_sql` — the venv IPC — stays on that worker. A disposed document during the grid read propagates so the tool boundary reports `DOCUMENT_DISPOSED`. A sheet name that contains an apostrophe is quoted by doubling it (`'O''Brien'.C5:D6`); [`split_sheet_prefix`](../../plugin/calc/address_utils.py) turns that back into `O'Brien`.
+
 **Key insight from research:** The hard part is not DuckDB — it is **defining the table catalog** (which ranges, which files, column names, size limits). Calc ingress is already solved for analysis; DuckDB sits **after** `coerce_to_dataframe`.
 
 **Venv↔LO tool RPC:** Not required. The main agent can continue “JSON result → host tools” for write-back. RPC remains a future elegance for hand-written `=PY()` scripts, not a blocker for this feature.
@@ -435,7 +437,7 @@ Authoring: pass upstream ranges as `data` so Calc dirties the cell that re-regis
 |------|-------------------|
 | Trusted venv module | `plugin/scripting/venv/duckdb_sql.py` (mirror [`plugin/scripting/venv/analysis.py`](../../plugin/scripting/venv/analysis.py)) — supports preloaded + flat_files |
 | Host facade / client | `plugin/scripting/client.py` (`run_folder_sql`) + `plugin/calc/duckdb_tools.py` |
-| Sibling spreadsheet open | Reuse [`open_document_for_read`](../../plugin/doc/document_research.py) + `CellInspector` (main thread); close hidden models after read — A+ |
+| Sibling spreadsheet open | Reuse [`open_document_for_read`](../../plugin/doc/document_research.py) + `CellInspector` on the UI thread only; `run_folder_sql` stays on the worker; close hidden models after read — A+ |
 | Calc tool | `plugin/calc/duckdb_tools.py` (`QueryFolderSqlTool` on `ToolCalcAnalysisBase`) — `tables`, `files` (dict), `data_range` |
 | Run Python Script templates | `plugin/scripting/duckdb_sql.py` (host) + document_scripts (SQL Helpers) |
 | Settings probe | Extend venv self-check groups in [`venv_worker.py`](../../plugin/scripting/venv_worker.py) — A0 |

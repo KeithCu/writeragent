@@ -74,11 +74,12 @@ def column_to_index(col_str: str) -> int:
 
 # A reference may name its sheet: Sheet1.A1, 'Sheet One'.A1:C5, Sheet1!A1.
 # LibreOffice writes the dot form, Excel the bang; both are accepted, and a
-# quoted name may contain spaces and dots.
+# quoted name may contain spaces and dots. An apostrophe inside the name is
+# doubled ('O''Brien'.A1), the same escape Calc and Excel use.
 _SHEET_PREFIX = re.compile(
     r"""^\s*
-        (?:'(?P<quoted>[^']+)'      # 'Sheet One'
-          |(?P<bare>[^.!'\s][^.!']*?))   # Sheet1
+        (?:'(?P<quoted>(?:[^']|'')+)'  # 'Sheet One' or 'O''Brien'
+          |(?P<bare>[^.!'\s][^.!']*?))  # Sheet1
         \s*[.!]\s*
         (?P<rest>.+)$""",
     re.VERBOSE,
@@ -96,6 +97,8 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     ('Sheet1', 'A1:C5')
     >>> split_sheet_prefix("'Data Sheet'!B2")
     ('Data Sheet', 'B2')
+    >>> split_sheet_prefix("'O''Brien'.A1")
+    ("O'Brien", 'A1')
     >>> split_sheet_prefix("A1:C5")
     (None, 'A1:C5')
     """
@@ -106,7 +109,15 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     match = _SHEET_PREFIX.match(ref)
     if not match:
         return None, ref.strip()
-    name = match.group("quoted") or match.group("bare")
+    # What was wrong: a quoted sheet name stopped at the first apostrophe, so
+    # 'O''Brien'.C5:D6 did not match and the sheet was dropped.
+    # How: the quoted group was [^']+, which cannot hold a doubled quote.
+    # Why: '' is one apostrophe in Calc/Excel; unescape after the match.
+    quoted = match.group("quoted")
+    if quoted is not None:
+        name = quoted.replace("''", "'")
+    else:
+        name = match.group("bare") or ""
     return name.strip(), match.group("rest").strip()
 
 
