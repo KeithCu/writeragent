@@ -1074,7 +1074,13 @@ class MCPProtocolHandler:
                 return True
             return False
 
-        if getattr(tool, "is_async", lambda: False)() and getattr(tool, "timeout", 0) <= 0:
+        # MagicMock tools (and any non-bool is_async result) are not async. A
+        # non-numeric timeout is not a positive timeout: comparing MagicMock
+        # to int raises TypeError and aborts preparation before ToolContext.
+        _is_async_attr = getattr(tool, "is_async", None)
+        _is_async = _is_async_attr() is True if callable(_is_async_attr) else False
+        _timeout = getattr(tool, "timeout", 0)
+        if _is_async and not (isinstance(_timeout, (int, float)) and _timeout > 0):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=send_cancellation, stop_checker=stop_checker)
