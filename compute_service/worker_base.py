@@ -469,7 +469,7 @@ class BaseProcessPool:
         return t
 
     def _start_idle_reaper(self) -> None:
-        ttl = cast(float, self.idle_worker_ttl_sec)
+        ttl = cast("float", self.idle_worker_ttl_sec)
         interval = max(0.02, min(ttl / 6.0, 300.0))
         self._idle_reaper_thread = self._start_reaper(
             name=f"{self.worker_name}-idle-reaper",
