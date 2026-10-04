@@ -292,21 +292,24 @@ def stop_speech() -> None:
         temps = list(_tracked_temps)
         _tracked_temps.clear()
         _reply_misaki_ready.clear()
-    _terminate_proc(play)
-    for proc in synths:
-        _terminate_proc(proc)
-    try:
-        from plugin.audio.kokoro_pool import cancel_kokoro_inflight
+    def _bg_cleanup() -> None:
+        _terminate_proc(play)
+        for proc in synths:
+            _terminate_proc(proc)
+        try:
+            from plugin.audio.kokoro_pool import cancel_kokoro_inflight
+            cancel_kokoro_inflight()
+        except Exception:
+            log.debug("Kokoro cancel failed", exc_info=True)
+        paths: list[str] = []
+        if queue_ref is not None:
+            paths.extend(queue_ref.drain())
+        paths.extend(temps)
+        for path in paths:
+            _unlink_quiet(path)
 
-        cancel_kokoro_inflight()
-    except Exception:
-        log.debug("Kokoro cancel failed", exc_info=True)
-    paths: list[str] = []
-    if queue_ref is not None:
-        paths.extend(queue_ref.drain())
-    paths.extend(temps)
-    for path in paths:
-        _unlink_quiet(path)
+    from plugin.framework.worker_pool import run_in_background
+    run_in_background(_bg_cleanup)
 
 
 def _begin_utterance() -> int:
