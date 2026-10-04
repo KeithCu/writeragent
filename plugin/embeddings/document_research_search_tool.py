@@ -154,6 +154,8 @@ class SearchEmbeddings(ToolBase):
                 str(query),
                 k,
                 model=model,
+                stop_checker=ctx.stop_checker,
+                cancellation_scope=ctx.send_cancellation,
             )
             if result.get("error"):
                 return self._tool_error(result["error"], code="EMBEDDING_SEARCH_ERROR")
