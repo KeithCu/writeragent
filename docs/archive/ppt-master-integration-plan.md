@@ -110,7 +110,7 @@ Sidebar send → ppt_master_session (host)
 | `apply_ppt_master_template_fill` / `apply_ppt_master_native_enhance` | Host RPC |
 | `reply_to_user` / `ppt_master_finished` | Session continue / HTML handoff |
 
-**Session model:** Multi-turn chat reuses the warm venv worker; `session_id` is derived from the document URL ([`ppt_master_session_id`](../plugin/ppt_master/venv/host.py)). Conversation history is passed each turn; SKILL context is cached in the venv process per session.
+**Session model:** Multi-turn chat reuses the warm venv worker; `session_id` is derived from the document URL ([`ppt_master_session_id`](../plugin/ppt_master/venv/host.py)). That same id is the IPC `session_id`, so host tool RPC exports into the sidebar frame's deck rather than whichever window is focused. `ppt_master:active` (no URL) still uses the focused document. Conversation history is passed each turn; SKILL context is cached in the venv process per session. Stop during the turn returns `USER_STOPPED` and does not run the next host tool.
 
 **Model guidance:** Upstream recommends **Claude Opus/Sonnet** with large context (~1M) for best results; GPT/Gemini/Kimi work with a lower ceiling. Sidebar model selection is forwarded through `llm_request` RPC.
 
@@ -338,8 +338,8 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | Specialized tools | Shipped | [`tools.py`](../plugin/ppt_master/tools.py) — export, validate, template-fill, native-enhance (host UNO) |
 | Main PPTX → ODP export | Shipped | [`uno_pptx_deck.py`](../plugin/ppt_master/adapter/uno_pptx_deck.py) + [`pptx_build.py`](../plugin/ppt_master/pptx_build.py) |
 | PPTX auto-build from SVG | Shipped | User venv runs upstream `svg_to_pptx.py` when `exports/*.pptx` missing |
-| Shape copy on import | Shipped | [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) — clone + text props |
-| Impress page size on import | Shipped | Target slide set to 25400×14288 hmm in `uno_pptx_import._ensure_target_page` |
+| Shape copy on import | Shipped | [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) — clone + text props; pictures reimported via GraphicProvider (hidden pool is not aliased). A copy that returns no shapes leaves the target slide's previous shapes in place. |
+| Impress page size on import | Shipped | Target slide set to 25400×14288 hmm in `uno_pptx_import._apply_target_page_size` after that slide's copy succeeds |
 | Multi-slide UNO tests | Shipped | [`test_ppt_master_pptx_import_uno.py`](../tests/ppt_master/test_ppt_master_pptx_import_uno.py) — 3-slide fixture |
 | Import fidelity script | Shipped | PPTX vs ODP PDF diff per slide |
 | Real-project smoke | Validated | `ppt169_attention_is_all_you_need` via existing `exports/*.pptx` |

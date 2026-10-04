@@ -109,6 +109,8 @@ No SEGV in the successful session. Early `UnoObjectError` storm was the LibreHar
 | **Prompts** | Draw/Impress prompt lists tools and says verify `status='error'`, but does not hard-steer “always `list_placeholders` → use **index** if roles empty; set layout before fill.” “Colorful” steers ambition without a default visual recipe. |
 | **Model (mercury-2.5)** | Adequate tool caller for this scoped play; weak at index/layout recovery; no vision. Not the main blocker vs placeholder/layout brittleness. |
 
+> **Layout ids (current):** `page.Layout` is the LibreOffice `AutoLayout` enum (`include/xmloff/autolayout.hxx`). `set_slide_layout` / `get_slide_layout` share that table with `AUTOLAYOUT_ID` / `AUTOLAYOUT_BY_NAME`. `blank` = 20, `title_only` = 19, `text` = 1, `title` = 0, `two_column_text` = 3, `four_objects` = 18. Sentences below that cite `title_only`=10, `blank`=11, or a fresh slide labeled `two_column_and_object` describe the PowerPoint `PpSlideLayout`-minus-one table this replaced.
+
 ## Probe verification (2026-09-16)
 
 `tests/draw/test_placeholders_uno.py` is a native UNO probe (runs via `make test-uno FILTER=tests/draw/test_placeholders_uno.py`). It pins the headed failure and the A fix with assertions (default `text` layout has placeholders; role set works; `blank`/`none` stay empty).
@@ -141,7 +143,7 @@ Each item is written so a later implementer can pick it up without re-deriving t
 
 ### A. Default layout on `add_slide` (tool behavior)
 
-**Status:** Landed. `blank`/`none` skip Layout assignment — `_LAYOUTS["blank"]=11` still grows placeholders on this LO; `insertNewByIndex` is the empty page.
+**Status:** Landed. `blank`/`none` assign `AUTOLAYOUT_NONE` (20), which is the empty page `insertNewByIndex` already uses. The old skip existed because `_LAYOUTS["blank"]=11` was `AUTOLAYOUT_OBJ` and grew placeholders.
 
 **Problem**
 

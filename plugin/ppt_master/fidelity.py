@@ -8,16 +8,18 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET  # nosemgrep
+import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
-from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp, load_pptx_as_impress_doc
+from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
 from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
 
@@ -133,10 +135,104 @@ def count_page_text_shapes(page: Any) -> int:
     return count
 
 
-def structural_metrics_pptx(source_page: Any, imported_page: Any) -> StructuralMetrics:
+def _get_pptx_slide_xml_name(zf: zipfile.ZipFile, slide_index: int) -> str | None:
+    try:
+        if "ppt/presentation.xml" in zf.namelist() and "ppt/_rels/presentation.xml.rels" in zf.namelist():
+            rels_root = ET.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
+            rel_map: dict[str, str] = {
+                r.attrib["Id"]: r.attrib["Target"]
+                for r in rels_root
+                if "Id" in r.attrib and "Target" in r.attrib
+            }
+            pres_root = ET.fromstring(zf.read("ppt/presentation.xml"))
+            slide_targets: list[str] = []
+            for elem in pres_root.iter():
+                if elem.tag.endswith("}sldId"):
+                    r_id = elem.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+                    if r_id and r_id in rel_map:
+                        target = rel_map[r_id]
+                        if not target.startswith("ppt/"):
+                            target = "ppt/" + target.lstrip("/")
+                        slide_targets.append(target)
+            if 0 <= slide_index < len(slide_targets):
+                return slide_targets[slide_index]
+    except Exception as exc:
+        log.debug("resolve pptx slide from presentation.xml: %s", exc)
+
+    slide_names = [name for name in zf.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")]
+    slide_names.sort(
+        key=lambda s: int(m.group(1)) if (m := re.search(r"slide(\d+)\.xml", s)) else 0
+    )
+    if 0 <= slide_index < len(slide_names):
+        return slide_names[slide_index]
+    return None
+
+
+def count_pptx_slide_text_shapes(pptx_path: Path, slide_index: int) -> int:
+    """Count source shapes in slide that LibreOffice turns into a TextShape.
+
+    Top-level shapes (<p:sp> direct children of <p:spTree>) with non-empty
+    text in <p:txBody> become TextShape in LibreOffice.
+    Groups (<p:grpSp>), tables (<p:graphicFrame>), and shapes with empty
+    text bodies do not become TextShape.
+    """
+    if not pptx_path.is_file():
+        return 0
+    try:
+        with zipfile.ZipFile(pptx_path, "r") as zf:
+            slide_xml_name = _get_pptx_slide_xml_name(zf, slide_index)
+            if not slide_xml_name or slide_xml_name not in zf.namelist():
+                return 0
+            root = ET.fromstring(zf.read(slide_xml_name))
+            sp_tree = None
+            for elem in root.iter():
+                if elem.tag.endswith("}spTree"):
+                    sp_tree = elem
+                    break
+            if sp_tree is None:
+                return 0
+            count = 0
+            for child in sp_tree:
+                if not child.tag.endswith("}sp"):
+                    continue
+                tx_body = None
+                for sub in child:
+                    if sub.tag.endswith("}txBody"):
+                        tx_body = sub
+                        break
+                if tx_body is None:
+                    continue
+                text = "".join(t.text for t in tx_body.iter() if t.tag.endswith("}t") and t.text).strip()
+                if text:
+                    count += 1
+            return count
+    except Exception as exc:
+        log.warning("failed to count PPTX text shapes in %s: %s", pptx_path, exc)
+        return 0
+
+
+def structural_metrics_pptx(
+    imported_page: Any,
+    pptx_path: Path | None = None,
+    slide_index: int = 0,
+) -> StructuralMetrics:
+    """Derive structural metrics comparing imported ODF shapes against source PPTX.
+
+    What was wrong: structural_metrics_pptx derived both the expected and
+    actual text-shape counts from imported_page, so the fidelity text-loss
+    gate could not see text dropped during PPTX import.
+    How it happened: svg_text_elements was set from count_page_text_shapes
+    on imported_page rather than the source presentation.
+    Why this fixes it: expected text shapes are counted from the source PPTX
+    package slide XML, so any dropped shapes cause odf_text_shapes < expected.
+    """
     counts = count_odf_shape_types(imported_page)
+    if pptx_path is not None:
+        expected_text = count_pptx_slide_text_shapes(pptx_path, slide_index)
+    else:
+        expected_text = count_page_text_shapes(imported_page)
     return StructuralMetrics(
-        svg_text_elements=count_page_text_shapes(source_page),
+        svg_text_elements=expected_text,
         odf_text_shapes=counts.get("TextShape", 0),
         odf_shape_counts=counts,
     )
@@ -273,23 +369,12 @@ def import_slide_to_odp(
     pptx_path: Path,
     slide_index: int,
     odp_path: Path,
-) -> tuple[Any, Any, Any] | None:
+) -> tuple[Any, Any] | None:
     """Import one PPTX slide via the shipped pipeline; save a one-slide Impress doc."""
     imported = import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
     if imported is None:
         return None
-    doc, page = imported
-    source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
-    source_page = None
-    if source_doc is not None:
-        try:
-            source_page = source_doc.getDrawPages().getByIndex(slide_index)
-        finally:
-            try:
-                source_doc.close(True)
-            except Exception as exc:
-                log.debug("close source pptx doc: %s", exc)
-    return doc, page, source_page
+    return imported
 
 
 def evaluate_slide_fidelity(
@@ -322,68 +407,76 @@ def evaluate_slide_fidelity(
     if imported is None:
         result.errors.append("import_pptx_slide_to_odp failed")
         return result
-    doc, page, source_page = imported
-    if source_page is not None:
-        result.structural = structural_metrics_pptx(source_page, page)
-    else:
-        result.structural = StructuralMetrics(odf_shape_counts=count_odf_shape_types(page))
-    result.artifacts["imported_odp"] = str(odp_path)
+    doc, page = imported
+
+
+    # What was wrong: evaluate_slide_fidelity moved doc.close(True) to the
+    # end, leaving the hidden Impress document open on early returns (missing
+    # reference PDF, PDF export failure, PNG rasterize failure).
+    # How it happened: early return paths returned without closing doc.
+    # Why this fixes it: wrapping post-import execution in try/finally ensures
+    # doc.close(True) runs on all paths after doc has been loaded.
     try:
-        doc.close(True)
-    except Exception as exc:
-        log.debug("close impress doc: %s", exc)
+        result.structural = structural_metrics_pptx(page, pptx_path=pptx_path, slide_index=slide_index)
+        result.artifacts["imported_odp"] = str(odp_path)
 
-    if skip_visual:
-        if result.structural and source_page is not None:
-            text_ok = result.structural.odf_text_shapes >= result.structural.svg_text_elements
-            result.passed = text_ok
-            if not text_ok:
-                result.errors.append(
-                    f"text shape count {result.structural.odf_text_shapes} < pptx text {result.structural.svg_text_elements}"
-                )
-        else:
-            result.passed = page.getCount() > 0
-        return result
+        if skip_visual:
+            if result.structural:
+                text_ok = result.structural.odf_text_shapes >= result.structural.svg_text_elements
+                result.passed = text_ok
+                if not text_ok:
+                    result.errors.append(
+                        f"text shape count {result.structural.odf_text_shapes} < pptx text {result.structural.svg_text_elements}"
+                    )
+            else:
+                result.passed = page.getCount() > 0
+            return result
 
-    imp_pdf_dir = slide_dir / "imp_pdf"
-    imp_pdf = soffice_convert_to_pdf(soffice, odp_path, imp_pdf_dir)
-    ref_pdf = reference_deck_pdf
-    if not ref_pdf.is_file():
-        result.errors.append("reference deck PDF missing")
-        return result
-    if imp_pdf is None:
-        result.errors.append("imported PDF export failed (soffice convert ODP)")
-        return result
-    result.artifacts["reference_pdf"] = str(ref_pdf)
-    result.artifacts["imported_pdf"] = str(imp_pdf)
+        imp_pdf_dir = slide_dir / "imp_pdf"
+        imp_pdf = soffice_convert_to_pdf(soffice, odp_path, imp_pdf_dir)
+        ref_pdf = reference_deck_pdf
+        if not ref_pdf.is_file():
+            result.errors.append("reference deck PDF missing")
+            return result
+        if imp_pdf is None:
+            result.errors.append("imported PDF export failed (soffice convert ODP)")
+            return result
+        result.artifacts["reference_pdf"] = str(ref_pdf)
+        result.artifacts["imported_pdf"] = str(imp_pdf)
 
-    ref_png = slide_dir / "reference.png"
-    imp_png = slide_dir / "imported.png"
-    diff_png = slide_dir / "diff.png"
-    ref_page = slide_index + 1
-    if not pdf_page_to_png(ref_pdf, ref_png, page_1based=ref_page, dpi=dpi):
-        result.errors.append("reference PNG rasterize failed (install poppler pdftoppm or ImageMagick)")
-        return result
-    if not pdf_to_png(imp_pdf, imp_png, dpi=dpi):
-        result.errors.append("imported PNG rasterize failed (install poppler pdftoppm or ImageMagick)")
-        return result
+        ref_png = slide_dir / "reference.png"
+        imp_png = slide_dir / "imported.png"
+        diff_png = slide_dir / "diff.png"
+        ref_page = slide_index + 1
+        if not pdf_page_to_png(ref_pdf, ref_png, page_1based=ref_page, dpi=dpi):
+            result.errors.append("reference PNG rasterize failed (install poppler pdftoppm or ImageMagick)")
+            return result
+        if not pdf_to_png(imp_pdf, imp_png, dpi=dpi):
+            result.errors.append("imported PNG rasterize failed (install poppler pdftoppm or ImageMagick)")
+            return result
 
-    result.visual = compare_png_images(ref_png, imp_png, diff_png)
-    result.visual.reference_pdf = str(ref_pdf)
-    result.visual.imported_pdf = str(imp_pdf)
-    result.visual.reference_pdf_info = read_pdf_info(ref_pdf)
-    result.visual.imported_pdf_info = read_pdf_info(imp_pdf)
-    result.passed = result.visual.diff_fraction <= threshold
-    if not result.passed:
-        result.errors.append(
-            f"visual diff_fraction {result.visual.diff_fraction:.3f} > threshold {threshold:.3f} "
-            f"(see {diff_png.name})"
-        )
-    if result.structural and source_page is not None and result.structural.odf_text_shapes < result.structural.svg_text_elements:
-        result.errors.append(
-            f"text shapes {result.structural.odf_text_shapes} < pptx text shapes {result.structural.svg_text_elements}"
-        )
-    return result
+        result.visual = compare_png_images(ref_png, imp_png, diff_png)
+        result.visual.reference_pdf = str(ref_pdf)
+        result.visual.imported_pdf = str(imp_pdf)
+        result.visual.reference_pdf_info = read_pdf_info(ref_pdf)
+        result.visual.imported_pdf_info = read_pdf_info(imp_pdf)
+        result.passed = result.visual.diff_fraction <= threshold
+        if not result.passed:
+            result.errors.append(
+                f"visual diff_fraction {result.visual.diff_fraction:.3f} > threshold {threshold:.3f} "
+                f"(see {diff_png.name})"
+            )
+        if result.structural and result.structural.odf_text_shapes < result.structural.svg_text_elements:
+            result.errors.append(
+                f"text shapes {result.structural.odf_text_shapes} < pptx text shapes {result.structural.svg_text_elements}"
+            )
+
+        return result
+    finally:
+        try:
+            doc.close(True)
+        except Exception as exc:
+            log.debug("close impress doc: %s", exc)
 
 
 def run_project_fidelity(

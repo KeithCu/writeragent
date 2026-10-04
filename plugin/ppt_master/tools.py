@@ -29,6 +29,7 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
     )
     is_mutation: bool | None = True
     long_running: bool = True
+    timeout: float = 600.0
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -37,7 +38,13 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         "required": ["project_path"],
     }
 
+    def is_async(self) -> bool:
+        return True
+
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         st = data_root_status(ctx.ctx)
         if not st.get("ok"):
@@ -64,6 +71,9 @@ class ValidatePptMasterProject(ToolDrawPptMasterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")
         if not path:
@@ -84,6 +94,9 @@ class ApplyPptMasterTemplateFill(ToolDrawPptMasterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         plan_path = kwargs.get("fill_plan_path")
         if not plan_path:
@@ -104,6 +117,9 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        stop_checker = getattr(ctx, "stop_checker", None)
+        if callable(stop_checker) and stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")
         if not path:

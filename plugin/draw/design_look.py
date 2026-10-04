@@ -13,10 +13,22 @@ module reads the template ZIP at list time:
 3. ``Pictures/`` count: several images → ``illustrated``; exactly one
    graphic → ``graphic chrome``.
 4. If the thumbnail is missing or undecodable, scrape ``#RRGGBB`` from
-   ``styles.xml`` + ``Pictures/*.svg``. Empty ``look`` rather than inventing.
+   ``styles.xml`` + ``Pictures/*.svg``, stopping once
+   ``_MAX_XML_SAMPLES`` hits are kept (and after ``_MAX_XML_SVG_MEMBERS``
+   SVGs). Empty ``look`` rather than inventing.
 
 Stdlib PNG decode (not Pillow): the extension runs in LibreOffice's Python,
-which typically has no PIL. Thumbnails are tiny; we never load master pages
+which typically has no PIL. A thumbnail whose width×height exceeds the pixel
+cap is rejected before one RGB tuple is allocated per pixel (a few-KB
+4096×4096 1-bit PNG is under the raw-byte cap but tens of millions of
+tuples). ZIP member reads do not trust the declared uncompressed size:
+``ZipFile.read`` with no length inflates up to ``ZipExtFile.MAX_N`` (~1 GiB)
+before slicing to that size. Thumbnail, ``styles.xml``, and ``Pictures/*.svg``
+are copied in small reads and dropped past ``_MAX_MEMBER_BYTES``. The
+XML/SVG fallback also refuses to open every ``Pictures/*.svg`` or keep
+every hex hit: a missing thumbnail must not turn listing into an
+unbounded scan. 1/2/4-bit grayscale samples are scaled to 0–255 so an
+all-white thumbnail stays a light background. We never load master pages
 or open the document via Desktop.
 """
 
@@ -34,8 +46,24 @@ log = logging.getLogger("writeragent.draw.design_look")
 
 # Caps so a hostile/corrupt user ``.otp`` cannot inflate listing.
 _MAX_MEMBER_BYTES = 2 * 1024 * 1024
+# ZipExtFile.read(n) passes n through as zlib max_length, then slices to
+# the header file_size. One read(limit) still builds that whole buffer
+# before the slice, so a forged file_size of 64 still costs ~limit bytes.
+# Chunks keep each inflate request small; the loop enforces the real cap.
+_ZIP_READ_CHUNK = 64 * 1024
 _MAX_RAW_PNG = 4 * 1024 * 1024
 _MAX_SAMPLED_PIXELS = 1024
+# One tuple per pixel, not scanline bytes. 4096×4096 1-bit stays under
+# _MAX_RAW_PNG (~2MB inflated, a few KB on disk) and would be ~16.7M
+# tuples. Shipped Impress thumbs are at most 512×384; 1024×1024 leaves
+# room for a larger preview without the tuple explosion.
+_MAX_DECODED_PIXELS = 1024 * 1024
+# No-thumbnail fallback. The per-member read cap still opens every
+# Pictures/*.svg and keeps every #RRGGBB. Shipped templates have at most
+# four such SVGs and under a thousand hex hits; past this budget, more
+# input does not improve mood or accent bins. Listing stops there.
+_MAX_XML_SVG_MEMBERS = 8
+_MAX_XML_SAMPLES = _MAX_SAMPLED_PIXELS
 
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _HEX_RE = re.compile(rb"#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?")
@@ -104,16 +132,44 @@ def _picture_tag(names: Iterable[str]) -> str:
 
 
 def _read_member(zf: zipfile.ZipFile, name: str, limit: int = _MAX_MEMBER_BYTES) -> bytes | None:
+    """Return one member's bytes, or None if missing, corrupt, or over *limit*.
+
+    What was wrong: the only size check was ``ZipInfo.file_size``, then
+    ``ZipFile.read`` with no length. That value is the uncompressed size
+    in the central directory; the local file header stores the same field
+    and both are forgeable. ``ZipExtFile.read`` with no size inflates via
+    ``decompress(..., MAX_N)`` (~1 GiB) and only then slices to
+    ``file_size``. A 64KB ``.otp`` whose declared size was 64 bytes still
+    expanded by ~100MB before this cap could see the real length.
+    ``list_designs`` → ``derive_otp_look`` does this on the main thread
+    for every discovered template, including user-writable dirs
+    (thumbnail, ``styles.xml``, and ``Pictures/*.svg``).
+    Why this fixes it: a declared size above *limit* is skipped, but a
+    small declared size is not the read bound. Chunks pass
+    ``_ZIP_READ_CHUNK`` as zlib's ``max_length``, and the loop drops the
+    member once more than *limit* bytes have been produced.
+    """
     try:
         info = zf.getinfo(name)
     except KeyError:
         return None
+    # Honest huge members are not opened. A forged *small* file_size
+    # falls through; the sized loop below is what stops the inflate.
     if info.file_size > limit:
         return None
-    data = zf.read(name)
-    if len(data) > limit:
+    buf = bytearray()
+    try:
+        with zf.open(info, "r") as src:
+            while len(buf) <= limit:
+                piece = src.read(_ZIP_READ_CHUNK)
+                if not piece:
+                    break
+                if len(buf) + len(piece) > limit:
+                    return None
+                buf.extend(piece)
+    except (zipfile.BadZipFile, EOFError, zlib.error):
         return None
-    return data
+    return bytes(buf)
 
 
 def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
@@ -134,19 +190,48 @@ def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
 
 
 def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
-    """Fallback when the thumbnail is missing: hex colors only, no invention."""
+    """Fallback when the thumbnail is missing: hex colors only, no invention.
+
+    What was wrong: every ``Pictures/*.svg`` was opened (each already
+    capped at ``_MAX_MEMBER_BYTES``) and every ``#RRGGBB`` was appended.
+    ``_mood_and_accents`` then walked that whole list. ``list_designs`` /
+    ``apply_design`` call this on the main thread, including user-writable
+    template dirs. Eight cap-sized SVG members were about 180MB and 12s;
+    more members scale into gigabytes.
+    How it happened: the forged-size read cap limits one member, not how
+    many members are opened or how many hex hits are kept.
+    Why this fixes it: read ``styles.xml`` once and at most
+    ``_MAX_XML_SVG_MEMBERS`` SVGs, and keep at most ``_MAX_XML_SAMPLES``
+    colors — the same budget as a downsampled thumbnail. Once that many
+    hits are in hand, remaining members are not opened.
+    """
     samples: list[tuple[int, int, int]] = []
+    styles_name = ""
+    svgs: list[str] = []
     for n in names:
         norm = _norm_zip_name(n)
-        if norm == "styles.xml" or (norm.startswith("pictures/") and norm.endswith(".svg")):
-            blob = _read_member(zf, n)
-            if blob:
-                samples.extend(_hex_colors(blob))
+        if norm == "styles.xml":
+            if not styles_name:
+                styles_name = n
+        elif norm.startswith("pictures/") and norm.endswith(".svg") and len(svgs) < _MAX_XML_SVG_MEMBERS:
+            svgs.append(n)
+    to_read: list[str] = []
+    if styles_name:
+        to_read.append(styles_name)
+    to_read.extend(svgs)
+    for name in to_read:
+        if len(samples) >= _MAX_XML_SAMPLES:
+            break
+        blob = _read_member(zf, name)
+        if blob:
+            samples.extend(_hex_colors(blob, _MAX_XML_SAMPLES - len(samples)))
     return samples
 
 
-def _hex_colors(blob: bytes) -> list[tuple[int, int, int]]:
+def _hex_colors(blob: bytes, limit: int) -> list[tuple[int, int, int]]:
     out: list[tuple[int, int, int]] = []
+    if limit <= 0:
+        return out
     for match in _HEX_RE.finditer(blob):
         hex6 = match.group(1)
         alpha = match.group(2)
@@ -156,6 +241,8 @@ def _hex_colors(blob: bytes) -> list[tuple[int, int, int]]:
         g = int(hex6[2:4], 16)
         b = int(hex6[4:6], 16)
         out.append((r, g, b))
+        if len(out) >= limit:
+            break
     return out
 
 
@@ -207,8 +294,44 @@ def _accent_hue_name(r: int, g: int, b: int) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _inflate_capped(data: bytes, limit: int) -> bytes | None:
+    """Inflate *data* or return None if output would pass *limit* bytes.
+
+    What was wrong: ``zlib.decompress`` builds the whole output, then the
+    caller compared it to the IHDR size. A thumbnail whose declared size
+    is small can still be a deflate bomb, and ``list_designs`` /
+    ``apply_design`` allocated that bomb before rejecting it.
+    Why this stops it: ``decompressobj.decompress(..., max_length)`` returns
+    at most ``limit + 1`` bytes, so the oversize stream is dropped before
+    a multi-megabyte buffer exists.
+    """
+    if limit < 0:
+        return None
+    dec = zlib.decompressobj()
+    out = bytearray()
+    pending: bytes | None = data
+    try:
+        while True:
+            room = limit - len(out)
+            if room < 0:
+                return None
+            chunk = dec.decompress(b"" if pending is None else pending, room + 1)
+            pending = dec.unconsumed_tail or None
+            if len(chunk) > room:
+                return None
+            out.extend(chunk)
+            if dec.eof:
+                return bytes(out)
+            if pending is None and not chunk:
+                return None
+            if pending is None:
+                pending = b""
+    except zlib.error:
+        return None
+
+
 def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
-    """Return RGB pixels or ``None`` if the PNG is unsupported/corrupt."""
+    """Return RGB pixels or ``None`` if the PNG is unsupported, corrupt, or too large."""
     if len(data) < 33 or data[:8] != _PNG_SIG:
         return None
     width = height = bit_depth = color_type = interlace = -1
@@ -246,6 +369,15 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
             break
     if width < 1 or height < 1 or width > 4096 or height > 4096:
         return None
+    # What was wrong: after the raw-byte cap, this still built one RGB
+    # tuple per pixel. A valid 4096×4096 1-bit thumbnail is a few KB and
+    # under _MAX_RAW_PNG, then ~16.7M tuples (~1GB) before _downsample.
+    # How it happened: list_designs / apply_design feed Thumbnails/thumbnail.png
+    # from discovered .otp files, including the user-writable template dir.
+    # Why this fixes it: reject on width*height before inflate and before
+    # the pixel list. Mood falls back to styles.xml / SVG hex colors.
+    if width * height > _MAX_DECODED_PIXELS:
+        return None
     if interlace != 0:
         return None
     if color_type not in (0, 2, 3, 4, 6):
@@ -259,9 +391,8 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     expected = height * row_bytes
     if expected > _MAX_RAW_PNG:
         return None
-    try:
-        raw = zlib.decompress(bytes(idat))
-    except zlib.error:
+    raw = _inflate_capped(bytes(idat), expected)
+    if raw is None:
         return None
     if len(raw) < expected:
         return None
@@ -333,8 +464,17 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
         return None
     out: list[tuple[int, int, int]] = []
     if color_type == 0:
+        # What was wrong: bit depths 1/2/4 store samples in 0..maxv, and
+        # this loop copied them as if they were already 0..255. An
+        # all-white 1-bit thumbnail is sample 1, so luminance stays ~1
+        # and _mood_and_accents reports "dark background" for a white
+        # template.
+        # Why this fixes it: PNG scales a grayscale sample with
+        # g * 255 / maxv (integer division). 8-bit maxv is 255, so those
+        # samples are unchanged.
+        maxv = (1 << bit_depth) - 1
         for i in range(width):
-            g = samples[i]
+            g = samples[i] * 255 // maxv
             out.append((g, g, g))
         return out
     if color_type == 4:

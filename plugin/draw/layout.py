@@ -77,7 +77,7 @@ def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
         first = indexed[0][1]
         last = indexed[-1][1]
         span_start = first[0]
-        span_end = last[0] + last[2]
+        span_end = max(b[0] + b[2] for _, b in indexed)
         total_w = sum(b[2] for _, b in indexed)
         gap = (span_end - span_start - total_w) / (len(indexed) - 1)
         cursor = float(span_start)
@@ -97,7 +97,7 @@ def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
     first = indexed[0][1]
     last = indexed[-1][1]
     span_start = first[1]
-    span_end = last[1] + last[3]
+    span_end = max(b[1] + b[3] for _, b in indexed)
     total_h = sum(b[3] for _, b in indexed)
     gap = (span_end - span_start - total_h) / (len(indexed) - 1)
     cursor = float(span_start)

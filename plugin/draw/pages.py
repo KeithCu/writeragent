@@ -51,7 +51,7 @@ class AddSlide(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
-        from plugin.draw.transitions import _LAYOUTS, apply_slide_layout, layout_id
+        from plugin.draw.transitions import apply_slide_layout, available_layout_names, layout_id
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
@@ -68,33 +68,33 @@ class AddSlide(ToolBase):
                 layout_name = str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
             if layout_id(layout_name) is None:
-                return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
+                return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
 
-        # create_slide uses this same index; do not trust get_active_page_index
-        # after insert — Impress DrawPage.getNumber() is missing/None, so the
-        # bridge helper falls back to 0 even when the controller switched.
-        insert_at = bridge.get_pages().getCount() if page_idx is None else page_idx
-        new_page = bridge.create_slide(page_idx, switch=switch_view)
-        active_idx = insert_at if switch_view else bridge.get_active_page_index()
+        # Do not trust get_active_page_index after insert — Impress
+        # DrawPage.getNumber() is missing/None, so the bridge helper falls
+        # back to 0 even when the controller switched. create_slide returns
+        # the slot the new page actually occupies.
+        new_page, landed = bridge.create_slide(page_idx, switch=switch_view)
+        active_idx = landed if switch_view else bridge.get_active_page_index()
 
         result = {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
         # insertNewByIndex can attach factory Default even when the deck already
         # has a designed master (M1′). Copy the neighbor slide's MasterPage.
+        # Pass the landed index: page=0 used to claim insert_at=0 while the
+        # new page sat at 1, so the "neighbor" was the new page itself.
         if is_impress:
             from plugin.draw.designs import inherit_master_from_neighbor
 
-            inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, insert_at)
+            inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
             if inherited:
                 result["master"] = inherited
         if is_impress and layout_name is not None:
             result["placeholders_hint"] = "call list_placeholders on this page"
-            # insertNewByIndex is already empty (Layout=20, 0 shapes). _LAYOUTS
-            # "blank"=11 is a different autolayout that still grows placeholders.
-            # Skip assignment so blank/none keep today's empty-page hatch.
-            if layout_name in ("blank", "none"):
-                result["layout"] = "blank"
-            else:
-                result["layout"] = apply_slide_layout(new_page, layout_name)
+            # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
+            # leaves that id with 0 shapes; assigning it keeps the page empty.
+            # Skipping used to be required because the PowerPoint blank id (11)
+            # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
+            result["layout"] = apply_slide_layout(new_page, layout_name)
         return result
 
 
@@ -116,6 +116,15 @@ class DeleteSlide(ToolBase):
         pages = bridge.get_pages()
         if page_idx < 0 or page_idx >= pages.getCount():
             return self._tool_error("Page index %s out of range." % page_idx)
+        # What was wrong: the last page was removed whenever its index was in
+        # range, so a one-page Draw or Impress document lost its only slide.
+        # How it happened: DeleteSlide checked the index and then always called
+        # bridge.delete_slide. SlideCommandEngine._delete_slide already refuses
+        # that case before it touches the document.
+        # Why this fixes it: return the same error and skip the removal when
+        # one page remains.
+        if pages.getCount() <= 1:
+            return self._tool_error("Cannot delete the only slide")
         bridge.delete_slide(page_idx)
 
         return {"status": "ok", "message": "Slide deleted", "active_page_index": bridge.get_active_page_index()}

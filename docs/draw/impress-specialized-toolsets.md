@@ -44,7 +44,7 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `set_active_page` | `pages.py` | Drawing+Presentation | Switch current view to slide |
 | `read_slide_text` | `pages.py` | Drawing+Presentation | Extract text from all shapes on a page |
 | `get_presentation_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
-| `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix). Each entry includes a short `look` vibe string from the template ZIP thumbnail (mood, accent hues, illustrated / graphic chrome) |
+| `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix). Each entry includes a short `look` vibe string from the template ZIP thumbnail (mood, accent hues, illustrated / graphic chrome). Thumbnails whose width×height exceeds the decoder pixel cap are skipped before one RGB tuple is allocated per pixel (a few-KB 1-bit PNG must not expand into millions of tuples); look then uses the styles.xml / SVG hex fallback. ZIP member reads (thumbnail, styles.xml, Pictures/*.svg) do not trust the declared uncompressed size — a forged ``file_size`` used to inflate up to ``ZipExtFile.MAX_N`` before the member-byte cap — and 1/2/4-bit grayscale samples are scaled to 0–255 so an all-white thumbnail stays a light background. |
 | `apply_design` | `designs.py` | Drawing+Presentation | Restyle the **open** Impress deck: Hidden `.otp` master clone + assign-all (no system clipboard, no new window). Draw → not-Impress |
 | `get_draw_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes and layout; `fillable` blanks + ControlShape value/state |
 | `get_image` | `writer/get_image.py` | Text+Drawing+Presentation | Vision: embedded graphic, selection, or `page=N` PNG of the rendered page. **`page` is 0-based.** Complements `get_draw_tree`; does not replace it. |
@@ -60,7 +60,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | Tool | Domain | Module | Purpose | Services |
 |------|--------|--------|---------|---------|
 | `shape_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | Drawing+Presentation |
-| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index | Drawing+Presentation |
+| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | Drawing+Presentation |
 | `fill_draw_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, or `label_hint` | Drawing+Presentation |
 | `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by index | Drawing+Presentation |
 | `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | Drawing+Presentation |
@@ -95,7 +95,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 
 ### 2.4 insert_math (math domain)
 
-> **Follow-up — shape size / bounding box:** `insert_math` does not take width/height from the model. It attempts content-based sizing via the embedded object’s `XVisualObject.getVisualAreaSize` (after the formula is set), then falls back to a simple heuristic from formula length. **In practice this often still looks wrong** (too small or large, wrong aspect, or inconsistent across LibreOffice versions and headless vs GUI). This area **needs more engineering**: validate UNO sizing across builds, consider map-unit edge cases, optional post-insert resize once the OLE is realized, or expose optional max dimensions while keeping defaults automatic.
+> **Shape size:** `insert_math` does not take width/height arguments. After `Formula` is set, the box comes from the Draw `OLE2Shape` visual area: `VisibleArea` (already 1/100 mm) or the `EmbeddedObject` property’s `XVisualObject.getVisualAreaSize`. Draw does not implement `getEmbeddedObject()` — that method is Writer `TextEmbeddedObject`, and calling it always missed the real size. The length heuristic runs only when those properties report no positive size.
 
 ----
 
@@ -207,6 +207,8 @@ These are **two different problems**. The old “Forms ✅ Complete” row only 
 - `form_list_controls` / `form_edit_control` / `form_delete_control` address by **name** (index remains). Optional `page` on Draw/Impress.
 - List/edit expose checkbox/radio **State** (0/1/2). When `index` is omitted, `name` is the lookup; `new_name` renames. `index` + `name` still means rename (older callers).
 - Shared registration stays `ToolWriterFormBase` ∪ `ToolDrawFormBase`. No Draw-only fork.
+- `form_create` and `form_generate` return `status: error` (per-field payloads in `details.results`) when any field fails. A finished batch stays `status: ok`.
+- Calc label and spacer text is appended only to an empty or text cell. A formula or number in the active cell is not passed through `getString()` + `setString()`, which would replace it with literal text.
 
 ----
 
@@ -389,7 +391,11 @@ class InsertTable(ToolDrawSpecialBase):
 - `move_slide(from_page: int, to_page: int)`
 - `rename_slide(page: int, name: str)`
 
-`move_slide` duplicates the source with `XDrawPageDuplicator.duplicate` (the same full-page clone as `duplicate_slide`), removes the source only after that clone exists, then swaps the clone with neighboring pages until it sits at `to_page`. Shapes are moved, not reconstructed, so groups, graphics, connectors, and charts stay intact. The page name, layout, master, speaker notes, and transition move with the clone. A failed swap is reversed, so a move to index 0 does not leave the deck half-reordered. `InsertSdPage` still inserts **after** `insertNewByIndex`'s index and cannot create a page at index 0; the reorder exchanges with page 0 instead of inserting there. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
+`move_slide` duplicates the source with `XDrawPageDuplicator.duplicate` (the same full-page clone as `duplicate_slide`), removes the source only after that clone exists, then swaps the clone with neighboring pages until it sits at `to_page`. Shapes are moved, not reconstructed, so groups, graphics, connectors, and charts stay intact. The page name, layout, master, speaker notes, and transition move with the clone. A failed swap is reversed, so a move to index 0 does not leave the deck half-reordered. `InsertSdPage` (`sd/source/ui/unoidl/unomodel.cxx`) still inserts **after** `min(count-1, n)`, so a raw `insertNewByIndex(n)` lands at `min(count-1, n)+1` and cannot create a page at index 0. `DrawBridge.create_slide` and `insert_slide_from_master` compensate: they pass the preceding index so a middle insert lands on the requested slot, and a request for index 0 inserts then exchanges with page 0 (the same reorder as `move_slide`). Both return that real index. `add_slide` reports it as `active_page_index` and passes it to master inheritance, so `page=0` copies the neighbor's master instead of the new page's own. Transform `InsertMasterSlide` stores the same returned index as the current slide. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
+
+`get_draw_context_for_chat` resolves Active Slide/Page Index with `uno_same` (`is`, then `==`, then `uno.isSame`). `getCurrentPage()` and `getByIndex()` can be different Python wrappers for one page; bare `==` reported `-1` and the model edited the wrong slide. Shape summary and speaker notes use `active_page is not None`: an empty `XDrawPage` is falsy, and a truthiness check dropped notes on a blank slide.
+
+Speaker notes are the notes-page shape of type `com.sun.star.presentation.NotesShape` (`find_notes_shape`). A header, footer, or date field on that page also implements `getString`/`setString` and can sit ahead of the body. PPT-Master import and native enhance use that lookup. Import still writes the source text when it is empty, because clearing shapes on the slide does not clear the notes page.
 
 ---
 
