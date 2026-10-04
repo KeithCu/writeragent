@@ -1102,7 +1102,7 @@ def _resolve_tts_voice(model: str, voice: str) -> str:
         voice = "alloy"
     if "kokoro" in model.lower():
         v_low = voice.lower()
-        if re.match(r"^[abefhjz][fm]_", v_low):
+        if re.match(r"^[abefhijpz][fm]_", v_low):
             return voice
         return _KOKORO_VOICES.get(v_low, _KOKORO_FALLBACK_VOICE)
     return voice
@@ -1606,14 +1606,16 @@ def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) 
                 os.makedirs(os.path.dirname(voices_s), exist_ok=True)
                 log.info("Downloading Kokoro voices to %s...", voices_s)
                 urllib.request.urlretrieve(
-                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}", voices_s
+                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}", voices_s + ".tmp"
                 )
+                os.replace(voices_s + ".tmp", voices_s)
             if needs_model:
                 os.makedirs(os.path.dirname(model_s), exist_ok=True)
                 log.info("Downloading Kokoro ONNX model to %s...", model_s)
                 urllib.request.urlretrieve(
-                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}", model_s
+                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}", model_s + ".tmp"
                 )
+                os.replace(model_s + ".tmp", model_s)
         except Exception as e:
             failed = True
             log.warning("Could not auto-download Kokoro models: %s", e)
@@ -1659,11 +1661,13 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
             _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
             log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_s)
             req_onnx = urllib.request.Request(onnx_url, headers={"User-Agent": "WriterAgent/1.0"})
-            with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_s, "wb") as f_out:
+            with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_s + ".tmp", "wb") as f_out:
                 shutil.copyfileobj(resp, f_out)
+            os.replace(voice_s + ".tmp", voice_s)
             req_json = urllib.request.Request(json_url, headers={"User-Agent": "WriterAgent/1.0"})
-            with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_s, "wb") as f_out:
+            with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_s + ".tmp", "wb") as f_out:
                 shutil.copyfileobj(resp, f_out)
+            os.replace(json_s + ".tmp", json_s)
             _clear_tts_status(on_status)
             return voice_s
         except Exception as e:
@@ -1705,8 +1709,10 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
             fallback_short = _voice_short_name(_PIPER_FALLBACK_VOICE)
             _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
         log.info("Downloading Piper default voice model to %s...", default_voice_s)
-        urllib.request.urlretrieve(f"{base_url}/{rel_onnx}", default_voice_s)
-        urllib.request.urlretrieve(f"{base_url}/{rel_json}", default_json_s)
+        urllib.request.urlretrieve(f"{base_url}/{rel_onnx}", default_voice_s + ".tmp")
+        os.replace(default_voice_s + ".tmp", default_voice_s)
+        urllib.request.urlretrieve(f"{base_url}/{rel_json}", default_json_s + ".tmp")
+        os.replace(default_json_s + ".tmp", default_json_s)
         _clear_tts_status(on_status)
         return default_voice_s
     except Exception as e:
