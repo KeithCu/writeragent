@@ -13,6 +13,7 @@ import logging
 import os
 import queue
 import threading
+import time
 import pytest
 
 from plugin.contrib.lsp.json_rpc_framing import read_exactly
@@ -312,6 +313,69 @@ def test_harper_ls_timeout(mock_popen: MagicMock, mock_get_bin: MagicMock) -> No
     with patch.object(client.stdout_queue, "get", side_effect=queue.Empty):
         with pytest.raises(TimeoutError):
             client.lint("test text")
+
+
+def _bare_harper_client() -> HarperLSClient:
+    """Client shell for queue tests. Does not spawn harper-ls."""
+    client = HarperLSClient.__new__(HarperLSClient)
+    client.proc = MagicMock()
+    client.proc.poll.return_value = None
+    client._bcp47 = "en-US"
+    client.user_config_dir = ""
+    client._lsp_settings = {}
+    client._heartbeat_fn = None
+    client._doc_opened = True
+    client._doc_version = 0
+    client._lint_cancel = None
+    client.uri = "file:///tmp/writeragent_harper_lint_eof.txt"
+    client.request_id = 0
+    client.stdout_queue = queue.Queue()
+    client.stdout_thread = None
+    client.binary_path = "/bin/harper-ls"
+    return client
+
+
+def test_collect_diagnostics_empty_publish_is_clean() -> None:
+    """A real publish with an empty list is a clean sentence, even if EOF follows."""
+    client = _bare_harper_client()
+    client.stdout_queue.put(
+        {
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {"uri": client.uri, "version": 1, "diagnostics": []},
+        }
+    )
+    client.stdout_queue.put(None)
+    assert client._collect_diagnostics(1, time.monotonic() + 1) == []
+
+
+def test_collect_diagnostics_sentinel_is_not_clean() -> None:
+    client = _bare_harper_client()
+    client.stdout_queue.put(None)
+    with pytest.raises(RuntimeError, match="closed before publishDiagnostics"):
+        client._collect_diagnostics(1, time.monotonic() + 1)
+
+
+def test_collect_diagnostics_dead_process_is_not_clean() -> None:
+    client = _bare_harper_client()
+    client.proc.poll.return_value = 1
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="died before publishDiagnostics"):
+        client._collect_diagnostics(1, time.monotonic() + 30)
+    assert time.monotonic() - started < 1.0
+
+
+def test_collect_diagnostics_expired_deadline_is_not_clean() -> None:
+    client = _bare_harper_client()
+    with pytest.raises(TimeoutError):
+        client._collect_diagnostics(1, time.monotonic() - 1)
+
+
+def test_lint_stdout_eof_raises_instead_of_empty() -> None:
+    client = _bare_harper_client()
+    client.stdout_queue.put(None)
+    with patch.object(client, "_write", lambda _payload: None), pytest.raises(RuntimeError, match="closed"):
+        client.lint("Hello.")
 
 
 @patch("plugin.writer.locale.harper._get_harper_binary")
@@ -1122,6 +1186,96 @@ def test_harper_try_lint_failed_after_cooldown_retries(mock_bg: MagicMock) -> No
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_eof_returns_none(mock_bg: MagicMock) -> None:
+    """EOF during lint is not a clean sentence, so the caller must not cache it."""
+    client = _bare_harper_client()
+    client.stdout_queue.put(None)
+    harper_module._HARPER_CLIENT_CACHE[client.binary_path] = client
+    harper_module._set_state(HarperRuntimeState.READY)
+    with patch.object(client, "_write", lambda _payload: None):
+        assert harper_try_lint("Hello.", "/tmp") is None
+    assert mock_bg.call_count == 1
+    assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+
+
+def test_ensure_replaces_dead_cached_client() -> None:
+    """The ensure after cooldown must not raise on the same dead client."""
+    dead = MagicMock()
+    dead.is_alive.return_value = False
+    dead.binary_path = "/bin/harper-ls"
+    dead.user_config_dir = "/tmp/cfg"
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = dead
+    harper_module._set_state(
+        HarperRuntimeState.FAILED,
+        failed_at=time.monotonic() - harper_module._HARPER_FAIL_COOLDOWN_SEC - 1,
+    )
+    fresh = MagicMock()
+    fresh.is_alive.return_value = True
+    held: list[bool] = []
+
+    def _build(*_args: object, **_kwargs: object) -> MagicMock:
+        held.append(harper_module._HARPER_LOCK.locked())
+        return fresh
+
+    with (
+        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper.HarperLSClient", side_effect=_build),
+        patch("plugin.writer.locale.harper._schedule_proofread_again") as mock_sched,
+    ):
+        harper_module._harper_ensure_ready_body("/tmp/cfg", "en-US")
+
+    dead.close.assert_called_once()
+    assert held == [False]
+    assert harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] is fresh
+    assert harper_module._HARPER_STATE is HarperRuntimeState.READY
+    mock_sched.assert_called_once()
+    assert not harper_module._HARPER_LOCK.locked()
+
+
+def test_ensure_missing_binary_still_fails_and_cools_down() -> None:
+    with patch("plugin.writer.locale.harper._get_harper_binary", side_effect=OSError("harper-ls missing")):
+        harper_module._harper_ensure_ready_body("/tmp/cfg", "en-US")
+    assert harper_module._HARPER_STATE is HarperRuntimeState.FAILED
+    assert harper_module._HARPER_CLIENT_CACHE == {}
+    with patch("plugin.framework.worker_pool.run_in_background") as mock_bg:
+        assert harper_try_lint("Hello.", "/tmp/cfg") is None
+        mock_bg.assert_not_called()
+
+
+def test_ensure_failed_restart_drops_dead_client() -> None:
+    """A restart that cannot start must not leave the dead client cached."""
+    dead = MagicMock()
+    dead.is_alive.return_value = False
+    dead.binary_path = "/bin/harper-ls"
+    dead.user_config_dir = "/tmp/cfg"
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = dead
+
+    with (
+        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper.HarperLSClient", side_effect=OSError("binary missing")),
+        patch("plugin.writer.locale.harper._schedule_proofread_again") as mock_sched,
+    ):
+        harper_module._harper_ensure_ready_body("/tmp/cfg", "en-US")
+    dead.close.assert_called_once()
+    assert harper_module._HARPER_CLIENT_CACHE == {}
+    assert harper_module._HARPER_STATE is HarperRuntimeState.FAILED
+    mock_sched.assert_not_called()
+    assert not harper_module._HARPER_LOCK.locked()
+
+    fresh = MagicMock()
+    fresh.is_alive.return_value = True
+    with (
+        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper.HarperLSClient", return_value=fresh),
+        patch("plugin.writer.locale.harper._schedule_proofread_again"),
+    ):
+        harper_module._harper_ensure_ready_body("/tmp/cfg", "en-US")
+    assert dead.close.call_count == 1
+    assert harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] is fresh
+    assert harper_module._HARPER_STATE is HarperRuntimeState.READY
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_libreharper_submits_job(mock_bg: MagicMock) -> None:
     with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
@@ -1507,6 +1661,22 @@ def test_reader_sentinel_stays_on_captured_queue() -> None:
     client._read_loop(captured)
     assert captured.get_nowait() is None
     assert replacement.empty()
+
+
+def test_reader_crash_sentinel_is_not_a_clean_sentence() -> None:
+    """A crashed reader still fences its sentinel, and that sentinel is not a publish."""
+    client = _bare_harper_client()
+    client.proc.stdout = BytesIO(b"")
+    captured: queue.Queue[dict | None] = queue.Queue()
+    replacement: queue.Queue[dict | None] = queue.Queue()
+    client.stdout_queue = replacement
+    with patch("plugin.writer.locale.harper.json_rpc_framing.read_frame", side_effect=OSError("reader crashed")):
+        client._read_loop(captured)
+    assert captured.qsize() == 1
+    assert replacement.empty()
+    client.stdout_queue = captured
+    with pytest.raises(RuntimeError, match="closed before publishDiagnostics"):
+        client._collect_diagnostics(1, time.monotonic() + 1)
 
 
 def test_initialize_joins_old_reader_before_new_queue() -> None:
