@@ -302,3 +302,41 @@ def test_report_run_outcome_error_skips_status_label():
 
     mock_msgbox.assert_called_once()
     mock_set_text.assert_not_called()
+
+def test_save_current_script_fallback_collision():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="MyDocScript (in Document)"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("MyDocScript", ui.SCRIPT_ORIGIN_DOCUMENT)),
+        patch.object(ui, "save_document_script", return_value="Write failed."),
+        patch.object(ui, "get_user_scripts", return_value={"MyDocScript": "existing code"}),
+        patch.object(ui, "save_user_script") as mock_save_user,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res == "Cannot save to My Scripts: a script named 'MyDocScript' already exists."
+    mock_save_user.assert_not_called()
+
+def test_save_current_script_fallback_success():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="MyDocScript (in Document)"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("MyDocScript", ui.SCRIPT_ORIGIN_DOCUMENT)),
+        patch.object(ui, "save_document_script", return_value="Write failed."),
+        patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(ui, "save_user_script") as mock_save_user,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res == "Write failed. Saved to My Scripts instead."
+    mock_save_user.assert_called_once_with("MyDocScript", "new code")

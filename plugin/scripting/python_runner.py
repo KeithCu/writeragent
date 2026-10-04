@@ -575,6 +575,11 @@ def _run_python_monaco(
                             "Script '{0}' is not in My Scripts or this document, so it was not saved."
                         ).format(last_name),
                     }
+                elif action == "save":
+                    return {
+                        "type": "error",
+                        "message": _("Built-in helpers are read-only. Use Copy to My Scripts to customize.")
+                    }
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
         outcome = execute_and_insert_result(ctx, doc, code, data_range=data_binding)
