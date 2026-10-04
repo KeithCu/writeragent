@@ -303,9 +303,8 @@ def _prepare_rps_execution(
         )
 
     if "run_vision" in code and script_uses_run_import(code, run_name="run_vision"):
-        from plugin.framework.errors import ToolExecutionError
         from plugin.vision.vision_common import merge_vision_params
-        from plugin.vision.vision_runner import resolve_vision_image_bytes, supports_vision_manual
+        from plugin.vision.vision_runner import supports_vision_manual
 
         if not supports_vision_manual(doc):
             return _early({"ok": False, "message": _("Vision helpers require a Writer or Calc document.")})
@@ -315,46 +314,21 @@ def _prepare_rps_execution(
         image_name = str(params.get("image_name") or "").strip() or None
         helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
 
-        # Writer selection with discovered graphic(s): host OCR+insert by name.
-        # Covers multi-select and text ranges (even one image) — selection export cannot.
-        if not image_name and is_writer(doc):
-            from plugin.doc.visual_helpers import graphic_objects_in_selection
-
-            discovered = graphic_objects_in_selection(doc)
-            if discovered:
-                # Do NOT execute OCR wait on main thread. We extract bytes and pass jobs.
-                # Since _run_prepared_rps runs on a background thread, we must not pass `doc` to
-                # functions that might accidentally use it directly there. We will export the bytes HERE.
-                from plugin.vision.vision_runner import resolve_vision_image_bytes
-
-                jobs = []
-                for name, _obj in discovered:
-                    try:
-                        png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(name))
-                    except ToolExecutionError as exc:
-                        return _early(rps_error_outcome(str(exc), t0=t0))
-                    jobs.append({"image_name": name, "bytes": png_bytes})
-
-                return {
-                    "early_outcome": None,
-                    "is_vision_selection": True,
-                    "ctx": ctx,
-                    "doc": doc,
-                    "code": code,
-                    "t0": t0,
-                    "helper_name": helper_name,
-                    "params": params,
-                    "jobs": jobs,
-                    "exec_code": code,
-                    "py_data": {},
-                    "bindings": {},
-                    "session_id": "",
-                }
-
-        try:
-            bindings = {"image": resolve_vision_image_bytes(ctx, doc, image_name=image_name)}
-        except ToolExecutionError as exc:
-            return _early(rps_error_outcome(str(exc), t0=t0))
+        return {
+            "early_outcome": None,
+            "is_vision_selection": True,
+            "ctx": ctx,
+            "doc": doc,
+            "code": code,
+            "t0": t0,
+            "helper_name": helper_name,
+            "params": params,
+            "image_name": image_name,
+            "exec_code": code,
+            "py_data": {},
+            "bindings": {},
+            "session_id": "",
+        }
 
     try:
         from plugin.scripting.session_manager import rps_session_id
@@ -383,59 +357,41 @@ def _prepare_rps_execution(
 def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
     """Blocking venv IPC. Callers must not touch the document model here."""
     if prepared.get("is_vision_selection"):
-        from plugin.scripting.client import run_vision
-        from plugin.vision.vision_common import merge_vision_params
+        from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
         ctx = prepared["ctx"]
+        doc = prepared["doc"]
         helper_name = prepared["helper_name"]
         params = prepared["params"]
-        jobs = prepared["jobs"]
+        image_name = prepared.get("image_name")
 
-        results: list[dict[str, Any]] = []
-        for job in jobs:
-            # Reconstruct what run_trusted_vision does, but skip the UNO export (we already have bytes)
-            params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
-            params_dict["image_name"] = job["image_name"]
+        params_dict = dict(params) if isinstance(params, dict) else {}
+        if image_name:
+            params_dict["image_name"] = image_name
 
-            spec = {"helper": helper_name, "params": params_dict}
-            context = {"source": "graphic_name", "image_name": job["image_name"]}
+        # run_and_insert_vision_for_selection safely marshals document operations to the main thread
+        # while keeping the 120s OCR wait on this background thread.
+        result = run_and_insert_vision_for_selection(
+            ctx, doc, helper=helper_name, params=params_dict, insert_into_document=False
+        )
 
-            # This is the ~120s OCR wait off the main thread!
-            res = run_vision(ctx, spec, job["bytes"], context=context)
-            if res.get("status") == "error":
-                failed = dict(res)
-                failed["images_processed"] = len(results)
-                failed["image_names"] = [j["image_name"] for j in jobs[:len(results)]]
-                failed["failed_image"] = job["image_name"]
-                failed["inserted"] = False
-                failed["partial"] = bool(results)
-                return {"status": "ok", "vision_selection_result": failed}
-            results.append(res)
+        # Attach individual_results since _finish_rps_execution expects it for insert.
+        # run_and_insert_vision_for_selection returns `results` under the key `results` if len > 1,
+        # but to keep _finish_rps_execution working, we map them here.
+        if "results" in result and result["results"]:
+            result["individual_results"] = result.pop("results")
+        elif result.get("status") == "ok":
+            # For a single result, run_and_insert_vision_for_selection does not return a list.
+            # Wrap the entire result as an individual result so _finish_rps_execution can insert it.
+            # It also adds context with image_name so the egress logic can figure out the anchor.
+            image_names = result.get("image_names")
+            context_name = image_name or (image_names[0] if image_names else None)
+            indiv_res = dict(result)
+            if context_name:
+                indiv_res["context"] = {"image_name": context_name}
+            result["individual_results"] = [indiv_res]
 
-        full_parts = [str(r.get("full_text") or "") for r in results]
-        warnings = []
-        for r in results:
-            w = r.get("warnings")
-            if isinstance(w, list):
-                warnings.extend(w)
-        metrics = {"images_processed": len(results)}
-        if len(results) == 1:
-            single_metrics = results[0].get("metrics")
-            if isinstance(single_metrics, dict):
-                metrics.update(single_metrics)
-
-        aggregated = {
-            "status": "ok",
-            "helper": helper_name,
-            "full_text": "\n\n".join(part for part in full_parts if part),
-            "warnings": warnings,
-            "metrics": metrics,
-            "images_processed": len(results),
-            "image_names": [j["image_name"] for j in jobs],
-            "inserted": False,
-            "individual_results": results, # Store for insertion later
-        }
-        return {"status": "ok", "vision_selection_result": aggregated}
+        return {"status": "ok", "vision_selection_result": result}
 
     return run_code_in_user_venv(
         prepared["ctx"],

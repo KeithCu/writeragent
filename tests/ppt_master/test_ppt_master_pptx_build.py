@@ -98,3 +98,41 @@ def test_export_presentation_project_is_async():
 def test_export_presentation_project_timeout_is_600():
     from plugin.ppt_master.tools import ExportPresentationProject
     assert ExportPresentationProject().timeout == 600.0
+
+def test_export_presentation_project_stop_checker():
+    from plugin.ppt_master.tools import ExportPresentationProject
+    from plugin.framework.tool import ToolContext
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.stop_checker = lambda: True
+
+    result = ExportPresentationProject().execute(ctx, project_path="/dummy")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+
+def test_validate_ppt_master_project_stop_checker():
+    from plugin.ppt_master.tools import ValidatePptMasterProject
+    from plugin.framework.tool import ToolContext
+    ctx = MagicMock(spec=ToolContext)
+    ctx.stop_checker = lambda: True
+    result = ValidatePptMasterProject().execute(ctx, project_path="/dummy")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+
+def test_apply_ppt_master_template_fill_stop_checker():
+    from plugin.ppt_master.tools import ApplyPptMasterTemplateFill
+    from plugin.framework.tool import ToolContext
+    ctx = MagicMock(spec=ToolContext)
+    ctx.stop_checker = lambda: True
+    result = ApplyPptMasterTemplateFill().execute(ctx, fill_plan_path="/dummy")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+
+def test_apply_ppt_master_native_enhance_stop_checker():
+    from plugin.ppt_master.tools import ApplyPptMasterNativeEnhance
+    from plugin.framework.tool import ToolContext
+    ctx = MagicMock(spec=ToolContext)
+    ctx.stop_checker = lambda: True
+    result = ApplyPptMasterNativeEnhance().execute(ctx, project_path="/dummy")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
