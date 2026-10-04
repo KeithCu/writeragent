@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestInputBoxExtraTokens:
     def _mock_dialog(self, *, execute_ok=True):
@@ -36,21 +38,16 @@ class TestInputBoxExtraTokens:
 
     @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
-    @patch("plugin.chatbot.dialog_views.get_extension_url", return_value="vnd.sun.star.expand:/WriterAgent")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_loads_selection_token_fields_from_config(
-        self, _init_log, _ext_url, _populate, _translate,
+        self, _init_log, mock_load, _populate, _translate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
         ctx = MagicMock()
-        smgr = MagicMock()
-        ctx.getServiceManager.return_value = smgr
         dlg, _edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=False)
-
-        dp = MagicMock()
-        dp.createDialog.return_value = dlg
-        smgr.createInstanceWithContext.return_value = dp
+        mock_load.return_value = dlg
 
         def config_int_side_effect(key):
             return {"extend_selection_max_tokens": 1200, "edit_selection_max_new_tokens": 750}[key]
@@ -60,28 +57,24 @@ class TestInputBoxExtraTokens:
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             result = input_box(ctx, "msg", "title", "")
 
+        mock_load.assert_called_once_with("EditInputDialog", ctx)
         assert (result) == (("", ""))
         mock_set_text.assert_any_call(extend_tokens_ctrl, "1200")
         mock_set_text.assert_any_call(extra_tokens_ctrl, "750")
 
     @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
-    @patch("plugin.chatbot.dialog_views.get_extension_url", return_value="vnd.sun.star.expand:/WriterAgent")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_saves_selection_token_fields_on_ok(
-        self, _init_log, _ext_url, _populate, _translate,
+        self, _init_log, mock_load, _populate, _translate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
         ctx = MagicMock()
-        smgr = MagicMock()
-        ctx.getServiceManager.return_value = smgr
         dlg, edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=True)
         edit_ctrl.getText.return_value = "rewrite this"
-
-        dp = MagicMock()
-        dp.createDialog.return_value = dlg
-        smgr.createInstanceWithContext.return_value = dp
+        mock_load.return_value = dlg
 
         def control_text_side_effect(c):
             if c is extend_tokens_ctrl:
@@ -101,22 +94,17 @@ class TestInputBoxExtraTokens:
 
     @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
-    @patch("plugin.chatbot.dialog_views.get_extension_url", return_value="vnd.sun.star.expand:/WriterAgent")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_delegates_selection_token_bounds_to_config(
-        self, _init_log, _ext_url, _populate, _translate,
+        self, _init_log, mock_load, _populate, _translate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
         ctx = MagicMock()
-        smgr = MagicMock()
-        ctx.getServiceManager.return_value = smgr
         dlg, edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=True)
         edit_ctrl.getText.return_value = "go"
-
-        dp = MagicMock()
-        dp.createDialog.return_value = dlg
-        smgr.createInstanceWithContext.return_value = dp
+        mock_load.return_value = dlg
 
         def control_text_side_effect(c):
             if c is extend_tokens_ctrl:
@@ -132,6 +120,67 @@ class TestInputBoxExtraTokens:
 
         mock_set_config.assert_any_call("extend_selection_max_tokens", "1")
         mock_set_config.assert_any_call("edit_selection_max_new_tokens", "99999")
+
+    @patch("plugin.chatbot.dialog_views.init_logging")
+    def test_input_box_raises_when_dialog_missing(self, _init_log):
+        from plugin.chatbot.dialog_views import input_box
+        from plugin.framework.errors import UnoObjectError
+
+        with patch("plugin.chatbot.dialog_views.load_writeragent_dialog", return_value=None) as mock_load:
+            with pytest.raises(UnoObjectError):
+                input_box(MagicMock(), "msg")
+        mock_load.assert_called_once()
+
+    @patch("plugin.chatbot.dialog_views.translate_dialog")
+    @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
+    @patch("plugin.chatbot.dialog_views.init_logging")
+    def test_input_box_model_selector_skips_remote_fetch(
+        self, _init_log, mock_load, mock_populate, _translate,
+    ):
+        """Edit/Extend must not fetch /v1/models on the UI thread."""
+        from plugin.chatbot.dialog_views import input_box
+
+        ctx = MagicMock()
+        dlg, _edit_ctrl, _extend, _extra, _unused = self._mock_dialog(execute_ok=False)
+        model_selector = MagicMock()
+        mock_load.return_value = dlg
+
+        def optional_side_effect(_dlg, name):
+            if name == "model_selector":
+                return model_selector
+            return None
+
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="http://127.0.0.1:9"), \
+             patch("plugin.chatbot.dialog_views.get_text_model", return_value="llama3"):
+            input_box(ctx, "msg", "title", "")
+
+        model_calls = [call for call in mock_populate.call_args_list if "model_lru" in call.args]
+        assert len(model_calls) == 1
+        assert model_calls[0].kwargs.get("skip_remote_fetch") is True
+
+
+class TestSettingsDialogLoad:
+    def test_create_dialog_uses_loader_with_ctx(self):
+        from plugin.chatbot.dialog_views import SettingsDialog
+
+        ctx = MagicMock()
+        view = SettingsDialog(ctx)
+        dlg = MagicMock()
+        with patch("plugin.chatbot.dialog_views.load_writeragent_dialog", return_value=dlg) as mock_load:
+            view._create_dialog()
+        mock_load.assert_called_once_with("SettingsDialog", ctx)
+        assert view._dlg is dlg
+
+    def test_create_dialog_raises_when_loader_returns_none(self):
+        from plugin.chatbot.dialog_views import SettingsDialog
+        from plugin.framework.errors import UnoObjectError
+
+        view = SettingsDialog(MagicMock())
+        with patch("plugin.chatbot.dialog_views.load_writeragent_dialog", return_value=None):
+            with pytest.raises(UnoObjectError):
+                view._create_dialog()
 
 
 class TestSettingsInitialModelsFetch:
@@ -155,14 +204,14 @@ class TestSettingsInitialModelsFetch:
             dlg._schedule_initial_models_fetch('https://openrouter.ai/api')
         listener._schedule_debounced_models_fetch.assert_not_called()
 
-    def test_schedule_initial_models_fetch_skips_ollama(self):
+    def test_schedule_initial_models_fetch_includes_ollama(self):
         from plugin.chatbot.dialog_views import SettingsDialog
 
         dlg = SettingsDialog(MagicMock())
         listener = MagicMock()
         dlg._endpoint_listener = listener
         dlg._schedule_initial_models_fetch('http://localhost:11434')
-        listener._schedule_debounced_models_fetch.assert_not_called()
+        listener._schedule_debounced_models_fetch.assert_called_once()
 
 
 class TestEndpointCombinedListener:
@@ -182,12 +231,20 @@ class TestEndpointCombinedListener:
         def track_apply(*args, **kwargs):
             apply_calls.append((args, kwargs))
 
-        def track_bg(gen, resolved):
-            bg_calls.append((gen, resolved))
+        def track_bg(gen, resolved, tts_model_id=""):
+            bg_calls.append((gen, resolved, tts_model_id))
 
         listener._apply_dropdowns = track_apply
         listener._bg_fetch = track_bg
-        listener.run_in_background = lambda fn, name=None: fn()
+        listener._tts_model_id_for_voice_fetch = lambda: "cartesia/sonic-2"
+
+        def run_later(fn, name=None):
+            # A newer click bumps the generation before the worker starts.
+            # The fetch must keep the generation captured at select time.
+            listener._debounce_gen += 50
+            fn()
+
+        listener.run_in_background = run_later
 
         event = MagicMock()
         event.Selected = 0
@@ -197,8 +254,10 @@ class TestEndpointCombinedListener:
         assert (apply_calls[0][0][0]) == ('https://openrouter.ai/api')
         assert (apply_calls[0][1].get('skip_fetch'))
         assert (len(bg_calls)) == (1)
+        assert bg_calls[0][2] == "cartesia/sonic-2"
+        assert bg_calls[0][0] == listener._debounce_gen - 50
 
-    def test_ollama_select_does_not_skip_sync_fetch(self):
+    def test_ollama_select_skips_sync_fetch(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
 
         dialog = MagicMock()
@@ -215,14 +274,16 @@ class TestEndpointCombinedListener:
 
         listener._apply_dropdowns = track_apply
         listener._bg_fetch = MagicMock()
-        listener.run_in_background = lambda fn, name=None: None
+        listener._tts_model_id_for_voice_fetch = lambda: ""
+        listener.run_in_background = lambda fn, name=None: fn()
 
         event = MagicMock()
         event.Selected = 0
         listener.itemStateChanged(event)
 
         assert (len(apply_calls)) == (1)
-        assert not (apply_calls[0][1].get('skip_fetch'))
+        assert (apply_calls[0][1].get('skip_fetch'))
+        listener._bg_fetch.assert_called_once()
 
     def test_apply_dropdowns_openrouter_stt_uses_transcription_models(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
@@ -548,6 +609,7 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
     from plugin.mcp import mcp_ui
 
     mcp_ui._tested_provider_tunnel_urls.clear()
+    mcp_ui._retired_provider_tunnel_urls.clear()
     mcp_ui._mcp_snippet_refresh_scheduled = False
 
     snippet = MagicMock()
@@ -571,11 +633,17 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
     tunnel._provider = "cloudflare"
     tunnel._public_url = ""
     tunnel.mcp_public_url.return_value = ""
-    started: list[str] = []
+    started: list[tuple[str, bool]] = []
 
-    def run_bg(fn, name=None):
+    def run_bg(fn, name=None, dedicated=False):
+        # What was wrong: ``_schedule_mcp_snippet_refresh`` calls
+        # ``run_in_background(_wait, name="mcp-snippet-refresh", dedicated=True)``
+        # so the 1.2s URL poll does not occupy a pool slot. This fake only
+        # accepted ``name``, so the extra keyword raised TypeError before
+        # the no-sleep check could run.
+        # Why: record the same arguments that call actually passes.
         del fn
-        started.append(name or "")
+        started.append((name or "", bool(dedicated)))
 
     try:
         with patch("plugin.mcp._shared_tunnel", tunnel), \
@@ -584,11 +652,12 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
             mcp_ui.sync_mcp_config_snippet(dlg)
             mcp_ui.sync_mcp_config_snippet(dlg)
         mock_sleep.assert_not_called()
-        assert started == ["mcp-snippet-refresh"]
+        assert started == [("mcp-snippet-refresh", True)]
         written = json.loads(snippet.setText.call_args[0][0])
         assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
         mcp_ui._tested_provider_tunnel_urls.clear()
+        mcp_ui._retired_provider_tunnel_urls.clear()
         mcp_ui._mcp_snippet_refresh_scheduled = False
 
 
@@ -709,6 +778,142 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
     parent.getPeer.assert_called_once()
 
 
+def test_populate_fields_skips_one_missing_control() -> None:
+    """One unknown control id must not abort the rest of the Settings fill.
+
+    UNO getControl raises for a name that is not in the XDL. Returning None
+    is not the only miss.
+    """
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    text_ctrl = MagicMock()
+
+    def get_control(name: str):
+        if name == "not_in_xdl":
+            raise RuntimeError("no such control")
+        if name == "text_model":
+            return text_ctrl
+        return None
+
+    dlg.getControl.side_effect = get_control
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+        view._populate_fields(
+            [
+                {"name": "not_in_xdl", "value": "x"},
+                {"name": "text_model", "value": "llama3"},
+            ],
+            "http://localhost:11434",
+        )
+    mock_lru.assert_called_once()
+    assert mock_lru.call_args.args[1] is text_ctrl
+
+
+def test_extract_results_skips_control_that_raises() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    class _Text:
+        def getText(self):
+            return "hello"
+
+    dlg = MagicMock()
+
+    def get_control(name: str):
+        if name == "not_in_xdl":
+            raise RuntimeError("no such control")
+        if name == "endpoint":
+            return _Text()
+        return None
+
+    dlg.getControl.side_effect = get_control
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+    result = view._extract_results([
+        {"name": "not_in_xdl"},
+        {"name": "endpoint"},
+    ])
+    assert result == {"endpoint": "hello"}
+
+
+def test_populate_fields_text_model_does_not_fetch_remote() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    text_ctrl = MagicMock()
+    dlg.getControl.side_effect = lambda name: text_ctrl if name == "text_model" else None
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+
+    with patch("plugin.chatbot.config_ui_helpers.fetch_available_models") as mock_fetch:
+        view._populate_fields(
+            [{"name": "text_model", "value": "llama3"}],
+            "http://localhost:11434",
+        )
+    mock_fetch.assert_not_called()
+
+
+def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://api.groq.com/openai/v1"
+    api = MagicMock()
+    api.getText.return_value = "sk-pasted"
+
+    def get_optional_side_effect(dlg, name):
+        if name == "api_key":
+            return api
+        return None
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    listener._synced_endpoint = "https://api.groq.com/openai/v1"
+    saved = {
+        "https://api.groq.com/openai/v1": "sk-saved",
+        "https://api.groq.com/openai/v1x": "sk-other",
+    }
+    listener.get_api_key_for_endpoint = lambda url: saved.get(url, "")
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
+         patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
+        combo.getText.return_value = "https://api.groq.com/openai/v1x"
+        listener.textChanged(MagicMock())
+    mock_set.assert_not_called()
+    assert api.getText.return_value == "sk-pasted"
+
+
+def test_sync_api_key_preset_loads_saved_key() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://api.groq.com/openai/v1"
+    combo.getItem.return_value = "https://api.together.xyz/v1"
+    combo.setText.side_effect = lambda value: setattr(combo.getText, "return_value", value)
+    api = MagicMock()
+
+    def get_optional_side_effect(dlg, name):
+        if name == "api_key":
+            return api
+        return None
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    listener._synced_endpoint = "https://api.groq.com/openai/v1"
+    listener._catalog_is_warm = lambda resolved: True
+    listener._apply_from_cache = MagicMock()
+    listener.get_api_key_for_endpoint = lambda url: "sk-together" if "together" in url else "sk-groq"
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
+         patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
+        event = MagicMock()
+        event.Selected = 0
+        listener.itemStateChanged(event)
+    mock_set.assert_called_once_with(api, "sk-together")
+
+
 def test_populate_fields_wires_audio_stt_model_lru() -> None:
     from plugin.chatbot.dialog_views import SettingsDialog
 
@@ -723,7 +928,8 @@ def test_populate_fields_wires_audio_stt_model_lru() -> None:
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, stt_ctrl, "whisper-1", "audio_model_lru", "https://openrouter.ai/api", api_key_override=""
+            view._ctx, stt_ctrl, "whisper-1", "audio_model_lru", "https://openrouter.ai/api",
+            api_key_override="", skip_remote_fetch=True,
         )
 
 
@@ -741,7 +947,8 @@ def test_populate_fields_wires_legacy_stt_control_id() -> None:
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, stt_ctrl, "whisper-legacy", "audio_model_lru", "https://openrouter.ai/api", api_key_override=""
+            view._ctx, stt_ctrl, "whisper-legacy", "audio_model_lru", "https://openrouter.ai/api",
+            api_key_override="", skip_remote_fetch=True,
         )
 
 
@@ -759,7 +966,8 @@ def test_populate_fields_wires_tts_model_lru() -> None:
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api", api_key_override=""
+            view._ctx, tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api",
+            api_key_override="", skip_remote_fetch=True,
         )
 
 
@@ -1691,5 +1899,87 @@ def test_stt_settings_listener_enables_one_model_control() -> None:
         assert enabled[local_label] is True
         assert enabled[endpoint_model] is False
         assert enabled[endpoint_label] is False
+
+
+def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
+    """Typing the API key must not save it. A catalog already in memory is not fetched again.
+
+    Test Connection still clears that memo and fetches.
+    """
+    from plugin.chatbot.dialog_views import ApiKeyTextListener, EndpointCombinedListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    endpoint = "http://127.0.0.1:11434"
+    key = "sk-typed"
+    combo = MagicMock()
+    combo.getText.return_value = endpoint
+    api = MagicMock()
+    api.getText.return_value = key
+
+    def get_optional_side_effect(dlg, name):
+        del dlg
+        if name == "api_key":
+            return api
+        return None
+
+    cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+    listener = None
+    try:
+        with patch("plugin.framework.client.requests.sync_request", return_value={"data": [{"id": "llama3"}]}) as mock_sync, \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+            cfg.fetch_available_models(endpoint, api_key_override=key)
+            assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key)
+            mock_sync.reset_mock()
+
+            listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+            fetches: list[str] = []
+            listener.fetch_available_models = lambda *args, **kwargs: fetches.append("fetch") or ["llama3"]
+            with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+                 patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
+                 patch("plugin.chatbot.dialog_views.get_control_text", return_value=key), \
+                 patch("plugin.framework.config.set_config") as set_config, \
+                 patch("plugin.framework.config.set_configs") as set_configs, \
+                 patch("plugin.framework.config.set_api_key_for_endpoint") as set_api:
+                listener._schedule_debounced_models_fetch()
+                ApiKeyTextListener(listener).textChanged(MagicMock())
+                listener.textChanged(MagicMock())
+                assert fetches == []
+                mock_sync.assert_not_called()
+                set_config.assert_not_called()
+                set_configs.assert_not_called()
+                set_api.assert_not_called()
+                mock_set.assert_not_called()
+
+                listener.run_in_background = lambda fn, name=None: fn()
+                listener.post_to_main_thread = lambda fn: None
+                listener.force_catalog_refresh()
+                assert fetches
+                mock_sync.assert_not_called()
+    finally:
+        if listener is not None and listener._timer is not None:
+            listener._timer.cancel()
+        cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+
+
+def test_settings_hf_button_uses_router():
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog._dlg = MagicMock()
+    dialog._ctx = MagicMock()
+    seen: list[str] = []
+
+    def _capture(_ctx, _dlg, endpoint_url, _signup):
+        seen.append(endpoint_url)
+        return MagicMock()
+
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _dlg, name: MagicMock() if name == "btn_hf" else None),
+        patch("plugin.chatbot.dialog_views.ProviderStarterListener", side_effect=_capture),
+        patch("plugin.chatbot.dialog_views.apply_provider_button_icon"),
+        patch("plugin.chatbot.dialog_views.setup_module_tabs"),
+    ):
+        dialog._setup_tabs()
+    assert seen == ["https://router.huggingface.co/v1"]
 
 

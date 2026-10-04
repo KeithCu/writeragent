@@ -190,10 +190,12 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     _parent_window: Any
     _width_negotiated: bool
     _viewport_w: int
+    _restore_focus: Any
 
-    def __init__(self, controls: dict[str, Any], on_dispose: Any = None) -> None:
+    def __init__(self, controls: dict[str, Any], on_dispose: Any = None, restore_focus: Any = None) -> None:
         self._c = controls
         self._on_dispose = on_dispose
+        self._restore_focus = restore_focus
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
         self._in_relayout = False
         self._root_window = None
@@ -343,6 +345,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
                         self._c.get("response"),
                         placeholder_rect=self._last_response_rect,
                         control_out=rich_out,
+                        restore_focus=self._restore_focus,
                     )
                     rich = rich_out[0]
                     self._c["response_rich"] = rich

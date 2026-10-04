@@ -22,12 +22,14 @@ from typing import Any, Callable
 
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.doc.doc_type import DocumentType, get_document_type
+from plugin.framework.async_drain_guard import add_drain_idle_callback
+from plugin.framework.queue_executor import post_to_main_thread
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config import get_api_config, set_config, validate_api_config
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_ctx
+from plugin.framework.uno_context import get_ctx, get_document_from_frame
 from .dialogs import msgbox
 from .dialog_views import input_box
 
@@ -74,7 +76,8 @@ def prompt_for_edit_instructions(ctx: Any, input_box_fn: Any, title: str) -> tup
 def stream_completion(ctx: Any, client: LlmClient, prompt: str, system_prompt: str, max_tokens: int, apply_chunk_fn: ApplyChunkFn, on_done_fn: Callable[[], None], on_error_fn: ErrorFn) -> None:
     """Start a simple completion stream and route startup failures like stream errors."""
     try:
-        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn)
+        stop_checker = getattr(ctx, "stop_checker", None)
+        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=stop_checker)
     except Exception as e:
         on_error_fn(e)
 
@@ -89,7 +92,7 @@ def stream_completion_tasks(ctx: Any, client: LlmClient, tasks: list[StreamCompl
         task = tasks[task_index[0]]
         task_index[0] += 1
         apply_chunk_fn, on_error_fn = prepare_task_fn(task)
-        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, run_next_task, on_error_fn)
+        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, lambda: add_drain_idle_callback(lambda: post_to_main_thread(run_next_task)), on_error_fn)
 
     run_next_task()
 
@@ -118,12 +121,19 @@ def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is
     msgbox(ctx, "WriterAgent", _("{0} selection not supported for this document type").format(action))
 
 
-def _action_selection(services: Any, is_edit: bool) -> None:
-    """Resolve the active document, then use the canonical selection action."""
+def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
+    """Extend or Edit the sidebar frame's document, or the focused one.
 
+    What was wrong: the hamburger already had the sidebar frame, then this
+    called ``get_active_document()``. Sidebar on A and focus on B edited B.
+    Why this change: a passed frame resolves with ``get_document_from_frame``.
+    The menubar calls this with no frame, so it still uses the focused document.
+    """
     ctx = get_ctx()
-    doc_svc = services.document
-    doc = doc_svc.get_active_document()
+    if frame is not None:
+        doc = get_document_from_frame(frame)
+    else:
+        doc = services.document.get_active_document()
     if not doc:
         msgbox(ctx, "WriterAgent", _("No document open"))
         return
@@ -131,11 +141,11 @@ def _action_selection(services: Any, is_edit: bool) -> None:
     do_selection_action_for_document(ctx, doc, input_box, is_edit)
 
 
-def action_extend_selection(services: Any) -> None:
+def action_extend_selection(services: Any, frame: Any = None) -> None:
     """Get document selection -> stream AI completion -> append to text."""
-    _action_selection(services, is_edit=False)
+    _action_selection(services, is_edit=False, frame=frame)
 
 
-def action_edit_selection(services: Any) -> None:
+def action_edit_selection(services: Any, frame: Any = None) -> None:
     """Get selection -> input instructions -> stream AI -> replace text."""
-    _action_selection(services, is_edit=True)
+    _action_selection(services, is_edit=True, frame=frame)

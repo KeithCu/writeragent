@@ -123,10 +123,15 @@ def test_run_help_prints_static_list():
         _append_response=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        run_slash_command("help", host)
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            run_slash_command("help", host)
     body = host._append_response.call_args[0][0]
     assert "Slash commands:" in body
     assert "/help" in body
+    set_text.assert_called_once_with(None, "")
+    event = host.dispatch.call_args[0][0]
+    assert event.kind is SendEventKind.TEXT_UPDATED
+    assert event.data == {"has_text": False}
 
 
 def test_run_clear_calls_existing_clear_listener():
@@ -142,13 +147,67 @@ def test_run_clear_calls_existing_clear_listener():
     clear.on_action_performed.assert_called_once_with(None)
 
 
-def test_run_stop_dispatches_stop_clicked():
+def test_run_stop_uses_stop_button_and_keeps_draft():
+    """/stop is the Stop button: STOP_CLICKED, and Ask is not cleared."""
     host = SimpleNamespace(
         slash_popup=None,
-        query_control=None,
+        query_control=SimpleNamespace(text="/stop extra"),
         dispatch=MagicMock(),
+        _approval_event=None,
+        _send_busy=True,
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        run_slash_command("stop", host)
-    event = host.dispatch.call_args[0][0]
-    assert event.kind is SendEventKind.STOP_CLICKED
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+                run_slash_command("stop", host)
+    set_text.assert_not_called()
+    assert host.query_control.text == "/stop extra"
+    kinds = [call.args[0].kind for call in host.dispatch.call_args_list]
+    assert kinds == [SendEventKind.STOP_CLICKED]
+
+
+def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
+    stop_model = SimpleNamespace(Enabled=True)
+    host = SimpleNamespace(
+        slash_popup=None,
+        query_control=SimpleNamespace(text="/stop"),
+        dispatch=MagicMock(),
+        _approval_event=None,
+        _send_busy=False,
+        exit_hands_free_record=MagicMock(),
+        stop_control=SimpleNamespace(getModel=lambda: stop_model),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            with patch("plugin.audio.tts_service.is_speaking", return_value=True):
+                with patch("plugin.audio.tts_service.stop_speech") as stop_speech:
+                    run_slash_command("stop", host)
+    set_text.assert_not_called()
+    assert host.query_control.text == "/stop"
+    stop_speech.assert_called_once()
+    host.exit_hands_free_record.assert_called_once()
+    host.dispatch.assert_not_called()
+    assert stop_model.Enabled is False
+
+
+def test_run_stop_rejects_inline_web_approval_without_clearing_ask():
+    from plugin.framework.i18n import _
+
+    stop_model = SimpleNamespace(Label=_("Reject"), Enabled=True)
+    host = SimpleNamespace(
+        slash_popup=None,
+        query_control=SimpleNamespace(text="keep me"),
+        dispatch=MagicMock(),
+        _approval_event=object(),
+        stop_control=SimpleNamespace(getModel=lambda: stop_model),
+        _finish_inline_web_approval=MagicMock(),
+        _open_web_search_change_dialog=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            run_slash_command("stop", host)
+    set_text.assert_not_called()
+    assert host.query_control.text == "keep me"
+    host._finish_inline_web_approval.assert_called_once_with(False)
+    host._open_web_search_change_dialog.assert_not_called()
+    host.dispatch.assert_not_called()

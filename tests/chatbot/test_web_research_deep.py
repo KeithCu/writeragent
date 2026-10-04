@@ -1,5 +1,8 @@
 # WriterAgent - tests for deep web research (adaptive loop + orchestrator)
 
+import threading
+import time
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +11,7 @@ from plugin.chatbot.web_research_deep import (
     ResearchProgress,
     _ResearchAccumulator,
     _process_one_sub_query,
+    _run_sub_queries_parallel,
     assess_research_coverage,
     parse_assessment_response,
     parse_follow_up_questions_response,
@@ -45,6 +49,17 @@ class TestDeepResearchParsers:
         assert out["citations"]["Alpha found"] == "https://example.com"
         assert out["followUpQuestions"] == ["What about beta?"]
 
+    def test_parse_research_results_string_follow_up_is_not_character_split(self):
+        for key in ("followUpQuestions", "questions"):
+            raw = (
+                '{"learnings": [{"insight": "Alpha found", "sourceUrl": "https://example.com"}], "'
+                + key
+                + '": "What about beta?"}'
+            )
+            out = parse_research_results_response(raw, 3)
+            assert out["learnings"] == ["Alpha found"]
+            assert out["followUpQuestions"] == []
+
     def test_parse_assessment_response(self):
         raw = '{"score": 8, "knowledge_gaps": ["gap1"], "suggested_queries": ["q1"], "stop": false, "reasoning": "ok"}'
         out = parse_assessment_response(raw)
@@ -53,11 +68,38 @@ class TestDeepResearchParsers:
         assert out["suggested_queries"] == ["q1"]
         assert out["stop"] is False
 
+    def test_parse_assessment_string_false_stop_is_not_true(self):
+        # bool("false") is True; these tokens must not end the research loop.
+        for token in ("false", "0", "no"):
+            raw = (
+                '{"score": 3, "knowledge_gaps": ["gap1"], "suggested_queries": ["q1"], "stop": "%s"}'
+                % token
+            )
+            assert parse_assessment_response(raw)["stop"] is False
+        raw_true = '{"score": 9, "knowledge_gaps": [], "suggested_queries": [], "stop": "true"}'
+        assert parse_assessment_response(raw_true)["stop"] is True
+
     def test_trim_context_to_word_limit(self):
+        learnings = ["l1 l2"]
         chunks = ["one two three", "four five"]
-        trimmed = trim_context_to_word_limit(chunks, max_words=4)
-        assert len(trimmed) == 1
-        assert trimmed[0] == "four five"
+        trimmed = trim_context_to_word_limit(learnings, chunks, max_words=4)
+        # trim_context_to_word_limit now only returns the trimmed CHUNKS
+        # max_words=4. learnings has 2 words. So 2 words left for chunks.
+        # chunks are reversed, so "four five" is processed first.
+        # It takes the remaining 2 words, so trimmed_chunks is ["four five"].
+        assert trimmed == ["four five"]
+
+        # max_words=2. no learnings. "four five" is processed first and truncated.
+        assert trim_context_to_word_limit([], chunks, max_words=2) == ["four five"]
+
+        # max_words=10. learnings take 2 words. chunks take 5 words. all fit.
+        assert trim_context_to_word_limit(learnings, chunks, max_words=10) == ["one two three", "four five"]
+
+        # Test learnings trimmed if they alone exceed max_words
+        # learnings take 6 words. max is 4. No room for chunks.
+        # But wait, trim_context_to_word_limit only returns chunks. So it should return [].
+        learnings_long = ["one two three", "four five six"]
+        assert trim_context_to_word_limit(learnings_long, chunks, max_words=4) == []
 
     def test_sub_query_citations_contribute_urls_not_learnings(self):
         learning = "Elevators need a counterweight"
@@ -121,7 +163,7 @@ class TestRunDeepResearch:
             stop_checker=None,
             status_callback=None,
             breadth=1,
-            depth=1,
+            max_rounds=1,
             plain_text_format="Use plain text.",
             initial_search_snippet="preview hit",
             max_sub_queries=5,
@@ -143,7 +185,7 @@ class TestRunDeepResearch:
             stop_checker=lambda: True,
             status_callback=None,
             breadth=1,
-            depth=1,
+            max_rounds=1,
             plain_text_format="plain",
         )
         assert isinstance(result, dict)
@@ -412,7 +454,7 @@ class TestWebResearchExecuteDeepKwarg:
     def test_deep_kwarg_calls_run_deep_web_research(self, mock_deep, mock_run):
         from plugin.chatbot.web_research import WebResearchTool
 
-        mock_deep.return_value = "deep report"
+        mock_deep.return_value = ("deep report", "test query")
         tool = WebResearchTool()
         ctx = MagicMock()
         ctx.ctx = MagicMock()
@@ -441,6 +483,47 @@ class TestWebResearchExecuteDeepKwarg:
         assert out["result"] == "deep report"
         mock_deep.assert_called_once()
         mock_run.assert_not_called()
+
+
+def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
+    from plugin.chatbot.web_research import WebResearchTool, _get_unique_words_key
+
+    tool = WebResearchTool()
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.doc = None
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.stop_checker = None
+    ctx.send_cancellation = None
+    edited = "edited paris bistro"
+    written: dict[str, str] = {}
+
+    def _write(_ctx, _path, unique_key, result_text, *_args, **_kwargs):
+        written["key"] = unique_key
+        written["text"] = result_text
+        return {}
+
+    with (
+        patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("REPORT", edited)),
+        patch("plugin.chatbot.web_research._write_research_cache", side_effect=_write),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("plugin.framework.config.get_config_int", return_value=30),
+        patch("plugin.framework.config.get_config_int_safe", return_value=50),
+        patch("plugin.framework.config.get_api_config", return_value={}),
+        patch("plugin.framework.config.get_config", return_value="off"),
+        patch("plugin.framework.client.llm_client.LlmClient"),
+        patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
+    ):
+        out = tool.execute(ctx, query="paris restaurants", deep=True)
+
+    assert out["result"] == "REPORT"
+    assert written["key"] == _get_unique_words_key(edited, snowball_lang="english")
+    assert written["key"] != _get_unique_words_key("paris restaurants", snowball_lang="english")
 
 
 def test_assess_research_coverage_parses_score():
@@ -560,7 +643,7 @@ def _deep_preview_params(approval_callback, *, prompt: bool):
     )
 
 
-def test_deep_preview_reject_skips_fetch_and_research_continues():
+def test_deep_preview_reject_stops_the_run():
     from plugin.chatbot.web_research import _run_deep_web_research
 
     for decision in (False, (False, None)):
@@ -573,10 +656,12 @@ def test_deep_preview_reject_skips_fetch_and_research_continues():
                 MagicMock(), "topic", None, params,
                 cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
             )
-        assert out == "report"
+        answer, used_query = out
+        assert isinstance(answer, dict)
+        assert answer.get("code") == "USER_STOPPED"
+        assert used_query == "topic"
         ddg.assert_not_called()
-        assert run_deep.call_args.kwargs["initial_search_snippet"] == ""
-        assert callable(run_deep.call_args.kwargs["worker_factory"])
+        run_deep.assert_not_called()
 
 
 def test_deep_preview_approval_uses_edited_query():
@@ -607,10 +692,13 @@ def test_deep_preview_approval_uses_edited_query():
             MagicMock(), "topic", None, params,
             cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
         )
-        run_sub, _chat = run_deep.call_args.kwargs["worker_factory"]()
+        run_sub, _chat, _cleanup = run_deep.call_args.kwargs["worker_factory"]()
         run_sub("q", "goal", None)
-    assert out == "report"
+    answer, used_query = out
+    assert answer == "report"
+    assert used_query == "edited topic"
     ddg.return_value.forward.assert_called_once_with("edited topic")
+    assert run_deep.call_args.args[0] == "edited topic"
     assert run_deep.call_args.kwargs["initial_search_snippet"] == "snippet text"
     assert captured["prompt"] is False
     assert captured["approval"] is None
@@ -627,6 +715,9 @@ class _RecordingClient:
         self.kinds: list[str] = []
         self.saw_stop_checker = False
         _RecordingClient.instances.append(self)
+
+    def stop(self):
+        self._stopped = True
 
     def chat_completion_sync(self, messages, max_tokens=512, **kwargs):
         self.saw_stop_checker = "stop_checker" in kwargs
@@ -741,3 +832,117 @@ def test_user_stopped_during_sub_query_or_synthesis_is_not_cached(tmp_path):
         else:
             assert "synth" not in parent.kinds
             assert all("synth" not in worker.kinds for worker in workers)
+
+
+def _alive_deep_threads():
+    return [thread for thread in threading.enumerate() if thread.name.startswith("deep-research") and thread.is_alive()]
+
+
+def _run_parallel(queries, run_web_agent, stop_checker, *, concurrency, llm_chat=None):
+    if llm_chat is None:
+        def llm_chat(_messages, _max_tokens):
+            raise AssertionError("extraction started")
+
+    return _run_sub_queries_parallel(
+        queries,
+        run_web_agent=run_web_agent,
+        llm_chat=llm_chat,
+        stop_checker=stop_checker,
+        acc=_ResearchAccumulator(),
+        max_sub_queries=5,
+        concurrency=concurrency,
+        progress=ResearchProgress(),
+        status_callback=None,
+        on_progress=None,
+    )
+
+
+def test_stop_cancels_sub_query_that_has_not_started():
+    calls = []
+    stop = {"on": False}
+
+    def run_web_agent(query, _goal, _history):
+        calls.append(query)
+        stop["on"] = True
+        return "context"
+
+    result = _run_parallel(
+        [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
+        run_web_agent,
+        lambda: stop["on"],
+        concurrency=1,
+    )
+    assert result["code"] == "USER_STOPPED"
+    assert calls == ["q1"]
+    assert _alive_deep_threads() == []
+
+
+def test_stop_joins_the_running_pool_worker():
+    """A sibling already inside run_web_agent must finish before Stop returns.
+
+    The parent leaves as_completed when the first future completes after
+    Stop. cancel_futures does not stop that sibling. It sleeps, then
+    returns because it sees the same checker. The join waits for that.
+    """
+    entered = threading.Event()
+    stop = {"on": False}
+    finished = {"q2": False}
+
+    def run_web_agent(query, _goal, _history):
+        if query == "q2":
+            entered.set()
+            while not stop["on"]:
+                time.sleep(0.01)
+            time.sleep(0.35)
+            finished["q2"] = True
+            return "ctx2"
+        assert entered.wait(timeout=2)
+        stop["on"] = True
+        return "ctx1"
+
+    result = _run_parallel(
+        [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
+        run_web_agent,
+        lambda: stop["on"],
+        concurrency=2,
+    )
+    assert result["code"] == "USER_STOPPED"
+    assert finished["q2"] is True
+    assert _alive_deep_threads() == []
+
+
+def test_stop_join_is_bounded_when_a_worker_ignores_the_checker(monkeypatch):
+    """A worker stuck in HTTP must not hold Stop for the full request.
+
+    The function returns while that thread is still alive. The test then
+    releases it so the non-daemon pool thread does not outlive the process.
+    """
+    monkeypatch.setattr("plugin.chatbot.web_research_deep._STOP_POOL_JOIN_SEC", 0.2)
+    entered = threading.Event()
+    release = threading.Event()
+    stop = {"on": False}
+
+    def run_web_agent(query, _goal, _history):
+        if query == "stuck":
+            entered.set()
+            release.wait(timeout=3)
+            return "late"
+        assert entered.wait(timeout=2)
+        stop["on"] = True
+        return "fast"
+
+    try:
+        result = _run_parallel(
+            [{"query": "fast", "researchGoal": "g1"}, {"query": "stuck", "researchGoal": "g2"}],
+            run_web_agent,
+            lambda: stop["on"],
+            concurrency=2,
+        )
+        alive = _alive_deep_threads()
+        assert result["code"] == "USER_STOPPED"
+        assert alive
+    finally:
+        release.set()
+        for thread in _alive_deep_threads():
+            thread.join(timeout=2)
+    assert _alive_deep_threads() == []

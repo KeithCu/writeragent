@@ -70,8 +70,12 @@ def test_brainstorming_extra_bool_only_on_leave():
     assert leave["result"] == "<p>Done</p>"
 
 
-def test_writing_plan_leave_extra_bool():
+def test_writing_plan_leave_drops_unused_plan_completed():
+    """plan_completed was never read by the panel. It is not a schema field."""
     tool = StickyReplyToUserTool(WRITING_PLAN_REPLY_SPEC)
+    props = (tool.parameters or {})["properties"]
+    assert "plan_completed" not in props
+    assert "writing_plan_finished" in props
     leave = tool.execute(
         MagicMock(),
         answer="<p>All sections</p>",
@@ -79,7 +83,8 @@ def test_writing_plan_leave_extra_bool():
         plan_completed=1,
     )
     assert leave["status"] == "finished"
-    assert leave["plan_completed"] is True
+    assert leave["result"] == "<p>All sections</p>"
+    assert "plan_completed" not in leave
 
 
 def test_interpret_string_is_ok():

@@ -33,7 +33,7 @@ When the setting is off, behavior reverts to the legacy plain-text sidebar; mode
 
 ### Streaming experience
 
-During an assistant stream, text is appended as **plain** characters on the RichTextControl (styled with assistant body color). Chunks go through [`StreamingHTMLStripper`](../../plugin/framework/html_stripper.py) (`SendButtonListener._plain_text_stripper` in [`panel.py`](../../plugin/chatbot/panel.py)) so raw HTML tags are not shown mid-stream. Fallback path uses `strip_html_tags` when the stateful stripper is unset.
+During an assistant stream, text is appended as **plain** characters on the RichTextControl (styled with assistant body color). Chunks go through [`StreamingHTMLStripper`](../../plugin/framework/html_stripper.py) (`SendButtonListener._plain_text_stripper` in [`panel.py`](../../plugin/chatbot/panel.py)) so raw HTML tags are not shown mid-stream. Fallback path uses `strip_html_tags` when the stateful stripper is unset. A tag is a known HTML element whose name is followed by a delimiter — end of the tag (`<b>`, `</em>`), whitespace (`<a href="x">`, `<b >`), or a self-closing slash token (`<br/>`, `<a/>`) — a `<!` / `<?` declaration, or any self-closing tag (`<widget/>`). Angle-bracket tokens that are not tags — `List<String>`, `<https://…>`, `<user@host>`, or an element name glued to prose (`<a@b.com>`, `<b, c>`, `<em@x>`) — stay in the live stream and in the committed paint. `contains_html_tag` uses that same check, so the hidden-doc paint does not treat those tokens as leftover HTML.
 
 After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `_HTML_TAG_RE`), the sidebar **re-renders only the tail** of that message: it truncates from `_assistant_stream_start_len`, then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
 
@@ -50,7 +50,7 @@ An earlier approach hosted a **visible** embedded Writer document (`private:fact
 | Exit-time VCL parent/child teardown crashes (Signal 11) accepted as trade-off | No nested Writer frame in the panel; hidden docs are short-lived |
 | Large implementation surface (lazy peer, lifecycle hooks, theme on virtual page) | Smaller footprint; HTML via off-screen Writer + paste |
 
-Writer is still used **off-screen**: a **hidden** document imports HTML, then a transferable / system clipboard paste copies formatting into the RichTextControl. Users never see a Writer frame in the sidebar.
+Writer is still used **off-screen**: a **hidden** document imports HTML, then a direct portion copy writes formatting into the RichTextControl. Users never see a Writer frame in the sidebar, and the copy does not use the system clipboard.
 
 ---
 
@@ -67,8 +67,8 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Streaming plain append | `RichTextChatWidget.append_assistant_stream_chunk` via `panel.py` `_append_response` |
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
 | Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
-| Reveal caret without stealing query focus | `reveal_rich_control_caret`; focus restored via `focus_preserved` in [`uno_context.py`](../../plugin/framework/uno_context.py) |
-| History reload in ~16 KB batches | `HISTORY_RENDER_BATCH_CHARS`, `RichTextChatWidget.render_session_history` |
+| Reveal caret without stealing query focus | `reveal_rich_control_caret` passes that panel's Ask field to `focus_preserved`. Stream chunks call the frame session's `restore_focus`. |
+| History reload paints `session.messages` | `RichTextChatWidget.render_session_history` → `paint_message_items` |
 | Resize / fill the column | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) stretches `response` / query / status / selectors to the panel margin; [`sync_rich_control_bounds`](../../plugin/chatbot/rich_text_control.py) insets `response_rich` inside that placeholder. Width negotiation is [`sidebar_column_width`](../../plugin/framework/sidebar_column.py) (fill the deck box; ignore frame-sized `getHeightForWidth` hints) |
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
 | Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `rich_text.py` |
@@ -122,25 +122,20 @@ flowchart LR
     subgraph sidebar [Sidebar XDL dialog]
         RTC[RichTextControl]
     end
-    subgraph paste [rich_text_paste per formatted insert]
-        HW[Hidden Writer Hidden=true]
-        HTML[append_rich_text]
-        CB[Transferable / SystemClipboard]
+    MSG[session.messages]
+    MSG --> paint[paint_message_items]
+    subgraph paste [fresh hidden Writer]
+        HW[Hidden Writer]
     end
-    LLM[LLM response] --> stream[append_text_chunk]
-    stream --> RTC
-    LLM --> done[Stream complete]
-    done --> rerender[RichTextChatWidget.rerender_last_assistant_if_html]
-    rerender --> HW
-    HTML --> HW
-    HW --> CB --> RTC
+    paint --> HW
+    HW --> RTC
 ```
 
-**Streaming path:** `append_text_chunk` → `TextRange` insert at end with assistant color and optional `reveal_rich_control_caret`.
+`session.messages` is the transcript. Clear, Stop, and a new chunk change that list, then `paint_message_items` builds a **new** hidden Writer from the list and replaces the control. The hidden document stays: copy and paste read the formatted paint. It is not edited in place. A bad element does not leave tags, and a copy that fails halfway is wiped and written again as plain rows of the same list (`You:` / `Assistant:`, role color, blank line).
 
-**Formatted path:** `create_hidden_html_writer` → `append_rich_text` (HTML filter + list tightening) → transferable or clipboard → `insertTransferable` / paste into control → close hidden doc. User and history batches use `append_rich_messages_via_clipboard` with batching for large sessions.
+**Streaming:** each assistant chunk grows one open row (`_open_transcript`) and the control is painted from the list. The committed assistant message replaces that row, then the control is painted again. The open row is not a history write.
 
-**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` only if HTML tags are present; otherwise the plain stream text remains.
+**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. That paints the list. If it does not, an unclosed tag still held by the stream stripper is appended, which records it on the list and paints. Stop already painted the partial answer plus `[Stopped by user]` and skips this second paint.
 
 ### RichTextControl vs HTML
 
@@ -203,31 +198,32 @@ flowchart LR
 |----------|------|
 | `create_sidebar_rich_text_control` | Create `TextField` model + peer, position over placeholder |
 | `RichTextControlListener` | Deferred create on `windowShown` / eager init; bounds via `_PanelResizeListener.last_response_rect` |
-| `RichTextChatWidget` | **Primary panel facade** — user/assistant append, stream chunks, rerender, clear, history |
-| `append_text_chunk` | Streaming plain append (widget delegates here) |
-| `truncate_control_from` | Remove stream tail before HTML rerender |
+| `RichTextChatWidget` | **Primary panel facade** — paint from `session.messages`, clear, history |
+| `append_text_chunk` | Plain-text fallback rows (role color). The transcript paint does not splice with this |
+| `truncate_control_from` | Drop a tail that a failed single-message copy left behind |
 | `reveal_rich_control_caret` | Focus the control so EditView `ShowCursor` follows the view caret |
 | `clear_control` | Clear transcript |
 | `sync_rich_control_bounds` | Apply inset bounds from `placeholder_rect` (panel listener) or live placeholder size |
 
-### Focus / idle (`uno_context.py`)
+### Focus / idle
 
 | Function | Role |
 |----------|------|
-| `focus_preserved(ctx)` | Context manager: capture focus window, yield, restore (query field stays focused during RichTextControl mutations) |
+| `focus_preserved(ctx, restore)` | Context manager in `uno_context`. Restores the control passed in (that panel's Ask field). No process-wide pin. |
 | `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps |
-| `restore_query_if_user_still_there()` | After stream SelectAll, `query.setFocus()` only while the user still wants Ask/instruct |
-| `note_user_left_query()` | Stop restoring (Stop/Clear/other sidebar pointer, Writer page click) so stream `setFocus` cannot abort Stop |
-| `install_stream_focus_tracker` | Query focusGained → restore; click handler on the current document controller (each open document, removed on dispose) + `leave_query_controls` mouse/focus → leave |
+| `FrameSession.restore_focus` | After stream SelectAll, `setFocus` on this frame's Ask field only while the user still wants it |
+| `FrameSession.note_user_left_query` | Stop restoring this frame (Stop/Clear/other sidebar pointer, page click on this frame's controller) |
+| `FrameSession.install` | Query focusGained, leave-query controls, and a click handler on `frame.getController()`. Dispose of one frame does not remove another's listeners |
 
 ### Key APIs (`rich_text_paste.py`)
 
 | Function | Role |
 |----------|------|
-| `append_rich_text_via_clipboard` | Single message formatted paste |
-| `append_rich_messages_via_clipboard` | Batched history restore |
-| `create_hidden_html_writer` | Short-lived hidden Writer for HTML import |
-| `insert_transferable_into_rich_control` | Transferable / clipboard fallback paste |
+| `paint_message_items` | Replace the control with a paint of the message list |
+| `fold_transcript_chunk` | Record a chunk or the Stop line on `session.messages` before that paint |
+| `append_rich_text_via_clipboard` | Single message formatted copy (not the transcript source of truth) |
+| `append_rich_messages_via_clipboard` | Batched history restore used by older callers |
+| `create_hidden_html_writer` | Short-lived hidden Writer for one paint |
 | `session_history_items` | Build `(role, content)` pairs for history reload |
 
 Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `_HTML_TAG_RE`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
@@ -236,7 +232,7 @@ Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`ins
 
 Python cannot scroll this control to “end of document.” UNO `insertString` / `gotoEnd` move the **model** cursor. `ShowCursor(AUTOSCROLL)` follows the **EditView caret**. `RichTextEditSource` has no view forwarder; `setSelection` never reaches EditView (`ORichTextPeer` is `VCLXWindow`, not `XTextComponent`). A ZWSP tail insert is the same UNO path and does not move a caret that sits at the start — that hack is **removed**.
 
-**Contract:** insert at the end, then `reveal_rich_control_caret` (brief ReadOnly lift + focus + idle). Do **not** insert dummy tail text — that is the same UNO path as the real append and does not move the EditView caret. Query focus is restored via `set_default_focus_restore`. Reliable pin-to-end still needs an LO peer API (`setSelection` / `ShowCursor`).
+**Contract:** insert at the end, then `reveal_rich_control_caret` (brief ReadOnly lift + focus + idle). Do **not** insert dummy tail text — that is the same UNO path as the real append and does not move the EditView caret. Query focus is restored from the frame session that owns the panel. Reliable pin-to-end still needs an LO peer API (`setSelection` / `ShowCursor`).
 
 Resize: stock `layoutWindow()` always `SetVisArea(Point())`, so every `setPosSize` jumps to the top. The C++ patch keeps and clamps the old top-left (like `ImpVclMEdit::Resize`). On stock, after a real bounds change we Hidden-SelectAll (same as stream). That resticks the bottom; a mid-transcript scroll position cannot be restored without the patch.
 
@@ -301,28 +297,26 @@ DEBUG-level `[RICH-SCROLL]` lines record caret reveal, formatted inserts, layout
 
 **If scroll jumps after open/resize:** look for `phase=sync_bounds` then Hidden SelectAll (not `reason=resize` / `phase=reveal_caret`). Stock `layoutWindow()` resets VisArea to the origin; we restick to the tail. Mid-transcript scroll cannot be restored on stock.
 
-### Formatted insert used a fallback path (diagnostics)
+### Formatted insert failed (diagnostics)
 
-When HTML is pasted into the RichTextControl, the preferred path is **direct copy** from a hidden Writer doc (`_copy_formatted_from_hidden_doc_to_control`). If that fails, the code falls back to **transferable insert** and then **SystemClipboard + synthetic Ctrl+V**.
+The sidebar copies portions from the hidden Writer into the RichTextControl (`_copy_formatted_from_hidden_doc_to_control`). It does not paste the system clipboard into the open document. When the copy fails, or the HTML filter throws, the control is rolled back to the length taken before the batch and the same messages are written as plain text.
 
 Search `writeragent_debug.log` for **WARNING** lines (release default `log_level` is **WARN**):
 
 | Log pattern | Meaning |
 |-------------|---------|
-| `_copy_formatted_from_hidden_doc_to_control: ok` | Direct copy succeeded (no fallback). |
-| `failed reason=model_no_createTextCursor` | Sidebar control model cannot create a text cursor. |
-| `failed reason=no_content_inserted` | Hidden doc had no insertable portions (empty import or enumeration produced nothing). |
-| `failed reason=exception` | Direct copy raised (stack trace in same window). |
-| `append_rich_text_via_clipboard: falling back to transferable insert direct_copy_reason=…` | Per-message formatted insert is using transferable/clipboard fallback. |
-| `insert_transferable_into_rich_control: insertTransferable paths exhausted (…)` | Lists which `insertTransferable` attempts failed before trying clipboard. |
-| `ok via SystemClipboard+Ctrl+V source=…` | Clipboard + Ctrl+V fallback succeeded (`source` is e.g. `append_rich_text:assistant` or `history_batch`). |
-| `all rich insert paths failed … attempts=…` | Every sidebar insert path failed (includes `direct_copy_reason` upstream). |
+| `_copy_formatted_from_hidden_doc_to_control: ok` | Direct copy succeeded. |
+| `failed reason=element_skipped` | A body element threw; the batch is plain-appended. |
+| `failed reason=no_content_inserted` | Hidden doc had no insertable portions. |
+| `failed reason=exception` | Direct copy raised (stack trace in the same window). |
+| `batch insert into control failed` | History batch rolled back and plain-appended. |
+| `HTML import failed` | Filter threw; raw tags were not inserted. |
 
 **Reporter workflow:** reproduce the issue, then grep:
 
-`grep -E 'direct_copy_reason|falling back to transferable|insertTransferable paths exhausted|SystemClipboard|_copy_formatted' writeragent_debug.log`
+`grep -E 'direct_copy_reason|element_skipped|HTML import failed|batch insert into control failed|_copy_formatted' writeragent_debug.log`
 
-If logs show only `via=direct_copy` / `_copy_formatted… ok` during the leak, the sidebar paste pipeline is unlikely to be the cause — check `enable_agent_log` for `apply_document_content` tool calls.
+If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document leak, the sidebar copy is unlikely to be the cause — check `enable_agent_log` for `apply_document_content` tool calls.
 
 ---
 
@@ -332,7 +326,7 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during the leak, t
 
 - **`rich_text.py`** — theme, typography, HTML import wrapper, list tightening, `finalize_sidebar_assistant_response`.
 - **`rich_text_control.py`** — `RichTextChatWidget`, lifecycle/layout, streaming, scroll.
-- **`rich_text_paste.py`** — hidden Writer import, direct copy, clipboard fallbacks, batched history.
+- **`rich_text_paste.py`** — hidden Writer import, direct copy, plain fallback, batched history.
 
 ### Shared hidden Writer factory
 

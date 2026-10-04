@@ -126,9 +126,19 @@ Tests: [`tests/contrib/smolagents/test_tool_call_parsing.py`](../../tests/contri
 
 **Problem**: Some providers (notably Groq) validate tool calls against the JSON Schema before WriterAgent runs the tool. Models often send `"max_chars": null` (or omit meaning “use default”) for optional parameters. A wire schema of `"type": "integer"` rejects `null`, so the whole call fails upstream — e.g. `get_document_content` with `max_chars: null`.
 
-**Solution**: [`to_openai_schema` / `to_mcp_schema`](../../plugin/framework/tool_schema.py) (re-exported from `tool.py`) run `_normalize_schema_for_strict_providers`, which emits `"type": [scalar, "null"]` for **optional** scalar properties (`integer`, `number`, `boolean`, `string`). Required parameters stay non-nullable. Tool implementations already treat omitted/`null` as default (e.g. no truncation when `max_chars` is null).
+**Solution**: [`to_openai_schema` / `to_mcp_schema`](../../plugin/framework/tool_schema.py) (re-exported from `tool.py`) run `_normalize_schema_for_strict_providers`, which emits `"type": [scalar, "null"]` for **optional** scalar properties (`integer`, `number`, `boolean`, `string`), including an optional union of those scalars (`["string", "number"]` becomes `["string", "number", "null"]`). Required parameters stay non-nullable. Every other source type stays too: `apply_document_content` `content` remains `["array", "string"]` because `validate` and execute accept a string or a list. A schema with `properties` and no `type` is still walked. `items` stays when `type` is missing or includes `array`. Tool implementations already treat omitted/`null` as default (e.g. no truncation when `max_chars` is null).
 
 Tests: [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/test_tool_schema_convert.py).
+
+---
+
+## 9.1 One tool-call check before the provider shim
+
+**Problem**: An empty ``properties: {}`` was treated as "no schema", so a no-arg tool such as ``list_sheets`` accepted hallucinated kwargs. The same name registered twice (Writer/Calc ``shape_upsert``) kept only the last ``required_core_tools``. Each provider shim then built the next request from the unchecked call.
+
+**Solution**: [`call_properties`](../../plugin/framework/tool_schema.py) / [`without_unknown_kwargs`](../../plugin/framework/tool_schema.py) are the allow-list. ``properties: {}`` is closed. [`normalize_outbound_tool_calls`](../../plugin/framework/tool_schema.py) runs in [`make_chat_request`](../../plugin/framework/client/llm_client.py) before ``build_chat_request``, so OpenAI and Anthropic format the same checked arguments. Duplicate advertised names union ``properties`` instead of last-wins. Duplicate registrations union ``required_core_tools``; ``get_tools`` reads that union. ``ToolRegistry.execute`` strips with the same helper before ``validate``.
+
+Tests: [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py), [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/test_tool_schema_convert.py), [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py).
 
 ---
 
@@ -158,6 +168,16 @@ Tests: [`tests/calc/test_prompt_function.py`](../../tests/calc/test_prompt_funct
 - ERROR logs stay loud: the existing provider-body line plus [`_log_http_500_request_diag`](../../plugin/framework/client/llm_client.py) (PR 571 shape: provider, model, host/path, stream, message/tool counts, payload bytes — plus `n_ctx`, `prompt_chars`, `max_tokens`, `exit_code`). No prompt text or tool schemas.
 
 Tests: [`tests/framework/client/test_client_errors.py`](../../tests/framework/client/test_client_errors.py), [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py), [`tests/framework/client/test_model_fetcher.py`](../../tests/framework/client/test_model_fetcher.py).
+
+---
+
+## 12. OpenAI reasoning models reject `max_tokens`
+
+**Problem**: `api.openai.com` o1, o3, o4, and gpt-5 (including dated snapshots and `ft:gpt-5-…`) return HTTP 400 for `max_tokens` and for any `temperature` other than the API default `1`.
+
+**Workaround** ([`OpenAIShim.build_chat_request`](../../plugin/framework/client/openai_shim.py)): when the provider is `openai` and the model is in those families, the chat body sends `max_completion_tokens` and drops a non-default temperature. Other providers, including OpenRouter and Groq using an OpenAI-compatible body, keep `max_tokens`. Image `response_format` is unchanged.
+
+Tests: [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py).
 
 ---
 

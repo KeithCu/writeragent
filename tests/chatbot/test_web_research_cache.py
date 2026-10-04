@@ -20,7 +20,7 @@ from plugin.chatbot.web_research_cache import (
     stem_word,
     store_research_cache_embeddings,
 )
-from plugin.framework.client.embedding_client import EmbeddingBatch
+from plugin.embeddings.embedding_client import EmbeddingBatch
 
 SPACE_ELEVATOR_KEY_1 = (
     "challenges concept conclusion dynamics elevator energy engineering focusing including "
@@ -61,6 +61,62 @@ SPACE_ELEVATOR_KEY_2 = (
 def test_stem_collapses_material_and_requirement_variants():
     assert stem_word("english", "materials") == stem_word("english", "material")
     assert stem_word("english", "requirements") == stem_word("english", "required")
+
+
+def test_stem_word_serializes_shared_pure_python_stemmer():
+    """Concurrent research must not enter stemWord on the shared instance together."""
+    from plugin.chatbot import web_research_cache as wrc
+
+    class _Stemmer:
+        def __init__(self) -> None:
+            self.inside = threading.Event()
+            self.allow_finish = threading.Event()
+            self.calls = 0
+            self.max_in = 0
+            self._in = 0
+            self._guard = threading.Lock()
+
+        def stemWord(self, token: str) -> str:
+            with self._guard:
+                self._in += 1
+                self.calls += 1
+                self.max_in = max(self.max_in, self._in)
+                call_n = self.calls
+            try:
+                if call_n == 1:
+                    self.inside.set()
+                    self.allow_finish.wait(timeout=2)
+                return token[:4]
+            finally:
+                with self._guard:
+                    self._in -= 1
+
+    fake = _Stemmer()
+    wrc._STEMMER_CACHE["english"] = fake
+    second_entered = threading.Event()
+
+    def _run_second() -> None:
+        second_entered.set()
+        stem_word("english", "required")
+
+    first = threading.Thread(target=lambda: stem_word("english", "materials"))
+    second = threading.Thread(target=_run_second)
+    first.start()
+    assert fake.inside.wait(timeout=2)
+    second.start()
+    assert second_entered.wait(timeout=2)
+    # The second caller is inside stem_word and blocked on the lock, so
+    # stemWord has not run again.
+    second.join(timeout=0.2)
+    assert second.is_alive()
+    assert fake.calls == 1
+    fake.allow_finish.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert fake.calls == 2
+    assert fake.max_in == 1
 
 
 def test_space_elevator_keys_fuzzy_match_at_40_percent():
@@ -176,7 +232,7 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
          patch(
-             "plugin.framework.client.embedding_client.embed_texts",
+             "plugin.embeddings.embedding_client.embed_texts",
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
          ):
         shallow_embed = lookup_research_cache(
@@ -246,6 +302,69 @@ def test_get_research_fluff_words_cached_per_locale(monkeypatch):
     other = wrc.get_research_fluff_words(snowball_lang="french")
     assert other is not first
     assert len(calls) == 2
+
+
+def test_lookup_bare_key_is_english_only(tmp_path):
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    _web_cache_set(db_file, "research", "paris restaurants", "english legacy", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", "french|paris restaurants", "french row", 50 * 1024 * 1024)
+
+    french = lookup_research_cache(
+        db_file, "paris restaurants", "french", max_age_days=30, jaccard_percent=100, min_overlap=99,
+    )
+    english = lookup_research_cache(
+        db_file, "paris restaurants", "english", max_age_days=30, jaccard_percent=100, min_overlap=99,
+    )
+    assert french is not None and french[4] == "french row"
+    assert english is not None and english[4] == "english legacy"
+
+
+def test_store_embeddings_skips_row_whose_parent_was_evicted(tmp_path):
+    import sqlite3
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    store_research_cache_embeddings(
+        db_file,
+        [("english|gone", "gone", [1.0, 0.0])],
+        embedding_model="test-model",
+    )
+    conn = sqlite3.connect(db_file)
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM web_cache_embeddings").fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 0
+
+
+def test_resolve_research_locale_reraises_disposed_document():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    doc = MagicMock()
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=DisposedException("gone")):
+        with pytest.raises(DisposedException):
+            resolve_research_locale(None, doc)
+
+    # Thread-guard teardown raises DocumentDisposedError. That name does not
+    # contain DisposedException, so a name-only check used to swallow it and
+    # cache the run as english.
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=DocumentDisposedError("gone")):
+        with pytest.raises(DocumentDisposedError):
+            resolve_research_locale(None, doc)
+
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=RuntimeException("uno")):
+        with pytest.raises(RuntimeException):
+            resolve_research_locale(None, doc)
+
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=[AttributeError("CharLocale"), "fr_FR"]):
+        assert resolve_research_locale(None, doc) == ("fr_FR", "french")
 
 
 def test_lookup_research_cache_fuzzy_hit(tmp_path):
@@ -319,7 +438,7 @@ def test_lookup_research_cache_embedding_hit(tmp_path):
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
          patch(
-             "plugin.framework.client.embedding_client.embed_texts",
+             "plugin.embeddings.embedding_client.embed_texts",
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
          ) as embed_texts:
         hit = lookup_research_cache(
@@ -359,7 +478,7 @@ def test_lookup_research_cache_embedding_model_mismatch_falls_back_to_jaccard(tm
 
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="new-model"), \
-         patch("plugin.framework.client.embedding_client.embed_texts") as embed_texts:
+         patch("plugin.embeddings.embedding_client.embed_texts") as embed_texts:
         hit = lookup_research_cache(
             db_file,
             SPACE_ELEVATOR_KEY_2,
@@ -389,13 +508,13 @@ def test_research_cache_embedding_backfill_worker_stores_missing_vectors(tmp_pat
         vectors = [[1.0, 0.0] if "pizza" in text else [0.0, 1.0] for text in texts]
         return EmbeddingBatch(model="test-model", dim=2, vectors=vectors, indices=list(range(len(texts))))
 
-    with patch("plugin.framework.client.embedding_client.embed_texts", side_effect=fake_embed_texts):
+    with patch("plugin.embeddings.embedding_client.embed_texts", side_effect=fake_embed_texts):
         _research_cache_embedding_backfill_worker(object(), db_file, 30, "test-model")
 
     with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
          patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
          patch(
-             "plugin.framework.client.embedding_client.embed_texts",
+             "plugin.embeddings.embedding_client.embed_texts",
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[0.0, 1.0]], indices=[0]),
          ):
         hit = lookup_research_cache(

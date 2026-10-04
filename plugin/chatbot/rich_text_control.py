@@ -24,6 +24,7 @@ from typing import Any, cast
 
 from plugin.framework.uno_listeners import BaseWindowListener
 from plugin.chatbot.rich_text import (
+    _go_right,
     CHAT_FONT_HEIGHT,
     CHAT_FONT_NAME,
     CHAT_FONT_WEIGHT,
@@ -110,17 +111,24 @@ class RichTextChatWidget:
     control: Any
     style_window: Any
     query: Any
+    restore_focus: Any
     model: Any
 
-    def __init__(self, ctx: Any, control: Any, style_window: Any = None, query: Any = None) -> None:
+    def __init__(self, ctx: Any, control: Any, style_window: Any = None, query: Any = None, restore_focus: Any = None) -> None:
         self.ctx = ctx
         self.control = control
         self.style_window = style_window
         self.query = query
+        # Closes over this panel's frame session. Stream chunks must not
+        # restore whichever Ask field was pinned for the process.
+        self.restore_focus = restore_focus
         self.model = control.getModel() if control else None
 
-    def get_text_length(self) -> int:
-        """Get the length of the text currently in the control."""
+    def get_text_length(self) -> int | None:
+        """Get the length of the text currently in the control.
+
+        None when the length cannot be read. Callers must not treat that as 0.
+        """
         return get_control_text_length(self.control)
 
     def clear(self) -> None:
@@ -133,11 +141,19 @@ class RichTextChatWidget:
 
     def reveal_caret(self, reason: str = "widget") -> None:
         """Ask EditView to show its caret (AUTOSCROLL); does not move the caret."""
-        reveal_rich_control_caret(self.control, ctx=self.ctx, reason=reason)
+        reveal_rich_control_caret(self.control, ctx=self.ctx, reason=reason, restore=self.query)
 
     def append_chunk(self, text: str, auto_scroll: bool = True) -> None:
         """Append a plain text chunk (e.g. streaming tokens) using theme colors."""
-        append_text_chunk(self.control, text, auto_scroll=auto_scroll, style_window=self.style_window, ctx=self.ctx, query=self.query)
+        append_text_chunk(
+            self.control,
+            text,
+            auto_scroll=auto_scroll,
+            style_window=self.style_window,
+            ctx=self.ctx,
+            query=self.query,
+            restore_focus=self.restore_focus,
+        )
 
     def append_rich_message(
         self,
@@ -161,6 +177,8 @@ class RichTextChatWidget:
             style_window=self.style_window,
             auto_scroll=auto_scroll,
             on_after_insert=on_after_insert,
+            restore=self.query,
+            restore_focus=self.restore_focus,
         )
 
     def append_rich_messages_batch(
@@ -177,60 +195,62 @@ class RichTextChatWidget:
             items,
             style_window=self.style_window,
             batch_chars=batch_chars,
+            restore=self.query,
+            restore_focus=self.restore_focus,
         )
 
     def apply_style_defaults(self) -> None:
         """Apply the standard chat sidebar margins, fonts, and colors to the control."""
         _apply_rich_control_style_defaults(self.control, style_window=self.style_window)
 
-    def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> None:
-        """Replace the streamed assistant tail with formatted text (HTML or plain)."""
+    def paint_session(self, session: Any, greeting: str = "") -> None:
+        """Draw the control from ``session.messages``. The hidden doc is that paint."""
+        from plugin.chatbot.rich_text_paste import paint_message_items, session_history_items
+
+        if session is None:
+            self.clear()
+            return
+        paint_message_items(
+            self.ctx,
+            self.control,
+            session_history_items(session, greeting),
+            style_window=self.style_window,
+            restore=self.query,
+            restore_focus=self.restore_focus,
+        )
+
+    def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> bool:
+        """Draw the control again from the message list.
+
+        True when the session has an assistant row and the control was painted
+        from it. Callers that still hold a stripper leftover append it when
+        this returns False.
+
+        What was wrong: this truncated the control at ``stream_start_len`` and
+        spliced the last assistant HTML onto that cut. A missing offset skipped
+        the cut and the HTML was appended on top of the stream. A failed insert
+        left a partial copy that was not the message list.
+        Why this change: the list is already updated. Paint the whole list.
+        ``stream_start_len`` is only logged; it is not a splice point.
+        """
         final_msg = None
         for msg in reversed(session.messages):
             if msg.get("role") == "assistant" and msg.get("content"):
                 final_msg = msg
                 break
-        log.debug("rerender_last_assistant_if_html: final_msg=%s stream_start_len=%s", bool(final_msg), stream_start_len)
+        log.debug(
+            "rerender_last_assistant_if_html: final_msg=%s stream_start_len=%s",
+            bool(final_msg),
+            stream_start_len,
+        )
         if not final_msg:
             log.debug("rerender_last_assistant_if_html: no final assistant message — skip")
-            return
+            return False
         content = final_msg.get("content", "")
-        if not content or not content.strip():
-            return
-        # The streamed tail is already in the control. Truncating and then
-        # appending without a result check dropped it: a failed HTML copy, or
-        # a per-element exception reported as not a full insert, left the cut
-        # in place and nothing wrote the plain text back.
-        # What was wrong: stream_start_len is None when the worker never
-        # recorded the final-answer offset. truncate() treats None as a
-        # no-op, then the HTML copy was appended on top of the streamed tail.
-        # A failed tail read did the reverse: truncate still ran and the
-        # restore had an empty tail, so the streamed answer disappeared.
-        # Skip the cut when the offset is missing or the tail cannot be read.
-        if stream_start_len is None:
-            return
-        try:
-            model = self.control.getModel() if self.control is not None else None
-            text = (model.Text or "") if model is not None else ""
-            plain_tail = text[stream_start_len:] if isinstance(text, str) else ""
-        except Exception:
-            log.exception("rerender_last_assistant_if_html: could not read plain tail")
-            return
-        self.truncate(stream_start_len)
-        # Insert at the cut. Scroll is SelectAll in Hidden mode, not reveal_caret.
-        full_insert = False
-        try:
-            full_insert = bool(self.append_rich_message(content, role="assistant"))
-        except Exception:
-            log.exception("rerender_last_assistant_if_html: formatted insert failed")
-            full_insert = False
-        if full_insert:
-            return
-        # Partial formatted text sits at the same cut. Drop it, then put the
-        # streamed tail back — the copy did not replace it cleanly.
-        self.truncate(stream_start_len)
-        if plain_tail:
-            self.append_chunk(plain_tail)
+        if not content or not str(content).strip():
+            return False
+        self.paint_session(session)
+        return True
 
     def append_user_message(self, text: str, on_after_insert: Any = None) -> None:
         """Append a formatted user message and optionally record control length after insert."""
@@ -244,17 +264,24 @@ class RichTextChatWidget:
         return True
 
     def clear_and_greeting(self, greeting: str = "") -> None:
-        """Clear the transcript and optionally show a formatted greeting."""
-        self.clear()
-        if greeting:
-            self.append_rich_message(greeting, role="assistant")
+        """Replace the transcript with the greeting. The old HTML is not edited."""
+        from plugin.chatbot.rich_text_paste import paint_message_items
+
+        if not greeting:
+            self.clear()
+            return
+        paint_message_items(
+            self.ctx,
+            self.control,
+            [("assistant", greeting)],
+            style_window=self.style_window,
+            restore=self.query,
+            restore_focus=self.restore_focus,
+        )
 
     def render_session_history(self, session: Any, greeting: str = "") -> None:
-        """Reload session messages into the control (batched formatted paste)."""
-        from plugin.chatbot.rich_text_paste import session_history_items
-
-        self.clear()
-        self.append_rich_messages_batch(session_history_items(session, greeting))
+        """Replace the control with a paint of the session message list."""
+        self.paint_session(session, greeting)
 
 
 def _is_automatic_char_color(color: Any) -> bool:
@@ -351,7 +378,7 @@ def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: A
     return _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
 
 
-def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, control_out: Any = None) -> bool:
+def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, control_out: Any = None, restore_focus: Any = None) -> bool:
     """Position the rich control over the response area without exceeding the button row width.
 
     When ``control_out`` is a one-element list, it may be replaced after dialog reinsert.
@@ -379,7 +406,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                         peer.invalidate(0)
                 except Exception:
                     pass
-                _scroll_rich_to_tail(rich_control)
+                _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
         if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
             try:
@@ -789,16 +816,18 @@ class RichTextControlListener(BaseWindowListener):
     placeholder_ctrl: Any
     on_ready_callback: Any
     _placeholder_rect_fn: Any
+    restore_focus: Any
     rich_control: Any
     initialized: bool
     _disposed: bool
 
-    def __init__(self, ctx: Any, root_window: Any, placeholder_ctrl: Any, on_ready_callback: Any, placeholder_rect_fn: Any = None) -> None:
+    def __init__(self, ctx: Any, root_window: Any, placeholder_ctrl: Any, on_ready_callback: Any, placeholder_rect_fn: Any = None, restore_focus: Any = None) -> None:
         self.ctx = ctx
         self.root_window = root_window
         self.placeholder_ctrl = placeholder_ctrl
         self.on_ready_callback = on_ready_callback
         self._placeholder_rect_fn = placeholder_rect_fn
+        self.restore_focus = restore_focus
         self.rich_control = None
         self.initialized = False
         self._disposed = False
@@ -821,6 +850,7 @@ class RichTextControlListener(BaseWindowListener):
             self.placeholder_ctrl,
             placeholder_rect=self._resolved_placeholder_rect(),
             control_out=out,
+            restore_focus=self.restore_focus,
         )
         self.rich_control = out[0]
         try:
@@ -1172,7 +1202,7 @@ def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:  # 
         return False
 
 
-def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None) -> None:
+def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None, restore_focus: Any = None) -> None:
     """SelectAll for stick-to-bottom, keeping EESelectionMode::Hidden.
 
     OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor.
@@ -1191,16 +1221,25 @@ def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None) -> No
         return
     _IN_SCROLL_TO_TAIL = True
     try:
-        from plugin.framework.uno_context import restore_query_if_user_still_there
-        restore_query_if_user_still_there(query)
+        # *query* names this panel's Ask field for callers. Restore goes
+        # through *restore_focus*, which closes over the frame session.
+        if query is not None and restore_focus is None:
+            log.debug("scroll tail without a frame restore callback")
+        if callable(restore_focus):
+            restore_focus()
         _dispatch_rich_uno(control, ".uno:SelectAll", ctx)
-        restore_query_if_user_still_there(query)
+        if callable(restore_focus):
+            restore_focus()
     finally:
         _IN_SCROLL_TO_TAIL = False
 
 
-def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None) -> None:
-    """Append plain text during assistant streaming with theme assistant color."""
+def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None, char_color: int | None = None, restore_focus: Any = None) -> None:
+    """Append plain text during assistant streaming with theme assistant color.
+
+    *char_color* overrides the assistant tint for the plain history fallback,
+    which paints user and assistant rows in their own theme colors.
+    """
     if not control or not text:
         return
     log_rich_scroll("append_chunk", control=control, chunk_len=len(text), auto_scroll=int(auto_scroll))
@@ -1217,11 +1256,12 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         cursor.gotoEnd(False)
         _apply_sidebar_para_margins(cursor)
         cursor.CharBackColor = theme.bg_color
-        _insert_string_at_rich_cursor(model, cursor, text, theme.assistant_color)
+        color = theme.assistant_color if char_color is None else char_color
+        _insert_string_at_rich_cursor(model, cursor, text, color)
         if auto_scroll:
-            _scroll_rich_to_tail(control, ctx, query)
-            from plugin.framework.uno_context import restore_query_if_user_still_there
-            restore_query_if_user_still_there(query)
+            _scroll_rich_to_tail(control, ctx, query, restore_focus)
+            if callable(restore_focus):
+                restore_focus()
             process_events_to_idle(ctx, force=True)
 
     try:
@@ -1245,14 +1285,18 @@ def clear_control(control: Any) -> None:
         log.exception("clear_control failed")
 
 
-def get_control_text_length(control: Any) -> int:
+def get_control_text_length(control: Any) -> int | None:
     try:
         model = control.getModel()
         if model is None:
             return 0
         return len(model.Text or "")
     except Exception:
-        return 0
+        # What was wrong: any exception returned 0. Rollback and cell-link
+        # spans treat 0 as the start of the control, so a failed length read
+        # deleted the transcript. None means the length is unknown.
+        log.exception("get_control_text_length failed")
+        return None
 
 
 def truncate_control_from(control: Any, start_len: int | None) -> None:
@@ -1276,7 +1320,7 @@ def truncate_control_from(control: Any, start_len: int | None) -> None:
         if not hasattr(cursor, "goRight"):
             log.warning("truncate_control_from: cursor.goRight unavailable; skip truncate")
             return
-        cursor.goRight(int(start_len), False)
+        _go_right(cursor, int(start_len), False)
         cursor.gotoEnd(True)
         if hasattr(cursor, "setString"):
             cursor.setString("")
@@ -1304,7 +1348,7 @@ def _temporarily_allow_focus(control: Any) -> tuple[Any, Any]:
     return model, was_readonly
 
 
-def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, _already_focus_preserved: bool = False) -> None:
+def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, restore: Any = None, _already_focus_preserved: bool = False) -> None:
     """Focus the control so EditView ShowCursor can run, then restore the query field.
 
     Does not insert dummy text. A second UNO insert at the end is the same path
@@ -1333,6 +1377,6 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
     if _already_focus_preserved:
         _do_reveal()
     else:
-        with focus_preserved(ctx):
+        with focus_preserved(ctx, restore):
             _do_reveal()
 

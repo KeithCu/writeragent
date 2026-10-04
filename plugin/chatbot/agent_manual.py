@@ -156,13 +156,20 @@ _ALIASES = {
 def _app(doc_type: str | None) -> str:
     if doc_type is None:
         return "generic"  # no document open -> only the generic rules apply
-    return doc_type if doc_type in _SECTIONS_BY_APP else "writer"
+    # What was wrong: only the exact string "impress" mapped to Draw, so
+    # "Impress" or " IMPRESS " fell through to the Writer manual.
+    # How: callers pass display labels. Why: strip and lower before the
+    # lookup. Impress is a Draw model; an unknown label still uses Writer.
+    label = str(doc_type).strip().lower()
+    if label == "impress":
+        return "draw"
+    return label if label in _SECTIONS_BY_APP else "writer"
 
 
 def doc_type_of(doc: Any) -> str | None:
     """'writer' / 'calc' / 'draw' for a document model, or None when there is no document.
 
-    Same resolution every other tool relies on (lazy import mirrors get_core_directives)."""
+    Same resolution every other tool relies on (lazy import of is_calc / is_draw)."""
     if doc is None:
         return None
     try:

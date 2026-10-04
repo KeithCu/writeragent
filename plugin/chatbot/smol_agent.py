@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import logging
-import traceback
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, cast
 
 from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -27,7 +26,7 @@ from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCa
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.framework.config import get_api_config, get_config_int
-from plugin.framework.errors import ToolExecutionError, format_error_payload
+from plugin.framework.errors import ToolExecutionError, format_error_payload, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
 
 if TYPE_CHECKING:
@@ -123,6 +122,28 @@ class SmolToolAdapter(SmolTool):
 
         tool = self._inner_tool
         ctx = self._inner_tctx
+
+        # What was wrong: forward called ToolBase.execute / execute_safe and
+        # skipped ToolRegistry.execute. run_inner_read_agent sets
+        # read_only_target=True, then wraps tools here, so a mutating tool on
+        # that context ran; the name allowlist was the only write block.
+        # Why: refuse before dispatch with the same flag, detects_mutation(),
+        # and READ_ONLY_TARGET payload as ToolRegistry.execute. The field is a
+        # bool, so only an explicit True counts.
+        if getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
+            tool_name = tool.name or self.name
+            common_details: dict[str, Any] = {"tool_name": tool_name}
+            caller = getattr(ctx, "caller", None)
+            if caller:
+                common_details["caller"] = caller
+            doc_type = getattr(ctx, "doc_type", None)
+            if doc_type:
+                common_details["doc_type"] = doc_type
+            return make_tool_error(
+                "This document is open for read-only document_research access; writes are not allowed.",
+                code="READ_ONLY_TARGET",
+                **common_details,
+            )
 
         is_async = getattr(tool, "is_async", lambda: False)()
         if is_async:
@@ -363,7 +384,10 @@ def run_subagent_tool(
     ctx: ToolContext,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Execute a specialized subagent runner with standard error handling and traceback capture.
+    """Execute a specialized subagent runner with standard error handling.
+
+    Failures are logged with ``log.exception`` so the traceback stays in the
+    log. The payload shown to the model and UI is the exception text only.
 
     Args:
         agent_label: Human-readable label for logging and errors (e.g. 'Writing plan', 'PPT-Master').
@@ -378,9 +402,12 @@ def run_subagent_tool(
     try:
         return runner(ctx, **kwargs)
     except Exception as e:
-        tb = traceback.format_exc()
+        # What was wrong: the tool-error message included traceback.format_exc(),
+        # so the model and UI received a stack dump. How: this except is the
+        # boundary for subagent runners. Why: log.exception already records the
+        # traceback; the payload keeps the exception text only.
         log.exception("%s execution failed", agent_label)
-        err = ToolExecutionError(f"{agent_label} failed: {str(e)}\n\n{tb}", details={"query": query})
+        err = ToolExecutionError(f"{agent_label} failed: {str(e)}", details={"query": query})
         return format_error_payload(err)
 
 

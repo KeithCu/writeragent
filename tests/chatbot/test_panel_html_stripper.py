@@ -20,17 +20,26 @@ from plugin.framework.html_stripper import StreamingHTMLStripper
 
 
 def _make_plain_send_listener():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
     with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
         send = SendButtonListener.__new__(SendButtonListener)
         send.ctx = MagicMock()
         send.rich_text_widget = None
         send.response_control = MagicMock()
         send.response_control.getModel.return_value = MagicMock()
-        send._plain_text_stripper = StreamingHTMLStripper()
+        send.session = None
         send._should_auto_scroll = MagicMock(return_value=True)
         send._scroll_response_to_bottom = MagicMock()
         send.queue_executor = MagicMock()
+        begin_send_turn(send, "chat")
         return send
+
+
+def _turn(send):
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    return current_turn(send)
 
 
 class TestPanelHTMLStripper:
@@ -107,7 +116,7 @@ class TestPanelHTMLStripper:
         """Packet B1: Stop must keep streamed text + [Stopped by user], not paste No response."""
         send = _make_plain_send_listener()
         send.rerender_rich_text_session = MagicMock()
-        send._plain_text_stripper = None
+        _turn(send).stripper = None
         finalize_sidebar_assistant_response(send, allow_rerender=False)
         send.rerender_rich_text_session.assert_not_called()
         finalize_sidebar_assistant_response(send, allow_rerender=True)
@@ -118,15 +127,45 @@ class TestPanelHTMLStripper:
         send = _make_plain_send_listener()
         send.rerender_rich_text_session = MagicMock()
         send._terminal_status = "Error"
-        send._plain_text_stripper = StreamingHTMLStripper()
+        _turn(send).stripper = StreamingHTMLStripper()
         finalize_sidebar_assistant_response(send)
         send.rerender_rich_text_session.assert_not_called()
-        assert send._plain_text_stripper is None
+        assert _turn(send).stripper is None
+
+    def test_finalize_appends_leftover_when_rerender_does_not_replace(self):
+        send = _make_plain_send_listener()
+        send.rich_text_widget = MagicMock()
+        send.rerender_rich_text_session = MagicMock(return_value=False)
+        send._append_response = MagicMock()
+        _turn(send).stripper.feed("a <b")
+        finalize_sidebar_assistant_response(send)
+        send._append_response.assert_called_once_with("<b", role="assistant")
+
+    def test_finalize_skips_leftover_when_rerender_replaces_tail(self):
+        send = _make_plain_send_listener()
+        send.rich_text_widget = MagicMock()
+        send.rerender_rich_text_session = MagicMock(return_value=True)
+        send._append_response = MagicMock()
+        _turn(send).stripper.feed("a <b")
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_called_once()
+        send._append_response.assert_not_called()
+
+    def test_finalize_on_error_flushes_leftover_without_rerender(self):
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock(return_value=True)
+        send._terminal_status = "Error"
+        send._append_response = MagicMock()
+        _turn(send).stripper.feed("tail <i")
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_not_called()
+        send._append_response.assert_called_once_with("<i", role="assistant")
+        assert _turn(send).stripper is None
 
     def test_finalize_rerenders_when_stopped_status(self):
         send = _make_plain_send_listener()
         send.rerender_rich_text_session = MagicMock()
         send._terminal_status = "Stopped"
-        send._plain_text_stripper = None
+        _turn(send).stripper = None
         finalize_sidebar_assistant_response(send)
         send.rerender_rich_text_session.assert_called_once()

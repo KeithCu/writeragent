@@ -29,13 +29,15 @@ from plugin.chatbot.rich_text_paste import (
     append_rich_messages_via_clipboard,
     append_rich_text_via_clipboard,
     build_message_html,
+    fold_transcript_chunk,
+    paint_message_items,
     iter_history_message_batches,
     session_history_items,
 )
 
 
 @contextmanager
-def _immediate_focus(_ctx):
+def _immediate_focus(_ctx, _restore=None):
     yield
 
 
@@ -215,6 +217,36 @@ class TestAppendRichTextViaClipboard:
         assert "kept" in inserted
         bad.createEnumeration.assert_called()
 
+    def test_not_success_when_exception_in_copy_loop(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        good = _body_paragraph("kept")
+        doc.getText.return_value.createEnumeration.return_value = _uno_enum([good])
+        theme = MagicMock(user_color=1, assistant_color=2)
+
+        def _raise_on_insert(*args, **kwargs):
+            raise RuntimeError("insert failed")
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.process_events_to_idle"), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_raise_on_insert):
+            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+
+        assert ok is False
+
 class TestHistoryMessageBatching:
     def test_iter_batches_empty(self):
         assert list(iter_history_message_batches([])) == []
@@ -275,7 +307,79 @@ class TestHistoryMessageBatching:
         mock_cfg.assert_called_once_with(doc)
         assert mock_append.call_count == 10
         mock_copy.assert_called_once()
-        mock_scroll.assert_called_once_with(control, ctx)
+        mock_scroll.assert_called_once_with(control, ctx, restore_focus=None)
+        doc.close.assert_called_once_with(True)
+
+    def test_failed_batch_plain_appends_with_role_prefix(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = "prior"
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        items = [("user", "<p>Hello</p>"), ("assistant", "<p>it's done</p>")]
+        written: list[str] = []
+        theme = MagicMock(user_color=1, assistant_color=2)
+
+        def _capture(_control, text, auto_scroll=False, style_window=None, ctx=None, query=None, char_color=None, restore_focus=None):
+            written.append((text, char_color))
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=True), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=False), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=5), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk", side_effect=_capture), \
+             patch("plugin.chatbot.rich_text_paste.truncate_control_from") as mock_trunc:
+            append_rich_messages_via_clipboard(ctx, control, items)
+
+        mock_trunc.assert_called_once_with(control, 5)
+        assert written == [("You: Hello", 1), ("Assistant: it's done", 2)]
+        doc.close.assert_called_once_with(True)
+
+    def test_unknown_length_skips_rollback(self):
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="prior")
+        ctx = MagicMock()
+        doc = MagicMock()
+        items = [("assistant", "kept")]
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=True), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=False), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=None), \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain, \
+             patch("plugin.chatbot.rich_text_paste.truncate_control_from") as mock_trunc:
+            append_rich_messages_via_clipboard(ctx, control, items)
+
+        mock_trunc.assert_not_called()
+        mock_plain.assert_called_once()
+        assert mock_plain.call_args.args[1] == "Assistant: kept"
+
+    def test_html_import_failure_plain_appends(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=False), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control") as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain:
+            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+
+        assert ok is True
+        mock_copy.assert_not_called()
+        mock_plain.assert_called_once()
+        assert mock_plain.call_args.args[1] == "Assistant: Hi"
         doc.close.assert_called_once_with(True)
 
     def test_append_user_message_scrolls_tail_after_trailing_break(self):
@@ -343,7 +447,7 @@ class TestHistoryMessageBatching:
         mock_append.assert_called_once()
         mock_copy.assert_called_once()
         mock_plain.assert_called_once()
-        assert mock_plain.call_args.args[1] == chunk
+        assert mock_plain.call_args.args[1] == "You: " + chunk
         doc.close.assert_called_once_with(True)
 
 
@@ -454,8 +558,98 @@ class TestRichInsertFallbackLogging:
 
         assert ok is True
         mock_plain.assert_called_once()
-        assert mock_plain.call_args.args[1] == "Hi & you"
+        assert mock_plain.call_args.args[1] == "Assistant: Hi & you"
         model.createTextCursor.return_value.setString.assert_called_with("")
+
+
+class TestPaintMessageItems:
+    def test_failed_copy_does_not_keep_text_outside_the_list(self):
+        """A copy that fails halfway must not leave that partial in the control."""
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = "OLD_SPLICE"
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "You: keep me\n\nAssistant: second"
+        written: list[str] = []
+
+        def _copy(*_args, **_kwargs):
+            model.Text = "PARTIAL_NOT_IN_MESSAGES"
+            return False
+
+        def _plain(_control, text, **_kwargs):
+            written.append(text)
+            model.Text = (model.Text or "") + text
+
+        items = [("user", "keep me"), ("assistant", "second")]
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", side_effect=_copy), \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk", side_effect=_plain), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
+            paint_message_items(ctx, control, items)
+
+        assert "PARTIAL_NOT_IN_MESSAGES" not in (model.Text or "")
+        assert "OLD_SPLICE" not in (model.Text or "")
+        assert any("keep me" in row for row in written)
+        assert any("second" in row for row in written)
+        doc.close.assert_called_once_with(True)
+
+    def test_tags_left_in_the_hidden_doc_are_not_copied(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "Assistant: <script>alert(1)</script>"
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control") as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain:
+            paint_message_items(ctx, control, [("assistant", "<p>Hi</p><script>alert(1)</script>")])
+
+        mock_copy.assert_not_called()
+        mock_plain.assert_called_once()
+        assert "<script>" not in mock_plain.call_args.args[1]
+        doc.close.assert_called_once_with(True)
+
+    def test_generic_token_in_the_hidden_doc_is_copied(self):
+        """``<String>`` is not leftover HTML, so the paint must not strip it."""
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "Assistant: List<String> <user@example.com>"
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True) as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain, \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
+            paint_message_items(ctx, control, [("assistant", "List<String> <user@example.com>")])
+
+        mock_copy.assert_called_once()
+        mock_plain.assert_not_called()
+        doc.close.assert_called_once_with(True)
+
+    def test_stop_text_folds_like_any_other_chunk(self):
+        """The stop line is not detected by comparing text. The turn writes it."""
+        session = MagicMock()
+        session.messages = [{"role": "assistant", "content": "partial answer", "_open_transcript": True}]
+        assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is True
+        assert session.messages[0]["content"] == "partial answer\n[Stopped by user]\n"
+        assert len(session.messages) == 1
 
     def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()

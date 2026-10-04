@@ -328,35 +328,36 @@ def timeout(timeout_seconds: int):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # BUGFIX: Executing matplotlib or other non-thread-safe compiled C-extensions (like numpy/PyQt6/etc.)
-            # inside a background thread of a ThreadPoolExecutor often triggers garbage collection crashes (SIGILL)
-            # or backend context crashes. On Unix/Linux systems when called on the main thread, we prefer using a
-            # signal-based alarm, which executes the code entirely on the main thread. We gracefully fall back to the
-            # ThreadPoolExecutor if signal.alarm is not supported or if not running on the main thread.
+            # Executing matplotlib or other non-thread-safe compiled C-extensions
+            # inside a ThreadPoolExecutor thread crashes (SIGILL). On the main
+            # thread, signal.alarm runs the cell on that thread. Fall back to a
+            # thread only when alarm cannot be installed.
             import signal
+
+            def sigalrm_handler(signum, frame):
+                raise ExecutionTimeoutError(f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds")
+
             try:
-                def sigalrm_handler(signum, frame):
-                    raise ExecutionTimeoutError(
-                        f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
-                    )
                 old_handler = signal.signal(signal.SIGALRM, sigalrm_handler)
                 signal.alarm(timeout_seconds)
-                try:
-                    return func(*args, **kwargs)
-                finally:
-                    signal.alarm(0)
-                    signal.signal(signal.SIGALRM, old_handler)
             except (ValueError, AttributeError):
-                # Fallback to ThreadPoolExecutor if SIGALRM is not supported or not on the main thread
+                # InterpreterError subclasses ValueError. Catching it around the
+                # cell treated a real timeout as "alarm unsupported", re-ran the
+                # cell on a thread, and ThreadPoolExecutor.shutdown waited for
+                # that thread. The compute host then SIGKILLed the process and
+                # dropped every other shared session on it. Only setup failures
+                # (not the main thread, or Windows) take this path.
                 with ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(func, *args, **kwargs)
                     try:
-                        result = future.result(timeout=timeout_seconds)
-                        return result
+                        return future.result(timeout=timeout_seconds)
                     except FuturesTimeoutError:
-                        raise ExecutionTimeoutError(
-                            f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
-                        )
+                        raise ExecutionTimeoutError(f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds")
+            try:
+                return func(*args, **kwargs)
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
 
         return wrapper
 

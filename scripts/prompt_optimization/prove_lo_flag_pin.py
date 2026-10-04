@@ -7,8 +7,10 @@
 
 One ``LOBackend``, two Writer documents, no OpenRouter, no second soffice.
 Thread A, inside ``LOBackend.call``, inserts one named shape through
-``host_rpc.execute_tool`` — the same ``get_active_document(get_ctx())``
-lookup a venv ``wa.shape`` RPC uses. Thread B, while A is in the non-UNO
+``host_rpc.execute_tool`` — the ``get_active_document(get_ctx())``
+lookup a venv ``wa.shape`` RPC uses when the script did not pin a
+document. Chat ``run_venv_python_script`` pins ``ctx.doc`` instead.
+Thread B, while A is in the non-UNO
 sleep that stands in for an LLM wait, ``setString``s its own document.
 
 Pass: B's text is intact, A's exported ``.odt`` contains the shape name,

@@ -321,8 +321,8 @@ def test_step_one_same_format_as_first():
 
 def test_web_research_engine_chat_block_ignores_legacy_approval_flag():
     q = "x"
-    assert web_research_engine_chat_block(q, approval_required=True) == web_search_engine_step_chat_text(q, 0)
-    assert "approval required" not in web_research_engine_chat_block(q, approval_required=True).lower()
+    assert web_research_engine_chat_block(q) == web_search_engine_step_chat_text(q, 0)
+    assert "approval required" not in web_research_engine_chat_block(q).lower()
 
 
 def test_step_index_negative_treated_as_first():
@@ -667,6 +667,51 @@ def test_visit_dedup_fetches_the_first_url_only():
     inner.forward.assert_called_once_with("https://example.com/a")
 
 
+def test_visit_dedup_retries_after_a_fetch_error():
+    from plugin.chatbot.web_research import _VisitWebpageDedupTool
+
+    inner = MagicMock()
+    inner.forward.return_value = "Error visiting page"
+    seen: set[str] = set()
+    tool = _VisitWebpageDedupTool(inner, seen, __import__("threading").Lock())
+    assert tool.forward("https://example.com/a").startswith("Error")
+    assert seen == set()
+    inner.forward.side_effect = RuntimeError("navigate failed")
+    try:
+        tool.forward("https://example.com/b")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("forward should raise")
+    assert "https://example.com/b" not in seen
+    inner.forward.side_effect = None
+    inner.forward.return_value = "Failed to navigate"
+    assert tool.forward("https://example.com/a").startswith("Failed")
+    assert seen == set()
+    inner.forward.return_value = "page body"
+    assert tool.forward("https://example.com/a") == "page body"
+    assert seen == {"https://example.com/a"}
+
+
+def test_visit_dedup_retries_after_an_empty_extract():
+    from plugin.chatbot.web_research import _VisitWebpageDedupTool
+
+    inner = MagicMock()
+    inner.forward.return_value = ""
+    seen: set[str] = set()
+    tool = _VisitWebpageDedupTool(inner, seen, __import__("threading").Lock())
+    assert tool.forward("https://example.com/a") == ""
+    assert seen == set()
+    inner.forward.return_value = "   \n"
+    assert tool.forward("https://example.com/a/") == "   \n"
+    assert seen == set()
+    inner.forward.return_value = "page body"
+    assert tool.forward("https://example.com/a") == "page body"
+    assert seen == {"https://example.com/a"}
+    assert "Already visited" in tool.forward("https://example.com/a/")
+    assert inner.forward.call_count == 3
+
+
 def test_cdp_visit_uses_a_private_target(monkeypatch):
     import json
 
@@ -701,6 +746,8 @@ def test_cdp_cleanup_waits_until_visit_leaves():
 
     wr._cdp_visits_inflight = 0
     wr._cdp_closing = False
+    wr._cdp_runs = 0
+    wr._cdp_run_enter()
     started = threading.Event()
     release = threading.Event()
     cleaned = threading.Event()
@@ -730,11 +777,110 @@ def test_cdp_cleanup_waits_until_visit_leaves():
         release.set()
         wr._cdp_visits_inflight = 0
         wr._cdp_closing = False
+        wr._cdp_runs = 0
         with wr._cdp_visits_cond:
             wr._cdp_visits_cond.notify_all()
         thread.join(1)
         if finisher is not None:
             finisher.join(1)
+
+
+def test_one_research_run_finishing_leaves_the_shared_browser():
+    import threading
+
+    from plugin.chatbot import web_research as wr
+
+    wr._cdp_visits_inflight = 0
+    wr._cdp_closing = False
+    wr._cdp_runs = 0
+    started = threading.Event()
+    release = threading.Event()
+    cleaned = threading.Event()
+
+    def visit() -> None:
+        assert wr._cdp_visit_enter()
+        started.set()
+        assert release.wait(2)
+        wr._cdp_visit_leave()
+
+    thread = threading.Thread(target=visit)
+    finisher = None
+    try:
+        wr._cdp_run_enter()
+        wr._cdp_run_enter()
+        thread.start()
+        assert started.wait(1)
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome", side_effect=cleaned.set):
+            # The other run still holds the browser, so this finish must not
+            # wait for the in-flight visit or kill Chrome.
+            wr._finish_cdp_browser()
+            assert not cleaned.is_set()
+            assert wr._cdp_closing is False
+            assert wr._cdp_visit_enter()
+            wr._cdp_visit_leave()
+            finisher = threading.Thread(target=wr._finish_cdp_browser)
+            finisher.start()
+            assert not cleaned.wait(0.15)
+            release.set()
+            finisher.join(2)
+            thread.join(2)
+        assert cleaned.is_set()
+        assert wr._cdp_closing is False
+        assert wr._cdp_runs == 0
+        assert wr._cdp_visits_inflight == 0
+    finally:
+        release.set()
+        wr._cdp_visits_inflight = 0
+        wr._cdp_closing = False
+        wr._cdp_runs = 0
+        with wr._cdp_visits_cond:
+            wr._cdp_visits_cond.notify_all()
+        thread.join(1)
+        if finisher is not None:
+            finisher.join(1)
+
+
+def test_cdp_launch_failure_releases_the_run(monkeypatch):
+    from plugin.chatbot import web_research as wr
+
+    wr._cdp_runs = 0
+    wr._cdp_closing = False
+    wr._cdp_visits_inflight = 0
+    mode = {"fail": True}
+
+    def fake_url(*args, **kwargs):
+        if mode["fail"]:
+            raise RuntimeError("no browser")
+        return "ws://shared"
+
+    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.get_local_chrome_cdp_url", fake_url)
+    try:
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
+            with pytest.raises(RuntimeError, match="no browser"):
+                wr._begin_shared_cdp(object(), "chrome")
+            # The only run failed to launch. Teardown still runs, and the count is released.
+            cleanup.assert_called_once()
+        assert wr._cdp_runs == 0
+
+        mode["fail"] = False
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
+            assert wr._begin_shared_cdp(object(), "chrome") == "ws://shared"
+            mode["fail"] = True
+            with pytest.raises(RuntimeError, match="no browser"):
+                wr._begin_shared_cdp(object(), "firefox")
+            # The first run still holds the browser, so the failed launch must not kill it.
+            cleanup.assert_not_called()
+            assert wr._cdp_runs == 1
+            wr._finish_cdp_browser()
+            cleanup.assert_called_once()
+        assert wr._cdp_runs == 0
+        assert wr._cdp_closing is False
+    finally:
+        wr._cdp_runs = 0
+        wr._cdp_closing = False
+        wr._cdp_visits_inflight = 0
+        with wr._cdp_visits_cond:
+            wr._cdp_visits_cond.notify_all()
 
 
 def test_web_search_prompt_shows_preview_even_when_matches_outer_query():
@@ -912,8 +1058,10 @@ def test_web_research_caching_logic(tmp_path):
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
@@ -964,8 +1112,10 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
         captured["kwargs"] = kwargs
         return ("hit_embedding", "caching unique", "english|cached similar", 0.78, "Cached Answer Content")
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
@@ -1005,8 +1155,10 @@ def test_web_research_caching_write(tmp_path):
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
@@ -1064,15 +1216,17 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     _web_cache_set(db_file, "research", word_key, "BARE SHALLOW", 50 * 1024 * 1024)
     _web_cache_set(db_file, "research", shallow_key, "PREFIXED SHALLOW", 50 * 1024 * 1024)
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", return_value="off"), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
-         patch("plugin.chatbot.web_research._run_deep_web_research", return_value="DEEP REPORT") as mock_deep:
+         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("DEEP REPORT", query)) as mock_deep:
         deep_res = WebResearchTool().execute(ctx, query=query, deep=True)
 
     assert deep_res["status"] == "ok"
@@ -1082,8 +1236,10 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     assert _web_cache_get(db_file, "research", word_key, max_age_days=30) == "BARE SHALLOW"
     assert _web_cache_get(db_file, "research", shallow_key, max_age_days=30) == "PREFIXED SHALLOW"
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
@@ -1138,7 +1294,8 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=False), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
@@ -1153,6 +1310,54 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
         assert res["status"] == "ok"
         assert res["result"] == "Live Searched Output"
         mock_exec.return_value.execute_safe.assert_called_once()
+
+
+def test_web_research_cache_max_zero_does_not_serve_a_stale_report(tmp_path):
+    """web_cache_max_mb 0 disables report reads, not only the later write."""
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from plugin.contrib.smolagents.default_tools import _web_cache_get, _web_cache_set
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    setattr(ctx.ctx, "getServiceManager", MagicMock())
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
+
+    def _cfg_int(key):
+        if key == "web_cache_max_mb":
+            return 0
+        if key == "web_cache_validity_days":
+            return 30
+        if key == "web_research_cache_jaccard_percent":
+            return 40
+        if key == "web_research_cache_min_overlap":
+            return 8
+        return 50
+
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=0), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research_cache.lookup_research_cache") as lookup, \
+         patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
+
+        mock_exec.return_value.execute_safe.return_value = "Live Searched Output"
+        res = WebResearchTool().execute(ctx, query="Search for caching test unique info")
+
+    assert res["status"] == "ok"
+    assert res["result"] == "Live Searched Output"
+    assert res.get("research_cache_event") is None
+    lookup.assert_not_called()
+    mock_exec.return_value.execute_safe.assert_called_once()
+    assert _web_cache_get(db_file, "research", "caching unique", max_age_days=30) == "Cached Answer Content"
+    assert _web_cache_get(db_file, "research", "english|caching unique", max_age_days=30) is None
 
 
 # =============================================================================
@@ -1400,8 +1605,10 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
     ctx.ctx = MockContext()
     ctx.doc_type = "calc"
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", return_value=30), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
@@ -1438,8 +1645,10 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
     ctx.stop_checker = None
     ctx.send_cancellation = None
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", return_value=30), \
          patch("plugin.framework.config.get_config", return_value="off"), \
@@ -1447,7 +1656,7 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
-         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=dict(notes)):
+         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=(dict(notes), "topic ratings")):
         res = WebResearchTool().execute(ctx, query="topic ratings", deep=True)
 
     assert res["status"] == "ok"
@@ -1458,3 +1667,71 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
 
 
 
+
+def test_chromium_cdp_enabled():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.stop_checker = None
+
+    def mock_get_config(key):
+        if key == "chatbot.web_research_browser":
+            return "chromium"
+        return "off"
+
+    with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
+         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._finish_cdp_browser") as mock_finish, \
+         patch("plugin.chatbot.web_research._run_web_agent", return_value={"status": "ok", "result": "done"}) as mock_run, \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int", return_value=1), \
+         patch("plugin.framework.client.llm_client.LlmClient"):
+
+         WebResearchTool().execute(ctx, query="test query")
+
+         mock_begin.assert_called_once_with(ctx.ctx, "chromium")
+         mock_finish.assert_called_once()
+
+         # The agent parameters should have cdp_enabled=True and cdp_url="ws://mock"
+         agent_params = mock_run.call_args.args[3]
+         assert agent_params.cdp_enabled is True
+         assert agent_params.cdp_url == "ws://mock"
+
+def test_cdp_connection_leak_early_exception():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.stop_checker = None
+
+    def mock_get_config(key):
+        if key == "chatbot.web_research_browser":
+            return "chrome"
+        return "off"
+
+    class FakeException(Exception):
+        pass
+
+    with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
+         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._finish_cdp_browser") as mock_finish, \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int", return_value=1), \
+         patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
+         patch("plugin.framework.client.llm_client.LlmClient"):
+
+         try:
+             WebResearchTool().execute(ctx, query="test query")
+         except FakeException:
+             pass
+
+         mock_begin.assert_called_once_with(ctx.ctx, "chrome")
+         # Important: Even though the exception was raised during LlmClient setup, _finish_cdp_browser must be called
+         mock_finish.assert_called_once()

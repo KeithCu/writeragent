@@ -212,28 +212,45 @@ def _truncate_body(body: str) -> str:
     return body[: _MAX_BODY_CHARS - len(suffix)] + suffix
 
 
-def _compose_issue_body(template: str, extra_body: str) -> str:
-    """Put the exception ahead of the environment block and keep its tail.
+def _environment_header(template: str) -> str:
+    """The short Environment bullet list, before the debug-log instructions."""
+    for mark in ("\n### Debug log", "\n### Description"):
+        idx = template.find(mark)
+        if idx != -1:
+            return template[:idx].rstrip()
+    return template
 
-    extra_body used to be appended, then _truncate_body kept the first
-    _MAX_BODY_CHARS. A long traceback's last line (the exception) was past
-    that cap and never reached the GitHub URL. The tail of extra_body is
-    kept first; the template fills whatever room remains.
+
+def _compose_issue_body(template: str, extra_body: str) -> str:
+    """Keep the environment header, then the exception tail.
+
+    A long traceback used to fill the whole 7500-character budget, so version,
+    OS, locale, Python, endpoint, and model never reached the GitHub URL.
+    The header is reserved. The exception tail fills what remains. The rest of
+    the template (description prompts) is included only when both fit.
     """
     extra = (extra_body or "").strip()
     template = template or ""
     if not extra:
         return _truncate_body(template)
-    combined = f"{extra}\n{template}" if template else extra
-    if len(combined) <= _MAX_BODY_CHARS:
-        return combined
+    if not template:
+        return _truncate_body(extra)
+    header = _environment_header(template)
     suffix = "\n\n[truncated]"
     room = _MAX_BODY_CHARS - len(suffix)
-    if len(extra) >= room:
-        return extra[-room:] + suffix
-    template_room = room - len(extra) - 1
-    kept_template = template[: max(template_room, 0)]
-    return f"{extra}\n{kept_template}{suffix}"
+    if len(header) >= room:
+        return header[:room] + suffix
+    extra_room = room - len(header) - 1
+    rest = template[len(header):].lstrip("\n")
+    if len(extra) <= extra_room:
+        body = f"{header}\n{extra}"
+        leftover = _MAX_BODY_CHARS - len(body) - 1
+        if rest and leftover > 0:
+            if len(rest) <= leftover:
+                return f"{body}\n{rest}"
+            return f"{body}\n{rest[:leftover]}{suffix}"
+        return body
+    return f"{header}\n{extra[-extra_room:]}{suffix}"
 
 
 def build_github_issue_url(*, title: str = "", extra_body: str = "", ctx: Any | None = None) -> str:

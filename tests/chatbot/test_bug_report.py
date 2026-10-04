@@ -29,6 +29,16 @@ def test_build_github_issue_url_truncates_long_body():
     assert "truncated" in url
 
 
+def test_compose_issue_body_keeps_environment_header_when_traceback_is_long():
+    header = "### Environment\n- WriterAgent: 0.8.33\n- OS: Linux\n- Chat model: test-model"
+    template = header + "\n### Debug log\n" + ("instructions " * 50)
+    extra = ("frame\n" * 4000) + "ValueError: sidebar send failed uniquely"
+    body = br._compose_issue_body(template, extra)
+    assert body.startswith(header)
+    assert "ValueError: sidebar send failed uniquely" in body
+    assert len(body) <= br._MAX_BODY_CHARS
+
+
 def test_build_github_issue_url_keeps_exception_tail():
     last = "ValueError: sidebar send failed uniquely"
     traceback_body = ("frame line\n" * 2000) + last
