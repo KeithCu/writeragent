@@ -129,6 +129,23 @@ def test_execute_request_does_not_inject_inputs():
     assert "inputs" in r.get("message", "").lower() and "not defined" in r.get("message", "").lower()
 
 
+def test_run_code_in_user_venv_passes_stop_checker():
+    """run_code_in_user_venv must pass stop_checker to the manager's execute method."""
+    with patch("plugin.scripting.venv_worker._worker_manager_for_ctx") as mock_mgr_ctx:
+        mock_mgr = MagicMock()
+        mock_mgr.execute.return_value = {"status": "ok"}
+        mock_mgr_ctx.return_value = (mock_mgr, None)
+
+        ctx = MagicMock()
+
+        def stop_fn() -> bool:
+            return True
+
+        run_code_in_user_venv(ctx, code="result = 1", stop_checker=stop_fn)
+
+        mock_mgr.execute.assert_called_once()
+        kwargs = mock_mgr.execute.call_args.kwargs
+        assert kwargs.get("stop_checker") is stop_fn
 
 
 def test_blocked_import_os():
@@ -462,7 +479,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
     dispatch_calls = []
 
-    def dispatch(response, *, stdin_write, on_worker_event=None,  stop_checker=None, cancellation_scope=None):
+    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, cancellation_scope=None):
         del response, on_worker_event, stop_checker, cancellation_scope
         dispatch_calls.append(True)
         stdin_write(b"host response")
@@ -498,7 +515,7 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     )
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    def dispatch(response, *, stdin_write, on_worker_event=None,  stop_checker=None, cancellation_scope=None):
+    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, cancellation_scope=None):
         del response, stdin_write, on_worker_event, stop_checker, cancellation_scope
         return True
 
@@ -571,7 +588,7 @@ def test_runtime_error_after_exec_started_does_not_replay():
     mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
     reads = {"n": 0}
 
-    def _read(stdout, timeout_sec):
+    def _read(stdout, timeout_sec, stop_checker=None):
         reads["n"] += 1
         request = captured["request"]
         if reads["n"] == 1:
@@ -607,7 +624,7 @@ def test_stdout_close_after_exec_started_does_not_replay():
     mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
     reads = {"n": 0}
 
-    def _read(stdout, timeout_sec):
+    def _read(stdout, timeout_sec, stop_checker=None):
         reads["n"] += 1
         request = captured["request"]
         if reads["n"] == 1:
@@ -771,7 +788,7 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch):
     mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
     reads = {"n": 0}
 
-    def _read(stdout, timeout_sec):
+    def _read(stdout, timeout_sec, stop_checker=None):
         reads["n"] += 1
         if reads["n"] == 1:
             return pickle.dumps({"status": "host_request"}, protocol=5)
@@ -791,8 +808,8 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch):
 
     dispatched = {"n": 0}
 
-    def dispatch(response, *, stdin_write, on_worker_event=None,  **kwargs):
-        del response, stdin_write, on_worker_event, kwargs
+    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, **kwargs):
+        del response, stdin_write, on_worker_event, stop_checker, kwargs
         dispatched["n"] += 1
         # The first frame is the tool call. The next frame is the finished result.
         return dispatched["n"] == 1
@@ -926,21 +943,23 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     # Call with no timeout and verify it gets default timeout of 10s
     run_code_in_user_venv(ctx, "result = 1")
     mock_execute.assert_called_once_with(
-            "result = 1",
-            data=None,
-            bindings=None,
-            timeout_sec=10,
-            session_id=None,
-            init_script=None,
-            init_session_id=None,
-            init_script_hash=None,
-            allow_heartbeat=False,
-            heartbeat_grace_sec=None,
-            on_heartbeat=None,
-            action=None,
-            python_tool_domain=None,
-            script_session_id=None,
-        )
+        "result = 1",
+        data=None,
+        bindings=None,
+        timeout_sec=10,
+        session_id=None,
+        init_script=None,
+        init_session_id=None,
+        init_script_hash=None,
+        allow_heartbeat=False,
+        heartbeat_grace_sec=None,
+        on_heartbeat=None,
+        action=None,
+        python_tool_domain=None,
+        script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
+    )
 
     mock_execute.reset_mock()
 
@@ -961,6 +980,8 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
     )
 
     mock_execute.reset_mock()
@@ -982,6 +1003,8 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
     )
 
     mock_execute.reset_mock()
@@ -1003,6 +1026,8 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
+        stop_checker=None,
+        cancellation_scope=None,
     )
 
 
@@ -1048,7 +1073,7 @@ def _ipc_one_tool_call(*, session_id, script_session_id):
     mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
     reads = {"n": 0}
 
-    def _read(stdout, timeout_sec):
+    def _read(stdout, timeout_sec, stop_checker=None):
         del stdout, timeout_sec
         reads["n"] += 1
         request = captured["request"]
@@ -1184,7 +1209,7 @@ def test_cold_execute_warms_with_separate_timeout():
     timeouts: list[float | int] = []
     original_read = mgr._read_response_bytes
 
-    def record_read(stdout, timeout_sec):
+    def record_read(stdout, timeout_sec, stop_checker=None):
         timeouts.append(timeout_sec)
         return original_read(stdout, timeout_sec)
 
@@ -1215,7 +1240,7 @@ def test_warm_execute_uses_configured_timeout_only():
     timeouts: list[float | int] = []
     original_read = mgr._read_response_bytes
 
-    def record_read(stdout, timeout_sec):
+    def record_read(stdout, timeout_sec, stop_checker=None):
         timeouts.append(timeout_sec)
         return original_read(stdout, timeout_sec)
 
@@ -1241,7 +1266,7 @@ def test_terminate_worker_re_primes_on_next_execute():
     timeouts: list[float | int] = []
     original_read = mgr._read_response_bytes
 
-    def record_read(stdout, timeout_sec):
+    def record_read(stdout, timeout_sec, stop_checker=None):
         timeouts.append(timeout_sec)
         return original_read(stdout, timeout_sec)
 
@@ -1652,13 +1677,13 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
         )
     assert handled is True
     mock_tool.assert_called_once_with(
-            "apply_document_content",
-            {"content": ["x"]},
-            caller="script",
-            allowed_tools=None,
-            script_session_id=None,
-            stop_checker=None,
-        )
+        "apply_document_content",
+        {"content": ["x"]},
+        caller="script",
+        allowed_tools=None,
+        script_session_id=None,
+        stop_checker=None,
+    )
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -2129,21 +2154,106 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
     assert result == b"dummy"
     assert heartbeat_calls == [{"phase": "test"}]
 
-def test_venv_worker_honor_stop():
-    from unittest.mock import Mock
-    import io
-    import subprocess
-    from plugin.scripting.venv_worker import PythonWorkerManager
-    manager = PythonWorkerManager(exe="python", env={})
 
-    stop_checker = Mock(return_value=True)
-    stdout = io.BytesIO(b"fake data")
+def test_execute_ipc_attempts_stop_checker_aborts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # If stop_checker returns True, the host read loop should abort and not hang.
+    import time
+    from plugin.scripting import venv_worker
+
+    # Mock _ensure_running, _write_frame_with_timeout to do nothing
+    monkeypatch.setattr(venv_worker.PythonWorkerManager, "_ensure_running", lambda self: None)
+    monkeypatch.setattr(venv_worker.PythonWorkerManager, "_write_frame_with_timeout", lambda self, stdin, req, timeout_sec, label: None)
+
+    # Mock proc and io
+    class MockProc:
+        def __init__(self):
+            self.stdin = "stdin"
+            self.stdout = "stdout"
+            self.stderr = None
+        def poll(self):
+            return None
+
+    mock_proc = MockProc()
+
+    class DummyManager(venv_worker.PythonWorkerManager):
+        def __init__(self):
+            self.exe = "python"
+            self._proc = mock_proc
+            self._stderr_drain = None
+
+        def _ensure_running(self):
+            pass
+
+        # Bypass thread selection to test generic read select logic if possible, or just test the _read_response_bytes directly.
+        # Actually, let's just test _read_response_bytes directly.
+
+    m = DummyManager()
+
+    # We want to test _read_response_bytes_select and _read_response_bytes_threaded
+    class MockStdout:
+        def read(self, n):
+            time.sleep(10)
+            return b""
+
+    # threaded
+    stop_called = [False]
+    def stop_checker():
+        stop_called[0] = True
+        return True
+
+    import subprocess
+    with pytest.raises(subprocess.TimeoutExpired):
+        m._read_response_bytes_threaded(MockStdout(), timeout_sec=60, stop_checker=stop_checker)
+
+    assert stop_called[0]
+
+    # select
+    stop_called2 = [False]
+    def stop_checker2():
+        stop_called2[0] = True
+        return True
+
+    monkeypatch.setattr(venv_worker.select, "select", lambda r,w,x,t: ([], [], []))
+    with pytest.raises(subprocess.TimeoutExpired):
+        m._read_response_bytes_select(MockStdout(), timeout_sec=60, stop_checker=stop_checker2)
+
+    assert stop_called2[0]
+
+
+
+def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting import venv_worker
+    import subprocess
+
+    class MockProc:
+        def __init__(self):
+            self.stdin = "stdin"
+            self.stdout = "stdout"
+            self.stderr = None
+        def poll(self):
+            return None
+
+    class DummyManager(venv_worker.PythonWorkerManager):
+        def __init__(self):
+            self.exe = "python"
+            self._proc = MockProc()
+            self._stderr_drain = None
+
+        def _read_exact_before_deadline(self, stdout, nbytes, deadline):
+            return b""
+
+    m = DummyManager()
+
+    stop_called = [False]
+    def stop_checker():
+        stop_called[0] = True
+        return True
+
+    class MockStdout:
+        def read(self, n):
+            return b""
 
     with pytest.raises(subprocess.TimeoutExpired):
-        manager._read_response_with_heartbeats(
-            stdout=stdout,
-            timeout_sec=10,
-            grace_sec=10,
-            on_heartbeat=None,
-            stop_checker=stop_checker,
-        )
+        m._read_response_with_heartbeats(MockStdout(), timeout_sec=60, grace_sec=10, on_heartbeat=None, stop_checker=stop_checker)
+
+    assert stop_called[0]

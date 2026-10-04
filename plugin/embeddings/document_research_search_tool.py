@@ -50,6 +50,9 @@ class SearchEmbeddings(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        checker = getattr(ctx, "stop_checker", None)
+        if callable(checker) and checker() is True:
+            return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
 
@@ -83,8 +86,14 @@ class SearchEmbeddings(ToolBase):
         from plugin.embeddings.embeddings_service import knn_search
         from plugin.framework.config import get_config
 
-        def _resolve_context() -> dict[str, Any]:
-            folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
+        def _resolve_uno_context() -> str | None:
+            from plugin.doc.document_research import resolve_listing_directory
+            return resolve_listing_directory(ctx.ctx, ctx.doc)
+
+        def _resolve_context(resolved_listing_root: str | None) -> dict[str, Any]:
+            folder_key, db_path, meta_path, listing_root = resolve_index_context(
+                ctx.ctx, ctx.doc, listing_root=resolved_listing_root
+            )
             if folder_key is None or db_path is None or meta_path is None:
                 return {"error": listing_root or "No folder context"}
 
@@ -120,9 +129,11 @@ class SearchEmbeddings(ToolBase):
         from plugin.framework.thread_guard import on_main_thread
 
         if on_main_thread():
-            context_result = _resolve_context()
+            resolved_listing_root = _resolve_uno_context()
         else:
-            context_result = execute_on_main_thread(_resolve_context)
+            resolved_listing_root = execute_on_main_thread(_resolve_uno_context)
+
+        context_result = _resolve_context(resolved_listing_root)
 
         if "error" in context_result:
             return {"status": "error", "message": context_result["error"]}
@@ -147,6 +158,8 @@ class SearchEmbeddings(ToolBase):
                 k,
                 model=model,
             )
+            if result.get("error"):
+                return self._tool_error(result["error"], code="EMBEDDING_SEARCH_ERROR")
         except Exception as exc:
             log.exception("search_embeddings failed")
             return self._tool_error(str(exc), code="EMBEDDING_SEARCH_ERROR")

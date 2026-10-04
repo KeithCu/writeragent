@@ -69,6 +69,9 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         log.exception("ppt-master llm_request failed")
         return {"status": "error", "message": str(exc)}
 
+    if client._stopped or (stop_checker and stop_checker()):
+        return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
+
     return {
         "status": "ok",
         "result": {

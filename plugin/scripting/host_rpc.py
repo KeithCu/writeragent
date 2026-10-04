@@ -365,6 +365,8 @@ def execute_tool(
 
     payload = args if isinstance(args, dict) else {}
 
+    payload = args if isinstance(args, dict) else {}
+
     def _run() -> Any:
         try:
             from plugin.doc.doc_type import is_calc, is_draw, is_writer
@@ -409,17 +411,19 @@ def execute_tool(
             caller=caller,
             stop_checker=stop_checker,
         )
-        return registry.execute(tool_name, tctx, **payload)
+
+        tool = registry.get(tool_name)
+        is_async = tool is not None and tool.is_async()
+        return registry, tctx, is_async
 
     from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.main import get_tools
 
-    registry = get_tools()
-    tool = registry._tools.get(tool_name)
-    if tool and hasattr(tool, "is_async") and tool.is_async():
-        return _run()
+    registry, tctx, is_async = execute_on_main_thread(_run)
 
-    return execute_on_main_thread(_run)
+    if is_async:
+        return registry.execute(tool_name, tctx, **payload)
+    else:
+        return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
 
 
 def _execute_named_script_tool_off_main(tool_name: str, payload: dict[str, Any]) -> Any:

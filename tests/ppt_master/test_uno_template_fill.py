@@ -1,8 +1,7 @@
-import pytest
 from unittest.mock import MagicMock
 from plugin.ppt_master.adapter.uno_template_fill import apply_fill_plan_to_doc
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 @patch('plugin.ppt_master.adapter.uno_template_fill._find_placeholder')
 @patch('plugin.ppt_master.adapter.uno_template_fill.DrawBridge')

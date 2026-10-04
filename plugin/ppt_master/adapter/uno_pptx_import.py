@@ -186,10 +186,12 @@ def _import_slides_from_source(
             if not existed:
                 execute_on_main_thread(lambda: _drop_page(pages, target_page))
             elif previous_count is not None:
-                execute_on_main_thread(lambda: _trim_appended_shapes(target_page, previous_count))
+                trim_count = previous_count
+                execute_on_main_thread(lambda: _trim_appended_shapes(target_page, trim_count))
             return {"status": "error", "message": f"No shapes copied from PPTX slide {src_index + 1}"}
         if replace and previous_count is not None:
-            execute_on_main_thread(lambda: _drop_front_shapes(target_page, previous_count))
+            drop_count = previous_count
+            execute_on_main_thread(lambda: _drop_front_shapes(target_page, drop_count))
         execute_on_main_thread(lambda: _apply_target_page_size(target_page))
         execute_on_main_thread(lambda: bridge.set_current_page_index(out_index))
         execute_on_main_thread(lambda: _copy_page_notes(source_page, target_page))

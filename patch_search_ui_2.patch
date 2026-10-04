@@ -1,0 +1,254 @@
+<<<<<<< SEARCH
+    def _run_rebuild(self, dlg: Any) -> None:
+        ctx = self._ctx
+        btn_rebuild = dlg.getControl("BtnRebuild")
+        results_ctrl = dlg.getControl("ResultsEdit")
+        if btn_rebuild:
+            btn_rebuild.getModel().Enabled = False
+        if results_ctrl:
+            results_ctrl.getModel().Text = _("Rebuilding cache...")
+
+        def _do_rebuild() -> None:
+            try:
+                from plugin.embeddings.embeddings_cache import clear_folder_cache
+                from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
+                from plugin.embeddings.embedding_client import get_embedding_model
+                from plugin.embeddings.embeddings_service import _folder_search_mode
+
+                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                if resolved is None:
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active document found."))
+                    return
+                _doc, (_folder_key, _db_path, _meta_path, listing_root) = resolved
+                if not listing_root:
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active folder resolved."))
+                    return
+
+                # Clear local cache files to force a full cold index rebuild
+                clear_folder_cache(listing_root)
+
+                model = get_embedding_model()
+
+                hb_data: dict[str, dict[str, Any]] = {}
+
+                def heartbeat_fn(payload: dict[str, Any]) -> None:
+                    file = payload.get("file")
+                    if not file:
+                        return
+                    phase = payload.get("phase")
+                    now = time.time()
+                    if phase == "extract":
+                        paragraphs, chunks = heartbeat_counts_from_payload(payload)
+                        hb_data[file] = {"start": now, "paragraphs": paragraphs, "chunks": chunks}
+                        return
+                    if phase in ("embed", "index", "delete"):
+                        info = hb_data.get(file)
+                        if info is None:
+                            return
+                        elapsed = now - info["start"]
+                        payload_paragraphs, payload_chunks = heartbeat_counts_from_payload(payload)
+                        paragraphs = payload_paragraphs or int(info.get("paragraphs") or 0)
+                        chunks = payload_chunks or int(info.get("chunks") or 0)
+                        line = format_index_heartbeat_line(
+                            str(file),
+                            paragraphs=paragraphs,
+                            chunks=chunks,
+                            elapsed_sec=elapsed,
+                        )
+
+                        def ui_update() -> None:
+                            existing = results_ctrl.getModel().Text
+                            new_text = (existing + "\n" if existing else "") + line
+                            results_ctrl.getModel().Text = new_text
+
+                        execute_on_main_thread(ui_update)
+                        del hb_data[file]
+
+                # Use the service function (mocked in tests) to rebuild the cache
+                try:
+                    embeddings_service.maintain_folder_index(
+                        ctx,
+                        listing_root,
+                        model=model,
+                        mode="cold",
+                        search_mode=_folder_search_mode(),
+                        heartbeat_fn=heartbeat_fn,
+                    )
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
+                except Exception as exc:
+                    log.exception("maintain_folder_index failed during rebuild")
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(exc))
+
+                self._refresh_cache_status(dlg)
+            except Exception as e:
+                log.exception("Cache rebuild failed")
+                self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(e))
+
+        run_in_background(_do_rebuild, name="search-dialog-rebuild")
+
+    def _update_results_ui(self, results_ctrl: Any, btn_search: Any, text: str) -> None:
+        from plugin.framework.queue_executor import execute_on_main_thread
+
+        def _update() -> None:
+            try:
+                results_ctrl.getModel().Text = text
+                if btn_search:
+                    btn_search.getModel().Enabled = True
+            except Exception:
+                pass
+
+        execute_on_main_thread(_update)
+
+    def _update_rebuild_ui(self, btn_rebuild: Any, results_ctrl: Any, text: str) -> None:
+        from plugin.framework.queue_executor import execute_on_main_thread
+
+        def _update() -> None:
+            try:
+                if results_ctrl:
+                    results_ctrl.getModel().Text = text
+                if btn_rebuild:
+                    btn_rebuild.getModel().Enabled = True
+            except Exception:
+                pass
+
+        execute_on_main_thread(_update)
+=======
+    def _run_rebuild(self, dlg: Any) -> None:
+        ctx = self._ctx
+        btn_rebuild = dlg.getControl("BtnRebuild")
+        results_ctrl = dlg.getControl("ResultsEdit")
+        if btn_rebuild:
+            btn_rebuild.getModel().Enabled = False
+        if results_ctrl:
+            results_ctrl.getModel().Text = _("Rebuilding cache...")
+
+        def _do_rebuild() -> None:
+            try:
+                from plugin.embeddings.embeddings_cache import clear_folder_cache
+                from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
+                from plugin.embeddings.embedding_client import get_embedding_model
+                from plugin.embeddings.embeddings_service import _folder_search_mode
+
+                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                if resolved is None:
+                    self._update_rebuild_ui(_("No active document found."), enable_rebuild_btn=True)
+                    return
+                _doc, (_folder_key, _db_path, _meta_path, listing_root) = resolved
+                if not listing_root:
+                    self._update_rebuild_ui(_("No active folder resolved."), enable_rebuild_btn=True)
+                    return
+
+                # Clear local cache files to force a full cold index rebuild
+                clear_folder_cache(listing_root)
+
+                model = get_embedding_model()
+
+                hb_data: dict[str, dict[str, Any]] = {}
+
+                def heartbeat_fn(payload: dict[str, Any]) -> None:
+                    file = payload.get("file")
+                    if not file:
+                        return
+                    phase = payload.get("phase")
+                    now = time.time()
+                    if phase == "extract":
+                        paragraphs, chunks = heartbeat_counts_from_payload(payload)
+                        hb_data[file] = {"start": now, "paragraphs": paragraphs, "chunks": chunks}
+                        return
+                    if phase in ("embed", "index", "delete"):
+                        info = hb_data.get(file)
+                        if info is None:
+                            return
+                        elapsed = now - info["start"]
+                        payload_paragraphs, payload_chunks = heartbeat_counts_from_payload(payload)
+                        paragraphs = payload_paragraphs or int(info.get("paragraphs") or 0)
+                        chunks = payload_chunks or int(info.get("chunks") or 0)
+                        line = format_index_heartbeat_line(
+                            str(file),
+                            paragraphs=paragraphs,
+                            chunks=chunks,
+                            elapsed_sec=elapsed,
+                        )
+
+                        def ui_update() -> None:
+                            try:
+                                d = self._dlg
+                                if not d:
+                                    return
+                                ctrl = d.getControl("ResultsEdit")
+                                if ctrl:
+                                    existing = ctrl.getModel().Text
+                                    new_text = (existing + "\n" if existing else "") + line
+                                    ctrl.getModel().Text = new_text
+                            except Exception:
+                                pass
+
+                        execute_on_main_thread(ui_update)
+                        del hb_data[file]
+
+                # Use the service function (mocked in tests) to rebuild the cache
+                try:
+                    embeddings_service.maintain_folder_index(
+                        ctx,
+                        listing_root,
+                        model=model,
+                        mode="cold",
+                        search_mode=_folder_search_mode(),
+                        heartbeat_fn=heartbeat_fn,
+                    )
+                    self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
+                except Exception as exc:
+                    log.exception("maintain_folder_index failed during rebuild")
+                    self._update_rebuild_ui(_("Rebuild failed: ") + str(exc), enable_rebuild_btn=True)
+
+                def _do_refresh():
+                    d = self._dlg
+                    if d:
+                        self._refresh_cache_status(d)
+                execute_on_main_thread(_do_refresh)
+            except Exception as e:
+                log.exception("Cache rebuild failed")
+                self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
+
+        run_in_background(_do_rebuild, name="search-dialog-rebuild")
+
+    def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
+        from plugin.framework.queue_executor import execute_on_main_thread
+
+        def _update() -> None:
+            try:
+                dlg = self._dlg
+                if not dlg:
+                    return
+                results_ctrl = dlg.getControl("ResultsEdit")
+                if results_ctrl:
+                    results_ctrl.getModel().Text = text
+                if enable_search_btn:
+                    btn_search = dlg.getControl("BtnSearch")
+                    if btn_search:
+                        btn_search.getModel().Enabled = True
+            except Exception:
+                pass
+
+        execute_on_main_thread(_update)
+
+    def _update_rebuild_ui(self, text: str, enable_rebuild_btn: bool = False) -> None:
+        from plugin.framework.queue_executor import execute_on_main_thread
+
+        def _update() -> None:
+            try:
+                dlg = self._dlg
+                if not dlg:
+                    return
+                results_ctrl = dlg.getControl("ResultsEdit")
+                if results_ctrl:
+                    results_ctrl.getModel().Text = text
+                if enable_rebuild_btn:
+                    btn_rebuild = dlg.getControl("BtnRebuild")
+                    if btn_rebuild:
+                        btn_rebuild.getModel().Enabled = True
+            except Exception:
+                pass
+
+        execute_on_main_thread(_update)
+>>>>>>> REPLACE

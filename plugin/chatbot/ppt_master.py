@@ -38,7 +38,6 @@ def _run_ppt_master_venv_agent(
 ) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError, format_error_payload
     from plugin.ppt_master.venv.host import ppt_master_session_id, run_ppt_master_venv_turn
-    from plugin.scripting.session_manager import release_script_document
 
     status_callback = getattr(ctx, "status_callback", None)
     append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
@@ -82,20 +81,17 @@ def _run_ppt_master_venv_agent(
     if stop_checker and stop_checker():
         return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
-    try:
-        return run_ppt_master_venv_turn(
-            ctx.ctx,
-            query=query,
-            history_text=history_text,
-            topic=topic,
-            model=model or resolved_model,
-            session_id=session_id,
-            on_worker_event=on_worker_event,
-            stop_checker=stop_checker,
-            cancellation_scope=getattr(ctx, "send_cancellation", None),
-        )
-    finally:
-        release_script_document(session_id)
+    return run_ppt_master_venv_turn(
+        ctx.ctx,
+        query=query,
+        history_text=history_text,
+        topic=topic,
+        model=model or resolved_model,
+        session_id=session_id,
+        on_worker_event=on_worker_event,
+        stop_checker=stop_checker,
+        cancellation_scope=getattr(ctx, "send_cancellation", None),
+    )
 
 
 class PptMasterSessionTool(ToolBase):

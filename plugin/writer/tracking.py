@@ -272,11 +272,20 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         if blocked:
             return self._tool_error(blocked)
         try:
+            if not hasattr(ctx.doc, "getRedlines"):
+                return self._tool_error("Document does not expose redlines API.")
+            redlines = ctx.doc.getRedlines()
+            initial_count = redlines.getCount()
+
             smgr = ctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
             frame = ctx.doc.getCurrentController().getFrame()
             cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
             dispatcher.executeDispatch(frame, cmd, "", 0, ())
+
+            if initial_count > 0 and redlines.getCount() == initial_count:
+                return self._tool_error("Failed to resolve tracked changes: operation silently failed.")
+
             msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
             return {"status": "ok", "message": msg}
         except Exception as e:
@@ -322,36 +331,74 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
             # getAnchor() call meant every real change died here with "Failed to select".
             try:
-                start = target_redline.getPropertyValue("RedlineStart")
-                cur = start.getText().createTextCursorByRange(start)
-                end = start
                 try:
-                    end_val = target_redline.getPropertyValue("RedlineEnd")
-                    if end_val is not None:
-                        end = end_val
-                        cur.gotoRange(end, True)
+                    target_id = target_redline.getPropertyValue("RedlineIdentifier")
                 except Exception:
-                    pass  # collapsed span (e.g. a deletion) — selecting the start point suffices
+                    target_id = None
 
-                # Guard: Overlapping or sibling changes clobber check.
+                # Count agent changes before dispatch
+                enum_before = redlines.createEnumeration()
+                agent_changes_before = 0
+                while enum_before.hasMoreElements():
+                    r = enum_before.nextElement()
+                    is_agent_r, _ = redline_is_agent_change(r)
+                    if is_agent_r:
+                        agent_changes_before += 1
+
+                start = target_redline.getPropertyValue("RedlineStart")
+                # Keep the document text from the redline anchor. Rebinding start to the
+                # expanded cursor's getStart() below must not switch the overlap comparison
+                # onto a different text object.
+                text = start.getText()
+                cur = text.createTextCursorByRange(start)
+
+                # Expand cursor to cover the entire logical change (all siblings)
+                for r in redline_objs:
+                    try:
+                        r_id = r.getPropertyValue("RedlineIdentifier")
+                    except Exception:
+                        r_id = None
+                    if target_id is not None and r_id == target_id:
+                        try:
+                            s = r.getPropertyValue("RedlineStart")
+                            e = r.getPropertyValue("RedlineEnd") or s
+                            cur.gotoRange(s, True)
+                            cur.gotoRange(e, True)
+                        except Exception:
+                            pass
+
+                # Target cursor now represents the union of the logical change
+                end = cur.getEnd()
+                start = cur.getStart()
+
+                # Guard: Overlapping changes clobber check.
                 # If there's another tracked change that intersects with the one we're resolving,
                 # the dispatcher resolve will break the UNO text model or clobber the other change.
-                text = start.getText()
                 for i, r in enumerate(redline_objs):
                     if i == index:
                         continue
+
+                    try:
+                        r_id = r.getPropertyValue("RedlineIdentifier")
+                    except Exception:
+                        r_id = None
+
+                    if target_id is not None and r_id == target_id:
+                        continue  # Skip logical siblings
+
                     try:
                         r_start = r.getPropertyValue("RedlineStart")
                         r_end = r.getPropertyValue("RedlineEnd") or r_start
 
-                        # Overlap logic: Two ranges [start, end] and [r_start, r_end] overlap if
-                        # start <= r_end AND r_start <= end.
-                        # For compareRegionStarts: 1 means left < right.
-                        # For compareRegionEnds: -1 means left > right.
-                        # They do NOT overlap if:
-                        # end < r_start (i.e. compareRegionStarts(end, r_start) == 1) OR
-                        # start > r_end (i.e. compareRegionStarts(r_end, start) == 1)
-                        if text.compareRegionStarts(end, r_start) == 1 or text.compareRegionStarts(r_end, start) == 1:
+                        r_cur = text.createTextCursorByRange(r_start)
+                        r_cur.gotoRange(r_end, True)
+                        r_cur_start = r_cur.getStart()
+                        r_cur_end = r_cur.getEnd()
+
+                        # Overlap logic: ranges do not overlap when they are distinct or strictly
+                        # adjacent. compareRegionStarts: 1 means left < right, 0 means equal.
+                        # gotoRange normalizes each redline's bounds before the comparison.
+                        if text.compareRegionStarts(end, r_cur_start) in (1, 0) or text.compareRegionStarts(r_cur_end, start) in (1, 0):
                             pass # No overlap
                         else:
                             return self._tool_error(
@@ -359,8 +406,13 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                                 "Resolving it via the agent may clobber adjacent changes. "
                                 "Please resolve it manually in LibreOffice."
                             )
-                    except Exception:
-                        pass # Ignore if we can't read bounds
+                    except Exception as rb_err:
+                        # Fail closed: if we cannot read the bounds of another redline, we cannot prove
+                        # it doesn't overlap.
+                        return self._tool_error(
+                            f"Failed to read bounds of tracked change at index {i} during overlap check. "
+                            f"Please resolve tracked changes manually in LibreOffice. Error: {rb_err}"
+                        )
 
                 ctx.doc.getCurrentController().select(cur)
             except Exception as e:
@@ -377,6 +429,22 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
             if redlines.getCount() == initial_count:
                 return self._tool_error("Failed to resolve tracked change: operation silently failed.")
+
+            # Enforce self-resolve invariant
+            enum_after = redlines.createEnumeration()
+            agent_changes_after = 0
+            while enum_after.hasMoreElements():
+                r = enum_after.nextElement()
+                is_agent_r, _ = redline_is_agent_change(r)
+                if is_agent_r:
+                    agent_changes_after += 1
+
+            if agent_changes_after < agent_changes_before:
+                try:
+                    ctx.doc.getUndoManager().undo()
+                except Exception:
+                    pass
+                return self._tool_error("Agent edit was resolved, which is forbidden.")
 
             action_str = "Accepted" if is_accept else "Rejected"
             return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}

@@ -522,8 +522,8 @@ def vec0_search(
 
     limit = min(max(int(k), 1), count)
     q = np.asarray(query_vec, dtype=np.float32)
-    rows = conn.execute(
-        f"""
+
+    sql = f"""
         SELECT
             v.chunk_id,
             v.distance,
@@ -534,15 +534,19 @@ def vec0_search(
         JOIN chunks c ON c.chunk_id = v.chunk_id
         WHERE v.embedding MATCH ?
           AND k = ?
-        ORDER BY v.distance
-        """,
-        (q, limit),
-    ).fetchall()
+    """
+    params: list[Any] = [q, limit]
+
+    if doc_url_filter:
+        sql += " AND v.chunk_id IN (SELECT chunk_id FROM chunks WHERE doc_url = ?)"
+        params.append(doc_url_filter)
+
+    sql += " ORDER BY v.distance"
+
+    rows = conn.execute(sql, tuple(params)).fetchall()
 
     candidates: list[dict[str, Any]] = []
     for row in rows:
-        if doc_url_filter and str(row["doc_url"] or "") != doc_url_filter:
-            continue
         dist = float(row["distance"] or 0.0)
         score = max(0.0, 1.0 - dist)
         candidates.append(
@@ -565,12 +569,14 @@ def fts_corpus_search(
     *,
     k: int = 10,
     near_slop: int = 10,
+    doc_url_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
     from plugin.embeddings.venv.folder_fts import build_match_query, strip_fts_snippet_markers
 
     limit = max(1, min(int(k or 10), 50))
     match_expr = build_match_query(str(query or ""), near_slop=near_slop)
+
     sql = """
         SELECT
             p.rowid AS chunk_id,
@@ -581,11 +587,18 @@ def fts_corpus_search(
         FROM passages p
         JOIN chunks c ON c.chunk_id = p.rowid
         WHERE passages MATCH ?
-        ORDER BY score
-        LIMIT ?
     """
+    params: list[Any] = [match_expr]
+
+    if doc_url_filter:
+        sql += " AND c.doc_url = ?"
+        params.append(doc_url_filter)
+
+    sql += " ORDER BY score LIMIT ?"
+    params.append(limit)
+
     try:
-        rows = conn.execute(sql, (match_expr, limit)).fetchall()
+        rows = conn.execute(sql, tuple(params)).fetchall()
     except _conn_operational_error(conn) as exc:
         log.debug("FTS corpus search failed for %r: %s", match_expr, exc)
         return []
@@ -734,8 +747,24 @@ def mark_file_indexed_in_db(
     conn.commit()
 
 
+
+def get_all_indexed_urls_in_db(conn: sqlite3.Connection) -> list[str]:
+    """Return a list of all doc_url entries in indexed_files."""
+    rows = conn.execute("SELECT doc_url FROM indexed_files").fetchall()
+    return [str(row["doc_url"] or "") for row in rows]
+
+
+def remove_file_from_index_in_db(conn: sqlite3.Connection, doc_url: str) -> None:
+    """Remove a file's freshness metadata from the index."""
+    doc_url = str(doc_url or "")
+    conn.execute("DELETE FROM indexed_files WHERE doc_url = ?", (doc_url,))
+    conn.execute("DELETE FROM indexed_paragraphs WHERE doc_url = ?", (doc_url,))
+    conn.commit()
+
+
 def diff_chunk_rows_in_db(
     conn: sqlite3.Connection,
+    doc_url: str,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
@@ -745,9 +774,7 @@ def diff_chunk_rows_in_db(
     seen: set[tuple[str, int, int, int]] = set()
 
     stored: dict[tuple[int, int, int], str] = {}
-    if chunks:
-        doc_url = str(chunks[0].doc_url if isinstance(chunks[0], ParagraphChunk) else "")
-        if doc_url:
+    if doc_url:
             rows = conn.execute(
                 """
                 SELECT para_index, char_start, char_end, content_hash
@@ -771,15 +798,15 @@ def diff_chunk_rows_in_db(
         to_index.append(chunk_to_index_row(chunk))
 
     if not chunks:
-        return to_index, []
-
-    doc_url = chunks[0].doc_url
+        doc_url_for_delete = doc_url
+    else:
+        doc_url_for_delete = chunks[0].doc_url
     to_delete: list[dict[str, Any]] = []
     for (para_index, char_start, char_end), _stored_hash in stored.items():
-        if (doc_url, para_index, char_start, char_end) not in seen:
+        if (doc_url_for_delete, para_index, char_start, char_end) not in seen:
             to_delete.append(
                 {
-                    "doc_url": doc_url,
+                    "doc_url": doc_url_for_delete,
                     "para_index": para_index,
                     "char_start": char_start,
                     "char_end": char_end,
@@ -857,6 +884,7 @@ __all__ = [
     "ensure_schema",
     "file_is_stale_in_db",
     "fts_corpus_search",
+    "get_all_indexed_urls_in_db",
     "get_file_index_info",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
@@ -864,6 +892,7 @@ __all__ = [
     "paragraph_body_for_locator",
     "paragraph_bodies_for_locators",
     "rebuild_fts_corpus_index",
+    "remove_file_from_index_in_db",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",
