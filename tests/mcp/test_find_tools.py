@@ -483,6 +483,53 @@ def test_explicit_sidebar_domain_returns_no_tools():
     assert result["domain"] == "brainstorming"
 
 
+def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
+    """Open Draw/Impress must hide ppt-master, same as no document and direct_flat.
+
+    The registry still returns those schemas for the open document. Hiding is
+    the sidebar-only name filter, which needs doc_type and uno_services.
+    """
+    from plugin.doc.doc_type import uno_services_for_doc_type_label
+    from plugin.framework.tool import ToolContext
+    from plugin.ppt_master.tools import (
+        ApplyPptMasterNativeEnhance,
+        ApplyPptMasterTemplateFill,
+        ExportPresentationProject,
+        ValidatePptMasterProject,
+    )
+
+    reg = ToolRegistry(MagicMock())
+    for cls in (
+        ExportPresentationProject,
+        ValidatePptMasterProject,
+        ApplyPptMasterTemplateFill,
+        ApplyPptMasterNativeEnhance,
+    ):
+        reg.register(cls())
+
+    no_doc = ToolContext(doc=None, ctx=MagicMock(), doc_type="", services={"tools": reg}, caller="mcp")
+    hidden = FindTools().execute(no_doc, domain="ppt-master")
+    assert hidden["tools"] == []
+
+    for doc_type in ("draw", "impress"):
+        doc = MagicMock()
+        ctx = ToolContext(
+            doc=doc,
+            ctx=MagicMock(),
+            doc_type=doc_type,
+            services={"tools": reg},
+            caller="mcp",
+            uno_services_supported=uno_services_for_doc_type_label(doc_type),
+        )
+        raw_names = {s["name"] for s in reg.get_schemas("mcp", doc=doc, active_domain="ppt-master")}
+        assert "export_presentation_project" in raw_names
+        assert "validate_ppt_master_project" in raw_names
+        result = FindTools().execute(ctx, domain="ppt-master")
+        assert result["status"] == "ok"
+        assert result["domain"] == "ppt-master"
+        assert result["tools"] == []
+
+
 def test_get_domain_guidance_is_app_neutral_when_app_unknown():
     g = get_domain_guidance("charts", agent_label=None)
     assert "data_range" in g and "headers" in g
@@ -519,6 +566,8 @@ def test_run_venv_python_description_neutral_when_doc_unknown():
     desc = RunVenvPythonScript().get_description(None)
     assert "data_range" in desc
     assert "document tools" in desc.lower()
+    # The import-policy note is filled at description time, not at import.
+    assert "Pre-imported" in desc
 
 
 def test_execute_drops_schemas_with_unusable_names():
@@ -685,3 +734,14 @@ def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
 
     names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
     assert "brainstorm_research_web" not in names
+
+def test_execute_excludes_find_tools_itself():
+    registry = MagicMock()
+    registry.get_schemas.return_value = [
+        _schema("find_tools", "finds tools"),
+        _schema("footnotes_insert", "insert a footnote"),
+    ]
+    registry.get_tools.return_value = []
+    names = [t.get("name") for t in FindTools().execute(_ctx(registry), domain="footnotes")["tools"]]
+    assert "find_tools" not in names
+    assert "footnotes_insert" in names

@@ -141,8 +141,13 @@ class McpModule(ModuleBase):
         tunnel_provider_token_key = f"{prefix}tunnel_provider_token"
         cors_list_key = f"{prefix}cors_allowed_origins"
         cors_private_key = f"{prefix}cors_allow_private_origins"
-        # MCP lifecycle: toggle, tunnel, CORS policy keys, or bulk apply (Settings OK).
-        if key and key not in (toggle_key, tunnel_key, tunnel_provider_key, tunnel_provider_token_key, cors_list_key, cors_private_key, ""):
+        port_key = f"{prefix}mcp_port"
+        # MCP lifecycle: toggle, port, tunnel, CORS policy keys, or bulk apply (Settings OK).
+        # What was wrong: this allow-list omitted mcp.mcp_port. A port-only Settings
+        # save emits key="mcp.mcp_port" (ConfigStore uses "" only when more than one
+        # key changes), so the handler returned and left HttpServer on the old port.
+        # Why: treat the port as a lifecycle key and rebind when it differs.
+        if key and key not in (toggle_key, port_key, tunnel_key, tunnel_provider_key, tunnel_provider_token_key, cors_list_key, cors_private_key):
             return
 
         reload_cors_policy_from_config(self._services)
@@ -156,7 +161,23 @@ class McpModule(ModuleBase):
             self._unregister_mcp_routes(self._services)
 
         bound = self._bound_http_server()
-        if enabled and not (bound and bound.is_running()):
+        running = bool(bound and bound.is_running())
+        cfg_port = cfg.get("mcp_port")
+        running_port = getattr(bound, "port", None) if bound is not None else None
+        # Bulk saves (key="") already reach this handler, but a running listener
+        # used to be left in place. Rebind whenever the live port disagrees.
+        port_changed = running and isinstance(cfg_port, int) and not isinstance(cfg_port, bool) and running_port != cfg_port
+        if enabled and port_changed:
+            log.info("MCP port changed from %s to %s; rebinding HTTP server", running_port, cfg_port)
+            self._stop_server()
+            ok = self._start_server(self._services)
+            # Port-only saves are user-initiated (key is mcp.mcp_port, not "").
+            # Toggle uses mcp_enabled and shows its own dialog — skip that key.
+            if not ok and (not key or key == port_key):
+                self._show_start_failure_dialog(data.get("ctx"))
+            return
+
+        if enabled and not running:
             ok = self._start_server(self._services)
             # Settings OK emits bulk config:changed with an empty key. Show the failure there
             # (user-initiated). Toggle uses mcp_enabled key then shows its own dialog — skip
@@ -306,10 +327,35 @@ class McpModule(ModuleBase):
             log.warning("tunnel_enabled but no MCP port available")
             return
         provider = cfg.get("tunnel_provider") or DEFAULT_PROVIDER
-        provider_token = cfg.get("tunnel_provider_token") or ""
-        ok = tunnel.start(int(port), provider, provider_token=str(provider_token))
-        if not ok:
-            log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
+        provider_token = str(cfg.get("tunnel_provider_token") or "")
+        port_i = int(port)
+        # Armed before the thread is queued. stop() clears it, so a disable
+        # that lands while this start is still waiting to run cannot lose.
+        start_token = object()
+        tunnel.note_pending_start(start_token)
+
+        def _start(port: int = port_i, provider: str = str(provider), provider_token: str = provider_token, start_token: object = start_token) -> None:
+            before = tunnel.last_error
+            ok = tunnel.start(port, provider, provider_token=provider_token, start_token=start_token)
+            # A superseded start (stop, or a newer arm) returns False without
+            # a new last_error. Only a probe/spawn failure is worth logging.
+            if not ok and tunnel.last_error and tunnel.last_error != before:
+                log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
+
+        # What was wrong: config:changed runs this on the UI thread, and
+        # start() calls binary_available() (subprocess, timeout 10s). A hung
+        # provider --version froze Settings for that whole wait.
+        # Why: leave the UI thread first. The probe also runs outside
+        # TunnelManager._lock so stop() is not stuck behind it. dedicated
+        # so the wait does not occupy the shared background pool.
+        from plugin.framework.thread_guard import on_main_thread
+
+        if on_main_thread():
+            from plugin.framework.worker_pool import run_in_background
+
+            run_in_background(_start, name="mcp-tunnel-sync", dedicated=True)
+            return
+        _start()
 
     def _stop_tunnel(self) -> None:
         tunnel = self._bound_tunnel()
@@ -328,32 +374,37 @@ class McpModule(ModuleBase):
         self._mcp_protocol = MCPProtocolHandler(services)
         p = self._mcp_protocol
 
-        # MCP streamable-http (raw — JSON-RPC + custom headers + SSE)
-        self._registry.add("POST", "/mcp", p.handle_mcp_post, raw=True)
-        self._registry.add("GET", "/mcp", p.handle_mcp_sse, raw=True)
-        self._registry.add("DELETE", "/mcp", p.handle_mcp_delete, raw=True)
+        # One lock across the whole set. GET / snapshots routes under the same
+        # lock, so a toggle cannot expose a half-registered table or raise
+        # RuntimeError while iterating it.
+        with self._registry.batch():
+            # MCP streamable-http (raw — JSON-RPC + custom headers + SSE)
+            self._registry.add("POST", "/mcp", p.handle_mcp_post, raw=True)
+            self._registry.add("GET", "/mcp", p.handle_mcp_sse, raw=True)
+            self._registry.add("DELETE", "/mcp", p.handle_mcp_delete, raw=True)
 
-        # Legacy SSE transport (raw — streaming)
-        self._registry.add("POST", "/sse", p.handle_sse_post, raw=True)
-        self._registry.add("POST", "/messages", p.handle_sse_post, raw=True)
-        self._registry.add("GET", "/sse", p.handle_sse_stream, raw=True)
+            # Legacy SSE transport (raw — streaming)
+            self._registry.add("POST", "/sse", p.handle_sse_post, raw=True)
+            self._registry.add("POST", "/messages", p.handle_sse_post, raw=True)
+            self._registry.add("GET", "/sse", p.handle_sse_stream, raw=True)
 
-        # Debug (simple — returns dict, server handles JSON)
-        self._registry.add("GET", "/debug", p.handle_debug_info)
-        # Debug POST (raw — complex response handling)
-        self._registry.add("POST", "/debug", p.handle_debug_post, raw=True)
+            # Debug (simple — returns dict, server handles JSON)
+            self._registry.add("GET", "/debug", p.handle_debug_info)
+            # Debug POST (raw — complex response handling)
+            self._registry.add("POST", "/debug", p.handle_debug_post, raw=True)
 
-        self._mcp_routes_registered = True
+            self._mcp_routes_registered = True
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self, services: Any) -> None:
-        for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
-            try:
-                self._registry.remove(method, path)
-            except Exception:
-                pass
-        self._mcp_routes_registered = False
-        self._mcp_protocol = None
+        with self._registry.batch():
+            for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
+                try:
+                    self._registry.remove(method, path)
+                except Exception:
+                    pass
+            self._mcp_routes_registered = False
+            self._mcp_protocol = None
         log.info("MCP routes unregistered from HTTP server")
 
     # ── Action dispatch ──────────────────────────────────────────────

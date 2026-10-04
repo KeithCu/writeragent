@@ -115,20 +115,13 @@ def test_call_tool_request_params_from_params():
 
 
 def test_call_tool_request_params_missing_name():
-    # check-all 33668189572: deal.pre now requires non-empty name (avoids ValueError CHECK FAIL).
-    # Release bundles strip @deal.pre; body still raises ValueError.
-    from tests.harness.strip_bundle import deal_pre_present
-
-    if deal_pre_present(wire_types._call_tool_request_params_from_dict):
-        import deal
-
-        with pytest.raises(deal.PreContractError):
-            wire_types.CallToolRequestParams.from_params({})
-        with pytest.raises(deal.PreContractError):
-            wire_types.CallToolRequestParams.from_params({"name": ""})
-    else:
-        with pytest.raises(ValueError, match="params.name"):
-            wire_types.CallToolRequestParams.from_params({})
+    # The pytest pre is total. A missing name is ValueError from the body,
+    # including when deal is installed. CrossHair still rejects {} so check
+    # does not see that ValueError.
+    with pytest.raises(ValueError, match="params.name"):
+        wire_types.CallToolRequestParams.from_params({})
+    with pytest.raises(ValueError, match="params.name"):
+        wire_types.CallToolRequestParams.from_params({"name": ""})
 
 
 def test_progress_notification_shape():
@@ -139,3 +132,41 @@ def test_progress_notification_shape():
     assert note["params"]["total"] == 100.0
     assert note["params"]["message"] == "halfway"
     assert "id" not in note
+
+
+def test_initialize_result_accepts_long_odd_client_protocol_version():
+    """initialize params.protocolVersion is client input.
+
+    The pytest deal profile must not raise PreContractError for a long or
+    odd version. The body copies it. CrossHair keeps the short token.
+    """
+    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+
+    long_version = "v" * (DEAL_MAX_TOKEN + 1)
+    odd_version = "2025-11-25-üñícode / odd\nversion"
+    both = "ü" * (DEAL_MAX_TOKEN + 1)
+    for version in (long_version, odd_version, both):
+        result = wire_types.initialize_result(
+            protocol_version=wire_types.MCP_PROTOCOL_VERSION,
+            client_protocol_version=version,
+            server_version="1.0.0",
+            instructions="test instructions",
+        )
+        assert result["protocolVersion"] == version
+
+
+def test_wire_ingest_accepts_long_image_and_odd_tool_args():
+    """Image bytes and tool arguments are external. They must not PreContract."""
+    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+
+    payload = wire_types.call_tool_result_image("A" * (DEAL_MAX_SOURCE + 8), mime_type="image/png")
+    assert payload["content"][0]["data"].startswith("A")
+    params = wire_types.CallToolRequestParams.from_params(
+        {"name": "get_document_content", "arguments": {"n": 1, "items": [1, 2], "text": "é" * 100}, "timeout": 3}
+    )
+    assert params.arguments["n"] == 1
+    wide = {"jsonrpc": "2.0", "id": 1, "method": "ping", **{f"k{i}": i for i in range(40)}}
+    parsed = wire_types.parse_jsonrpc_request(wide)
+    assert isinstance(parsed, wire_types.ParsedJsonRpcRequest)
+    err = wire_types.jsonrpc_failure(1, -32000, "m" * (DEAL_MAX_SOURCE + 1))
+    assert len(err["error"]["message"]) == DEAL_MAX_SOURCE + 1

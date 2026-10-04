@@ -18,6 +18,7 @@
 #   - long-running MUTATING, different documents        -> concurrent (2)
 #   - long-running READ-ONLY, same document             -> concurrent (2)
 #   - long-running + backpressure MUTATING, same doc    -> serialized (1)
+#   - backpressure waits for that gate off the main-thread executor
 import threading
 import time
 
@@ -266,3 +267,142 @@ def test_cross_path_long_running_and_backpressure_same_document_serializes():
     assert reg.max_concurrency == 1, (
         "expected SERIALIZED (1) across long-running + backpressure, got %d" % reg.max_concurrency
     )
+
+
+class _DepthMainThread:
+    """Records which functions ran inside the main-thread executor and how deep it is."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.depth = 0
+        self.seen = []
+
+    def execute(self, fn, *args, **kwargs):
+        name = getattr(fn, "__name__", str(fn))
+        with self._lock:
+            self.depth += 1
+            self.seen.append(name)
+        try:
+            return fn(*args)
+        finally:
+            with self._lock:
+                self.depth -= 1
+
+
+def test_backpressure_waits_for_document_gate_off_the_main_thread():
+    """A mutating backpressure call must not occupy the main thread while the gate is held.
+
+    What was wrong: _execute_with_backpressure marshalled _execute_tool_on_main, and
+    that function acquired the per-document gate. The UI thread blocked until the
+    30s timeout (BusyError) while a long-running mutator held the same gate.
+    """
+    release = threading.Event()
+    long_in_body = threading.Event()
+    body_depth = []
+
+    class _Reg(_Registry):
+        def execute(self, name, context, **kwargs):
+            if not long_in_body.is_set():
+                long_in_body.set()
+                assert release.wait(timeout=3), "long-running body was not released"
+                return {"status": "ok"}
+            body_depth.append(main.depth)
+            return {"status": "ok"}
+
+    main = _DepthMainThread()
+    reg = _Reg(is_mutation=True, hold=0)
+    handler = MCPProtocolHandler(_FakeServices(reg))
+    handler.queue_executor = main
+    errors = []
+
+    def run_long():
+        try:
+            handler._execute_long_running("any_tool", {}, document_url="file:///same.odt")
+        except Exception as e:  # noqa: BLE001
+            errors.append("long: %s" % e)
+
+    def run_bp():
+        try:
+            handler._execute_with_backpressure("any_tool", {}, document_url="file:///same.odt")
+        except Exception as e:  # noqa: BLE001
+            errors.append("bp: %s" % e)
+
+    t_long = threading.Thread(target=run_long)
+    t_long.start()
+    assert long_in_body.wait(timeout=2), "long-running tool never acquired the gate"
+    t_bp = threading.Thread(target=run_bp)
+    t_bp.start()
+
+    deadline = time.perf_counter() + 2.0
+    blocked_off_main = False
+    while time.perf_counter() < deadline:
+        with main._lock:
+            names = list(main.seen)
+            depth = main.depth
+        if "_execute_tool_on_main" in names:
+            release.set()
+            t_long.join(timeout=2)
+            t_bp.join(timeout=2)
+            raise AssertionError("gate wait ran inside the main-thread dispatch: %s" % names)
+        if names.count("_prepare_mcp_execution") >= 2 and depth == 0 and not body_depth:
+            blocked_off_main = True
+            break
+        time.sleep(0.01)
+
+    assert blocked_off_main, "backpressure never reached the off-thread gate wait (seen=%s)" % main.seen
+    with main._lock:
+        assert main.depth == 0
+    assert not body_depth
+    release.set()
+    t_long.join(timeout=2)
+    t_bp.join(timeout=2)
+
+    assert not errors, "cross-path should not error: %s" % errors
+    assert body_depth == [1], "backpressure tool body must run inside the main-thread dispatch, got %s" % body_depth
+    assert "_invoke_prepared_mcp_tool" in main.seen
+
+
+def test_readonly_backpressure_does_not_wait_on_held_mutation_gate():
+    """Read-only fast tools skip the gate, so a long-running mutator must not stall them."""
+    release = threading.Event()
+    long_in_body = threading.Event()
+    readonly_done = threading.Event()
+
+    class _Reg(_Registry):
+        def get(self, name):
+            return _ToolInfo(name != "readonly_tool")
+
+        def execute(self, name, context, **kwargs):
+            if name == "readonly_tool":
+                readonly_done.set()
+                return {"status": "ok"}
+            long_in_body.set()
+            assert release.wait(timeout=3), "long-running body was not released"
+            return {"status": "ok"}
+
+    reg = _Reg(is_mutation=True, hold=0)
+    handler = MCPProtocolHandler(_FakeServices(reg))
+    errors = []
+
+    def run_long():
+        try:
+            handler._execute_long_running("mutator", {}, document_url="file:///same.odt")
+        except Exception as e:  # noqa: BLE001
+            errors.append("long: %s" % e)
+
+    def run_bp():
+        try:
+            handler._execute_with_backpressure("readonly_tool", {}, document_url="file:///same.odt")
+        except Exception as e:  # noqa: BLE001
+            errors.append("bp: %s" % e)
+
+    t_long = threading.Thread(target=run_long)
+    t_long.start()
+    assert long_in_body.wait(timeout=2)
+    t_bp = threading.Thread(target=run_bp)
+    t_bp.start()
+    assert readonly_done.wait(timeout=2), "read-only backpressure waited on the mutation gate"
+    release.set()
+    t_long.join(timeout=2)
+    t_bp.join(timeout=2)
+    assert not errors, errors
