@@ -83,6 +83,14 @@ class DrawBridge:
         return self._pages
 
     def get_active_page(self) -> Any | None:
+        if hasattr(self.doc, "getSheets"):
+            try:
+                from plugin.calc.bridge import CalcBridge
+                sheet = CalcBridge(self.doc).get_active_sheet()
+                if sheet is not None and hasattr(sheet, "getDrawPage"):
+                    return sheet.getDrawPage()
+            except Exception:
+                pass
         controller = self.doc.getCurrentController()
         if controller is not None and hasattr(controller, "getCurrentPage"):
             page = controller.getCurrentPage()
