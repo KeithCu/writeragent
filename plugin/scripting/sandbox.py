@@ -65,8 +65,26 @@ except ImportError:
         "sys",
     )
 
+
+def _writeragent_alias_mirrors(entries: tuple[str, ...]) -> tuple[str, ...]:
+    """``writeragent.X`` spellings of plugin modules already on the allowlist.
+
+    AliasImporter maps ``writeragent.X`` to ``plugin.X``. A blanket
+    ``writeragent.*`` made that map every plugin module, so a sandboxed script
+    could import ``plugin.framework.config`` and ``LlmClient``. The vendored
+    checker cannot translate the alias, so each allowlisted ``plugin.`` entry
+    is repeated under ``writeragent.``.
+    """
+    mirrors: list[str] = []
+    for entry in entries:
+        if entry.startswith("plugin."):
+            mirrors.append("writeragent." + entry[len("plugin."):])
+    return tuple(mirrors)
+
+
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
-VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
+# No ``writeragent.*``: that wildcard is not an allow. See ``import_authorized``.
+_VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = (
     "platform",
     "numpy",
     "numpy.*",
@@ -109,7 +127,6 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     # webview / PyQt / jedi are editor-only. They are probed in a one-shot
     # subprocess (venv_diagnostics), not imported into the warm =PY() worker.
     "writeragent",
-    "writeragent.*",
     "plugin.scripting.writeragent_api",
     "plugin.scripting.writeragent_api.*",
     "plugin.scripting.writeragent_namespace",
@@ -155,6 +172,54 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.calc_functions",
     "plugin.scripting.calc_functions.*",
 )
+
+# Script imports whose plugin path stays off the direct list.
+# vision: ``from writeragent.vision import run_vision`` (not plugin.vision.venv.vision).
+# duckdb_sql: SQL templates. ``plugin.scripting.duckdb_sql`` stays unlisted so
+# the LLM blurb and the import-policy test do not grow a direct plugin entry.
+# ``duckdb`` / ``duckdb.*`` above are unchanged.
+_ALIAS_ONLY_IMPORTS: tuple[str, ...] = (
+    "writeragent.vision",
+    "writeragent.scripting.duckdb_sql",
+)
+
+VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
+    _VENV_AUTHORIZED_IMPORT_BASE
+    + _writeragent_alias_mirrors(_VENV_AUTHORIZED_IMPORT_BASE)
+    + _ALIAS_ONLY_IMPORTS
+)
+
+
+def _alias_real_module(name: str) -> str | None:
+    """Plugin module a ``writeragent`` alias import loads, else ``None``."""
+    if name == "writeragent":
+        return "plugin.scripting.writeragent_api"
+    if name.startswith("writeragent."):
+        return "plugin" + name[len("writeragent"):]
+    return None
+
+
+def import_authorized(name: str, authorized_imports: list[str] | tuple[str, ...]) -> bool:
+    """Whether *name* is on the sandbox import allowlist.
+
+    A ``writeragent.*`` import is allowed only when the plugin module
+    AliasImporter would load is on the same list, or the alias itself is an
+    explicit entry. The blanket pattern ``writeragent.*`` is ignored: it
+    authorized every alias, and the hook then loaded ``plugin.framework.config``
+    and ``LlmClient``. Names that are not aliases, including ``duckdb`` and
+    ``duckdb.*``, use the vendored checker unchanged.
+    """
+    # crosshair: off
+    from plugin.contrib.smolagents.local_python_executor import check_import_authorized
+
+    allowed = list(authorized_imports)
+    real = _alias_real_module(name)
+    if real is None:
+        return check_import_authorized(name, allowed)
+    if check_import_authorized(real, allowed):
+        return True
+    without_blanket = [item for item in allowed if item != "writeragent.*"]
+    return check_import_authorized(name, without_blanket)
 
 
 # In-process LO embedded sandbox (execute_python_script) — stdlib-only extras beyond BASE_BUILTIN_MODULES.
