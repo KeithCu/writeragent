@@ -6,7 +6,7 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.structural import GetPageObjects, CloneHeadingBlock
 
 
@@ -119,4 +119,5 @@ def test_clone_heading_block_without_tracked_deletions_uno(ctx, doc):
         count += 1
 
     assert count == 4, f"Expected 4 paragraphs, got {count}"
+    assert last_para is not None
     assert last_para.getString() == "This is text.", f"Tracked deletions were cloned! Got: '{last_para.getString()}'"
