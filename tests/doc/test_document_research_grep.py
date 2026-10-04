@@ -190,8 +190,8 @@ def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mo
         stop_checker=stop_after_first,
     )
 
-    assert result["stopped_early"] is True
-    assert result["files_scanned"] == 1
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
 
 
 @patch("plugin.doc.document_research_grep._process_events_if_available")
@@ -216,3 +216,152 @@ def test_grep_nearby_files_open_error_continues(mock_resolve, mock_open, mock_cl
 def test_grep_nearby_files_requires_pattern():
     result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "  ")
     assert result["status"] == "error"
+
+
+def _draw_text_shape(text: str) -> MagicMock:
+    shape = MagicMock()
+    shape.getString.return_value = text
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    return shape
+
+
+def _draw_page(shapes: list[MagicMock]) -> MagicMock:
+    page = MagicMock()
+    page.getCount.return_value = len(shapes)
+    page.getByIndex.side_effect = lambda index: shapes[index]
+    return page
+
+
+def test_grep_text_in_draw_match_count_uses_remaining_page_budget():
+    """A later page must not search with the original max_results."""
+    from plugin.doc.document_research_grep import _grep_text_in_draw
+
+    page0 = _draw_page([_draw_text_shape("alpha one"), _draw_text_shape("alpha two"), _draw_text_shape("nope")])
+    page1 = _draw_page(
+        [_draw_text_shape("alpha three"), _draw_text_shape("alpha four"), _draw_text_shape("alpha five")]
+    )
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda index: (page0, page1)[index]
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+
+    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=3)
+
+    assert [row["text"] for row in matches] == ["alpha one", "alpha two", "alpha three"]
+    assert count == len(matches) == 3
+    assert partial is False
+    # Remaining budget was 1, so the second page stops after its first hit.
+    assert page1.getByIndex.call_count == 1
+
+
+def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
+    from plugin.doc.document_research_grep import _grep_text_in_draw
+
+    def overshoot(*args: object, **kwargs: object) -> tuple[list[dict[str, str]], int, bool]:
+        assert kwargs["max_results"] == 2
+        return (
+            [{"page_index": 0, "shape_index": str(i), "text": "x"} for i in range(4)],
+            4,
+            False,
+        )
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = MagicMock()
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+    with patch("plugin.doc.document_research_grep._grep_shapes_on_page", side_effect=overshoot):
+        matches, count, partial = _grep_text_in_draw(model, "x", max_results=2)
+    assert len(matches) == 2
+    assert count == 2
+    assert partial is False
+
+def test_grep_text_in_writer_includes_table_text():
+    from plugin.doc.document_research_grep import _grep_text_in_writer
+
+    model = MagicMock()
+    services = MagicMock()
+
+    # Create paragraphs and a table
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getString.return_value = "Normal text before table."
+
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ("A1", "B1")
+
+    cellA1 = MagicMock()
+    cellA1.getString.return_value = "Cell one text."
+    cellB1 = MagicMock()
+    cellB1.getString.return_value = "target keyword cell."
+
+    def get_cell_by_name(name):
+        if name == "A1": return cellA1
+        elif name == "B1": return cellB1
+        raise Exception()
+
+    table.getCellByName.side_effect = get_cell_by_name
+
+    services.document.get_paragraph_ranges.return_value = [para1, table]
+
+    matches, count = _grep_text_in_writer(
+        model,
+        services,
+        pattern="keyword",
+        max_results=5
+    )
+
+    assert count == 1
+
+
+@patch("plugin.doc.document_research_grep._process_events_if_available")
+@patch("plugin.doc.document_research_grep.close_document_research_document")
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
+def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mock_open, mock_close, mock_events):
+    mock_resolve.return_value = (
+        [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
+        False,
+        None,
+    )
+    mock_open.return_value = (MagicMock(), "calc", None, True)
+    mock_search.return_value = (
+        [{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}],
+        1,
+        False,
+        None,
+    )
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute:
+        def side_effect(func):
+            return func()
+        mock_execute.side_effect = side_effect
+
+        result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
+
+        assert mock_execute.call_count == 3
+        assert result["status"] == "ok"
+
+@patch("plugin.doc.document_research.os.listdir")
+@patch("plugin.doc.document_research.resolve_listing_directory")
+@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
+def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, mock_rld, mock_listdir):
+    mock_rld.return_value = "/tmp"
+    # Create enough files to trigger the modulo check at idx % 50 == 0
+    mock_listdir.return_value = [f"file{i}.ods" for i in range(100)]
+
+    stop_checker = MagicMock(side_effect=[False, True])
+
+    result = grep_nearby_files(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        "Q4",
+        stop_checker=stop_checker,
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"

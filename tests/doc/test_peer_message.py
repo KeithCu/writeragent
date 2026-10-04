@@ -518,6 +518,11 @@ def test_execute_missing_sidebar():
 
 
 def test_execute_queue_full():
+    """A full queue returns PEER_QUEUE_FULL and does not inject a user turn.
+
+    The listener is idle, so a successful send would append. Queue-full must
+    not: nothing is queued to run that turn, and a retry must not append again.
+    """
     tool = SendPeerWork()
     ctx = _ctx()
     peer = MagicMock()
@@ -526,13 +531,29 @@ def test_execute_queue_full():
     panel.send_listener = listener
     for i in range(PEER_QUEUE_CAP):
         enqueue_peer_turn(listener, PeerPendingTurn(f"t{i}", False))
+    queued = listener_queue_len(listener)
+
+    # Stay inside the drain scope. Leaving it kicks already-queued turns
+    # (t0...), which is separate from the rejected send.
     with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
         with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
             with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
                 with drain_owner_scope("stream"):
                     result = tool.execute(ctx, document_url="peer-uid", message="one more")
-    assert result["status"] == "error"
-    assert result["code"] == "PEER_QUEUE_FULL"
+                    assert result["status"] == "error"
+                    assert result["code"] == "PEER_QUEUE_FULL"
+                    listener.session.add_user_message.assert_not_called()
+                    assert listener.appended == []
+                    assert listener.started == []
+                    assert listener_queue_len(listener) == queued
+
+                    retry = tool.execute(ctx, document_url="peer-uid", message="retry after full")
+                    assert retry["status"] == "error"
+                    assert retry["code"] == "PEER_QUEUE_FULL"
+                    listener.session.add_user_message.assert_not_called()
+                    assert listener.appended == []
+                    assert listener.started == []
+                    assert listener_queue_len(listener) == queued
 
 
 def test_registry_chat_tier_on_default_list():

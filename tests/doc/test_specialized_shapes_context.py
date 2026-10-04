@@ -3,7 +3,8 @@
 
 """Tests for shapes specialized sub-agent canvas context."""
 
-from unittest.mock import MagicMock
+import sys
+from unittest.mock import MagicMock, patch
 
 
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
@@ -108,7 +109,23 @@ def test_format_shapes_canvas_context_impress_active_slide():
     assert "190.5" in s
 
 
+class _DistinctSheet:
+    """PyUNO-style wrapper: distinct objects, ``==`` misses, identity is ``_ident``."""
+
+    def __init__(self, name: str, ident: int, draw_page: object | None = None) -> None:
+        self.Name = name
+        self._ident = ident
+        self._draw_page = draw_page
+
+    def getDrawPage(self) -> object | None:
+        return self._draw_page
+
+    def __eq__(self, other: object) -> bool:
+        return False
+
+
 def test_format_shapes_canvas_context_calc_active_sheet():
+    """Active sheet index follows uno identity, not wrapper ``is`` / ``==``."""
     doc = MagicMock()
 
     def supports(svc: str) -> bool:
@@ -120,26 +137,39 @@ def test_format_shapes_canvas_context_calc_active_sheet():
     draw_page.Width = 30_000
     draw_page.Height = 20_000
 
-    sheet = MagicMock()
-    sheet.getDrawPage.return_value = draw_page
-    sheet.Name = "Sheet1"
+    # getActiveSheet and getByIndex(1) are different wrappers for sheet 2.
+    active = _DistinctSheet("Sheet2", ident=2, draw_page=draw_page)
+    indexed = [
+        _DistinctSheet("Sheet1", ident=1),
+        _DistinctSheet("Sheet2", ident=2),
+    ]
+    assert active is not indexed[1]
+    assert (active == indexed[1]) is False
 
     sheets = MagicMock()
     sheets.getCount.return_value = 2
-    sheets.getByIndex = MagicMock(side_effect=lambda i: sheet if i == 1 else MagicMock())
+    sheets.getByIndex = MagicMock(side_effect=lambda i: indexed[i])
 
     doc.getSheets.return_value = sheets
     ctrl = MagicMock()
-    ctrl.getActiveSheet.return_value = sheet
+    ctrl.getActiveSheet.return_value = active
     doc.getCurrentController.return_value = ctrl
 
-    s = format_shapes_canvas_context(doc)
+    def _issame(left: object, right: object) -> bool:
+        return (
+            isinstance(left, _DistinctSheet)
+            and isinstance(right, _DistinctSheet)
+            and left._ident == right._ident
+        )
+
+    with patch.object(sys.modules["uno"], "isSame", _issame, create=True):
+        s = format_shapes_canvas_context(doc)
     assert "Calc" in s
-    assert "Sheet1" in s
+    assert "Sheet2" in s
     assert "300.0" in s
     assert "200.0" in s
     assert "draw-page" in s
-    assert "index 1" in s
+    assert "index 1 (0-based)" in s
     assert "1/100 mm" in s
 
 

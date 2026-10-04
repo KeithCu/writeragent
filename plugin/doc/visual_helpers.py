@@ -234,6 +234,20 @@ def parse_color_to_uno_int(color_val: Any) -> int | None:
     return None
 
 
+def _font_slant(italic: bool) -> Any:
+    """Return ``FontSlant.ITALIC`` or ``FontSlant.NONE``.
+
+    Integer 1 is ``OBLIQUE``, not italic. Pytest has no pyuno enum module, so
+    the import falls back to the IDL integers (ITALIC=2, NONE=0).
+    """
+    try:
+        from com.sun.star.awt.FontSlant import ITALIC, NONE
+    except ImportError:
+        # Stubs type those names as FontSlant, so the integers stay on this path only.
+        return 2 if italic else 0
+    return ITALIC if italic else NONE
+
+
 def apply_character_properties(
     target: Any,
     *,
@@ -257,8 +271,10 @@ def apply_character_properties(
     if bold is not None:
         results["CharWeight"] = safe_set_property(target, "CharWeight", 150.0 if bold else 100.0)
     if italic is not None:
-        # FontPosture: NONE=0, ITALIC=1 (matches common UNO/tool integer usage).
-        results["CharPosture"] = safe_set_property(target, "CharPosture", 1 if italic else 0)
+        # What was wrong: 1 was stored for italic. FontSlant IDL is
+        # NONE=0, OBLIQUE=1, ITALIC=2 (offapi awt/FontSlant.idl), so italic
+        # text became oblique. Named constants match calc manipulator.
+        results["CharPosture"] = safe_set_property(target, "CharPosture", _font_slant(italic))
     if color is not None:
         parsed = parse_color_to_uno_int(color)
         if parsed is not None:

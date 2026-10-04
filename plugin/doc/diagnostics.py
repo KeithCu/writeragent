@@ -100,9 +100,36 @@ class DocumentHealthCheck(ToolBaseDummy):
                 for name in names:
                     try:
                         bm = bookmarks.getByName(name)
-                        anchor = bm.getAnchor()
-                        if anchor is None or not anchor.getString():
+                        try:
+                            anchor = bm.getAnchor()
+                        except Exception:
+                            # getAnchor can throw on a collapsed mark. The name
+                            # still exists; do not call that broken.
+                            continue
+                        if anchor is None:
                             issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
+                            continue
+                        # What was wrong: `not anchor.getString()` flagged every
+                        # point bookmark. Heading `_mcp_` marks are inserted as
+                        # a collapsed cursor, so their anchor string is empty
+                        # and document_health_check reported each one as broken.
+                        # Why: an empty string with a start position is a point
+                        # bookmark. Broken means no anchor, or an anchor whose
+                        # text and start both cannot be read.
+                        try:
+                            anchor_text = anchor.getString()
+                        except Exception:
+                            anchor_text = None
+                        if anchor_text:
+                            continue
+                        get_start = getattr(anchor, "getStart", None)
+                        if callable(get_start):
+                            try:
+                                if get_start() is not None:
+                                    continue
+                            except Exception:
+                                pass
+                        issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
                     except Exception:
                         issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
         except Exception:
@@ -174,8 +201,10 @@ class SetDocumentProtection(ToolBaseDummy):
                         section.setProtectionPassword(password)
                     except AttributeError:
                         # Older LO versions may not support per-section
-                        # passwords; silently skip.
-                        pass
+                        # passwords via setProtectionPassword.
+                        # It requires byte arrays for ProtectionKey instead.
+                        import hashlib
+                        section.setPropertyValue("ProtectionKey", tuple(hashlib.sha256(password.encode('utf-8')).digest()))
             except Exception as exc:
                 log.warning("Could not set protection on section %d: %s", i, exc)
 
