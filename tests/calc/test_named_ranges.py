@@ -15,6 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for Calc named range tools and flag parsing."""
 
+import sys
 from unittest.mock import MagicMock
 import pytest
 
@@ -28,9 +29,64 @@ from plugin.calc.named_ranges import (
     _defined_name_error,
     _extract_range_info,
     _format_flags,
+    _parse_base_address,
     _parse_flags,
     _resolve_container,
 )
+
+
+def _doc_with_sheet_names(*names: str) -> MagicMock:
+    sheet_objs = []
+    for name in names:
+        sheet = MagicMock()
+        sheet.getName.return_value = name
+        sheet_objs.append(sheet)
+    sheets = MagicMock()
+    sheets.getCount.return_value = len(sheet_objs)
+    sheets.getByIndex.side_effect = lambda idx: sheet_objs[idx]
+    doc = MagicMock()
+    doc.getSheets.return_value = sheets
+    return doc
+
+
+class _RecordingCellAddress:
+    """CellAddress stand-in that keeps the fields the parser passes.
+
+    The full suite imports ``tests/framework/test_errors.py``, which replaces
+    ``sys.modules['com.sun.star.table']`` with a MagicMock. ``CellAddress(Sheet=1)``
+    then returns a mock whose ``.Sheet`` is not 1, so a correct index looked
+    like a failure.
+    """
+
+    def __init__(self, Sheet: int = 0, Column: int = 0, Row: int = 0) -> None:
+        self.Sheet = Sheet
+        self.Column = Column
+        self.Row = Row
+
+
+def test_named_range_unknown_sheet_prefix_errors(monkeypatch):
+    # An unknown prefix used to leave the default sheet (0), so a relative
+    # name was anchored on the wrong sheet.
+    table = sys.modules.get("com.sun.star.table")
+    if table is None:
+        table = MagicMock()
+        monkeypatch.setitem(sys.modules, "com.sun.star.table", table)
+    monkeypatch.setattr(table, "CellAddress", _RecordingCellAddress, raising=False)
+
+    doc = _doc_with_sheet_names("Sheet1", "Data")
+
+    with pytest.raises(ValueError, match="No sheet named 'Nope'"):
+        _parse_base_address(doc, "Nope.B2", default_sheet_idx=0)
+    with pytest.raises(ValueError, match="No sheet named 'Missing Sheet'"):
+        _parse_base_address(doc, "'Missing Sheet'!A1", default_sheet_idx=0)
+
+    pos = _parse_base_address(doc, "Data.B2", default_sheet_idx=0)
+    assert pos.Sheet == 1
+    assert (pos.Column, pos.Row) == (1, 1)
+
+    bare = _parse_base_address(doc, "C3", default_sheet_idx=4)
+    assert bare.Sheet == 4
+    assert (bare.Column, bare.Row) == (2, 2)
 
 
 def test_parse_flags_and_format_flags():
