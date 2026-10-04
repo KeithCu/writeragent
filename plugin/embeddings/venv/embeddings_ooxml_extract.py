@@ -45,7 +45,12 @@ def extract_docx_paragraphs(path: str) -> list[str]:
         return []
     passages: list[str] = []
     for paragraph in document.paragraphs:
-        text = str(paragraph.text or "").strip()
+        try:
+            # Extract all text elements, including those nested in w:hyperlink
+            texts = [node.text for node in paragraph._element.xpath(".//w:t") if node.text]
+            text = "".join(texts).strip()
+        except Exception:
+            text = str(paragraph.text or "").strip()
         if text:
             passages.append(text)
     return passages
@@ -131,7 +136,10 @@ def extract_rtf_paragraphs(path: str) -> list[str]:
 
 
 def _texts_from_ooxml_slide_xml(xml_bytes: bytes) -> str:
-    root = ET.fromstring(xml_bytes)
+    try:
+        root = ET.fromstring(xml_bytes)
+    except Exception:
+        return ""
     parts: list[str] = []
     for node in root.iter(f"{_DRAWML_NS}t"):
         if node.text and node.text.strip():

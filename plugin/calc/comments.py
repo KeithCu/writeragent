@@ -90,13 +90,21 @@ class ListCellComments(ToolCalcCommentBase):
             # whose getString()/getDate() come back empty in current LO.
             # Fall back to getAnnotationShape() for lazy .xlsx captions.
             cell_ann, text = _annotation_text(sheet, pos.Column, pos.Row)
+            dt = cell_ann.getDate()
+            try:
+                date_str = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
+            except Exception:
+                try:
+                    date_str = "%04d-%02d-%02d" % (dt.Year, dt.Month, dt.Day)
+                except Exception:
+                    date_str = ""
             comments.append(
                 {
                     "cell": _cell_label(pos.Column, pos.Row),
                     "author": ann.getAuthor(),
                     # .xlsx has no date field on a comment element, so an
                     # empty date there is the format, not a failure.
-                    "date": cell_ann.getDate(),
+                    "date": date_str,
                     "text": text,
                     "is_visible": ann.getIsVisible(),
                 }

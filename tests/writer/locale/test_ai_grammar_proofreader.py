@@ -502,6 +502,14 @@ class TestTypingIntegration:
         assert len(res.aErrors) == 1
         mock_queue_fixture.enqueue.assert_not_called()
 
+    def test_enqueue_misses_persists_identity(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
+        pr = _make_proofreader()
+        pr._enqueue_misses("test-doc", "Some text.", "en-US", [(0, 10, "Some text.")], "custom-ident")
+
+        mock_queue_fixture.enqueue.assert_called_once()
+        item = mock_queue_fixture.enqueue.call_args[0][0]
+        assert item.provider == "custom-ident"
+
     def test_paragraph_edit_middle_miss(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
         pr = _make_proofreader()
         sentences = ["First sentence.", "Second sentence.", "Third sentence."]

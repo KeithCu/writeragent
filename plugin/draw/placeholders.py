@@ -230,7 +230,7 @@ class GetPlaceholderText(ToolBase):
                 return self._tool_error("Shape index out of range.")
             shape = page.getByIndex(shape_index)
         elif role:
-            shape, _unused = _find_placeholder(page, role)
+            shape, shape_index = _find_placeholder(page, role)
             if shape is None:
                 return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
         else:

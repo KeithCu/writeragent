@@ -901,10 +901,8 @@ class PageInsertBreak(ToolWriterPageBase):
 
             from com.sun.star.style.BreakType import PAGE_BEFORE
             text = view_cursor.getText()
-            cursor = text.createTextCursorByRange(view_cursor)
+            cursor = text.createTextCursorByRange(view_cursor.getStart())
             cursor.setPropertyValue("BreakType", PAGE_BEFORE)
-            # Optionally insert a paragraph break so the break actually applies cleanly
-            text.insertControlCharacter(cursor, 0, False)  # 0 = PARAGRAPH_BREAK
             return {"status": "ok", "message": "Page break inserted."}
         except Exception as e:
             return self._tool_error(f"Error inserting page break: {e}")
