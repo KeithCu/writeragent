@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
+from plugin.framework.tool import ToolContext
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
 from plugin.mcp.cors import send_cors_headers
@@ -106,7 +107,7 @@ class _PreparedMcpCall:
     """Main-thread document resolve + ToolContext. Safe to hand to a worker with precomputed echo."""
 
     tool: object
-    context: object
+    context: ToolContext
     doc: object
     doc_key: str
     needs_gate: bool
@@ -803,10 +804,21 @@ class MCPProtocolHandler:
         # find_tools is the discovery search tool; it is only advertised in
         # direct_discovery mode, so reject calling it by name in other modes -- otherwise
         # the default (delegate) behavior would not really be unchanged.
-        if tool_name == "find_tools" and self._tool_exposure_mode() != "direct_discovery":
+        mode = self._tool_exposure_mode()
+        if tool_name == "find_tools" and mode != "direct_discovery":
             return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
 
         tool = self.tool_registry.get(tool_name)
+        if tool:
+            tier = getattr(tool, "tier", "core")
+            if mode == "direct_flat":
+                exclude_tiers = MCP_DIRECT_FLAT_EXCLUDE_TIERS
+            else:
+                exclude_tiers = MCP_DELEGATE_EXCLUDE_TIERS
+
+            if tier in exclude_tiers:
+                return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": f"Tool '{tool_name}' is not available in the current exposure mode."}, ensure_ascii=False)}], "isError": True}
+
         # One off-thread path: a long-running tool is is_async() exactly True
         # (positive timeout checked in _prepare_mcp_execution) and runs through
         # execute_safe. The long_running attribute alone must not select a second
@@ -1131,7 +1143,8 @@ class MCPProtocolHandler:
         registry is marshalled to the main thread from there.
         """
         with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
-            if callable(prepared.context.stop_checker) and prepared.context.stop_checker() is True:
+            stop_checker = prepared.context.stop_checker
+            if callable(stop_checker) and stop_checker() is True:
                 return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 

@@ -268,7 +268,7 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
     while time.monotonic() < deadline:
         pumps += 1
         log.debug("Model missing on attempt %d, pumping events...", pumps)
-        idle_reached = _process_events(ctx, deadline=deadline)
+        idle_reached = _process_events(getattr(ctx, "ctx", ctx), deadline=deadline)
         chart_doc = _chart_document_from_host(chart_obj)
         if chart_doc is not None:
             log.info("Obtained chart model on attempt %d", pumps + 1)

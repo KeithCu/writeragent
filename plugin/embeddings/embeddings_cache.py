@@ -263,7 +263,11 @@ def diff_chunk_rows(
     doc_url: str,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db.
+
+    ``doc_url`` is required so an empty extract still finds that document's
+    stored rows and returns them as deletes.
+    """
     from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
 
     if not db_path.is_file():
