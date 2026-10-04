@@ -1016,7 +1016,19 @@ def _reset_rps_python_session(ctx: Any, doc: Any, *, notify: bool = True) -> Non
 
 
 def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
-    """Menubar handler: reset notebook kernel (Writer) or shared Calc workbook session."""
+    """Menubar handler: reset notebook kernel (Writer) or shared Calc workbook session.
+
+    The menu action runs this off the UI thread so it does not re-enter the
+    worker. Document lookup and message boxes are UNO, so the body hops back
+    to the main thread.
+    """
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    execute_on_main_thread(_reset_workbook_python_session_on_main, ctx, doc)
+
+
+def _reset_workbook_python_session_on_main(ctx: Any, doc: Any | None = None) -> None:
+    """UNO body of :func:`reset_workbook_python_session`."""
     if doc is not None:
         if is_writer(doc):
             if _has_notebook_registry(doc):
@@ -1039,7 +1051,7 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
     except Exception:
         current = None
     if is_writer(current) or is_draw(current) or is_calc(current):
-        reset_workbook_python_session(ctx, current)
+        _reset_workbook_python_session_on_main(ctx, current)
         return
 
     # No current component (headless): keep the open-document search.
