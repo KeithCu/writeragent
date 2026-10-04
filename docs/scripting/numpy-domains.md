@@ -263,7 +263,7 @@ Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot`
 
 **Run Python Script:** **Forecast Helpers →** `[Forecast] forecast_time_series`, `[Forecast] decompose_time_series`, `[Forecast] anomaly_detection_time_series`.
 
-**Output:** Predictions / decomposition / anomaly tables (analysis egress pattern). `forecast_data` with `auto_plot=true` (or chart keywords in `task_hint`) inserts a confidence-band chart via extended `time_series_plot`.
+**Output:** Predictions / decomposition / anomaly tables (analysis egress pattern). `forecast_data` `output_range` uses the same sheet-qualified anchor as `analyze_data` (`Report.B2`, `'Q1.Sales'!B2`, `'O''Brien'.A1`): the report is written on that sheet. `forecast_data` with `auto_plot=true` (or chart keywords in `task_hint`) inserts a confidence-band chart via extended `time_series_plot`.
 
 **Sub-agent:** [`forecast_data`](../../plugin/calc/forecast.py) in `domain="analysis"` — same delegation as EDA/regression (`optimize_data` precedent); supports `auto_plot` for band charts ([`forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py)).
 
@@ -626,6 +626,8 @@ Results are inserted as compact tables and usable from scripts.
 | `solve_scheduling_problem` | Assignment / small IP | `scipy.optimize.linear_sum_assignment` (ortools/pulp deferred) |
 
 **Run Python Script:** **Optimize Helpers →** `[Optimize] portfolio`, `[Optimize] linear_program`.
+
+**Sheet output:** `optimize_data` `output_range` uses the same sheet-qualified anchor as `analyze_data` (`Report.B2`, `'Q1.Sales'!B2`). The parsed sheet is written through the shared Calc tabular egress.
 
 **Tie-in:** Stochastic optimization with existing `monte_carlo` helper.
 

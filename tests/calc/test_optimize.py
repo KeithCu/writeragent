@@ -57,6 +57,9 @@ def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
     assert result["status"] == "ok"
     mock_run_trusted.assert_called_once()
     mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs["sheet_name"] == "Sheet1"
+    assert mock_insert.call_args.kwargs["start_col"] == 5
+    assert mock_insert.call_args.kwargs["start_row"] == 0
     mock_main_thread.assert_called_once()
 
 @patch("plugin.scripting.optimize.insert_optimize_result_into_calc")
@@ -76,6 +79,7 @@ def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_
         output_range="'Q1.Sales'!B2",
     )
     assert result["status"] == "ok"
+    assert mock_insert.call_args.kwargs["sheet_name"] == "Q1.Sales"
     assert mock_insert.call_args.kwargs["start_col"] == 1
     assert mock_insert.call_args.kwargs["start_row"] == 1
 
@@ -87,10 +91,11 @@ def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_
         output_range="Sheet1.A1:Sheet1.C10",
     )
     assert result["status"] == "ok"
+    assert mock_insert.call_args.kwargs["sheet_name"] == "Sheet1"
     assert mock_insert.call_args.kwargs["start_col"] == 0
     assert mock_insert.call_args.kwargs["start_row"] == 0
 
-    # Test absolute address
+    # Test absolute address (no sheet: active sheet)
     result = tool.execute(
         calc_ctx,
         helper="linear_programming",
@@ -98,5 +103,37 @@ def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_
         output_range="$A$1",
     )
     assert result["status"] == "ok"
+    assert mock_insert.call_args.kwargs["sheet_name"] is None
     assert mock_insert.call_args.kwargs["start_col"] == 0
     assert mock_insert.call_args.kwargs["start_row"] == 0
+
+
+@patch("plugin.calc.tabular_egress.CellManipulator")
+@patch("plugin.calc.tabular_egress.CalcBridge")
+def test_insert_optimize_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_manip_cls):
+    """A sheet-qualified anchor must reach write_formula_range, which uses CalcBridge.resolve."""
+    del mock_bridge
+    from plugin.scripting.optimize import insert_optimize_result_into_calc
+
+    manipulator = MagicMock()
+    mock_manip_cls.return_value = manipulator
+    result = {"status": "ok", "helper": "linear_programming", "metrics": {"objective": 1}}
+
+    cases = (
+        ("Q1.Sales", 1, 1, "'Q1.Sales'.B2"),
+        ("Report", 5, 0, "Report.F1"),
+        ("Data Sheet", 2, 2, "'Data Sheet'.C3"),
+        ("O'Brien", 0, 0, "'O''Brien'.A1"),
+        (None, 0, 0, "A1"),
+    )
+    for sheet_name, col, row, expected in cases:
+        manipulator.reset_mock()
+        insert_optimize_result_into_calc(
+            MagicMock(),
+            MagicMock(),
+            result,
+            sheet_name=sheet_name,
+            start_col=col,
+            start_row=row,
+        )
+        assert manipulator.write_formula_range.call_args.args[0] == expected

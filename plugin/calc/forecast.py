@@ -102,8 +102,12 @@ class ForecastDataTool(ToolBaseDummy):
         if output_range and result.get("status") == "ok":
 
             def _write() -> None:
-                _sheet, col, row = parse_output_anchor(output_range)
-                insert_forecast_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
+                # What was wrong: the sheet from parse_output_anchor was discarded,
+                # so Sheet1.D1 or 'Q1.Sales'!B2 wrote on the active sheet and
+                # overwrote live cells. How: only col/row reached the inserter.
+                # Why: forward the sheet, the same way analyze_data does.
+                sheet, col, row = parse_output_anchor(output_range)
+                insert_forecast_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
             try:
                 execute_on_main_thread(_write)
