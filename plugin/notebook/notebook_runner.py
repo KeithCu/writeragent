@@ -405,7 +405,10 @@ def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: 
     if _style_is_heading12(para_style) and stripped:
         return True
     compact = _style_compact(para_style)
-    if stripped and compact in ("textbody", "textkörper", "bodytext"):
+    # Treat following markdown blockquote/list (and other non-output notebook body
+    # that belongs to the next cell / markdown cell) as a stop boundary so clearing
+    # outputs never deletes them.
+    if stripped and compact not in ("", "preformattedtext", "preformatted", "writeragentnotebookoutput"):
         return True
     return False
 

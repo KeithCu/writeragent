@@ -854,6 +854,14 @@ def _install_doc_event_listener(ctx: Any) -> None:
                         # Menu import has a live controller so the same call works.
                         # This listener is the retry once the view exists. wire_all is idempotent (_wired_form_docs).
                         ensure_form_design_mode_off(doc)
+
+                        # Re-wire if the document is re-opened or loaded.
+                        # Also we must make sure buttons remain wired across Save As paths and load completion.
+                        with _lock:
+                            # So we clear the doc key from _wired_form_docs before trying again.
+                            doc_key = _doc_key(doc)
+                            if doc_key in _wired_form_docs:
+                                _wired_form_docs.remove(doc_key)
                         wire_all_notebook_run_buttons(self._ctx, doc)
                 except Exception:
                     log.warning("notebook controls: doc-event handling failed", exc_info=True)
