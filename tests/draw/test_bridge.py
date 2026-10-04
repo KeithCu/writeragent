@@ -635,3 +635,17 @@ def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
 
     assert "Active Slide Index: 1" in out
     assert "Active Slide Index: -1" not in out
+
+def test_calc_bridge_targets_active_sheet():
+    from plugin.draw.bridge import DrawBridge
+    doc = MagicMock()
+    # It will hit CalcBridge, so we need to set it up such that it returns a sheet
+    sheets = MagicMock()
+    sheet = MagicMock()
+    page = MagicMock()
+    sheet.getDrawPage.return_value = page
+    sheets.getByIndex.return_value = sheet
+    doc.getSheets.return_value = sheets
+    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
+    bridge = DrawBridge(doc)
+    assert bridge.get_active_page() is page

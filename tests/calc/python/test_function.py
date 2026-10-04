@@ -1110,7 +1110,7 @@ def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest
 
         # No document object: do not guess a workbook key.
         python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1]], None)
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == [""]
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == []
     finally:
         _clear_spill_timer_registry()
 
@@ -1130,9 +1130,9 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
         python_function._queue_off_main_auto_spill(MagicMock(), "a", [[1]], doc_a)
         python_function._queue_off_main_auto_spill(MagicMock(), "b", [[1]], doc_b)
         python_function._queue_off_main_auto_spill(MagicMock(), "none", [[1]], None)
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-a", "uid-b", ""]
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-a", "uid-b"]
         python_function.cancel_pending_spill_timers("uid-a")
-        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-b", ""]
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-b"]
     finally:
         _clear_spill_timer_registry()
 

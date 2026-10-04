@@ -589,7 +589,7 @@ def load_spill_registry_for_doc(doc: Any) -> None:
 def save_spill_registry_for_doc(doc: Any) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
-        from plugin.doc.udprops import set_document_property
+        from plugin.doc.udprops import set_document_property, get_document_property
         import json
 
         doc_key = _spill_registry_doc_key(doc)
@@ -601,7 +601,11 @@ def save_spill_registry_for_doc(doc: Any) -> None:
                 k_url, sheet_name, frow, fcol = key
                 if k_url == doc_key:
                     doc_spills[f"{sheet_name}:{frow},{fcol}"] = value
-        set_document_property(doc, "WriterAgentSpillRegistry", json.dumps(doc_spills))
+        new_val = json.dumps(doc_spills)
+        set_document_property(doc, "WriterAgentSpillRegistry", new_val)
+        actual = get_document_property(doc, "WriterAgentSpillRegistry", "")
+        if actual != new_val:
+            log.warning("Spill registry write back mismatch: expected %r, got %r", new_val, actual)
     except Exception:
         log.exception("Failed to save spill registry to document property")
 
@@ -1137,8 +1141,10 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     # or the workbook session id) never saw this timer, so the closure kept
     # ctx, code, the grid, and the cached document after the book closed.
     # The key was cached on the UI thread; do not call _lifecycle_key here.
+    lkey = _off_main_spill_lifecycle_key(doc)
     t = _new_spill_timer(0.1, _deferred)
-    _register_spill_timer(_off_main_spill_lifecycle_key(doc), t)
+    if lkey:
+        _register_spill_timer(lkey, t)
     t.start()
 
 
@@ -1438,8 +1444,11 @@ def cancel_pending_spill_timers(lifecycle_key: str) -> None:
 
 def clear_in_memory_spill_state(*, lifecycle_key: str = "") -> None:
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
+    cancel_pending_spill_timers(lifecycle_key)
     if lifecycle_key:
         cancel_pending_spill_timers(lifecycle_key)
+        # Sheet listeners are keyed by lifecycle id, not the file URL, so an
+        # unload that only matched doc_url left the dispatcher registered.
         for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
             SHEET_MODIFY_LISTENERS.pop(skey, None)
         LOADED_DOCUMENTS.discard(lifecycle_key)

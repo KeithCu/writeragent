@@ -533,6 +533,7 @@ def llama_index_ingest(
     delete_keys: list[dict[str, Any]] | None = None,
     build_fts: bool = False,
     build_vectors: bool = True,
+    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Index paragraphs/chunks using LlamaIndex VectorStoreIndex."""
     if not HAS_LLAMA_INDEX:
