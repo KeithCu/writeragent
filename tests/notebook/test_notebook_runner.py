@@ -1172,6 +1172,93 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
     assert apply.call_count == 1
 
 
+def _patch_run_cells(state, exec_side_effect, flush, pump):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        with (
+            patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+            patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
+            patch("plugin.notebook.notebook_runner.execute_code", side_effect=exec_side_effect),
+            patch("plugin.notebook.notebook_runner.clear_cell_output"),
+            patch("plugin.notebook.notebook_runner.apply_run_result"),
+            patch("plugin.notebook.notebook_runner.update_in_prompt"),
+            patch("plugin.notebook.notebook_runner.save_registry"),
+            patch("plugin.notebook.writer_importer.flush_ui_idle", new=flush),
+            patch("plugin.framework.queue_executor.pump_ui_idle", new=pump),
+            patch("plugin.framework.uno_context.get_toolkit", return_value=object()),
+        ):
+            yield
+
+    return _ctx()
+
+
+def test_run_cells_chat_stop_under_drain_skips_remainder():
+    """Chat Stop during a drain-owned Run All skips cells that have not started.
+
+    flush_ui_idle does not pump while a drain owns VCL. The click is delivered
+    by pump_ui_idle, and chat Stop latches SendCancellation rather than the
+    notebook Event.
+    """
+    from plugin.framework.async_drain_guard import drain_owner_scope
+    from plugin.framework.queue_executor import SendCancellation, agent_session
+
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+    scope = SendCancellation()
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _pump(_toolkit, **_k):
+        scope.cancel()
+
+    def _flush(*_a, **_k):
+        raise AssertionError("flush_ui_idle must not run while a drain owns VCL")
+
+    with agent_session(scope), drain_owner_scope("stream"):
+        with _patch_run_cells(state, _exec, _flush, _pump):
+            result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert ran == ["x = 1"]
+    assert cells[1].execution_count is None
+    assert cells[2].execution_count is None
+
+
+def test_run_cells_already_cancelled_chat_skips_without_flush():
+    """A latched chat Stop skips the batch even when the between-cell flush is a no-op."""
+    from plugin.framework.async_drain_guard import drain_owner_scope
+    from plugin.framework.queue_executor import SendCancellation, agent_session
+
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    scope = SendCancellation()
+    scope.cancel()
+    flush = MagicMock()
+    pump = MagicMock()
+
+    def _exec(_ctx, _doc, code):
+        raise AssertionError(code)
+
+    with agent_session(scope), drain_owner_scope("stream"):
+        with _patch_run_cells(state, _exec, flush, pump):
+            result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 0
+    flush.assert_not_called()
+    pump.assert_not_called()
+
+
 def test_run_cells_busy_guard_skips_play_but_stop_works():
     ctx = MagicMock()
     cells = _three_cells()

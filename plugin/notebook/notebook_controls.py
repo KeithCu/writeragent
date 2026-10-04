@@ -850,18 +850,22 @@ def _install_doc_event_listener(ctx: Any) -> None:
                     doc = controller.getModel() if controller else getattr(Event, "Source", None)
 
                     if doc is not None and has_notebook_registry(doc):
-                        # File Open wire_all runs inside XFilter.filter() before XFormLayerAccess.getFormController exists (_form_and_container returns None,None).
-                        # Menu import has a live controller so the same call works.
-                        # This listener is the retry once the view exists. wire_all is idempotent (_wired_form_docs).
+                        # File Open wire_all runs inside XFilter.filter() before
+                        # XFormLayerAccess.getFormController exists
+                        # (_form_and_container returns None, None) and discards
+                        # the doc key. This listener is the retry once the view
+                        # exists. Menu import already has a live controller.
+                        # What was wrong: every OnViewCreated / OnLoad /
+                        # OnLoadFinished / OnNew removed the doc from
+                        # _wired_form_docs. wire_all then attached another
+                        # NotebookFormRunListener, so one ▶ click ran the cell
+                        # twice.
+                        # How: those events fire again after a successful wire
+                        # (load completion and Save As).
+                        # Why: leave the key. wire_all returns 1 when it is
+                        # already present, and still retries when a failed
+                        # wire discarded it.
                         ensure_form_design_mode_off(doc)
-
-                        # Re-wire if the document is re-opened or loaded.
-                        # Also we must make sure buttons remain wired across Save As paths and load completion.
-                        with _lock:
-                            # So we clear the doc key from _wired_form_docs before trying again.
-                            doc_key = _doc_key(doc)
-                            if doc_key in _wired_form_docs:
-                                _wired_form_docs.remove(doc_key)
                         wire_all_notebook_run_buttons(self._ctx, doc)
                 except Exception:
                     log.warning("notebook controls: doc-event handling failed", exc_info=True)

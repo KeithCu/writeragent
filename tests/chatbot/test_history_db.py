@@ -222,3 +222,29 @@ def test_sqlite_skips_undecodable_row(tmp_path):
     loaded = history.get_messages()
     assert [row["content"] for row in loaded] == ["keep", "also"]
     assert all("tool_calls" not in row for row in loaded)
+
+
+def test_json_history_replace_messages_replaces_the_file(tmp_path):
+    history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
+    history.add_message("user", "old")
+    history.add_message("assistant", "older", tool_calls=[{"id": "call-1"}])
+    history.replace_messages([{"role": "user", "content": "next", "tool_calls": [{"id": "call-2"}]}])
+    assert history.get_messages() == [{"role": "user", "content": "next", "tool_calls": [{"id": "call-2"}]}]
+    leftovers = [name for name in os.listdir(history.history_dir) if name.startswith(".history-")]
+    assert leftovers == []
+
+
+def test_sqlite_history_replace_messages_keeps_other_sessions(tmp_path):
+    from plugin.chatbot.history_db import SQLite3History
+
+    db_path = str(tmp_path / "history.db")
+    history = SQLite3History("sid", db_path)
+    other = SQLite3History("other", db_path)
+    history.add_message("user", "old")
+    other.add_message("user", "keep")
+    history.replace_messages([{"role": "assistant", "content": "next", "tool_calls": [{"id": "call-2"}]}])
+    assert history.get_messages() == [{"role": "assistant", "content": "next", "tool_calls": [{"id": "call-2"}]}]
+    assert other.get_messages() == [{"role": "user", "content": "keep"}]
+    history.replace_messages([])
+    assert history.get_messages() == []
+    assert other.get_messages() == [{"role": "user", "content": "keep"}]
