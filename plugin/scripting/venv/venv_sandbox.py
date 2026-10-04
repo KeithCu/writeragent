@@ -73,6 +73,49 @@ def sandbox_execute_active() -> bool:
     return _SANDBOX_EXECUTE.get()
 
 
+def _install_timeout_context_pool() -> None:
+    """Copy sandbox ContextVars onto the SIGALRM fallback thread.
+
+    What was wrong: ``local_python_executor.timeout`` runs the cell on a
+    ``ThreadPoolExecutor`` worker when SIGALRM cannot be installed (Windows,
+    or not the main thread). That worker starts with an empty context, so
+    ``current_sandbox_session_id`` and ``sandbox_execute_active`` were the
+    defaults and ``session_duckdb(other_id)`` opened another workbook.
+    Why this works: the vendored timeout looks up ``ThreadPoolExecutor`` on
+    its module when the fallback runs. Submit through ``copy_context().run``
+    so the worker sees the session ``run_sandboxed_code`` just set. The
+    vendored file stays unchanged; it must keep using that module global.
+    """
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+    from typing import TYPE_CHECKING
+
+    if TYPE_CHECKING:
+        from collections.abc import Callable
+        from concurrent.futures import Future
+
+    from plugin.contrib.smolagents import local_python_executor as lpe
+
+    current = lpe.ThreadPoolExecutor
+    if getattr(current, "_writeragent_copies_context", False):
+        return
+
+    class _ContextThreadPoolExecutor(ThreadPoolExecutor):
+        _writeragent_copies_context: bool = True
+
+        def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future[Any]:
+            ctx = contextvars.copy_context()
+            return super().submit(ctx.run, fn, *args, **kwargs)
+
+    # The vendored name is the stdlib class. This subclass is what timeout()
+    # constructs on the SIGALRM fallback path. setattr: mypy rejects assigning
+    # over a class object ("Cannot assign to a type").
+    setattr(lpe, "ThreadPoolExecutor", _ContextThreadPoolExecutor)
+
+
+_install_timeout_context_pool()
+
+
 def _reset_session_duckdb(session_id: str | None) -> None:
     """Close the Phase D DuckDB catalog for *session_id* (LibrePy has no module)."""
     try:

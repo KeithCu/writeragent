@@ -8,6 +8,8 @@ from __future__ import annotations
 import io
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.scripting.ipc import read_pickle_frame
 
 
@@ -155,6 +157,60 @@ def test_intermediate_llm_frame_forwards_cancellation_scope():
 
     assert handled is True
     assert mock_llm.call_args[0][0]["_cancellation_scope"] is scope
+
+
+def test_dispatch_llm_request_keeps_user_stopped_code():
+    """Stop during llm_request must arrive as code USER_STOPPED, not a bare error."""
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
+    from plugin.ppt_master.venv.ipc import UserStopped, _raise_if_stopped
+
+    client = MagicMock()
+    client.request_with_tools.side_effect = ToolExecutionError(
+        "LLM request stopped by user.", code="USER_STOPPED"
+    )
+    written: list[bytes] = []
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
+        patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
+    ):
+        handled = dispatch_worker_response(
+            {"type": "llm_request", "id": "stop-1", "messages": [{"role": "user", "content": "x"}]},
+            stdin_write=written.append,
+        )
+
+    assert handled is True
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "stop-1"
+    assert resp["code"] == "USER_STOPPED"
+    assert resp["message"] == "LLM request stopped by user."
+    with pytest.raises(UserStopped, match="LLM request stopped by user."):
+        _raise_if_stopped(resp)
+
+
+def test_dispatch_llm_request_omits_code_when_handler_has_none():
+    from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
+
+    written: list[bytes] = []
+    with patch(
+        "plugin.ppt_master.venv.host_rpc.handle_llm_request",
+        return_value={"status": "error", "message": "LLM request failed"},
+    ):
+        handled = dispatch_worker_response(
+            {"type": "llm_request", "id": "err-1", "messages": [{"role": "user", "content": "x"}]},
+            stdin_write=written.append,
+        )
+
+    assert handled is True
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["message"] == "LLM request failed"
+    assert "code" not in resp
 
 
 def test_handle_llm_request_returns_user_stopped():
