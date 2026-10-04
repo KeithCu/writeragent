@@ -669,6 +669,7 @@ class NotebookFormContainerListener(BaseContainerListener):
     _form_listener: NotebookFormRunListener
     _doc_key_val: str
     _form_level: bool
+    _container: Any
 
     def __init__(self, form_listener: NotebookFormRunListener, container: Any) -> None:
         self._form_listener = form_listener
