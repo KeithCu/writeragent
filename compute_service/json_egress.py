@@ -63,8 +63,15 @@ def _image_to_json(payload: dict[str, Any]) -> dict[str, Any]:
     return {"format": str(payload.get("format") or "png"), "data_b64": data_b64}
 
 
-def to_dumb_json_value(obj: Any) -> Any:
-    """Unpack desktop wire envelopes / ndarrays into plain JSON-friendly trees."""
+def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> Any:
+    """Unpack desktop wire envelopes / ndarrays into plain JSON-friendly trees.
+
+    ``drop_image_ids`` is the ``id()`` set of plots ``find_image_payloads``
+    already copied into the top-level ``images`` array. Only those nodes
+    become null. A bool used to drop every image at any depth once any
+    image was found. The finder stops at depth 12, so a deeper plot was
+    replaced with null and left out of ``images``.
+    """
     if obj is None or isinstance(obj, (str, bool, int)):
         return obj
     if isinstance(obj, float):
@@ -72,26 +79,31 @@ def to_dumb_json_value(obj: Any) -> Any:
     if _is_ndarray(obj):
         return _ndarray_to_lists(obj)
     if is_image_payload(obj):
+        if drop_image_ids is not None and id(obj) in drop_image_ids:
+            return None
         return _image_to_json(obj)
     if is_split_grid(obj):
         return sanitize_for_strict_json(host_unpack_data(obj, as_nested_list=True))
     if is_multi_data(obj):
         items = obj.get("items") or []
-        return [to_dumb_json_value(x) for x in items]
+        return [to_dumb_json_value(x, drop_image_ids=drop_image_ids) for x in items]
     if is_dataframe_payload(obj):
         # Kit spill wants a grid; return data matrix (and columns as sibling if useful).
         cols = obj.get("columns") or []
-        data = to_dumb_json_value(obj.get("data"))
+        data = to_dumb_json_value(obj.get("data"), drop_image_ids=drop_image_ids)
         if cols:
             return {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": list(cols), "data": data}
         return data
     if isinstance(obj, dict):
-        # Desktop may still leave nested envelopes.
+        # Desktop may still leave nested envelopes. is_image_payload
+        # already returned above, so this dict was not in the finder's
+        # list. Keep it inline. The old bool nulled it whenever any other
+        # plot had been found, and images[] never contained it.
         if obj.get("__wa_payload__") == "image":
             return _image_to_json(obj)
-        return {str(k): to_dumb_json_value(v) for k, v in obj.items()}
+        return {str(k): to_dumb_json_value(v, drop_image_ids=drop_image_ids) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [to_dumb_json_value(x) for x in obj]
+        return [to_dumb_json_value(x, drop_image_ids=drop_image_ids) for x in obj]
     # numpy scalars that slipped through
     mod = getattr(type(obj), "__module__", "")
     if mod == "numpy":
@@ -131,10 +143,13 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
             images.append(_image_to_json(item if isinstance(item, dict) else {}))
         result_out = None
     else:
-        # Collect nested images without requiring them as the sole result
-        for img in find_image_payloads(result):
+        # Collect nested images without requiring them as the sole result.
+        # Null only the objects the finder returned. It stops at depth 12;
+        # dropping every image nulled a deeper plot and omitted it from images.
+        found = find_image_payloads(result)
+        for img in found:
             images.append(_image_to_json(img))
-        result_out = to_dumb_json_value(result)
+        result_out = to_dumb_json_value(result, drop_image_ids={id(img) for img in found})
 
     out = {"status": "ok", "result": result_out, "stdout": payload.get("stdout") or ""}
     if images:
