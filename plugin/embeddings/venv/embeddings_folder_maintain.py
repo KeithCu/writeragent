@@ -230,7 +230,6 @@ def _cold_build(
             }
         )
         if not rows:
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
         result = _ingest_rows(
@@ -308,6 +307,8 @@ def _incremental_refresh(
                 "mode": "incremental",
             }
         )
+        if not chunks and not to_delete:
+            continue
         if to_delete:
             hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
             _ingest_rows(
@@ -321,7 +322,8 @@ def _incremental_refresh(
                 heartbeat_fn=hb.force,
             )
             deleted += len(to_delete)
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
+            if chunks:
+                sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
         if to_index:
             phase = "embed" if build_vectors else "index"
             result = _ingest_rows(
