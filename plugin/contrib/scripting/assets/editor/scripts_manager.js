@@ -348,11 +348,23 @@
     }
   }
 
+  // Bugfix: scripts_list keys This Document with the [Doc] display name
+  // (document_script_display_name / DOC_SCRIPT_DISPLAY_PREFIX). New / Save As
+  // still passes the raw name the user typed. That lookup missed the row, so
+  // confirm() never ran and save_document_script replaced the existing script.
+  // A name that is already a display key (Save As prefills the dropdown value)
+  // is left unchanged. My Scripts keys stay the raw name.
+  function documentScriptListKey(name) {
+    var prefix = "[Doc] ";
+    return name.indexOf(prefix) === 0 ? name : prefix + name;
+  }
+
   function scriptExistsInSection(sectionId, name) {
+    var lookup = sectionId === "document" ? documentScriptListKey(name) : name;
     for (var s = 0; s < scriptSections.length; s++) {
       if (scriptSections[s].id === sectionId) {
         var scripts = scriptSections[s].scripts || {};
-        return scripts[name] !== undefined;
+        return scripts[lookup] !== undefined;
       }
     }
     return false;

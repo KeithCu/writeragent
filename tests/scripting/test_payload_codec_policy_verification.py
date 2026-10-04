@@ -22,6 +22,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
+    DEAL_MAX_SOURCE,
 )
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
@@ -31,6 +32,7 @@ from plugin.scripting.payload_codec import (
     PAYLOAD_SPLIT_GRID,
     cell_count,
     host_pack_split_grid,
+    host_unpack_data,
     is_calc_range_payload,
     is_dataframe_payload,
     is_image_payload,
@@ -186,13 +188,12 @@ def test_zip_code_string_not_coercible() -> None:
     assert is_numeric_grid([[1.0, 2.0], [3.0, None]]) is True
 
 
-def test_is_numeric_coercible_pre_rejects_unbounded_any() -> None:
-    if not deal_pre_present(is_numeric_coercible):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        is_numeric_coercible([1])
-    with pytest.raises(deal.PreContractError):
-        is_numeric_coercible({"a": 1})
+def test_is_numeric_coercible_odd_values_return_false() -> None:
+    """A list, a dict, or non-ASCII text is not coercible. It must not PreContract."""
+    assert is_numeric_coercible([1]) is False
+    assert is_numeric_coercible({"a": 1}) is False
+    assert is_numeric_coercible("café") is False
+    assert is_numeric_coercible("x" * (DEAL_MAX_SOURCE + 1)) is False
     assert is_numeric_coercible(None) is True
     assert is_numeric_coercible(True) is True
     assert is_numeric_coercible(1) is True
@@ -246,15 +247,31 @@ def test_envelope_detectors_reject_malformed() -> None:
     assert is_calc_range_payload({"__wa_payload__": PAYLOAD_CALC_RANGE, "shape": [1, 1]}) is False
 
 
-def test_envelope_detector_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(is_image_payload):
-        pytest.skip("@deal.pre stripped in release bundle")
+def test_plain_dict_over_shape_dim_unpacks_with_deal() -> None:
+    """A word-frequency dict bigger than SHAPE_DIM is an ordinary result.
+
+    Detector @deal.pre used to reject len(dict) > DEAL_MAX_SHAPE_DIM, and
+    host_unpack_data's pre called that deal-wrapped detector first. Both raised
+    PreContractError (AssertionError) before the plain-dict path. compute_service
+    installs deal, so HTTP egress died; release OXTs strip deal and already worked.
+    """
+    from compute_service.json_egress import normalize_execute_response, to_dumb_json_value
+
     too_many = {f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}
-    with pytest.raises(deal.PreContractError):
-        is_image_payload(too_many)
-    with pytest.raises(deal.PreContractError):
-        is_split_grid(too_many)
+    for det in _DETECTORS:
+        assert det(too_many) is False
+    assert host_unpack_data(too_many) == too_many
+    assert to_dumb_json_value(too_many) == too_many
+    out = normalize_execute_response({"status": "ok", "result": too_many, "stdout": ""})
+    assert out["status"] == "ok"
+    assert out["result"] == too_many
     assert is_image_payload({"a": 1}) is False
+    # datetime / bytes are ordinary nested results. The type-list pre used
+    # to raise on the recursive call.
+    from datetime import datetime
+
+    nested = {"when": datetime(2026, 1, 2), "blob": b"abc"}
+    assert host_unpack_data(nested) == nested
 
 
 @given(

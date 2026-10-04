@@ -39,6 +39,14 @@ def test_pcm_energy_tone_is_above_threshold():
     assert peak > 0.2
 
 
+def test_pcm_energy_longer_than_argv_uses_every_sample():
+    from plugin.framework.deal_shim import DEAL_MAX_ARGV
+
+    pcm = _pcm_silence(DEAL_MAX_ARGV) + _pcm_tone(1, amplitude=32000)
+    _rms, peak = pcm_energy_int16(pcm)
+    assert peak > 0.9
+
+
 def test_pcm_energy_uses_full_pcm_not_truncated():
     """A later loud sample must count; CrossHair used to slice to 8 bytes."""
     pcm = _pcm_silence(8) + _pcm_tone(1, amplitude=32000)

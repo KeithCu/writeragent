@@ -5,7 +5,10 @@
 """Tests for Calc formula parity helpers (plugin.scripting.calc_functions / calc)."""
 
 from __future__ import annotations
+
+import datetime as dt
 import math
+import time
 
 import plugin.scripting.calc_functions as calc
 
@@ -71,6 +74,8 @@ def test_tier_abc_helpers():
     assert calc.averagea([10.0, "", 20.0]) == 10.0
     assert calc.even(3.0) == 4.0
     assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
+    # TEXT() import calls calc.fmt. 46181 is 2026-06-08.
+    assert calc.fmt(46181, "MMMM") == "June"
 
     assert calc.filter([1.0, 2.0, 3.0, 4.0, 5.0], [True, False, True, False, True]) == [1.0, 3.0, 5.0]
     assert calc.sort([3.0, 1.0, 2.0], 1, -1) == [3.0, 2.0, 1.0]
@@ -206,6 +211,20 @@ def test_15_more_helpers():
     assert calc.dmax(db, "Height", crit) == 18.0
     assert calc.dmin(db, "Height", crit) == 14.0
 
+
+def test_dsum_numeric_looking_header_is_a_name():
+    """A header 2024 (Calc float) and field \"2024\" name the column.
+
+    int(float(\"2024\"))-1 used to index off the grid, and str(2024.0) was
+    \"2024.0\", so the name missed and DSUM returned 0.
+    """
+    db = [[2024.0, "Name"], [5.0, "A"], [15.0, "B"]]
+    crit = [["2024"], [">10"]]
+    assert calc.dsum(db, "2024", crit) == 15.0
+    assert calc.dsum(db, 1, crit) == 15.0
+    named = [["2024", "Name"], [5.0, "A"], [15.0, "B"]]
+    assert calc.dsum(named, "2024", crit) == 15.0
+
 def test_financial_group_a():
     # Basic math validation - dates represented as strings/floats are accepted
     assert not math.isnan(calc.accrint(43831, 43862, 43891, 0.05, 1000, 2))
@@ -224,8 +243,10 @@ def test_financial_group_a():
     # couppcd returns a date ordinal (which we stubbed as nan for simplified implementation)
     assert calc.couppcd(43831, 43983, 2) == 43803.0
 
-    assert not math.isnan(calc.cumipmt(0.05/12, 60, 100000, 1, 12, 0))
-    assert not math.isnan(calc.cumprinc(0.05/12, 60, 100000, 1, 12, 0))
+    assert abs(calc.cumipmt(0.09 / 12, 360, 125000, 1, 12, 0) - (-11215.34288)) < 1e-2
+    assert abs(calc.cumprinc(0.09 / 12, 360, 125000, 1, 12, 0) - (-853.99637)) < 1e-2
+    # XNPV: cash flows at dates
+    assert abs(calc.xnpv(0.1, [-10000, 2750, 4250, 3250, 2750], [43831, 43900, 44000, 44100, 44200]) - 2294.3573) < 1e-2
 
     assert not math.isnan(calc.db(10000, 1000, 5, 1))
     assert not math.isnan(calc.ddb(10000, 1000, 5, 1))
@@ -333,6 +354,9 @@ def test_bahttext():
 
 def test_clean():
     assert calc.clean("A" + chr(7) + "B" + chr(10)) == "AB"
+    # DEL (U+007F) is a CLEAN character. Space (32) stays.
+    assert calc.clean("A" + chr(127) + "B" + chr(31)) == "AB"
+    assert calc.clean("A B") == "A B"
     assert isinstance(calc.clean(float("nan")), float) and math.isnan(calc.clean(float("nan")))
 
 def test_dollar():
@@ -360,10 +384,34 @@ def test_t():
 def test_textafter():
     assert calc.textafter("a-b-c", "-") == "b-c"
     assert calc.textafter("a-b-c", "-", 2) == "c"
+    assert calc.textafter("a-b-c", "-", -1) == "c"
+    assert calc.textafter("a-b-c", "-", -2) == "b-c"
+    assert calc.textafter("Foo-Bar-Baz", "bar", 1, match_mode=1) == "-Baz"
+    # match_end when landing on the end returns ""
+    assert calc.textafter("a-b-c", "-", 3, match_end=1) == ""
+    assert calc.textafter("a-b-c", "-", -3, match_end=1) == ""
+    # Miss returns if_not_found
+    assert calc.textafter("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
+    assert calc.textafter("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
+    # Instance 0 or invalid returns NaN
+    assert math.isnan(calc.textafter("a-b-c", "-", 0))
+    assert math.isnan(calc.textafter("a-b-c", "-", "invalid"))
 
 def test_textbefore():
     assert calc.textbefore("a-b-c", "-") == "a"
     assert calc.textbefore("a-b-c", "-", 2) == "a-b"
+    assert calc.textbefore("a-b-c", "-", -1) == "a-b"
+    assert calc.textbefore("a-b-c", "-", -2) == "a"
+    assert calc.textbefore("Foo-Bar-Baz", "bar", 1, match_mode=1) == "Foo-"
+    # match_end when landing on the end returns the original string
+    assert calc.textbefore("a-b-c", "-", 3, match_end=1) == "a-b-c"
+    assert calc.textbefore("a-b-c", "-", -3, match_end=1) == "a-b-c"
+    # Miss returns if_not_found
+    assert calc.textbefore("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
+    assert calc.textbefore("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
+    # Instance 0 or invalid returns NaN
+    assert math.isnan(calc.textbefore("a-b-c", "-", 0))
+    assert math.isnan(calc.textbefore("a-b-c", "-", "invalid"))
 
 def test_textsplit():
     assert calc.textsplit("a-b-c", "-") == [["a", "b", "c"]]
@@ -415,8 +463,8 @@ def test_group_i_functions():
     assert calc.imsec("1+2i") != "#VALUE!"
     assert calc.imsech("1+2i") != "#VALUE!"
     assert calc.imsqrt("1+2i") != "#VALUE!"
-    assert calc.imsub("1+2i", "3+4i") == "-2.0-2.0i"
-    assert calc.imsum("1+2i", "3+4i") == "4.0+6.0i"
+    assert calc.imsub("1+2i", "3+4i") == "-2-2i"
+    assert calc.imsum("1+2i", "3+4i") == "4+6i"
 
 
 def test_isblank_isna_ifna_are_not_the_same_check():
@@ -454,4 +502,903 @@ def test_yearfrac_basis_matches_days360_and_can_be_negative():
     from plugin.scripting.venv.calc_functions_a_c import _year_frac
 
     assert _year_frac(float(start), float(end), 0) == calc.yearfrac(start, end, 0)
+
+
+def test_avedev_ignores_text_and_logicals():
+    # Mean of 1,2,3 is 2; mean absolute deviation is 2/3. Text and TRUE are ignored.
+    assert calc.avedev([1.0, 2.0, 3.0]) == 2.0 / 3.0
+    assert calc.avedev([1.0, "x", "", 2.0, True, 3.0]) == 2.0 / 3.0
+    assert math.isnan(calc.avedev(["x", True, ""]))
+
+
+def test_address_bad_input_returns_value_error():
+    assert calc.address(1, 1) == "$A$1"
+    assert calc.address("x", 1) == "#VALUE!"
+    assert calc.address(1, float("inf")) == "#VALUE!"
+    assert calc.address(float("nan"), 1) == "#VALUE!"
+    assert calc.address(1, 1, float("inf")) == "#VALUE!"
+    # Row/col below 1 after int() truncation. 0.9 becomes 0.
+    assert calc.address(0, 1) == "#VALUE!"
+    assert calc.address(1, 0) == "#VALUE!"
+    assert calc.address(-1, 1) == "#VALUE!"
+    assert calc.address(1, -5) == "#VALUE!"
+    assert calc.address(0.9, 1) == "#VALUE!"
+    assert calc.address(1.9, 2.8) == "$B$1"
+
+
+def test_averageifs_and_countifs_reject_odd_predicates():
+    assert calc.averageifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) == "#VALUE!"
+    assert calc.countifs([1.0, 2.0], ">0", [1.0, 2.0]) == "#VALUE!"
+    assert calc.countifs([1.0, 2.0, 3.0], ">1") == 2.0
+    assert calc.averageifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], ">1") == 2.5
+
+
+def test_bit_char_choose_combin_inf_does_not_raise():
+    assert math.isnan(calc.bitand(float("inf"), 1))
+    assert math.isnan(calc.bitlshift(1, float("inf")))
+    assert calc.bitlshift(8, -1) == 4.0
+    assert math.isnan(calc.bitor(1, float("inf")))
+    assert math.isnan(calc.bitrshift(float("inf"), 1))
+    assert calc.bitrshift(8, -1) == 16.0
+    assert math.isnan(calc.bitxor(float("inf"), 1))
+    assert calc.bitand(5, 3) == 1.0
+    # Calc shifts the other way. BITLSHIFT(8, -1) is 4, BITRSHIFT(8, -1) is 16.
+    assert calc.bitlshift(1, 2) == 4.0
+    assert calc.bitrshift(8, 1) == 4.0
+    assert calc.char(float("inf")) == "#VALUE!"
+    assert calc.char(256) == "#VALUE!"
+    assert calc.char("nope") == "#VALUE!"
+    assert calc.char(65) == "A"
+    assert calc.choose(float("inf"), "a", "b") is None
+    assert calc.choose(2, "a", "b") == "b"
+    assert math.isnan(calc.combin(float("inf"), 2))
+    assert math.isnan(calc.combina(5, float("inf")))
+    assert calc.combin(5, 2) == 10.0
+
+
+def test_aggregate_error_options_and_text():
+    data = [1.0, 2.0, float("nan"), 3.0]
+    # Ignore-error options are 2, 3, 6, 7 (Microsoft AGGREGATE). Sum is 6.
+    for opt in (2, 3, 6, 7):
+        assert calc.aggregate(9, opt, data) == 6.0
+    # Hidden-row-only options 1 and 5 do not ignore errors.
+    for opt in (1, 4, 5):
+        assert math.isnan(calc.aggregate(9, opt, data))
+    # Text must not fail the whole call. SUM ignores it; COUNTA counts it.
+    assert calc.aggregate(9, 4, [1.0, "x", "", 3.0]) == 4.0
+    assert calc.aggregate(3, 4, [1.0, "x", "", 3.0]) == 3.0
+    assert calc.aggregate(3, 6, [1.0, "x", float("nan")]) == 2.0
+    assert calc.aggregate(3, 4, [1.0, "x", float("nan")]) == 3.0
+    assert calc.aggregate(9, 4, [1.0, 2.0, 3.0]) == 6.0
+    # Ignore-errors that strips every value. Calc PRODUCT and SUM are 0.
+    # np.prod([]) is 1, so the empty product has to be replaced.
+    assert calc.aggregate(6, 6, [float("nan"), float("nan")]) == 0.0
+    assert calc.aggregate(9, 2, [float("nan")]) == 0.0
+    assert calc.aggregate(6, 6, [2.0, float("nan"), 3.0]) == 6.0
+    assert calc.aggregate(9, 2, [1.0, float("nan")]) == 1.0
+
+
+def test_base_returns_num_error_token():
+    assert calc.base(255, 16) == "FF"
+    assert calc.base(-1, 10) == "#NUM!"
+    assert calc.base(10, 1) == "#NUM!"
+    assert calc.base("x", 10) == "#NUM!"
+    assert calc.base(float("inf"), 10) == "#NUM!"
+    assert calc.base(15, 16, 4) == "000F"
+
+
+def _excel_serial(year: int, month: int, day: int) -> float:
+    import datetime as dt
+
+    return float(dt.date(year, month, day).toordinal() - 693594)
+
+
+def test_datedif_units_match_libreoffice_and_do_not_raise():
+    # YD used to call datetime.date(end.year, start.month, start.day) outside
+    # the try. Feb 29 into a non-leap end year raised ValueError.
+    start = _excel_serial(2020, 2, 29)
+    end = _excel_serial(2021, 3, 1)
+    assert calc.datedif(start, end, "YD") == 0.0
+    # Anniversary after the end date in that year counts across the boundary.
+    assert calc.datedif(_excel_serial(2020, 12, 31), _excel_serial(2021, 1, 15), "YD") == 15.0
+
+    # M drops the incomplete month (day-of-month not yet reached).
+    assert calc.datedif(_excel_serial(2020, 1, 31), _excel_serial(2020, 2, 28), "M") == 0.0
+    assert calc.datedif(_excel_serial(2020, 1, 15), _excel_serial(2020, 2, 15), "M") == 1.0
+
+    # YM wraps across the year instead of going negative.
+    assert calc.datedif(_excel_serial(2020, 3, 15), _excel_serial(2021, 2, 10), "YM") == 10.0
+    assert calc.datedif(_excel_serial(2020, 12, 31), _excel_serial(2021, 1, 15), "YM") == 0.0
+
+    # MD borrows the previous month (ScGetDateDif). Naive day subtraction
+    # was negative whenever the end day was smaller.
+    assert calc.datedif(_excel_serial(2012, 1, 28), _excel_serial(2012, 3, 1), "MD") == 2.0
+    assert calc.datedif(_excel_serial(2011, 1, 29), _excel_serial(2011, 3, 1), "MD") == 0.0
+    assert calc.datedif(_excel_serial(2023, 1, 15), _excel_serial(2023, 3, 10), "MD") == 23.0
+    assert calc.datedif(_excel_serial(2021, 1, 31), _excel_serial(2021, 2, 28), "MD") == 28.0
+    # Day 31 rolled through a short February still matches LO (can be negative).
+    assert calc.datedif(_excel_serial(2021, 1, 31), _excel_serial(2021, 3, 1), "MD") == -2.0
+
+    assert calc.datedif(start, end, "D") == (_excel_serial(2021, 3, 1) - start)
+    assert math.isnan(calc.datedif("bad", end, "D"))
+    assert math.isnan(calc.datedif(end, start, "D"))
+
+
+def test_even_rounds_away_from_zero_and_rejects_text():
+    assert calc.even(2.5) == 4.0
+    assert calc.even(-2.5) == -4.0
+    assert calc.even(2) == 2.0
+    assert calc.even(-2) == -2.0
+    assert calc.even(3.0) == 4.0
+    assert calc.even(-3) == -4.0
+    assert calc.even(0.1) == 2.0
+    assert calc.even(-0.1) == -2.0
+    assert math.isnan(calc.even("x"))
+    assert math.isnan(calc.even(float("nan")))
+
+
+def test_filter_shape_mismatch_is_value_error():
+    assert calc.filter([1.0, 2.0, 3.0, 4.0, 5.0], [True, False, True, False, True]) == [1.0, 3.0, 5.0]
+    # Shorter include used to IndexError on the boolean index.
+    assert calc.filter([1.0, 2.0, 3.0], [True, False]) == "#VALUE!"
+    # Column-shaped include against a wider range is the same IndexError.
+    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False], [True]]) == "#VALUE!"
+
+
+def test_numeric_coercions_return_nan_not_raise():
+    assert math.isnan(calc.forecast("x", [1.0, 2.0], [1.0, 2.0]))
+    assert math.isnan(calc.forecast(6, ["a", "b"], [1.0, 2.0]))
+    assert calc.forecast(6, [1.0, 2.0, 3.0, 4.0, 5.0], [1.0, 2.0, 3.0, 4.0, 5.0]) == 6.0
+
+    assert math.isnan(calc.fv("bad", 12, -100))
+    assert abs(calc.fv(0.05 / 12, 60, -200, -10000) - 26434.80) < 1.0
+
+    assert math.isnan(calc.geomean(["a", "b"]))
+    assert abs(calc.geomean([4.0, 9.0]) - 6.0) < 1e-9
+    assert math.isnan(calc.harmean(["a", "b"]))
+    assert abs(calc.harmean([1.0, 4.0]) - 1.6) < 1e-9
+
+
+def test_large_text_cells_and_bad_k_return_nan():
+    # float() on a text cell used to raise ValueError out of LARGE.
+    assert math.isnan(calc.large(["a", "b"], 1))
+    assert calc.large(["a", 5.0, "b", 1.0], 1) == 5.0
+    assert calc.large([1.0, 5.0, 3.0, 4.0, 2.0], 2) == 4.0
+    assert math.isnan(calc.large([1.0, 2.0], "k"))
+
+
+def test_complex_overflow_returns_value_error():
+    # cmath / complex ** raise OverflowError, which the helpers did not catch.
+    assert calc.imexp("1000") == "#VALUE!"
+    assert calc.imsinh("1000") == "#VALUE!"
+    assert calc.imcosh("1000") == "#VALUE!"
+    assert calc.imsin("1000i") == "#VALUE!"
+    assert calc.imcos("1000i") == "#VALUE!"
+    # Secant/cosecant call the same cmath functions, then take a reciprocal.
+    # OverflowError used to escape before the division.
+    assert calc.imcsc("1000i") == "#VALUE!"
+    assert calc.imcsch("1000") == "#VALUE!"
+    assert calc.imsec("1000i") == "#VALUE!"
+    assert calc.imsech("1000") == "#VALUE!"
+    assert calc.impower("2", 10000) == "#VALUE!"
+    assert calc.imexp("0") == "1"
+    assert calc.imsin("0") == "0"
+    assert calc.imcsc("1") != "#VALUE!"
+    assert calc.imsec("1") != "#VALUE!"
+
+
+def test_lookup_short_result_vector_is_na():
+    # Index 2 into a length-2 result vector used to raise IndexError.
+    assert calc.lookup(3, [1, 2, 3], [10, 20]) == "#N/A"
+    assert calc.lookup(2, [1, 2, 3], [10, 20]) == 20
+    assert calc.lookup(0, [1, 2, 3], [10, 20]) is None
+
+
+def test_ipmt_beginning_of_period_matches_calc():
+    # GetIpmt pay-in-advance: period 1 is 0; later periods use FV(per-2, advance).
+    # The old formula agreed through per=2 and drifted from per=3.
+    assert calc.ipmt(0.1, 1, 3, 8000, 0, 1) == 0.0
+    assert math.isclose(calc.ipmt(0.1, 2, 3, 8000, 0, 1), -507.5528700906347)
+    assert math.isclose(calc.ipmt(0.1, 3, 3, 8000, 0, 1), -265.86102719033266)
+    # End-of-period first interest is still -pv*rate.
+    assert math.isclose(calc.ipmt(0.1, 1, 3, 8000, 0, 0), -800.0)
+
+
+def test_numpy_financial_annuity_keeps_excel_errors():
+    # numpy-financial ipmt returns 0 when per > nper; Excel/Calc are #NUM!.
+    assert math.isnan(calc.ipmt(0.1, 4, 3, 8000))
+    # Fractional per is truncated, not interpolated.
+    assert math.isclose(calc.ipmt(0.1, 1.9, 3, 8000), calc.ipmt(0.1, 1, 3, 8000))
+    # No payment, or a payment that never amortizes, is #NUM! rather than ±inf.
+    assert math.isnan(calc.nper(0, 0, 1000))
+    assert math.isnan(calc.nper(0.01, 0, 1000))
+    # nper == 0 used to raise ZeroDivisionError. numpy-financial returns ±inf.
+    assert math.isnan(calc.pmt(0.1, 0, 1000))
+    assert math.isnan(calc.pmt("x", 12, 1000))
+
+
+def test_irr_honors_guess_when_two_real_roots():
+    # numpy-financial 1.1 ignores guess and returns ~0.089 for both starts.
+    values = [-5, 10.5, 1, -8, 1]
+    low = calc.irr(values, 0.1)
+    high = calc.irr(values, 0.5)
+    assert math.isclose(low, 0.08859833852, rel_tol=1e-6)
+    assert math.isclose(high, 0.70955952768, rel_tol=1e-6)
+
+
+def test_countif_numeric_operator_does_not_count_text():
+    # "abc" > "5" is lexicographic True; numeric ">" must not count text.
+    assert calc.countif(["abc"], ">5") == 0.0
+    assert calc.countif(["abc", 6, 4], ">5") == 1.0
+    assert calc.countif(["abc"], "<>5") == 1.0
+    assert calc.countif(["zzz"], ">aaa") == 1.0
+
+
+def test_mround_halves_away_from_zero():
+    assert calc.mround(2.5, 1) == 3.0
+    assert calc.mround(-2.5, -1) == -3.0
+    assert calc.mround(1.5, 1) == 2.0
+    assert calc.mround(1.23, 0.5) == 1.0
+
+
+def test_mround_zero_multiple_is_nan():
+    # Excel/Calc MROUND(n, 0) is #DIV/0!. The helper used to return 0.0.
+    assert math.isnan(calc.mround(10, 0))
+    assert math.isnan(calc.mround(0, 0))
+    assert math.isnan(calc.mround(-4, 0.0))
+    assert calc.mround(10, 2) == 10.0
+
+
+def test_logest_nonpositive_y_is_value_error():
+    # np.log(y<=0) is -inf/nan and used to fit garbage coefficients.
+    assert calc.logest([1, 0, 4]) == "#VALUE!"
+    assert calc.logest([1, -2, 4]) == "#VALUE!"
+    assert calc.logest([0]) == "#VALUE!"
+    assert calc.logest([[1.0], [0.0], [4.0]]) == "#VALUE!"
+    assert calc.logest(["1", "2", "4"]) == "#VALUE!"
+    coeffs = calc.logest([1, 2, 4, 8, 16])
+    assert math.isclose(coeffs[0], 2.0)
+    assert math.isclose(coeffs[1], 0.5)
+
+
+def test_mode_na_without_duplicates_and_lowest_tie():
+    assert math.isnan(calc.mode([1, 2, 3]))
+    assert calc.isna(calc.mode([1, 2, 3])) is True
+    assert calc.mode([2, 2, 1, 1]) == 1
+    assert calc.mode([1, 1, 2]) == 1
+
+
+def test_imlog2_zero_is_value_error():
+    # cmath.log(0, 2) is (-inf+nanj), which used to stringify as '-infnani'.
+    assert calc.imlog2("0") == "#VALUE!"
+    assert calc.imln("0") == "#VALUE!"
+    assert calc.imlog10("0") == "#VALUE!"
+    assert calc.imlog2("8") == "3"
+
+
+def _calc_serial(year: int, month: int, day: int) -> int:
+    import datetime as dt
+
+    return dt.date(year, month, day).toordinal() - 693594
+
+
+def test_text_numeric_formats_round_half_away_and_keep_separators():
+    assert calc.text(1234.5, "0.00") == "1234.50"
+    assert calc.text(1234.5, "0") == "1235"
+    assert calc.text(1234.5, "#,##0") == "1,235"
+    from plugin.scripting.venv.calc_functions_t_z import fmt
+
+    assert fmt(1234.5, "0.00") == "1234.50"
+    assert calc.text(1.5, "0") == "2"
+    assert calc.text(2.5, "0") == "3"
+    assert calc.text(-1.5, "0") == "-2"
+    assert calc.text(-1234.5, "0.00") == "-1234.50"
+    assert calc.text(-1234.5, "#,##0") == "-1,235"
+    assert calc.text(0.4, "0") == "0"
+    assert calc.text(-0.4, "0") == "0"
+    assert calc.text(1234.567, "0.00") == "1234.57"
+    assert calc.text(999.5, "#,##0") == "1,000"
+    assert calc.text("abc", "0") == "abc"
+    # Non-numeric specs are unchanged. 45292 is 2024-01-01 on the Calc epoch.
+    assert calc.text(45292, "MMMM") == "January"
+
+
+def test_type_errors_are_16_and_hash_text_is_text():
+    assert calc.type(1) == 1.0
+    assert calc.type(True) == 4.0
+    assert calc.type("hello") == 2.0
+    assert calc.type("") == 2.0
+    assert calc.type("#hashtag") == 2.0
+    assert calc.type(None) == 1.0
+    for token in ("#N/A", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#NULL!"):
+        assert calc.type(token) == 16.0
+    assert calc.type(float("nan")) == 16.0
+    assert calc.type([1.0, 2.0]) == 64.0
+
+
+def test_time_wraps_modulo_one_day_and_rejects_negative_remainder():
+    assert calc.time(24, 0, 0) == 0.0
+    assert calc.time(48, 0, 0) == 0.0
+    assert calc.time(0, 0, 0) == 0.0
+    assert math.isclose(calc.time(25, 0, 0), 1.0 / 24.0)
+    assert math.isclose(calc.time(12, 0, 0), 0.5)
+    assert math.isclose(calc.time(1, -30, 0), 0.5 / 24.0)
+    assert math.isclose(calc.time(0, 90, 0), 1.5 / 24.0)
+    assert calc.time(23, 59, 60) == 0.0
+    assert math.isclose(calc.time(-1, 120, 0), 1.0 / 24.0)
+    assert calc.time(-0.5, 30, 0) == 0.0
+    assert math.isclose(calc.time(1.9, 0, 0), 1.9 / 24.0)
+    assert math.isnan(calc.time(-1, 0, 0))
+    assert math.isnan(calc.time(0, -1, 0))
+    assert math.isnan(calc.time(0, 0, -0.5))
+    assert math.isnan(calc.time("x", 0, 0))
+
+
+def test_trimmean_text_or_bad_percent_is_nan():
+    assert math.isnan(calc.trimmean(["a", 1.0, 2.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, "#VALUE!", 3.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, 2.0, 3.0], "bad"))
+    assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.4) == 3.0
+    # dtype=float used to coerce these, then ~isnan dropped NaN/None and
+    # averaged the rest. Excel TRIMMEAN is #VALUE! for any non-numeric cell.
+    assert math.isnan(calc.trimmean([1.0, "2", 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, True, 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, None, 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, float("nan"), 3.0, 4.0, 5.0], 0.2))
+    assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.2) == 3.0
+
+
+def test_weekday_return_types_and_weeknum_modes():
+    sunday = _calc_serial(2023, 1, 1)
+    monday = _calc_serial(2023, 1, 2)
+    assert calc.weekday(sunday, 1) == 1.0
+    assert calc.weekday(sunday, 2) == 7.0
+    assert calc.weekday(sunday, 3) == 6.0
+    assert calc.weekday(monday, 3) == 0.0
+    assert calc.weekday(sunday, 11) == 7.0
+    assert calc.weekday(sunday, 12) == 6.0
+    assert calc.weekday(sunday, 13) == 5.0
+    assert calc.weekday(sunday, 17) == 1.0
+    assert calc.weekday(_calc_serial(2023, 1, 7), 16) == 1.0
+    assert math.isnan(calc.weekday(sunday, 4))
+
+    jan1_1995 = _calc_serial(1995, 1, 1)
+    assert calc.weeknum(jan1_1995, 1) == 1.0
+    assert calc.weeknum(jan1_1995, 2) == 1.0
+    assert calc.weeknum(jan1_1995, 21) == 52.0
+    assert calc.weeknum(jan1_1995, 150) == calc.isoweeknum(jan1_1995)
+    assert calc.weeknum(_calc_serial(1999, 1, 1), 21) == 53.0
+    dec_2023 = _calc_serial(2023, 12, 31)
+    assert calc.weeknum(dec_2023, 1) == 1.0
+    assert calc.weeknum(dec_2023, 2) == 53.0
+    assert calc.weeknum(dec_2023, 21) == 52.0
+    dec_2016 = _calc_serial(2016, 12, 31)
+    assert calc.weeknum(dec_2016, 1) == 53.0
+    assert calc.weeknum(dec_2016, 2) == 1.0
+    # 2024-01-07 is a Sunday. Sunday-start (1) is week 2; Monday-start (2) is week 1.
+    # Tuesday-start (12) is also week 2: Jan 1 (Monday) still falls in that week.
+    jan7_2024 = _calc_serial(2024, 1, 7)
+    assert calc.weeknum(jan7_2024, 1) == 2.0
+    assert calc.weeknum(jan7_2024, 2) == 1.0
+    assert calc.weeknum(jan7_2024, 12) == 2.0
+    assert math.isnan(calc.weeknum(jan1_1995, 3))
+
+
+def test_unique_by_col_and_exactly_once():
+    assert calc.unique([1.0, 2.0, 1.0, 3.0, 2.0]) == [1.0, 2.0, 3.0]
+    assert calc.unique([1.0, 2.0, 1.0, 3.0, 2.0], unique_only=True) == [3.0]
+    # One row is one row. The old falsy by_col path flattened the cells.
+    assert calc.unique([[1, 2, 1, 3]], by_col=False) == [[1, 2, 1, 3]]
+    assert calc.unique([[1, 2], [3, 4], [1, 2], [5, 6]]) == [[1, 2], [3, 4], [5, 6]]
+    assert calc.unique([[1, 2], [3, 4], [1, 2], [5, 6]], unique_only=True) == [[3, 4], [5, 6]]
+    assert calc.unique([[1], [1], [2]]) == [[1], [2]]
+    columns = [[1, 3, 1, 5], [2, 4, 2, 6]]
+    assert calc.unique(columns, by_col=True) == [[1, 3, 5], [2, 4, 6]]
+    assert calc.unique(columns, by_col=True, unique_only=True) == [[3, 5], [4, 6]]
+    assert calc.unique(columns, 1, 1) == [[3, 5], [4, 6]]
+
+
+def test_xmatch_wildcards_and_xlookup_horizontal_scalar():
+    names = ["apple", "pear", "apricot", "banana"]
+    assert calc.xmatch("ap*", names, 2) == 1.0
+    assert calc.xmatch("a?ple", names, 2) == 1.0
+    assert calc.xmatch("a*", names, 2, -1) == 3.0
+    assert math.isnan(calc.xmatch("z*", names, 2))
+    # Same wildcard helper as xlookup, including its case-sensitive match.
+    assert calc.xlookup("ap*", names, [10, 20, 30, 40], "missing", 2) == 10
+    assert math.isnan(calc.xmatch("Ap*", names, 2))
+    assert calc.xlookup("Ap*", names, [10, 20, 30, 40], "missing", 2) == "missing"
+    assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30]]) == 20
+    assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+    assert calc.xlookup("b", [["a"], ["b"], ["c"]], [[10], [20], [30]]) == 20
+    assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
+
+
+def test_xlookup_flat_lookup_returns_matching_row():
+    # (N,) into (N, M) used r_flat[:, best_idx], so "b" returned column 1.
+    assert calc.xlookup("b", ["a", "b", "c"], [["x", "y"], ["z", "w"], ["p", "q"]]) == ["z", "w"]
+    import numpy as np
+
+    got = calc.xlookup("b", np.array(["a", "b", "c"]), np.array([["x", "y"], ["z", "w"], ["p", "q"]]))
+    assert list(got) == ["z", "w"]
+    # Columns match the lookup length: still the column, not row 1.
+    assert calc.xlookup("b", ["a", "b", "c"], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+    # (N, 1) column vector and (1, N) horizontal lookup keep their axes.
+    assert calc.xlookup("b", [["a"], ["b"], ["c"]], [["x", "y"], ["z", "w"], ["p", "q"]]) == ["z", "w"]
+    assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+
+
+def test_xnpv_rate_at_or_below_minus_one_is_nan():
+    # Excel #NUM!. Equal dates make (1-1)**0 == 1, so the sum used to leak.
+    # A fractional year with rate < -1 used to leak a complex.
+    assert math.isnan(calc.xnpv(-1, [100, 200], [0, 0]))
+    assert math.isnan(calc.xnpv(-1, [-100], [44927]))
+    assert math.isnan(calc.xnpv(-1, [100, 200], [0, 365]))
+    result = calc.xnpv(-1.5, [-100, 200, 300], [44927, 45000, 45292])
+    assert isinstance(result, float)
+    assert math.isnan(result)
+    result = calc.xnpv(-2, [-100, 200], [0, 100])
+    assert isinstance(result, float)
+    assert math.isnan(result)
+    assert math.isclose(calc.xnpv(0.1, [-100, 110], [0, 365]), 0.0, abs_tol=1e-9)
+    assert math.isclose(calc.xnpv(-0.5, [-100, 60], [44927, 45292]), 20.0)
+
+
+def test_trend_empty_known_y_is_value_error():
+    assert calc.trend([]) == "#VALUE!"
+    assert calc.trend([[]]) == "#VALUE!"
+    fitted = calc.trend([1.0, 2.0, 3.0])
+    assert [round(v, 6) for v in fitted] == [1.0, 2.0, 3.0]
+
+
+def test_xirr_tiny_derivative_is_nan_and_classic_root_holds():
+    rate = calc.xirr([-10000, 2750, 4250, 3250, 2750], [44197, 44562, 44927, 45292, 45658])
+    assert math.isclose(rate, 0.1153874812592906, rel_tol=1e-6)
+    # |df| is ~1e-20, not exact 0. The old df == 0 check stepped to ~1e300.
+    assert math.isnan(calc.xirr([-1, 1e-20], [0, 365], 0.1))
+
+
+def test_xmatch_and_xlookup_approximate_modes():
+    nums = [10, 20, 30, 40]
+    vals = [100, 200, 300, 400]
+    # Exact match
+    assert calc.xmatch(20, nums) == 2.0
+    assert calc.xlookup(20, nums, vals) == 200
+
+    # match_mode -1: exact or next smaller
+    assert calc.xmatch(25, nums, -1) == 2.0
+    assert calc.xlookup(25, nums, vals, match_mode=-1) == 200
+    assert math.isnan(calc.xmatch(5, nums, -1))
+    assert calc.xlookup(5, nums, vals, if_not_found="none", match_mode=-1) == "none"
+
+    # match_mode 1: exact or next larger
+    assert calc.xmatch(25, nums, 1) == 3.0
+    assert calc.xlookup(25, nums, vals, match_mode=1) == 300
+    assert math.isnan(calc.xmatch(45, nums, 1))
+    assert calc.xlookup(45, nums, vals, if_not_found="none", match_mode=1) == "none"
+
+    # search_mode -1 (reverse search)
+    dup_nums = [10, 20, 20, 30]
+    dup_vals = [1, 2, 3, 4]
+    assert calc.xmatch(20, dup_nums, 0, 1) == 2.0
+    assert calc.xmatch(20, dup_nums, 0, -1) == 3.0
+    assert calc.xlookup(20, dup_nums, dup_vals, search_mode=1) == 2
+    assert calc.xlookup(20, dup_nums, dup_vals, search_mode=-1) == 3
+
+def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
+    import numpy as np
+
+    assert calc.xor(True, False) is True
+    assert calc.xor(True, True) is False
+    assert calc.xor(1, 0, 1) is False
+    assert calc.xor(-1, 0) is True
+    assert calc.xor([True, False, True]) is False
+    assert calc.xor([1, "x", 0]) is True
+    assert calc.xor([1, "", 0]) is True
+    assert calc.xor(1, "a", 0) == "#VALUE!"
+    assert calc.xor("") == "#VALUE!"
+    assert calc.xor([1, "#DIV/0!", 0]) == "#DIV/0!"
+    assert math.isnan(calc.xor([1, float("nan"), 0]))
+    assert calc.xor(np.array([1, 0, 1])) is False
+    assert calc.xor(np.array([[True, False], [True, False]])) is False
+    assert calc.xor() == "#VALUE!"
+
+
+def test_yield_stubs_stay_nan():
+    assert math.isnan(calc.yield_calc(1, 2, 0.05, 95, 100, 2))
+    assert math.isnan(calc.yielddisc(1, 2, 95, 100))
+    assert math.isnan(calc.yieldmat(1, 2, 0, 0.05, 95))
+
+
+def test_sort_by_col_uses_row_key_and_keeps_shape():
+    data = [[3, 1, 2], [6, 5, 4]]
+    # sort_index 1 is the first row [3, 1, 2]: columns reorder to 1, 2, 0.
+    assert calc.sort(data, 1, 1, True) == [[1, 2, 3], [5, 4, 6]]
+    # sort_index 2 is the second row [6, 5, 4].
+    assert calc.sort(data, 2, 1, True) == [[2, 1, 3], [4, 5, 6]]
+    assert calc.sort(data, 1, -1, True) == [[3, 2, 1], [6, 4, 5]]
+    # Row sort (by_col false) still reorders rows and keeps the 2-d shape.
+    rows = [[3, 9], [1, 8], [2, 7]]
+    assert calc.sort(rows, 1, 1, False) == [[1, 8], [2, 7], [3, 9]]
+
+
+def test_sumproduct_unequal_shape_is_nan():
+    assert math.isnan(calc.sumproduct([1.0, 2.0], [3.0, 4.0, 5.0]))
+    assert math.isnan(calc.sumproduct([[1.0, 2.0, 3.0]], [[1.0], [2.0], [3.0]]))
+    assert calc.sumproduct([[1.0, 2.0], [3.0, 4.0]], [[1.0, 1.0], [1.0, 1.0]]) == 10.0
+
+
+def test_sortby_secondary_keys_and_short_key():
+    rows = [[1], [2], [3], [4]]
+    by1 = [2, 1, 2, 1]
+    by2 = [20, 20, 10, 10]
+    # Ascending by1, then by2 breaks the ties the other way from a single-key sort.
+    assert calc.sortby(rows, by1, 1, by2, 1) == [[4], [2], [3], [1]]
+    # Omitted sort_order: the next array is by_array2, not a direction.
+    assert calc.sortby(rows, by1, by2) == [[4], [2], [3], [1]]
+    assert calc.sortby([3, 1, 2], [2, 1, 3]) == [1, 3, 2]
+    assert calc.sortby([1, 2, 3], [1, 2, 3], -1) == [3, 2, 1]
+    assert math.isnan(calc.sortby([[1], [2], [3]], [10, 20]))
+    assert math.isnan(calc.sortby([3, 1, 2], [2, 1]))
+    assert math.isnan(calc.sortby([3, 1], [1, 2, 3]))
+    assert math.isnan(calc.sortby([[1], [2], [3]], [3, 1, 2], 1, [1, 0]))
+
+
+def test_quartile_rejects_bad_quart():
+    data = [1.0, 2.0, 3.0, 4.0]
+    assert math.isnan(calc.quartile(data, 5))
+    assert math.isnan(calc.quartile(data, -1))
+    assert math.isnan(calc.quartile(data, "x"))
+    assert calc.quartile(data, 0) == 1.0
+    assert calc.quartile(data, 4) == 4.0
+    assert calc.quartile(data, 2) == 2.5
+    # Excel truncates a non-integer quart before the 0..4 check.
+    assert calc.quartile(data, 1.9) == calc.quartile(data, 1)
+
+
+def test_regex_invalid_pattern_is_nan():
+    assert math.isnan(calc.regex("abc", "["))
+    assert math.isnan(calc.regex("ab", "(a)", r"\2"))
+    assert calc.regex("abc", "b") == "b"
+
+
+def test_n_s_text_cells_return_nan():
+    assert math.isnan(calc.npv("bad", [100.0, 200.0]))
+    assert math.isnan(calc.npv(-1, [100.0, 200.0]))
+    assert abs(calc.npv(0.1, 100.0, 200.0) - (100.0 / 1.1 + 200.0 / 1.21)) < 1e-9
+    assert math.isnan(calc.pmt("x", 12, 1000))
+    assert math.isnan(calc.pv("x", 12, -100))
+    assert math.isnan(calc.odd("x"))
+    assert calc.odd(2) == 3.0
+    assert calc.odd(-2) == -3.0
+    assert math.isnan(calc.rank(1, [1, "a", 3]))
+    assert calc.rank(2, [1, 2, 3]) == 2.0
+    assert calc.rank(1, [1, "", 2]) == 2.0
+    assert math.isnan(calc.small([1, "a", 3], 1))
+    assert math.isnan(calc.small([1.0, 5.0, 3.0], "k"))
+    assert calc.small([1.0, 5.0, 3.0], 1) == 1.0
+    assert math.isnan(calc.rsq([1.0, "a"], [1.0, 2.0]))
+    assert abs(calc.rsq([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) - 1.0) < 1e-9
+    assert math.isnan(calc.slope([1.0, "a"], [1.0, 2.0]))
+    assert abs(calc.slope([2.0, 4.0, 6.0], [1.0, 2.0, 3.0]) - 2.0) < 1e-9
+    assert math.isnan(calc.steyx([1.0, "a", 3.0], [1.0, 2.0, 3.0]))
+    assert abs(calc.steyx([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])) < 1e-9
+
+
+def test_sumifs_unpaired_criteria_is_nan():
+    assert math.isnan(calc.sumifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]))
+    assert math.isnan(calc.sumifs([1.0, 2.0], [1.0, 2.0], ">0", [1.0, 2.0]))
+    assert calc.sumifs([1.0, 2.0], [1.0, 2.0], ">1") == 2.0
+
+
+def test_irr_subtotal_workday_iseven_bad_input_does_not_raise():
+    assert math.isnan(calc.irr(["a", "b"]))
+    assert math.isnan(calc.irr([-100.0, 110.0], guess="nope"))
+    assert math.isnan(calc.subtotal("nope", [1.0, 2.0, 3.0]))
+    assert calc.subtotal(9, [1.0, 2.0, 3.0]) == 6.0
+    assert math.isnan(calc.workday(46181, "nope"))
+    assert calc.workday(46181, 1) == 46182.0
+    assert math.isnan(calc.workday_intl(46181, "nope", 1))
+    assert math.isnan(calc.workday_intl(46181, 1, None))
+    assert calc.iseven(float("inf")) is False
+    assert calc.isodd(1e309) is False
+    assert calc.iseven(4) is True
+    assert calc.isodd(3) is True
+
+
+def test_networkdays_intl_invalid_weekend_is_nan():
+    assert math.isnan(calc.networkdays_intl(46181, 46185, 8))
+    assert math.isnan(calc.networkdays_intl(46181, 46185, 0))
+    assert math.isnan(calc.networkdays_intl(46181, 46185, 18))
+    assert calc.networkdays_intl(46181, 46185, 1) == 5.0
+    assert calc.networkdays_intl(46181, 46185, 17) == 5.0
+    assert calc.networkdays_intl(46181, 46185, "0000011") == 5.0
+
+
+def test_workday_intl_invalid_weekend_is_nan():
+    assert math.isnan(calc.workday_intl(46181, 1, 8))
+    assert math.isnan(calc.workday_intl(46181, 1, 0))
+    assert math.isnan(calc.workday_intl(46181, 1, 18))
+    assert calc.workday_intl(46181, 1, 1) == calc.workday(46181, 1)
+    assert calc.workday_intl(46181, 1, "0000011") == calc.workday(46181, 1)
+
+
+def test_averagea_counts_blank_as_zero():
+    # Skipping "" made (10 + 20) / 2 == 15. Calc AVERAGEA(10,"",20) is 10.
+    assert calc.averagea([10.0, "", 20.0]) == 10.0
+    assert calc.averagea([10.0, None, 20.0]) == 10.0
+    assert calc.averagea([10.0, "  ", 20.0]) == 10.0
+    # A real zero and text still count. TRUE is 1. All blanks average to 0.
+    assert calc.averagea([10.0, 0.0, 20.0]) == 10.0
+    assert calc.averagea([10.0, "x", 20.0]) == 10.0
+    assert calc.averagea([10.0, False, 20.0]) == 10.0
+    assert calc.averagea([10.0, True, 20.0]) == 31.0 / 3.0
+    assert calc.averagea(["", None]) == 0.0
+
+
+def test_complex_integer_coefficients_have_no_trailing_decimal():
+    assert calc.complex(5, 0, "i") == "5"
+    assert calc.complex(5, 2) == "5+2i"
+    assert calc.complex(5, -2, "j") == "5-2j"
+    assert calc.complex(0, 1) == "i"
+    assert calc.complex(5.5, 1.25) == "5.5+1.25i"
+    assert calc.complex(-5, 0) == "-5"
+
+
+def test_coup_days_nonfinite_frequency_reaches_guard():
+    from plugin.scripting.venv.calc_functions_a_c import _coup_days_in_period
+
+    # int(float(inf)) used to OverflowError before f <= 0. Callers catch
+    # Exception, so this calls the helper directly.
+    assert math.isnan(_coup_days_in_period(float("inf"), 0))
+    assert math.isnan(_coup_days_in_period(float("-inf"), 0))
+    assert math.isnan(_coup_days_in_period(1e309, 0))
+    assert math.isnan(_coup_days_in_period(10**400, 0))
+    assert math.isnan(_coup_days_in_period(0, 0))
+    assert math.isnan(_coup_days_in_period(-2, 0))
+    # 0.4 truncates to 0; the post-int guard must still run.
+    assert math.isnan(_coup_days_in_period(0.4, 0))
+    assert _coup_days_in_period(2, 0) == 180.0
+    assert _coup_days_in_period(2, 3) == 182.5
+
+
+def _serial(day: dt.date) -> float:
+    return float(day.toordinal() - 693594)
+
+
+def _slow_workday(start: dt.date, days: int, weekend: set[int], holidays: set[dt.date]) -> dt.date:
+    """Previous one-day loop, kept as the oracle for in-range counts."""
+    curr = start
+    remaining = days
+    step = 1 if remaining >= 0 else -1
+    while remaining != 0:
+        curr += dt.timedelta(days=step)
+        if curr.weekday() not in weekend and curr not in holidays:
+            remaining -= step
+    return curr
+
+
+def test_workday_matches_day_loop_with_holidays():
+    # 46181 is 2026-06-08, a Monday. +1 is Tuesday, +4 is Friday.
+    start = dt.date(2026, 6, 8)
+    assert _serial(start) == 46181.0
+    assert calc.workday(46181, 0) == 46181.0
+    assert calc.workday(46181, 5) == _serial(dt.date(2026, 6, 15))
+    assert calc.workday(46181, -1) == _serial(dt.date(2026, 6, 5))
+
+    holidays = {
+        dt.date(2026, 6, 9),
+        dt.date(2026, 6, 12),
+        dt.date(2026, 6, 13),  # Saturday: not a workday, must not extend the span
+        dt.date(2026, 6, 8),  # start itself is not counted
+    }
+    holiday_serials = [_serial(day) for day in holidays]
+    weekends = ({5, 6}, {6}, {0, 4}, set())
+    for weekend in weekends:
+        for days in (0, 1, -1, 4, 5, 6, 10, -10, 22, -17, 40):
+            expected = _slow_workday(start, days, weekend, holidays)
+            mask = "".join("1" if i in weekend else "0" for i in range(7))
+            assert calc.workday_intl(_serial(start), days, mask, holiday_serials) == _serial(expected)
+        if weekend == {5, 6}:
+            for days in (0, 1, -1, 10, 22, -17):
+                expected = _slow_workday(start, days, weekend, holidays)
+                assert calc.workday(_serial(start), days, holiday_serials) == _serial(expected)
+
+
+def test_workday_large_days_does_not_hang():
+    # A day-by-day loop of 10**7+ iterations froze the UI thread. The result
+    # is past year 9999, which is #NUM! / NaN, and it has to come back at once.
+    started = time.perf_counter()
+    assert math.isnan(calc.workday(46181, 10**7))
+    assert math.isnan(calc.workday(46181, -(10**7)))
+    assert math.isnan(calc.workday_intl(46181, 10**12, 1))
+    assert math.isnan(calc.workday_intl(46181, float("inf"), "0000011"))
+    # Every day is a weekend: the old loop never decremented `remaining`.
+    assert math.isnan(calc.workday_intl(46181, 1, "1111111"))
+    assert calc.workday_intl(46181, 0, "1111111") == 46181.0
+    assert time.perf_counter() - started < 1.0
+
+    # Still inside the datetime range, so the week jump must match the old loop.
+    start = dt.date(2026, 6, 8)
+    holidays = {dt.date(2026, 12, 25), dt.date(2027, 1, 1)}
+    for days in (250, 1000, -250):
+        expected = _slow_workday(start, days, {5, 6}, holidays)
+        assert calc.workday(_serial(start), days, [_serial(day) for day in holidays]) == _serial(expected)
+
+
+def test_coupon_nonpositive_frequency_is_nan():
+    assert math.isnan(calc.coupdays(43831, 43983, 0))
+    assert math.isnan(calc.coupdays(43831, 43983, -1))
+    assert math.isnan(calc.coupdaybs(43831, 43983, -2))
+    assert math.isnan(calc.coupdaysnc(43831, 43983, -1))
+    assert math.isnan(calc.coupncd(43831, 43983, 0))
+    assert math.isnan(calc.couppcd(43831, 43983, -4))
+    assert not math.isnan(calc.coupdaybs(43831, 43983, 2))
+
+
+def test_edate_eomonth_text_months_are_nan():
+    assert math.isnan(calc.edate(46182, "x"))
+    assert math.isnan(calc.edate(46182, ""))
+    assert math.isnan(calc.edate(46182, None))
+    assert math.isnan(calc.eomonth(46182, "x"))
+    assert math.isnan(calc.eomonth(46182, ""))
+    assert math.isnan(calc.eomonth(46182, None))
+    assert calc.eomonth(46182, 1) == 46234.0
+    assert not math.isnan(calc.edate(46182, 1))
+
+
+def test_ispmt_zero_nper_and_mround_sort_text_are_nan():
+    assert math.isnan(calc.ispmt(0.1, 1, 0, 1000))
+    assert not math.isnan(calc.ispmt(0.1, 1, 12, 1000))
+    assert math.isnan(calc.mround("x", 1))
+    assert math.isnan(calc.mround(2.5, ""))
+    assert math.isnan(calc.mround(None, 1))
+    assert calc.mround(2.5, 1) == 3.0
+    assert math.isnan(calc.sort([[3, 1], [2, 4]], "a", 1))
+    assert math.isnan(calc.sort([[3, 1], [2, 4]], 1, ""))
+    assert math.isnan(calc.sort([[3, 1], [2, 4]], None, 1))
+    assert calc.sort([3.0, 1.0, 2.0], 1, -1) == [3.0, 2.0, 1.0]
+
+
+def test_rept_negative_count_is_nan():
+    assert math.isnan(calc.rept("ab", -1))
+    assert math.isnan(calc.rept("ab", -1.2))
+    assert calc.rept("ab", -0.1) == ""
+    assert calc.rept("ab", 0) == ""
+    assert calc.rept("ab", 3) == "ababab"
+
+
+def test_odd_price_zero_frequency_is_nan():
+    assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, 0.06, 100, 0))
+    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 0))
+    assert not math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, 0.06, 100, 2))
+    assert not math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 2))
+
+
+def test_nominal_zero_effective_rate_is_zero():
+    # Excel NOMINAL(0, npery) is 0. A negative rate is still #NUM!.
+    assert calc.nominal(0, 4) == 0.0
+    assert calc.nominal(0, 1) == 0.0
+    assert math.isnan(calc.nominal(-0.01, 4))
+    assert math.isnan(calc.nominal(0.1, 0))
+    assert math.isclose(calc.nominal(0.1, 4), 4 * ((1.1) ** 0.25 - 1))
+
+
+def test_norm_missing_scipy_is_nan():
+    import sys
+    from unittest.mock import patch
+
+    # import scipy.stats raises when the module slot is missing.
+    with patch.dict(sys.modules, {"scipy.stats": None}):
+        assert math.isnan(calc.norminv(0.5, 0, 1))
+        assert math.isnan(calc.normsdist(0))
+        assert math.isnan(calc.normsinv(0.5))
+    assert math.isclose(calc.norminv(0.5, 0, 1), 0.0, abs_tol=1e-5)
+    assert math.isclose(calc.normsdist(0), 0.5, abs_tol=1e-5)
+    assert math.isclose(calc.normsinv(0.5), 0.0, abs_tol=1e-5)
+
+
+def test_nper_overflow_is_nan():
+    huge = 10**10000
+    assert math.isnan(calc.nper(huge, -100, 1000))
+    assert math.isnan(calc.nper(0.01, huge, 1000))
+    assert math.isnan(calc.nper(0.01, -100, huge))
+    assert math.isnan(calc.nper(0.01, -100, 1000, 0, huge))
+    assert not math.isnan(calc.nper(0.01, -100, 1000))
+
+
+def test_odd_price_yield_negates_frequency_is_nan():
+    # yld == -frequency makes the discount base 0 (ZeroDivisionError).
+    assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -2, 100, 2))
+    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -2, 100, 2))
+    # A base within 1e-12 of zero is the same #NUM!.
+    assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -2 + 1e-15, 100, 2))
+    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -2 + 1e-15, 100, 2))
+    # A yield that is merely negative still prices.
+    assert not math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -0.5, 100, 2))
+    assert not math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -0.5, 100, 2))
+
+
+def test_quartile_text_cell_is_nan():
+    data = [1.0, 2.0, 3.0, 4.0]
+    assert math.isnan(calc.quartile([1.0, "text", 3.0], 1))
+    assert math.isnan(calc.quartile(["a", "b"], 2))
+    assert calc.quartile(data, 1) == calc.quartile(data, 1.0)
+
+
+def test_sort_out_of_bounds_index_is_nan():
+    data = [[3, 1, 2], [6, 5, 4]]
+    # Three columns: index 3 is the last column and still sorts.
+    assert calc.sort(data, 3, 1, False) == [[3, 1, 2], [6, 5, 4]]
+    assert math.isnan(calc.sort(data, 4, 1, False))
+    assert math.isnan(calc.sort(data, 0, 1, False))
+    assert math.isnan(calc.sort(data, -1, 1, False))
+    # Two rows when sorting by column.
+    assert math.isnan(calc.sort(data, 3, 1, True))
+    assert math.isnan(calc.sort(data, 0, 1, True))
+    assert math.isnan(calc.sort(data, -2, 1, True))
+    assert calc.sort(data, 1, 1, True) == [[1, 2, 3], [5, 4, 6]]
+
+
+def test_subtotal_rejects_unknown_fn_and_empty_samples():
+    assert math.isnan(calc.subtotal(0, [1.0, 2.0, 3.0]))
+    assert math.isnan(calc.subtotal(12, [1.0, 2.0, 3.0]))
+    assert math.isnan(calc.subtotal(100, [1.0, 2.0, 3.0]))
+    # 109 % 100 is SUM, same as function 9.
+    assert calc.subtotal(109, [1.0, 2.0, 3.0]) == 6.0
+    assert calc.subtotal(9, []) == 0.0
+    assert calc.subtotal(6, []) == 0.0
+    assert calc.subtotal(6, [2.0, 3.0]) == 6.0
+    # Empty AVERAGE and one-point STDEV.S / VAR.S are #DIV/0!.
+    assert math.isnan(calc.subtotal(1, []))
+    assert math.isnan(calc.subtotal(1, ["", None]))
+    assert calc.subtotal(1, [1.0, 2.0, 3.0]) == 2.0
+    assert math.isnan(calc.subtotal(7, [4.0]))
+    assert math.isnan(calc.subtotal(7, []))
+    assert math.isnan(calc.subtotal(107, [4.0]))
+    assert math.isclose(calc.subtotal(7, [1.0, 3.0]), math.sqrt(2))
+    assert math.isnan(calc.subtotal(10, [4.0]))
+    assert math.isnan(calc.subtotal(10, []))
+    assert calc.subtotal(10, [1.0, 3.0]) == 2.0
+
+def test_kurt_and_skew():
+    data = [1.0, 2.0, 4.0, 7.0, 11.0, 16.0]
+    k = calc.kurt(data)
+    s = calc.skew(data)
+    assert not math.isnan(k)
+    assert not math.isnan(s)
+    # Check text and booleans are ignored
+    data_with_noise = [1.0, "ignore", True, 2.0, 4.0, 7.0, 11.0, 16.0]
+    assert abs(calc.kurt(data_with_noise) - k) < 1e-12
+    assert abs(calc.skew(data_with_noise) - s) < 1e-12
+
+    # Insufficient elements or zero variance
+    assert math.isnan(calc.kurt([1.0, 2.0, 3.0]))
+    assert math.isnan(calc.kurt([5.0, 5.0, 5.0, 5.0]))
+    assert math.isnan(calc.skew([1.0, 2.0]))
+    assert math.isnan(calc.skew([5.0, 5.0, 5.0]))
+
+
+def test_devsq_geomean_harmean():
+    data = [2.0, 4.0, 8.0]
+    # mean=4.6666667, devsq = (2-14/3)^2 + (4-14/3)^2 + (8-14/3)^2 = 64/9 + 4/9 + 100/9 = 168/9 = 18.6666667
+    assert abs(calc.devsq(data) - 18.666666666666668) < 1e-12
+    assert abs(calc.devsq(2.0, 4.0, "text", 8.0) - 18.666666666666668) < 1e-12
+    assert math.isnan(calc.devsq([]))
+
+    # geomean: (2*4*8)^(1/3) = 64^(1/3) = 4.0
+    assert abs(calc.geomean(data) - 4.0) < 1e-12
+    assert abs(calc.geomean(2.0, 4.0, 8.0) - 4.0) < 1e-12
+    # Non-positive or empty returns nan
+    assert math.isnan(calc.geomean([2.0, 0.0, 8.0]))
+    assert math.isnan(calc.geomean([2.0, -4.0, 8.0]))
+    assert math.isnan(calc.geomean([]))
+
+    # harmean: 3 / (1/2 + 1/4 + 1/8) = 3 / (7/8) = 24/7 = 3.4285714...
+    assert abs(calc.harmean(data) - (24.0 / 7.0)) < 1e-12
+    assert abs(calc.harmean(2.0, 4.0, 8.0) - (24.0 / 7.0)) < 1e-12
+    assert math.isnan(calc.harmean([2.0, 0.0, 8.0]))
+    assert math.isnan(calc.harmean([2.0, -4.0, 8.0]))
+    assert math.isnan(calc.harmean([]))
+
 

@@ -10,7 +10,20 @@ import logging
 import struct
 from dataclasses import dataclass
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, deal
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, UNDER_CROSSHAIR, deal
+
+
+def _deal_pcm_ok_pytest(pcm: object) -> bool:
+    # A mic buffer is larger than DEAL_MAX_ARGV bytes. The cap raised
+    # PreContractError before RMS ran. The body walks every sample.
+    return isinstance(pcm, (bytes, bytearray))
+
+
+def _deal_pcm_ok_crosshair(pcm: object) -> bool:
+    return isinstance(pcm, (bytes, bytearray)) and len(pcm) <= DEAL_MAX_ARGV
+
+
+_deal_pcm_ok = _deal_pcm_ok_crosshair if UNDER_CROSSHAIR else _deal_pcm_ok_pytest
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +61,7 @@ class SilenceDetectorResult:
     heard_speech: bool
 
 
-@deal.pre(lambda pcm: isinstance(pcm, (bytes, bytearray)) and len(pcm) <= DEAL_MAX_ARGV)
+@deal.pre(lambda pcm: _deal_pcm_ok(pcm))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and 0.0 <= result[0] <= 1.0 and 0.0 <= result[1] <= 1.0)
 def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
     """Return (RMS, peak) of 16-bit little-endian PCM, each normalized to 0.0–1.0."""

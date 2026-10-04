@@ -27,6 +27,17 @@ def test_resolve_allowed_tools_disabled():
     assert resolve_allowed_tools("") == frozenset()
 
 
+def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
+    """No writeragent_api: a domain string must not disable every tool RPC."""
+    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+        assert resolve_allowed_tools("writer") is None
+        assert resolve_allowed_tools("shapes, footnotes, core") is None
+    # The proxy is present: an unknown name is still a real allowlist.
+    unknown = resolve_allowed_tools("not-a-domain")
+    assert unknown is not None
+    assert "list_open_documents" in unknown
+
+
 def test_resolve_allowed_tools_writer_domain_includes_apply():
     allowed = resolve_allowed_tools("writer")
     assert allowed is not None
@@ -191,6 +202,32 @@ def test_execute_tool_disabled_during_py_recalc():
         raise AssertionError("expected RuntimeError")
 
 
+def test_execute_tool_named_scripts_blocked_during_py_recalc():
+    """=PY() empty allowlist must not list or read stored script source."""
+    for tool_name in ("get_named_python_script", "list_named_python_scripts"):
+        try:
+            execute_tool(tool_name, {"name": "Helpers"}, allowed_tools=frozenset())
+        except RuntimeError as exc:
+            assert "=PY()" in str(exc)
+        else:
+            raise AssertionError(f"expected RuntimeError for {tool_name}")
+
+
+def test_rpc_tool_name_none_when_candidates_are_parameters():
+    """A const that is only a parameter name is not the RPC tool."""
+    from plugin.scripting.host_rpc import _rpc_tool_name
+
+    def shape_upsert(shape_upsert: str = "shape_upsert") -> str:
+        return shape_upsert
+
+    assert _rpc_tool_name(shape_upsert, frozenset({"shape_upsert"})) is None
+
+    def mixed(shape_upsert: str = "shape_upsert") -> tuple[str, str]:
+        return ("list_open_documents", shape_upsert)
+
+    assert _rpc_tool_name(mixed, frozenset({"shape_upsert", "list_open_documents"})) == "list_open_documents"
+
+
 def test_execute_tool_rejects_out_of_domain():
     try:
         execute_tool("write_formula_range", {}, allowed_tools=frozenset({"apply_document_content"}))
@@ -217,6 +254,110 @@ def test_handle_tool_call_frame_writes_ok_response():
     assert resp["status"] == "ok"
     assert resp["id"] == "abc"
     assert resp["result"] == {"status": "ok"}
+
+
+def test_execute_tool_prefers_script_session_document():
+    focused = MagicMock()
+    bound = MagicMock()
+    registry = MagicMock()
+    registry._services = {}
+    registry.execute.return_value = {"status": "ok"}
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
+        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.doc.doc_type.is_draw", return_value=True),
+        patch("plugin.doc.doc_type.is_calc", return_value=False),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
+    ):
+        execute_tool(
+            "export_presentation_project",
+            {"project_path": "/p"},
+            script_session_id="ppt_master:file:///deck-b.odp",
+        )
+    mock_session.assert_called_once()
+    assert mock_session.call_args.args[1] == "ppt_master:file:///deck-b.odp"
+    mock_active.assert_not_called()
+    assert registry.execute.call_args.args[1].doc is bound
+
+
+def test_execute_tool_uses_pinned_document_not_front_window():
+    from plugin.scripting.session_manager import pin_script_document, release_script_document
+
+    focused = MagicMock()
+    bound = MagicMock()
+    registry = MagicMock()
+    registry._services = {}
+    registry.execute.return_value = {"status": "ok"}
+    token = pin_script_document(bound)
+    try:
+        with (
+            patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+            patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
+            patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
+            patch("plugin.main.get_tools", return_value=registry),
+            patch("plugin.doc.doc_type.is_draw", return_value=True),
+            patch("plugin.doc.doc_type.is_calc", return_value=False),
+            patch("plugin.doc.doc_type.is_writer", return_value=False),
+        ):
+            execute_tool("shape_upsert", {"action": "create"}, script_session_id=token)
+        mock_desktop.assert_not_called()
+        mock_active.assert_not_called()
+        assert registry.execute.call_args.args[1].doc is bound
+    finally:
+        release_script_document(token)
+
+
+def test_handle_tool_call_frame_refuses_when_stopped():
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
+            stdin_write=written.append,
+            stop_checker=lambda: True,
+        )
+    assert handled is True
+    mock_tool.assert_not_called()
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["code"] == "USER_STOPPED"
+    assert resp["id"] == "stop1"
+
+
+def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
+    """A dead worker pipe must not escape the USER_STOPPED or result write."""
+
+    def _broken(_blob: bytes) -> None:
+        raise BrokenPipeError("stdin closed")
+
+    with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
+        stopped = handle_tool_call_frame(
+            {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
+            stdin_write=_broken,
+            stop_checker=lambda: True,
+        )
+    assert stopped is True
+    mock_tool.assert_not_called()
+
+    def _oserror(_blob: bytes) -> None:
+        raise OSError("stdin closed")
+
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
+        ok = handle_tool_call_frame(
+            {"type": "tool_call", "id": "ok1", "tool": "apply_document_content", "args": {}},
+            stdin_write=_oserror,
+        )
+    assert ok is True
+    with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("boom")):
+        failed = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e1", "tool": "apply_document_content", "args": {}},
+            stdin_write=_oserror,
+        )
+    assert failed is True
 
 
 def test_handle_tool_call_frame_writes_error_response():
@@ -290,3 +431,57 @@ def test_handle_tool_call_frame_invalid_tool_name_type():
 
     with pytest.raises(RuntimeError, match="Invalid tool_call"):
         handle_tool_call_frame({"type": "tool_call", "tool": 123}, stdin_write=MagicMock())
+
+def test_execute_tool_async_tool_runs_on_caller_thread():
+    from plugin.framework.tool import ToolBase, ToolContext
+    import threading
+
+    class AsyncMockTool(ToolBase):
+        name: str = "async_mock_tool"
+        description: str = "Mock tool"
+        timeout: float = 600.0
+
+        def is_async(self) -> bool:
+            return True
+
+        def execute(self, ctx: ToolContext, **kwargs) -> dict:
+            return {"status": "ok", "thread": threading.current_thread().name}
+
+    from plugin.scripting.host_rpc import execute_tool
+
+    registry = MagicMock()
+    registry._services = {}
+
+    # We simulate ToolRegistry.execute's thread behavior loosely for tests,
+    # but more importantly we test that host_rpc does not wrap the final `registry.execute`
+    # in `execute_on_main_thread` directly anymore since we split it.
+
+    # ToolRegistry.execute is actually what executes. Let's make sure it receives ToolContext properly.
+    def mock_registry_execute(tool_name, tctx, **kwargs):
+        assert tctx.doc is not None
+        assert tctx.ctx is not None
+        return {"status": "ok", "caller_tctx": tctx.caller}
+
+    registry.execute.side_effect = mock_registry_execute
+    focused = MagicMock()
+    bound = MagicMock()
+
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.uno_context.get_active_document", return_value=focused),
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
+        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.doc.doc_type.is_draw", return_value=True),
+        patch("plugin.doc.doc_type.is_calc", return_value=False),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
+    ):
+        res = execute_tool("async_mock_tool", {}, allowed_tools=frozenset({"async_mock_tool"}), caller="test_caller")
+
+    assert res["status"] == "ok"
+    assert res["caller_tctx"] == "test_caller"
+    registry.execute.assert_called_once()
+
+    # execute_on_main_thread should only be called once, for `_run`
+    mock_exec_main.assert_called_once()
+    assert mock_exec_main.call_args[0][0].__name__ == "_run"

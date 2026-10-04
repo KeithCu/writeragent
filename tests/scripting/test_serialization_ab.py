@@ -125,12 +125,24 @@ def test_child_materialization_type(case: AbGridCase) -> None:
 @pytest.mark.parametrize("case", venv_transform_cases(), ids=lambda c: c.id)
 def test_venv_transform_parity(case: VenvTransformCase) -> None:
     """Worker transforms must agree under force=always vs force=never."""
-    assert_venv_always_never_parity(
-        case.grid,
-        case.code,
-        use_subprocess=case.use_subprocess,
-        label=case.id,
-    )
+    if case.use_subprocess:
+        PythonWorkerManager.shutdown_all()
+        try:
+            assert_venv_always_never_parity(
+                case.grid,
+                case.code,
+                use_subprocess=case.use_subprocess,
+                label=case.id,
+            )
+        finally:
+            PythonWorkerManager.shutdown_all()
+    else:
+        assert_venv_always_never_parity(
+            case.grid,
+            case.code,
+            use_subprocess=case.use_subprocess,
+            label=case.id,
+        )
 
 
 @pytest.mark.parametrize("case", _cases(), ids=_case_id)

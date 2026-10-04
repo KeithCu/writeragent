@@ -223,8 +223,12 @@ def efficient_frontier(params: dict[str, Any], data: Any, context: dict[str, Any
         import pandas as pd
         df = df.apply(pd.to_numeric, errors='coerce').dropna()
         
-        mu = mean_historical_return(df)
-        S = CovarianceShrinkage(df).ledoit_wolf()
+        # Defaults are returns_data=False: the frame is treated as prices and
+        # converted with pct_change. This sheet is a returns grid, same contract
+        # as portfolio_tearsheet and optimize_portfolio. As prices, a returns
+        # sheet still returned status ok with a corner portfolio.
+        mu = mean_historical_return(df, returns_data=True)
+        S = CovarianceShrinkage(df, returns_data=True).ledoit_wolf()
         
         ef = EfficientFrontier(mu, S)
         ef.max_sharpe()

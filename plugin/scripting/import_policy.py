@@ -45,7 +45,10 @@ _VENV_STDLIB_EXTRA: frozenset[str] = frozenset(
     }
 )
 
-_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = ()
+# Dropped from the LLM allowed-packages line (substring, so a future
+# plugin.scripting.duckdb_sql entry would stay out too). Still importable:
+# session_duckdb() is the guarded helper; raw import duckdb is unguarded.
+_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = ("duckdb",)
 
 # Compact blurb "networking" list. socket is blocked via DANGEROUS_MODULES
 # and is not a member of _VENV_COMMON_BLOCKED, so it is listed here explicitly
@@ -130,6 +133,7 @@ def _venv_package_modules() -> tuple[str, ...]:
 
 
 def _omit_from_prompt_packages(name: str) -> bool:
+    """True when an importable package must not appear in the =PY blurb."""
     lowered = name.lower()
     return any(marker in lowered for marker in _PROMPT_OMIT_PACKAGE_MARKERS)
 
@@ -212,6 +216,8 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         )
     else:
         stdlib = _join_modules(_venv_stdlib_modules())
+        # duckdb stays on VENV_AUTHORIZED_IMPORTS. Listing it here would steer
+        # default chat toward raw import duckdb instead of session_duckdb().
         packages = _join_modules(
             tuple(m for m in _venv_package_modules() if not _omit_from_prompt_packages(m))
         )

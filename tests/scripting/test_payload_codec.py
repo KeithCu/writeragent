@@ -33,6 +33,7 @@ from plugin.scripting.payload_codec import (
     binary_envelope_skip_reason,
     child_pack_result,
     child_unpack_data,
+    child_unpack_split_grid,
     describe_wire_value,
     host_pack_data,
     host_pack_multi_data,
@@ -598,6 +599,81 @@ def test_decimal_split_grid_stays_float_not_truncated_int() -> None:
     assert out[0][1] == pytest.approx(2.25)
 
 
+def test_decimal_fraction_encoding_ignores_earlier_text() -> None:
+    """Decimal and Fraction stay floats after a text cell, same as before one."""
+    from fractions import Fraction
+
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    def _check() -> None:
+        after_text = host_unpack_split_grid(
+            host_pack_split_grid([["02138", Decimal("1.25"), Fraction(1, 4)]])
+        )
+        assert after_text[0][0] == "02138"
+        assert after_text[0][1] == pytest.approx(1.25)
+        assert after_text[0][2] == pytest.approx(0.25)
+        assert type(after_text[0][1]) is float
+        assert type(after_text[0][2]) is float
+
+        before_text = host_unpack_split_grid(
+            host_pack_split_grid([[Decimal("1.25"), Fraction(1, 4), "02138"]])
+        )
+        assert before_text[0][0] == pytest.approx(1.25)
+        assert before_text[0][1] == pytest.approx(0.25)
+        assert before_text[0][2] == "02138"
+        assert type(before_text[0][0]) is type(after_text[0][1])
+        assert type(before_text[0][1]) is type(after_text[0][2])
+
+        wire = host_pack_split_grid(
+            [["label", "x"], [Decimal("1.50"), Fraction(1, 4)]]
+        )
+        assert "1.50" not in wire["strings"].values()
+        assert "1/4" not in wire["strings"].values()
+        same_col = host_unpack_split_grid(wire)
+        assert same_col[0] == ["label", "x"]
+        assert same_col[1][0] == pytest.approx(1.5)
+        assert same_col[1][1] == pytest.approx(0.25)
+        assert wire["column_kinds"] == ["float", "float"]
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        _check()
+
+
+def test_wide_sheet_above_shape_dim_unpacks() -> None:
+    """Pack accepts real sheet widths; unpack must not cap columns at SHAPE_DIM."""
+    import deal
+
+    from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_SHAPE_DIM
+    from plugin.scripting.payload_codec import envelope_column_kinds
+    from tests.harness.strip_bundle import deal_pre_present
+
+    ncols = DEAL_MAX_SHAPE_DIM + 1
+    grid = [[float(i) for i in range(ncols)]]
+    wire = host_pack_data(grid, force="auto")
+    assert is_split_grid(wire)
+    assert wire["shape"] == [1, ncols]
+    unpacked = host_unpack_data(wire)
+    assert len(unpacked) == 1
+    assert len(unpacked[0]) == ncols
+    assert unpacked[0][0] == pytest.approx(0.0)
+    assert unpacked[0][-1] == pytest.approx(float(ncols - 1))
+
+    np = pytest.importorskip("numpy")
+    arr = child_unpack_data(wire)
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (1, ncols)
+    assert float(arr[0, -1]) == pytest.approx(float(ncols - 1))
+
+    cap = DEAL_MAX_COL_INDEX + 1
+    kinds = envelope_column_kinds({"column_kinds": ["float"] * cap}, ncols=cap)
+    assert kinds == ["float"] * cap
+    if deal_pre_present(envelope_column_kinds):
+        with pytest.raises(deal.PreContractError):
+            envelope_column_kinds({}, ncols=cap + 1)
+
+
 def test_bool_cells_round_trip_in_numeric_grid() -> None:
     """Calc booleans in an all-numeric grid become 0.0/1.0 in child ndarray (float64 lane)."""
     np = pytest.importorskip("numpy")
@@ -626,6 +702,33 @@ def test_bool_col_11_split_grid_sums() -> None:
     assert isinstance(rng, CalcRange)
     assert rng.shape == (11, 1)
     assert float(np.sum(rng)) == pytest.approx(7.0)
+
+
+def test_large_string_ndarray_packs_instead_of_raising() -> None:
+    """A >=100-cell string or object ndarray must not crash the float64 packer."""
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    n = BINARY_MIN_CELLS
+    texts = np.array(["z"] * (n - 1) + ["02138"])
+    wire = child_pack_result(texts)
+    assert is_split_grid(wire)
+    assert wire["strings"][n - 1] == "02138"
+    back = host_unpack_data(wire, as_nested_list=True)
+    assert back[0] == "z"
+    assert back[-1] == "02138"
+
+    obj = np.empty((10, n // 10), dtype=object)
+    obj[:] = "ab"
+    obj[-1, -1] = "cd"
+    packed = serialize_result(obj)
+    assert is_split_grid(packed)
+    restored = host_unpack_data(packed, as_nested_list=True)
+    assert restored[0][0] == "ab"
+    assert restored[-1][-1] == "cd"
+
+    small = np.array(["a", "b"], dtype=object)
+    assert child_pack_result(small) == ["a", "b"]
 
 
 def test_split_grid_boundary_at_binary_min_cells() -> None:
@@ -672,6 +775,21 @@ def test_child_pack_below_threshold_returns_list() -> None:
     assert wire[0][0] == pytest.approx(0.0)
 
 
+def test_split_grid_unpack_rejects_non_dict_strings() -> None:
+    """strings must be a dict before .items(); a list used to raise AttributeError."""
+    pytest.importorskip("numpy")
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [1],
+        "buffer": array.array("d", [1.0]).tobytes(),
+        "strings": ["not", "a", "dict"],
+    }
+    with pytest.raises(ValueError, match="strings must be a dict"):
+        host_unpack_split_grid(envelope)
+    with pytest.raises(ValueError, match="strings must be a dict"):
+        child_unpack_split_grid(envelope)
+
+
 def test_host_unpack_split_grid_rejects_short_buffer() -> None:
     """Declared shape must match the float buffer. A short buffer is not a short grid."""
     buf = array.array("d", [1.0])
@@ -683,6 +801,31 @@ def test_host_unpack_split_grid_rejects_short_buffer() -> None:
     }
     with pytest.raises(ValueError, match="buffer has 1 values"):
         host_unpack_split_grid(envelope)
+
+
+def test_child_unpack_split_grid_mixed_rejects_size_mismatch() -> None:
+    """Mixed-string child unpack must reject a buffer that does not match shape.
+
+    The numeric path already did. 1D mixed grids skip reshape, so a short
+    buffer used to come back as a shorter list and a long one kept extra cells.
+    """
+    pytest.importorskip("numpy")
+    short = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [4],
+        "buffer": array.array("d", [1.0, 2.0]).tobytes(),
+        "strings": {1: "x"},
+    }
+    with pytest.raises(ValueError, match="buffer has 2 values"):
+        child_unpack_split_grid(short)
+    long = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [2, 2],
+        "buffer": array.array("d", [1.0, 2.0, 3.0, 4.0, 5.0]).tobytes(),
+        "strings": {0: "a"},
+    }
+    with pytest.raises(ValueError, match="buffer has 5 values"):
+        child_unpack_split_grid(long)
 
 
 def test_child_pack_numpy_scalar_types() -> None:
@@ -1228,3 +1371,50 @@ def test_is_calc_range_payload_matches_calc_range_module(value: object) -> None:
     assert calc_range_is is payload_codec.is_calc_range_payload
     assert payload_codec.is_calc_range_payload(value) is calc_range_is(value)
 
+
+def test_host_pack_data_tuple_rows() -> None:
+    # ensure it doesn't crash cython accelerator due to PyList_GET_ITEM on tuple
+    grid = [(1.0, 2.0), (3.0, 4.0)]
+    try:
+        from plugin.scripting import payload_codec
+        orig_2d = payload_codec.fast_flatten_grid_2d
+
+        payload_codec._CYTHON_ACCELERATOR_DISABLED = False
+        payload_codec.fast_flatten_grid_2d = None
+        payload_codec.load_cython_accelerator()
+
+        # Will crash if bug is present
+        wire = host_pack_data(grid, force="always")
+
+        # Verify it packed properly
+        assert is_split_grid(wire)
+        arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+        assert shape == [2, 2]
+    finally:
+        payload_codec.fast_flatten_grid_2d = orig_2d
+
+def test_host_pack_data_numpy_str() -> None:
+    np = pytest.importorskip("numpy")
+    grid = [["0123", np.str_("0123")]]
+
+    from plugin.scripting import payload_codec
+    orig_2d = payload_codec.fast_flatten_grid_2d
+
+    try:
+        # stdlib test
+        payload_codec.fast_flatten_grid_2d = None
+        arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+        assert str_map[0] == "0123"
+        assert str_map[1] == "0123"
+
+        # accel test
+        payload_codec._CYTHON_ACCELERATOR_DISABLED = False
+        payload_codec.fast_flatten_grid_2d = None
+        payload_codec.load_cython_accelerator()
+
+        if payload_codec.fast_flatten_grid_2d is not None:
+            arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+            assert str_map[0] == "0123"
+            assert str_map[1] == "0123"
+    finally:
+        payload_codec.fast_flatten_grid_2d = orig_2d

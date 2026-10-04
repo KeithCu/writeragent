@@ -31,6 +31,10 @@ def test_to_pandas_header_row_none_and_duplicates():
     grid = [["A", "A", ""], [1, 2, 3]]
     df = CalcRange(grid).to_pandas(header_row=0)
     assert list(df.columns) == ["A", "A_1", "column"]
+    collided = [["a", "a", "a_1"], [1, 2, 3]]
+    df_collided = CalcRange(collided).to_pandas(header_row=0)
+    assert list(df_collided.columns) == ["a", "a_1", "a_1_1"]
+    assert len(set(df_collided.columns)) == 3
     df2 = CalcRange(grid).to_pandas(header_row=None)
     assert list(df2.columns) == ["col_0", "col_1", "col_2"]
     assert len(df2) == 2
@@ -306,4 +310,25 @@ def test_calc_range_no_numpy_fallback():
             _ = -multi
         with pytest.raises(TypeError, match="Multi-cell arithmetic requires NumPy"):
             _ = multi == 10
+
+
+def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
+    """A column past SHAPE_DIM is a Calc range. Deal must not assert."""
+    import deal
+
+    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
+    from plugin.scripting.calc_range import CalcRange, materialize_inputs
+
+    rows = [[i] for i in range(DEAL_MAX_SHAPE_DIM + 1)]
+    ranges = materialize_inputs(rows)
+    assert len(ranges) == 1
+    assert ranges[0].shape == (DEAL_MAX_SHAPE_DIM + 1, 1)
+    labeled = dataframe_to_labeled_grid(["n" * 80], rows, include_header=False)
+    assert len(labeled) == DEAL_MAX_SHAPE_DIM + 1
+    try:
+        _ = CalcRange(rows) + 1
+    except deal.PreContractError:
+        raise
+    except TypeError:
+        return
 

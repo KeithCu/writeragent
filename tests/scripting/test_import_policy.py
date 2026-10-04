@@ -29,7 +29,7 @@ def test_venv_authorized_includes_json_numpy_matplotlib():
     assert "json" in allowed
     assert "numpy" in allowed
     assert "matplotlib" in allowed
-    assert "duckdb" not in allowed
+    assert "duckdb" in allowed
     assert "plugin.scripting.duckdb_sql" not in allowed
     assert "plugin.vision.venv.vision" not in allowed
     assert "plugin.embeddings.venv.embeddings_index" not in allowed
@@ -175,7 +175,8 @@ def test_venv_policy_does_not_advertise_duckdb():
         assert "session_duckdb" not in lower
         assert "run_sql" not in lower
         assert "duckdb" not in lower
-    assert "duckdb" not in venv_authorized_top_level_modules()
+    # Importable in the venv; the allowed-packages blurb still omits the name.
+    assert "duckdb" in venv_authorized_top_level_modules()
 
 
 def test_venv_stdlib_extra_matches_authorized_stdlib() -> None:

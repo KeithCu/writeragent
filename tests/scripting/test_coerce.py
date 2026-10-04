@@ -27,3 +27,21 @@ from plugin.scripting.venv.coerce import _parse_numeric_string
 )
 def test_parse_numeric_string_keeps_sign(text: str, expected: float | None):
     assert _parse_numeric_string(text) == expected
+
+
+def test_numeric_headers_and_mixed_columns_keep_their_text():
+    """Whole-number headers stay \"2024\", and a mixed column does not become NaN."""
+    pytest.importorskip("pandas")
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    years = grid_to_dataframe([[2024.0, 2025.5], [1.0, 2.0]])
+    assert list(years.df.columns) == ["2024", "2025.5"]
+
+    labels = grid_to_dataframe([["2024", "00123"], [1, "00456"]], parse_strings=True)
+    assert list(labels.df.columns) == ["2024", "00123"]
+    assert labels.df.iloc[0, 1] == pytest.approx(456.0)
+
+    mixed = grid_to_dataframe([["mix"], [10], ["x"], [30], [40], [50]], parse_strings=True)
+    assert mixed.df.loc[1, "mix"] == "x"
+    assert float(mixed.df.loc[0, "mix"]) == 10.0
+    assert str(mixed.df["mix"].dtype) == "object"

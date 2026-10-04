@@ -71,6 +71,42 @@ def test_extract_library_source_rejects_calls_hidden_in_assignments():
         extract_library_source("label: str = input()\n")
 
 
+def test_extract_library_source_keeps_lambda_body_calls():
+    """A call inside a lambda does not run while the assignment loads."""
+    src = extract_library_source("helper = lambda x: transform(x)\n")
+    assert "lambda" in src
+    assert "transform" in src
+
+
+def test_extract_library_source_rejects_class_import_time_calls():
+    """evaluate_class_def runs bases, keywords, and class-body assignments."""
+    kept = extract_library_source(
+        "class Box:\n"
+        "    SCALE = 2\n"
+        "    def area(self):\n"
+        "        return helper()\n"
+    )
+    assert "def area" in kept
+    assert "helper" in kept
+    with pytest.raises(ValueError, match="lines 2"):
+        extract_library_source("class Box:\n    x = helper()\n")
+    with pytest.raises(ValueError, match="lines 1"):
+        extract_library_source("class Box(make()):\n    pass\n")
+    with pytest.raises(ValueError, match="lines 1"):
+        extract_library_source("class Box(metaclass=make()):\n    pass\n")
+    with pytest.raises(ValueError, match="lines 2"):
+        extract_library_source("class Box:\n    label: str = input()\n")
+
+
+def test_extract_library_source_rejects_module_walrus():
+    """A walrus Expr used to disappear with no error, so the name never bound."""
+    with pytest.raises(ValueError, match="lines 1"):
+        extract_library_source("(count := 1)\n")
+    src = extract_library_source("def f():\n    return 1\nprint('skip')\n")
+    assert "def f" in src
+    assert "print" not in src
+
+
 def test_host_get_named_python_script_hash_short_circuit():
     code = "def add(a, b):\n    return a + b\n"
     digest = script_body_hash(code)
@@ -300,6 +336,93 @@ def test_script_library_uses_bound_executor_not_contextvar():
         _current_executor.reset(token)
 
 
+def test_library_defs_do_not_leak_into_executor_custom_tools():
+    from plugin.scripting.named_scripts import _eval_library
+    from plugin.scripting.venv.venv_sandbox import _new_executor
+
+    exe = _new_executor(10)
+    exe.custom_tools["helper"] = lambda: 7
+    ns = _eval_library(exe, "def added():\n    return helper()\n", "Helpers")
+    assert ns.added() == 7
+    assert set(exe.custom_tools) == {"helper"}
+
+
+def test_bind_keeps_each_executor_library():
+    """A later bind must not retarget a library object another run still holds."""
+    from plugin.scripting import writeragent_namespace as ns
+    from plugin.scripting.named_scripts import ScriptLibrary, _current_executor, bind_named_scripts_executor
+    from plugin.scripting.venv.venv_sandbox import _new_executor
+
+    code = "def hello():\n    return 'from-a'\n"
+    exe_a = _new_executor(10)
+    exe_b = _new_executor(10)
+    token = _current_executor.set(_current_executor.get())
+    try:
+        bind_named_scripts_executor(exe_a)
+        lib_a = ns.doc
+        assert isinstance(lib_a, ScriptLibrary)
+        assert lib_a._executor is exe_a
+        assert exe_a._named_doc_library is lib_a
+        bind_named_scripts_executor(exe_b)
+        assert ns.doc is exe_b._named_doc_library
+        assert ns.doc is not lib_a
+        assert lib_a._executor is exe_a
+        _current_executor.set(None)
+
+        def fake_rpc(tool: str, **kwargs):
+            if tool == LIST_NAMED_PYTHON_SCRIPTS:
+                return {"user": [], "document": ["hello_writeragent"]}
+            if tool == GET_NAMED_PYTHON_SCRIPT:
+                return {
+                    "unchanged": False,
+                    "hash": script_body_hash(code),
+                    "name": "hello_writeragent",
+                    "origin": "document",
+                    "code": code,
+                }
+            raise AssertionError(tool)
+
+        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+            assert lib_a.hello_writeragent.hello() == "from-a"
+        assert ("document", "hello_writeragent") in exe_a._named_script_cache
+        assert getattr(exe_b, "_named_script_cache", None) in (None, {})
+    finally:
+        _current_executor.reset(token)
+
+
+def test_library_lookup_prefers_contextvar_executor():
+    from plugin.scripting.named_scripts import ORIGIN_USER, ScriptLibrary, _current_executor
+    from plugin.scripting.venv.venv_sandbox import _new_executor
+
+    code = "def n():\n    return 'from-context'\n"
+    exe_a = _new_executor(10)
+    exe_b = _new_executor(10)
+    lib = ScriptLibrary(ORIGIN_USER)
+    lib._executor = exe_a
+    token = _current_executor.set(exe_b)
+
+    def fake_rpc(tool: str, **kwargs):
+        if tool == LIST_NAMED_PYTHON_SCRIPTS:
+            return {"user": ["Helpers"], "document": []}
+        if tool == GET_NAMED_PYTHON_SCRIPT:
+            return {
+                "unchanged": False,
+                "hash": script_body_hash(code),
+                "name": "Helpers",
+                "origin": "user",
+                "code": code,
+            }
+        raise AssertionError(tool)
+
+    try:
+        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+            assert lib.Helpers.n() == "from-context"
+        assert ("user", "Helpers") in exe_b._named_script_cache
+        assert getattr(exe_a, "_named_script_cache", None) in (None, {})
+    finally:
+        _current_executor.reset(token)
+
+
 def test_attach_binds_librepy_namespace_stub():
     from plugin.scripting import writeragent_namespace as ns
     from plugin.scripting.named_scripts import ScriptLibrary, attach_named_script_libraries
@@ -373,11 +496,34 @@ def test_rps_session_id_isolated_is_none():
         assert sm.rps_session_id(ctx, doc) is None
 
 
-def test_host_rpc_named_script_allowed_when_tools_disabled():
+def test_host_rpc_named_script_blocked_when_tools_disabled():
+    """Empty allowlist is =PY() recalc: do not read stored script source."""
     from plugin.scripting.host_rpc import TOOL_RPC_DISABLED, execute_tool, resolve_allowed_tools
 
     allowed = resolve_allowed_tools(TOOL_RPC_DISABLED)
     assert allowed == frozenset()
+
+    def _must_not_read(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("named scripts must not be read during =PY()")
+
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_must_not_read),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_must_not_read),
+    ):
+        with pytest.raises(RuntimeError, match=r"=PY\(\)"):
+            execute_tool(
+                GET_NAMED_PYTHON_SCRIPT,
+                {"name": "Helpers", "origin": "user"},
+                allowed_tools=allowed,
+            )
+        with pytest.raises(RuntimeError, match=r"=PY\(\)"):
+            execute_tool(LIST_NAMED_PYTHON_SCRIPTS, {}, allowed_tools=allowed)
+
+
+def test_host_rpc_named_script_still_allowed_for_domain_allowlist():
+    """A non-empty domain list does not include these names; wa.scripts still loads."""
+    from plugin.scripting.host_rpc import execute_tool
+
     code = "def add(a, b):\n    return a + b\n"
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
@@ -389,7 +535,7 @@ def test_host_rpc_named_script_allowed_when_tools_disabled():
         out = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
             {"name": "Helpers", "origin": "user"},
-            allowed_tools=allowed,
+            allowed_tools=frozenset({"apply_document_content"}),
         )
     assert out["code"] == code
 
