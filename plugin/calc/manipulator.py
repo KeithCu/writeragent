@@ -976,7 +976,7 @@ class CellManipulator:
             raise CalcError(msg) from e
 
     @staticmethod
-    def _array_probe_origin(used: Any, avoid_col: int, avoid_row: int) -> tuple[int, int]:
+    def _array_probe_origin(used: Any, avoid_col: int, avoid_start_row: int, avoid_end_row: int) -> tuple[int, int]:
         """``(column, first_row)`` for the two-cell ``ROWS``/``COLUMNS`` probe.
 
         The probe sits two columns to the right of the used area and the
@@ -991,14 +991,14 @@ class CellManipulator:
         col = min(max(int(used.EndColumn), avoid_col) + 2, max_col)
         row = 0
         overlaps_used = col <= int(used.EndColumn) and int(used.StartRow) <= 1 and int(used.EndRow) >= 0
-        overlaps_target = col <= avoid_col and 0 <= 1 and avoid_row >= 0
+        overlaps_target = col <= avoid_col and avoid_start_row <= 1 and avoid_end_row >= 0
         if overlaps_used or overlaps_target:
-            row = max(int(used.EndRow), avoid_row) + 1
+            row = max(int(used.EndRow), avoid_end_row) + 1
             if row + 1 > max_row:
                 raise CalcError("Cannot measure the array formula: no free cells below the used area in column XFD.")
         return col, row
 
-    def _measure_array(self, sheet: Any, formula: str, *, avoid_col: int, avoid_row: int = 0) -> tuple[int, int]:
+    def _measure_array(self, sheet: Any, formula: str, *, avoid_col: int, avoid_start_row: int = 0, avoid_end_row: int = 0) -> tuple[int, int]:
         """``(rows, columns)`` of *formula*'s result, measured by LibreOffice.
 
         ``=ROWS(expr)`` and ``=COLUMNS(expr)`` are entered as array formulas
@@ -1010,7 +1010,7 @@ class CellManipulator:
         cursor = sheet.createCursor()
         cursor.gotoEndOfUsedArea(False)
         used = cursor.getRangeAddress()
-        col, row0 = self._array_probe_origin(used, avoid_col, avoid_row)
+        col, row0 = self._array_probe_origin(used, avoid_col, avoid_start_row, avoid_end_row)
         expr = formula[1:] if formula.startswith("=") else formula
         sizes: list[int] = []
         try:
@@ -1063,7 +1063,7 @@ class CellManipulator:
         c1, r1 = start
         c2, r2 = end
         explicit = (c1, r1) != (c2, r2)
-        rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_row=r2)
+        rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_start_row=r1, avoid_end_row=r2)
 
         def block_name(a: int, b: int, c: int, d: int) -> str:
             return "%s%d:%s%d" % (index_to_column(a), b + 1, index_to_column(c), d + 1)
