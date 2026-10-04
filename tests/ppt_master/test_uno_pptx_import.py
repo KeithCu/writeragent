@@ -25,6 +25,9 @@ class FakePage:
         self.shapes = list(shapes or [])
         self.props: dict[str, Any] = {}
 
+    def getNotesPage(self) -> Any:
+        return _NotesPage([])
+
     def getCount(self) -> int:
         return len(self.shapes)
 
@@ -335,3 +338,16 @@ def test_copy_page_notes_reraises_dispose():
 
     with pytest.raises(DisposedException):
         _copy_page_notes(source, _DeadPage())
+
+def test_copy_page_notes_raises_non_dispose_exceptions():
+    source = _Page([_Shape(_NOTES, "Real")])
+
+    class _BrokenShape(_Shape):
+        def setString(self, value: str) -> None:
+            raise ValueError("Some normal failure")
+
+    tgt_shape = _BrokenShape(_NOTES, "old")
+    target = _Page([tgt_shape])
+
+    with pytest.raises(ValueError, match="Some normal failure"):
+        _copy_page_notes(source, target)
