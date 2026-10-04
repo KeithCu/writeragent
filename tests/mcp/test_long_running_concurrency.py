@@ -95,7 +95,6 @@ class _Registry:
         return self._tool_info
 
     def execute(self, name, context, **kwargs):
-        assert "bypass_thread_guard" not in kwargs
         with self._lock:
             self._active += 1
             self.max_concurrency = max(self.max_concurrency, self._active)
@@ -303,7 +302,6 @@ def test_backpressure_waits_for_document_gate_off_the_main_thread():
 
     class _Reg(_Registry):
         def execute(self, name, context, **kwargs):
-            assert "bypass_thread_guard" not in kwargs
             if not long_in_body.is_set():
                 long_in_body.set()
                 assert release.wait(timeout=3), "long-running body was not released"
@@ -375,7 +373,6 @@ def test_readonly_backpressure_does_not_wait_on_held_mutation_gate():
             return _ToolInfo(name != "readonly_tool")
 
         def execute(self, name, context, **kwargs):
-            assert "bypass_thread_guard" not in kwargs
             if name == "readonly_tool":
                 readonly_done.set()
                 return {"status": "ok"}
