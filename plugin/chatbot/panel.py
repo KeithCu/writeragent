@@ -445,6 +445,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _mcp_event_bus: Any
     _turn: Any
 
+    def clear_pending_audio_wav(self) -> None:
+        """Clear and delete any un-sent audio recording."""
+        if hasattr(self, "audio_wav_path") and self.audio_wav_path:
+            try:
+                import os
+
+                os.remove(self.audio_wav_path)
+            except Exception:
+                pass
+            self.audio_wav_path = None
+
     def __init__(
         self,
         ctx: Any,
@@ -1442,8 +1453,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     scope.cancel()
 
                 # Clear audio path so an aborted send doesn't attach this recording to the next one
-                if hasattr(self, "audio_wav_path") and self.audio_wav_path:
-                    self.audio_wav_path = None
+                self.clear_pending_audio_wav()
 
                 self._stop_requested_fallback = True
                 self._kill_inflight_stt()
@@ -1548,6 +1558,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if not self._panel_teardown:
                 self._send_cancellation = None
                 if self._terminal_status == "Error":
+                    self.clear_pending_audio_wav()
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
@@ -1556,7 +1567,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
-                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
+                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status == "Ready":
                             from plugin.chatbot.tool_loop_actions import session_for_turn
 
                             spoken = session_for_turn(self)
@@ -1745,7 +1756,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     # fall through into a chat POST with a blank user message (G27).
                     if not query_text.strip():
                         self._append_response("\n" + _("[No speech detected.]") + "\n")
-                        self._terminal_status = ""
+                        self._terminal_status = "Stopped"
                         return
                 else:
                     err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
