@@ -153,7 +153,16 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
         return run_blocking_in_thread(ctx, _run, pump_idle=False, stop_checker=_stopped)
     except BlockingWaitStopped:
         # Teardown child so it drops the IO lock and next cell isn't busy.
-        reset_python_session(ctx, session_id)
+        def do_reset() -> None:
+            import time
+            for _ in range(10):
+                res = reset_python_session(ctx, session_id)
+                if isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY":
+                    time.sleep(0.5)
+                    continue
+                break
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(do_reset, name="reset_python_session_stop", daemon=True)
         # Returning status 'stopped' ensures run_cells recognizes the interruption.
         return {"status": "stopped", "message": "Stopped."}
 
@@ -1265,6 +1274,10 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 # LayoutIdle livelock is during execute, not this between-cell pump.
                 # Stop clicks are delivered here; check the flag before the next cell.
                 _pump_between_notebook_cells(ctx)
+                # The VCL pump may have processed a document close. Re-check disposal.
+                if is_document_disposed(doc):
+                    stopped = True
+                    break
             if is_document_disposed(doc):
                 stopped = True
                 break
