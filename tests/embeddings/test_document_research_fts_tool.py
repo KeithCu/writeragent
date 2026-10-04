@@ -115,3 +115,89 @@ def test_search_nearby_files_model_change_does_not_query(tmp_path):
     assert result["status"] == "indexing"
     assert result["hits"] == []
     assert result["stale"] is True
+
+
+def test_search_nearby_files_file_subset_single_match(tmp_path):
+    tool = SearchNearbyFiles()
+    ctx = _ctx()
+    # Add a mock stop_checker
+    ctx.stop_checker = MagicMock(return_value=False)
+
+    meta = tmp_path / "corpus_meta.json"
+    db = tmp_path / "corpus.db"
+    db.write_text("sqlite", encoding="utf-8")
+    meta.write_text(json.dumps({"schema_version": "6", "embedding_model": "model"}), encoding="utf-8")
+
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+                with patch("plugin.framework.config.get_config", return_value="fts"):
+                    with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", db, meta, str(tmp_path))):
+                            with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
+                                with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
+                                    with patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=([{"url": "file:///path/to/single_file.odt"}], False, None)):
+                                        with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
+                                            with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": [{"doc_url": "file:///path/to/single_file.odt"}]}) as rpc_mock:
+                                                result = tool.execute(ctx, query="test", file_subset="single")
+
+    assert result["status"] == "ok"
+    assert len(result["hits"]) == 1
+
+    # Should use doc_url_filter and the original K
+    rpc_mock.assert_called_once_with(
+        ctx.ctx,
+        str(db),
+        "test",
+        10,  # default K
+        model="model",
+        near_slop=10,
+        doc_url_filter="file:///path/to/single_file.odt",
+        stop_checker=ctx.stop_checker,
+    )
+    wakeup_mock.assert_called_once()
+
+
+def test_search_nearby_files_file_subset_multiple_matches(tmp_path):
+    tool = SearchNearbyFiles()
+    ctx = _ctx()
+    ctx.stop_checker = MagicMock(return_value=False)
+
+    meta = tmp_path / "corpus_meta.json"
+    db = tmp_path / "corpus.db"
+    db.write_text("sqlite", encoding="utf-8")
+    meta.write_text(json.dumps({"schema_version": "6", "embedding_model": "model"}), encoding="utf-8")
+
+    # Mock the backend returning two hits, one for file A and one for file B, plus a third that shouldn't match.
+    backend_hits = [
+        {"doc_url": "file:///path/to/file_a.odt"},
+        {"doc_url": "file:///path/to/file_b.odt"},
+        {"doc_url": "file:///path/to/other.odt"},
+    ]
+
+    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+                with patch("plugin.framework.config.get_config", return_value="fts"):
+                    with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", db, meta, str(tmp_path))):
+                            with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
+                                with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
+                                    with patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=([{"url": "file:///path/to/file_a.odt"}, {"url": "file:///path/to/file_b.odt"}], False, None)):
+                                        with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
+                                            with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": backend_hits}) as rpc_mock:
+                                                result = tool.execute(ctx, query="test", k=2, file_subset="file_")
+
+    assert result["status"] == "ok"
+    assert len(result["hits"]) == 2  # The third hit ("other.odt") is filtered out
+
+    # Should NOT use doc_url_filter, and K should be artificially raised to >= 100
+    rpc_mock.assert_called_once_with(
+        ctx.ctx,
+        str(db),
+        "test",
+        100,  # Raised K (since max(2, 100) == 100)
+        model="model",
+        near_slop=10,
+        doc_url_filter=None,
+        stop_checker=ctx.stop_checker,
+    )
+    wakeup_mock.assert_called_once()

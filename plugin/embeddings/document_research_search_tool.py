@@ -138,6 +138,7 @@ class SearchEmbeddings(ToolBase):
 
         search_path = context_result["search_path"]
         model = get_embedding_model()
+        stop_checker = getattr(ctx, "stop_checker", None)
 
         try:
             result = knn_search(
@@ -146,6 +147,7 @@ class SearchEmbeddings(ToolBase):
                 str(query),
                 k,
                 model=model,
+                stop_checker=stop_checker,
             )
         except Exception as exc:
             log.exception("search_embeddings failed")

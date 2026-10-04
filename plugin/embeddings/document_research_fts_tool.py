@@ -178,15 +178,26 @@ class SearchNearbyFiles(ToolBase):
         search_path = context_result["search_path"]
         allowed_urls = context_result["allowed_urls"]
         model = get_embedding_model()
+        stop_checker = getattr(ctx, "stop_checker", None)
+
+        doc_url_filter = None
+        fetch_k = k
+        if allowed_urls is not None:
+            if len(allowed_urls) == 1:
+                doc_url_filter = list(allowed_urls)[0]
+            else:
+                fetch_k = max(k, 100)
 
         try:
             result = hybrid_search(
                 ctx.ctx,
                 search_path,
                 str(query),
-                k,
+                fetch_k,
                 model=model,
                 near_slop=near_slop,
+                doc_url_filter=doc_url_filter,
+                stop_checker=stop_checker,
             )
         except Exception as exc:
             log.exception("search_nearby_files failed")
@@ -201,8 +212,9 @@ class SearchNearbyFiles(ToolBase):
             execute_on_main_thread(_wakeup)
 
         hits = list(result.get("hits") or [])
-        if allowed_urls is not None:
+        if allowed_urls is not None and len(allowed_urls) != 1:
             hits = [h for h in hits if h.get("doc_url") in allowed_urls]
+            hits = hits[:k]
 
         return {
             "status": "ok",
