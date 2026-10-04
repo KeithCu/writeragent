@@ -391,7 +391,7 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
         params = prepared["params"]
         jobs = prepared["jobs"]
 
-        results = []
+        results: list[dict[str, Any]] = []
         for job in jobs:
             # Reconstruct what run_trusted_vision does, but skip the UNO export (we already have bytes)
             params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
