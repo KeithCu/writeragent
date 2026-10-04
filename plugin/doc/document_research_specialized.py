@@ -177,7 +177,7 @@ class DelegateReadDocument(ToolBase):
                     lambda: close_document_research_document(model, opened_for_document_research=opened_for_document_research)
                 )
             except SendCancelled:
-                pass
+                close_document_research_document(model, opened_for_document_research=opened_for_document_research)
 
         if isinstance(result, dict) and result.get("status") == "error":
             return result
