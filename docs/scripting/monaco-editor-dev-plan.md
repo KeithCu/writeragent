@@ -76,7 +76,8 @@ Callers put identity on `load` (cell A1, script name, init `resource`, LaTeX obj
 
 - Pipe reader: [`run_in_background`](../../plugin/framework/worker_pool.py) (`editor-pipe-reader`).
 - **Never call UNO from the reader thread.** Use [`execute_on_main_thread`](../../plugin/framework/queue_executor.py) for `save` (setFormula, `calculateAll`).
-- A script-picker exception is sent as an `error` frame and must not escape the reader. Save and close already wrap their bodies; an escaping picker used to mark the reader failed and `terminate()` the child, dropping the unsaved buffer.
+- A script-picker exception is sent as an `error` frame and must not escape the reader. Save and close already wrap their bodies. The save handler's error-frame send is guarded the same way as the picker: a second failure while sending that frame is logged and does not leave `_dispatch_incoming`. An escaping exception used to mark the reader failed and `terminate()` the child, dropping the unsaved buffer.
+- Unexpected disconnect drops `run_script_doc` and `run_script_doc_url` once no session remains. Those fields are the launch document the picker targets. Leaving them set kept the UNO reference alive. `terminate_persistent_editor` already cleared them. A replacement session that is still registered is left alone.
 - When the reader loop ends and this process is still `self._proc` with `poll()` `None` (clean stdout EOF or a failed read), `terminate()` kills the child. Leaving it up made `is_running` true with no reader, so the next open reused a dead session. A child that has already exited, or a reader superseded by a new spawn, is left alone.
 - The child is started with `start_new_session=True` on POSIX (`setsid` in the child via the C runtime). `preexec_fn=os.setsid` is fork-unsafe in the threaded LibreOffice host. `terminate()` still kills the process group, including Qt grandchildren.
 - MCP uses the same `QueueExecutor` / `AsyncCallback` pattern.

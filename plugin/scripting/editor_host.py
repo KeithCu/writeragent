@@ -671,10 +671,22 @@ class PersistentEditor:
                         if next_on_save is not None:
                             _activate_load(pending, next_on_save, next_on_closed or (lambda: None))
                 except Exception as e:
+                    # What was wrong: a failure while sending the save error
+                    # frame escaped the reader and tore the editor down.
+                    # How it happened: the save body was wrapped, but
+                    # _send_save in this except was not. send() rejecting the
+                    # payload (over 16 MB, or a pipe that already closed)
+                    # left _handle_save, executor.execute re-raised it, and
+                    # the reader loop's blanket except called terminate().
+                    # Why this works: the same nested guard as the script
+                    # picker logs a second failure and keeps the reader up.
                     log.exception("Editor save handler failed")
-                    _send_save(
-                        {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
-                    )
+                    try:
+                        _send_save(
+                            {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
+                        )
+                    except Exception:
+                        log.exception("Editor save handler could not send the error frame")
 
             try:
                 self.executor.execute(_handle_save, timeout=self._marshal_timeout())
@@ -741,6 +753,19 @@ class PersistentEditor:
                     self.sessions.pop(state.session_id, None)
                 if not self.sessions:
                     self.focused_id = None
+                    # What was wrong: unexpected exit cleared the sessions and
+                    # the active session but left run_script_doc /
+                    # run_script_doc_url pointing at the launch document.
+                    # How it happened: _handle_disconnect copied the session
+                    # cleanup and skipped the two fields
+                    # terminate_persistent_editor clears. The picker still reads
+                    # them, so a later message targeted that document and the
+                    # UNO reference kept it alive.
+                    # Why this works: the empty-session path drops both fields.
+                    # A replacement session registered before this callback is
+                    # left alone, including a launch document it already set.
+                    self.run_script_doc = None
+                    self.run_script_doc_url = None
                     set_active_session(None)
 
         try:
