@@ -21,6 +21,7 @@ from plugin.draw.bridge import DrawBridge, find_notes_shape
 from plugin.framework.errors import is_disposed_exception
 from plugin.framework.uno_context import get_desktop
 from plugin.ppt_master.adapter.uno_shape_postprocess import copy_shapes_to_page
+from plugin.framework.queue_executor import execute_on_main_thread
 
 log = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ def _import_slides_from_source(
     *,
     slide_indices: list[int] | None = None,
     clear_existing: bool = True,
+    stop_checker: Any = None,
 ) -> dict[str, Any]:
     source_pages = source_doc.getDrawPages()
     source_count = int(source_pages.getCount())
@@ -163,6 +165,8 @@ def _import_slides_from_source(
     pages = bridge.get_pages()
     results: list[dict[str, Any]] = []
     for out_index, src_index in enumerate(indices):
+        if stop_checker is not None and stop_checker():
+            return {"status": "error", "message": "Stopped by user.", "code": "USER_STOPPED"}
         source_page = source_pages.getByIndex(src_index)
         # What was wrong: the target slide was cleared before the copy, so a
         # copy that returned no shapes had already destroyed user content.
@@ -173,25 +177,27 @@ def _import_slides_from_source(
         # copy trims what it appended, or drops a slide this call just
         # created, and leaves an existing slide's shapes in place.
         replace = clear_existing or out_index > 0
-        existed = out_index < int(pages.getCount())
-        target_page = _ensure_target_page(bridge, out_index)
+        existed = execute_on_main_thread(lambda: out_index < int(pages.getCount()))
+        target_page = execute_on_main_thread(lambda: _ensure_target_page(bridge, out_index))
         try:
-            previous_count = int(target_page.getCount())
+            previous_count = execute_on_main_thread(lambda: int(target_page.getCount()))
         except Exception as exc:
             log.debug("count target shapes: %s", exc)
             previous_count = None
-        copied = copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx)
+        copied = execute_on_main_thread(lambda: copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx))
         if copied < 1:
             if not existed:
-                _drop_page(pages, target_page)
+                execute_on_main_thread(lambda: _drop_page(pages, target_page))
             elif previous_count is not None:
-                _trim_appended_shapes(target_page, previous_count)
+                trim_count = previous_count
+                execute_on_main_thread(lambda: _trim_appended_shapes(target_page, trim_count))
             return {"status": "error", "message": f"No shapes copied from PPTX slide {src_index + 1}"}
         if replace and previous_count is not None:
-            _drop_front_shapes(target_page, previous_count)
-        _apply_target_page_size(target_page)
-        bridge.set_current_page_index(out_index)
-        _copy_page_notes(source_page, target_page)
+            drop_count = previous_count
+            execute_on_main_thread(lambda: _drop_front_shapes(target_page, drop_count))
+        execute_on_main_thread(lambda: _apply_target_page_size(target_page))
+        execute_on_main_thread(lambda: bridge.set_current_page_index(out_index))
+        execute_on_main_thread(lambda: _copy_page_notes(source_page, target_page))
         results.append({"slide_index": out_index, "source_slide_index": src_index, "shapes_copied": copied})
 
     return {"status": "ok", "slides": len(results), "route": "pptx_to_odp", "results": results}
@@ -204,6 +210,7 @@ def import_pptx_to_doc(
     *,
     clear_existing: bool = True,
     save_mirror_odp: Path | None = None,
+    stop_checker: Any = None,
 ) -> dict[str, Any]:
     """Load PPTX hidden, copy all slides into *target_doc*, optionally write mirror ODP."""
     pptx_path = Path(pptx_path).expanduser().resolve()
@@ -215,7 +222,7 @@ def import_pptx_to_doc(
             save_mirror_odp = Path(save_mirror_odp).expanduser().resolve()
             save_mirror_odp.parent.mkdir(parents=True, exist_ok=True)
             source_doc.storeToURL(save_mirror_odp.as_uri(), ())
-        result = _import_slides_from_source(ctx, target_doc, source_doc, clear_existing=clear_existing)
+        result = _import_slides_from_source(ctx, target_doc, source_doc, clear_existing=clear_existing, stop_checker=stop_checker)
         if result.get("status") == "ok":
             result["pptx_path"] = str(pptx_path)
             if save_mirror_odp is not None:

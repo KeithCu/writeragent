@@ -120,3 +120,18 @@ def test_extract_spreadsheet_rows_xlsx(tmp_path: Path):
     wb.save(path)
     rows = ooxml.extract_spreadsheet_rows(str(path))
     assert rows == ["[Sheet: Budget]\tRevenue\t100"]
+
+def test_extract_pptx_passages_paragraphs_and_runs(tmp_path: Path):
+    slide_xml = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld><p:spTree><p:sp><p:txBody>
+    <a:p><a:r><a:t>First </a:t></a:r><a:r><a:t>run</a:t></a:r></a:p>
+    <a:p><a:r><a:t>Second paragraph</a:t></a:r></a:p>
+  </p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>"""
+    pptx = tmp_path / "deck3.pptx"
+    with zipfile.ZipFile(pptx, "w") as zf:
+        zf.writestr("ppt/slides/slide1.xml", slide_xml)
+    passages = ooxml.extract_pptx_passages(str(pptx))
+    assert passages == ["[Slide: Slide1]\tFirst run\nSecond paragraph"]
