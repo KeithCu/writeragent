@@ -14,10 +14,15 @@ from odf.presentation import Notes
 from odf.text import P
 
 
-def _add_page_text(page: Page, *, body: str, notes: str = "") -> None:
+def _add_page_text(page: Page, *, body: str, notes: str = "", spans: list[str] | None = None) -> None:
     body_frame = Frame(width="10cm", height="3cm")
     body_box = TextBox()
-    body_box.addElement(P(text=body))
+    p = P(text=body)
+    if spans:
+        from odf.text import Span
+        for span_text in spans:
+            p.addElement(Span(text=span_text))
+    body_box.addElement(p)
     body_frame.addElement(body_box)
     page.addElement(body_frame)
     if notes:
@@ -30,11 +35,11 @@ def _add_page_text(page: Page, *, body: str, notes: str = "") -> None:
         page.addElement(notes_el)
 
 
-def write_deck_odp(path: Path, *, body: str = "Q4 Revenue", notes: str = "") -> None:
+def write_deck_odp(path: Path, *, body: str = "Q4 Revenue", notes: str = "", spans: list[str] | None = None) -> None:
     """Minimal Impress .odp with one slide for extract and FTS tests."""
     doc = OpenDocumentPresentation()
     page = Page(name="Intro", masterpagename="Default", stylename="dp1")
-    _add_page_text(page, body=body, notes=notes)
+    _add_page_text(page, body=body, notes=notes, spans=spans)
     doc.presentation.addElement(page)
     doc.save(str(path))
 

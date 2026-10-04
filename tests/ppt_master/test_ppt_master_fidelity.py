@@ -69,7 +69,7 @@ def test_write_agent_summary(tmp_path: Path):
     assert "01_cover.svg" in text
     assert "FAIL" in text
 
-def test_evaluate_slide_fidelity_closes_source_doc_after_read(monkeypatch, tmp_path: Path):
+def test_evaluate_slide_fidelity_closes_target_doc_after_read(monkeypatch, tmp_path: Path):
     from plugin.ppt_master import fidelity
 
     class DummyDoc:
@@ -80,22 +80,16 @@ def test_evaluate_slide_fidelity_closes_source_doc_after_read(monkeypatch, tmp_p
 
     class DummyPage:
         def getCount(self):
-            if hasattr(self, "source_doc") and getattr(self.source_doc, "closed", False):
-                raise Exception("Page used after doc closed!")
             return 1
 
     doc = DummyDoc()
-    source_doc = DummyDoc()
     page = DummyPage()
-    source_page = DummyPage()
-    source_page.source_doc = source_doc
 
     def mock_import(ctx, pptx_path, slide_index, odp_path):
-        return doc, page, source_page, source_doc
+        return doc, page
 
-    def mock_metrics(src_page, tgt_page):
-        # Access the source_page which would fail if source_doc was closed
-        src_page.getCount()
+    def mock_metrics(tgt_page):
+        tgt_page.getCount()
         from plugin.ppt_master.fidelity import StructuralMetrics
         return StructuralMetrics()
 
@@ -115,5 +109,4 @@ def test_evaluate_slide_fidelity_closes_source_doc_after_read(monkeypatch, tmp_p
         skip_visual=True,
     )
 
-    assert source_doc.closed is True
     assert doc.closed is True

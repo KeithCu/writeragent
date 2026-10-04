@@ -1211,8 +1211,15 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
     tests that patch it). Do not pump inside ``execute_code`` (LayoutIdle).
     """
     try:
-        from plugin.framework.queue_executor import pump_main_thread_work_queue
-        pump_main_thread_work_queue(max_items=1)
+        from plugin.framework.async_drain_guard import get_drain_owner
+        from plugin.framework.queue_executor import pump_ui_idle
+        from plugin.framework.uno_context import get_toolkit
+        from plugin.notebook.writer_importer import flush_ui_idle
+
+        if get_drain_owner() is not None:
+            pump_ui_idle(get_toolkit(ctx), max_queue_items=1)
+        else:
+            flush_ui_idle(ctx)
     except Exception:
         log.debug("notebook run: between-cell pump failed", exc_info=True)
 

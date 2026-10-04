@@ -39,7 +39,7 @@ def test_calc_extend_streams_each_non_empty_cell():
     model, sheet = _model_for_data((("=1+1", ""),))
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("+2", False)
         on_done_fn()
@@ -62,7 +62,7 @@ def test_calc_edit_skips_empty_cells():
     input_box = MagicMock(return_value=("shorten", "extra system"))
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("Edited", False)
         on_done_fn()
@@ -87,7 +87,7 @@ def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
     error = RuntimeError("provider failed")
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("=2", False)
         on_error_fn(error)
