@@ -61,7 +61,12 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         finish_tools = registry.get_tools(names=["specialized_workflow_finished"], exclude_tiers=())
         return domain_tools, finish_tools
 
-    domain_tools, finish_tools = _run_on_main(_fetch_inner_tools)
+    from plugin.framework.queue_executor import SendCancelled
+    try:
+        domain_tools, finish_tools = _run_on_main(_fetch_inner_tools)
+    except SendCancelled:
+        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+
     missing = allowlist - {t.name for t in domain_tools if t.name}
     if missing:
         log.warning("Inner document_research agent missing tools: %s", sorted(missing))
@@ -172,12 +177,20 @@ class DelegateReadDocument(ToolBase):
                 return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
             result = run_inner_read_agent(ctx, model, doc_type, str(task))
         finally:
-            try:
-                _run_on_main(
-                    lambda: close_document_research_document(model, opened_for_document_research=opened_for_document_research)
-                )
-            except SendCancelled:
+            def _do_close() -> None:
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
+
+            try:
+                _run_on_main(_do_close)
+            except (SendCancelled, TimeoutError, RuntimeError):
+                from plugin.framework.queue_executor import _current_send_cancellation
+                token = _current_send_cancellation.set(None)
+                try:
+                    _run_on_main(_do_close)
+                except Exception:
+                    pass
+                finally:
+                    _current_send_cancellation.reset(token)
 
         if isinstance(result, dict) and result.get("status") == "error":
             return result
