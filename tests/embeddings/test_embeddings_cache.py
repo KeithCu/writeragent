@@ -92,6 +92,41 @@ def test_index_is_empty_missing_and_populated(tmp_path):
     assert embeddings_cache.index_is_empty(meta_path, db_path) is False
 
 
+def test_index_is_empty_zvec_ignores_missing_corpus_db(tmp_path):
+    """Missing corpus.db is normal for zvec. Emptiness is meta plus the collection."""
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    embeddings_cache.write_corpus_meta(meta_path, chunk_count="3", embedding_model="m")
+    store = embeddings_cache.zvec_collection_path(listing, create_parent=False)
+    store.mkdir()
+    (store / "segment").write_text("rows", encoding="utf-8")
+
+    assert db_path.is_file() is False
+    # Sqlite still treats the missing db as empty, even if a zvec dir exists.
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is True
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="zvec", listing_root=listing) is False
+
+    embeddings_cache.write_corpus_meta(meta_path, chunk_count="0")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="zvec", listing_root=listing) is True
+
+
+def test_index_is_empty_lancedb_needs_collection_and_chunks(tmp_path):
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    embeddings_cache.write_corpus_meta(meta_path, chunk_count="2")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is True
+
+    store = embeddings_cache.lancedb_collection_path(listing, create_parent=False)
+    store.mkdir()
+    (store / "data.lance").write_text("rows", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is False
+
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is False
+
+
 def test_index_is_empty_with_corrupt_meta_and_db(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     db_path = tmp_path / "corpus.db"

@@ -351,12 +351,22 @@ def ingest_paragraphs(
     delete_keys: list[dict[str, Any]] | None = None,
     build_fts: bool = False,
     build_vectors: bool = True,
+    fill_vector_gaps: bool = False,
 ) -> dict[str, Any]:
-    """Run the LangGraph ingest pipeline for changed paragraph rows."""
+    """Run the LangGraph ingest pipeline for changed paragraph rows.
+
+    *fill_vector_gaps* runs the graph even when *rows* and *delete_keys* are
+    empty, so ``embed_and_upsert_batches`` can embed chunks that have no
+    vector for this model.
+    """
     model = (model_name or "").strip()
     if not model and build_vectors:
         raise ValueError("embedding model name is required")
-    if not rows and not delete_keys:
+    # What was wrong: an empty row list returned here, before the graph. The
+    # same-model alignment pass sets has_missing and calls ingest with no
+    # rows, expecting the graph to embed chunks missing from vec_chunks.
+    # That return made the pass a no-op. fill_vector_gaps is that pass.
+    if not rows and not delete_keys and not fill_vector_gaps:
         return {"indexed": 0, "dim": 0, "storage_backend": "sqlite_vec"}
 
     initial: IngestState = {

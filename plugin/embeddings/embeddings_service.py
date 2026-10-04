@@ -22,6 +22,17 @@ def _folder_search_mode() -> str:
     return str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
 
 
+_FOLDER_SEARCH_MODES = ("hybrid", "llama_index", "fts", "embeddings", "zvec", "lancedb")
+
+
+def _resolved_folder_search_mode(search_mode: str | None) -> str:
+    """Settings mode, or an explicit override, restricted to known backends."""
+    resolved = str(search_mode or _folder_search_mode() or "hybrid").strip().lower()
+    if resolved not in _FOLDER_SEARCH_MODES:
+        return "hybrid"
+    return resolved
+
+
 def _folder_search_rerank_options(search_mode: str) -> dict[str, Any]:
     """Build use_mmr / rerank_model for search RPC from Settings and backend mode."""
     from plugin.framework.constants import folder_rerank_enabled, resolve_folder_rerank_model
@@ -47,24 +58,27 @@ def maintain_folder_index(ctx: Any, listing_root: str, *, model: str, mode: str 
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
-    resolved_mode = str(search_mode or _folder_search_mode() or "hybrid").strip().lower()
-    if resolved_mode not in ("hybrid", "llama_index", "fts", "embeddings", "zvec", "lancedb"):
-        resolved_mode = "hybrid"
+    resolved_mode = _resolved_folder_search_mode(search_mode)
     return _run_embeddings_action(ctx, "maintain_folder_index", {"listing_root": str(listing_root), "model": model_name, "mode": str(mode or "auto"), "search_mode": resolved_mode}, model=model_name or "corpus", allow_heartbeat=True, heartbeat_fn=heartbeat_fn)
 
 
-def index_paragraphs(ctx: Any, db_path: str, meta_path: str, rows: list[dict[str, Any]], *, model: str, build_fts: bool = False, build_vectors: bool = True) -> dict[str, Any]:
+def index_paragraphs(ctx: Any, db_path: str, meta_path: str, rows: list[dict[str, Any]], *, model: str, build_fts: bool = False, build_vectors: bool = True, search_mode: str | None = None) -> dict[str, Any]:
     """Persist paragraph rows + vectors via the warm venv worker."""
     model_name = (model or "").strip()
     if build_vectors and not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
-    return _run_embeddings_action(ctx, "index_paragraphs", {"db_path": str(db_path), "meta_path": str(meta_path), "model": model_name, "rows": list(rows or []), "build_fts": build_fts, "build_vectors": build_vectors}, model=model_name or "corpus")
+    # What was wrong: params omitted search_mode. Dispatch then used the
+    # sqlite default, so a configured zvec, LanceDB, or LlamaIndex backend
+    # never saw the rows.
+    resolved_mode = _resolved_folder_search_mode(search_mode)
+    return _run_embeddings_action(ctx, "index_paragraphs", {"db_path": str(db_path), "meta_path": str(meta_path), "model": model_name, "rows": list(rows or []), "build_fts": build_fts, "build_vectors": build_vectors, "search_mode": resolved_mode}, model=model_name or "corpus")
 
 
-def delete_paragraphs(ctx: Any, db_path: str, meta_path: str, keys: list[dict[str, Any]], *, model: str, build_fts: bool = False, build_vectors: bool = True) -> dict[str, Any]:
+def delete_paragraphs(ctx: Any, db_path: str, meta_path: str, keys: list[dict[str, Any]], *, model: str, build_fts: bool = False, build_vectors: bool = True, search_mode: str | None = None) -> dict[str, Any]:
     """Remove paragraph index rows via the warm venv worker."""
     model_name = (model or "").strip()
-    return _run_embeddings_action(ctx, "delete_paragraphs", {"db_path": str(db_path), "meta_path": str(meta_path), "keys": list(keys or []), "model": model_name, "build_fts": build_fts, "build_vectors": build_vectors}, model=model_name or "corpus")
+    resolved_mode = _resolved_folder_search_mode(search_mode)
+    return _run_embeddings_action(ctx, "delete_paragraphs", {"db_path": str(db_path), "meta_path": str(meta_path), "keys": list(keys or []), "model": model_name, "build_fts": build_fts, "build_vectors": build_vectors, "search_mode": resolved_mode}, model=model_name or "corpus")
 
 
 def hybrid_search(ctx: Any, db_path: str, query: str, k: int, *, model: str, near_slop: int = 10, doc_url_filter: str | None = None) -> dict[str, Any]:

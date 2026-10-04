@@ -680,11 +680,19 @@ def get_file_index_info(conn: sqlite3.Connection, doc_url: str) -> dict[str, flo
 
 
 def file_is_stale_in_db(conn: sqlite3.Connection, doc_url: str, file_mtime: float) -> bool:
-    """True when filesystem mtime is newer than last indexed timestamp."""
+    """True when *file_mtime* is newer than the mtime stored for *doc_url*.
+
+    What was wrong: this compared the filesystem mtime to ``last_indexed_at``,
+    which is wall-clock ``time.time()`` when the row was written. An edit whose
+    mtime moved forward but stayed older than that clock (restore, copy,
+    ``touch -d``) looked fresh, and a file mtime ahead of the clock looked
+    stale on every pass. Compare to the stored ``file_mtime`` captured from
+    the file when it was indexed.
+    """
     info = get_file_index_info(conn, doc_url)
     if info["chunk_count"] == 0:
         return True
-    return float(file_mtime) > float(info["last_indexed_at"])
+    return float(file_mtime) > float(info["file_mtime"])
 
 
 def mark_file_indexed_in_db(
