@@ -542,7 +542,13 @@ def test_form_and_container_multiple_forms():
     forms.getCount.return_value = 2
 
     form0 = MagicMock()
+    form0.getCount.return_value = 0
+
     form1 = MagicMock()
+    form1.getCount.return_value = 1
+    elem = MagicMock()
+    elem.Name = "nb_run_abc"
+    form1.getByIndex.return_value = elem
 
     def get_by_index(idx):
         return form0 if idx == 0 else form1
@@ -567,3 +573,78 @@ def test_form_and_container_multiple_forms():
     fc, container = notebook_controls._form_and_container(doc)
     assert fc is fc1
     assert container is container1
+
+def test_wire_all_dedups_off_main_thread_when_uno_same_raises(monkeypatch):
+    """If uno_same raises off the main thread, wire_all must still dedup the listener."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///fake.odt"
+    doc.RuntimeUID = "fake_uid"
+
+    def raise_uno_same(*args, **kwargs):
+        raise RuntimeError("uno_same called off main thread")
+
+    import plugin.notebook.notebook_controls as notebook_controls
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), MagicMock())),
+        patch("plugin.framework.uno_context.uno_same", side_effect=raise_uno_same)
+    ):
+        notebook_controls._listener_refs.clear()
+        notebook_controls._wired_form_docs.clear()
+
+        first = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+        assert first == 1
+        assert len(notebook_controls._listener_refs) == 2
+
+        second = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+        # Verify dedup worked even with uno_same raising
+        assert second == 1
+        assert len(notebook_controls._listener_refs) == 2
+
+def test_recreated_view_skips_rewire_if_container_changes():
+    """If a view is recreated, the container changes, and wire_all should rewire."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///fake.odt"
+    doc.RuntimeUID = "fake_uid"
+
+    import plugin.notebook.notebook_controls as notebook_controls
+
+    # Old container
+    old_container = MagicMock()
+    # New container
+    new_container = MagicMock()
+
+    # uno_same will return True if containers match
+    def mock_uno_same(c, a, b):
+        return a is b
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
+        patch("plugin.framework.uno_context.uno_same", side_effect=mock_uno_same)
+    ):
+        notebook_controls._listener_refs.clear()
+        notebook_controls._wired_form_docs.clear()
+
+        # 1. Wire with old container
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), old_container)):
+            res1 = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+            assert res1 == 1
+            assert len(notebook_controls._listener_refs) == 2  # RunListener + ContainerListener
+
+        # 2. Wire again with same container (should dedup)
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), old_container)):
+            res2 = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+            assert res2 == 1
+            assert len(notebook_controls._listener_refs) == 2  # Still 2
+
+        # 3. Wire with NEW container (should rewire!)
+        with patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), new_container)):
+            res3 = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+            assert res3 == 1
+            # We added 2 new listeners
+            assert len(notebook_controls._listener_refs) == 4

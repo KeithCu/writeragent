@@ -42,6 +42,7 @@ def _run_trusted_action(
     stop_checker: Callable[[], bool] | None = None,
     headers: bool | None = None,
     header_row: int | None = None,
+    send_cancellation: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action packet in the user venv worker.
 
@@ -64,6 +65,7 @@ def _run_trusted_action(
         stop_checker=stop_checker,
         headers=headers,
         header_row=header_row,
+        cancellation_scope=send_cancellation,
     )
 
 
@@ -143,6 +145,8 @@ def _make_spec_runner(
             error_label=error_label,
             headers=layout["headers"] if "headers" in layout else None,
             header_row=layout["header_row"] if "header_row" in layout else None,
+            stop_checker=getattr(ctx, "stop_checker", None),
+            send_cancellation=getattr(ctx, "send_cancellation", None),
         )
 
     _runner.__name__ = f"run_{error_label.lower().replace(' ', '_')}"
@@ -254,7 +258,8 @@ def run_vision(
         error_code="VISION_ERROR",
         error_label="Vision",
         additional_data={"image": image},
-        stop_checker=stop_checker,
+        stop_checker=stop_checker if stop_checker is not None else getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 
@@ -293,6 +298,8 @@ def run_folder_sql(
             "preloaded": preloaded or {},
             "flat_files": flat_files or {},
         },
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 
@@ -346,6 +353,8 @@ def run_text_analytics(
         error_code="TEXT_ANALYTICS_ERROR",
         error_label="Text Analytics",
         additional_data={"text": text},
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 # --- LanguageTool ---
@@ -364,6 +373,8 @@ def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
         error_code="LANGUAGETOOL_ERROR",
         error_label="LanguageTool",
         additional_data={"text": text, "bcp47": bcp47},
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 
@@ -383,4 +394,6 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
         error_code="VALE_ERROR",
         error_label="Vale Linter",
         additional_data={"text": text, "config_dir": config_dir, "styles": styles},
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )

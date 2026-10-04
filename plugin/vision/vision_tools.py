@@ -66,7 +66,9 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         def _run() -> dict[str, Any]:
             if stop_checker is not None:
                 setattr(ctx.ctx, "stop_checker", stop_checker)
-            return run_and_insert_vision_for_selection(ctx.ctx, doc, helper="extract_structure", params=params_dict or None, insert_into_document=insert_into_document)
+            if stop_checker and stop_checker():
+                return {"status": "error", "code": "STOPPED", "message": _("OCR stopped by user.")}
+            return run_and_insert_vision_for_selection(ctx.ctx, doc, helper="extract_structure", params=params_dict or None, insert_into_document=insert_into_document, stop_checker=stop_checker)
 
         try:
             if stop_checker is not None and stop_checker():

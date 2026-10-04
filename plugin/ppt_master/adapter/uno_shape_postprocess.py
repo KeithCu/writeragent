@@ -235,6 +235,12 @@ def clone_shape_to_page(source_shape: Any, target_doc: Any, target_page: Any, un
             # Leave the picture empty. Assigning the live Graphic would tie
             # the target to the hidden pool that import closes next.
             log.warning("PPTX picture reimport failed; left Graphic unset rather than alias the hidden source pool")
+
+        if shape_type == "com.sun.star.drawing.GroupShape":
+            for i in range(source_shape.getCount()):
+                child = source_shape.getByIndex(i)
+                clone_shape_to_page(child, target_doc, new_shape, uno_ctx=uno_ctx)
+
         for prop in _TEXT_LAYOUT_PROPS:
             if prop == "TextAutoGrowHeight":
                 continue

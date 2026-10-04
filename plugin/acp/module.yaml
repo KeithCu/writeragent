@@ -50,3 +50,10 @@ config:
     label: ACP agent name
     helper: "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent."
     internal: true
+
+  prompt_for_permission:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Prompt for Agent Permissions
+    helper: "Ask for confirmation before allowing the agent to use tools (read files, execute commands, etc.)"

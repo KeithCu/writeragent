@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.config import get_config
 from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
@@ -53,7 +53,7 @@ def _parse_worker_result(payload: dict[str, Any], *, model: str) -> EmbeddingBat
     return EmbeddingBatch(model=str(payload.get("model") or model), dim=dim, vectors=vectors, indices=indices)
 
 
-def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout_sec: int | None = None) -> EmbeddingBatch:
+def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout_sec: int | None = None, stop_checker: Callable[[], bool] | None = None, cancellation_scope: Any | None = None) -> EmbeddingBatch:
     """Encode *texts* to float32 vectors via the user venv (sentence-transformers).
 
     Empty strings are skipped on the worker side; see ``EmbeddingBatch.indices`` for alignment.
@@ -71,6 +71,6 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout
 
     resolved_timeout_sec = embeddings_worker_timeout_sec(ctx) if timeout_sec is None else int(timeout_sec)
     result = run_trusted_worker_action(
-        ctx, domain="embedding", helper="embed_texts", params={}, additional_data={"model": model_name, "texts": list(texts)}, session_id=_embedding_session_id(model_name), timeout_sec=resolved_timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, error_code="EMBEDDING_ERROR", error_label="Embedding"
+        ctx, domain="embedding", helper="embed_texts", params={}, additional_data={"model": model_name, "texts": list(texts)}, session_id=_embedding_session_id(model_name), timeout_sec=resolved_timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, error_code="EMBEDDING_ERROR", error_label="Embedding", stop_checker=stop_checker, cancellation_scope=cancellation_scope
     )
     return _parse_worker_result(result, model=model_name)

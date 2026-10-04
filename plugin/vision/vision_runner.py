@@ -163,7 +163,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
     return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
 
 
-def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True) -> dict[str, Any]:
+def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, stop_checker: Any = None) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
@@ -184,6 +184,8 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         # wasted the selection. Reject here.
         raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
 
+    if stop_checker is None:
+        stop_checker = getattr(ctx, "stop_checker", None)
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     explicit_name = str(params_dict.get("image_name") or "").strip()
 
@@ -203,6 +205,9 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
     results: list[dict[str, Any]] = []
     for image_name in target_names:
+        if stop_checker and stop_checker():
+            break
+
         per_params = dict(params_dict)
         per_params["image_name"] = image_name
         result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
@@ -217,20 +222,18 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
-
-        stop_checker = getattr(ctx, "stop_checker", None)
         if stop_checker and stop_checker():
+            # OCR for this image finished, but the user stopped before insert.
             failed = dict(result)
             failed["status"] = "error"
             failed["code"] = "STOPPED"
             failed["message"] = "Vision processing stopped."
-            failed["images_processed"] = len(results)
+            failed["images_processed"] = len(results) + 1
             failed["image_names"] = list(target_names[: len(results)])
             failed["failed_image"] = image_name
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
-
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
             def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:
