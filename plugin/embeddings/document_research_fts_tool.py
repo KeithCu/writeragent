@@ -56,7 +56,7 @@ class SearchNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if ctx.stop_checker and ctx.stop_checker():
+        if ctx.stop_checker and ctx.stop_checker() is True:
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
@@ -226,13 +226,13 @@ class SearchNearbyFiles(ToolBase):
             log.exception("search_nearby_files failed")
             return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
 
-        def _wakeup2() -> None:
+        def _wakeup() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
 
         if on_main_thread():
-            _wakeup2()
+            _wakeup()
         else:
-            execute_on_main_thread(_wakeup2)
+            execute_on_main_thread(_wakeup)
 
         hits = list(result.get("hits") or [])
         if resolved_urls is not None and len(resolved_urls) > 1:
