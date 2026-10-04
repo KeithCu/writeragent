@@ -623,6 +623,10 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
         try:
             transcript = host._transcribe_audio(host.audio_wav_path, stt_model)
+            if getattr(host, "_terminal_status", None) == "Stopped":
+                # Stop during fallback STT. None ends the drain. Do not show
+                # "No speech detected" or spawn another chat worker.
+                return None
             wav_path = host.audio_wav_path
             host.audio_wav_path = None
             if wav_path:
