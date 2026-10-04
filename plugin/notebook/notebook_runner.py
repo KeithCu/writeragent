@@ -1082,7 +1082,7 @@ def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: Notebo
     result = execute_code(ctx, doc, code)
     # After execute so live smoke can tell ok from a sandbox dunder deny.
     log.info("notebook run cell index=%d field=%s status=%s", cell.index, cell.code_field_name, result.get("status"))
-    if result.get("status") == "interrupted":
+    if result.get("status") == "stopped" or result.get("status") == "interrupted":
         # In [n] / outputs only for cells that actually finished.
         return RunResult("stopped", None, "Stopped.", cells_run=0)
 
@@ -1210,7 +1210,6 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
     depth 1. With no owner, keep ``flush_ui_idle`` (hamburger Stop, and the
     tests that patch it). Do not pump inside ``execute_code`` (LayoutIdle).
     """
-    from plugin.framework.async_drain_guard import get_drain_owner
     try:
         from plugin.framework.queue_executor import pump_main_thread_work_queue
         pump_main_thread_work_queue(max_items=1)
