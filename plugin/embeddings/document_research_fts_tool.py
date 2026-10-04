@@ -86,6 +86,7 @@ class SearchNearbyFiles(ToolBase):
         from plugin.doc.document_research_grep import resolve_grep_candidates
         from plugin.embeddings.embeddings_cache import (
             index_is_empty,
+            query_blocked_for_model,
             resolve_index_context,
             zvec_collection_looks_populated,
             zvec_collection_path,
@@ -113,6 +114,11 @@ class SearchNearbyFiles(ToolBase):
                 looks_empty = not lancedb_collection_looks_populated(lpath)
             else:
                 looks_empty = index_is_empty(meta_path, db_path)
+
+            # Hybrid search always queries vec0. A model change must not read
+            # the previous table (empty, partial, or the wrong dimension).
+            if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
+                looks_empty = True
 
             if looks_empty:
                 ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)

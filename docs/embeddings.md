@@ -287,7 +287,7 @@ Indexing runs on a **background maintenance worker** — not inside the agent to
 |---------|--------|
 | **Periodic tick** | Every 300 s for active doc’s folder ([`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py)) |
 | **document_research start** | [`specialized_base.py`](../plugin/doc/specialized_base.py) |
-| **Empty/stale cache on search** | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) |
+| **Empty or wrong-model cache on search** | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py), [`document_research_search_tool.py`](../plugin/embeddings/document_research_search_tool.py) |
 
 One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
 
@@ -298,7 +298,7 @@ One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin
 
 Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)).
 
-`search_nearby_files` **never blocks** on embed completion — it reads whatever is on disk and enqueues maintain if needed.
+`search_nearby_files` and `search_embeddings` do not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. They do not run a vector query against that index. A matching cache is read immediately, and maintain is enqueued in the background.
 
 ### Module map
 
@@ -344,7 +344,7 @@ Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or
 3. **`model_metadata`** — dimension and last update per model.
 4. **Relative expiry** — models more than 7 days older than the active model are dropped + `VACUUM` during ingest.
 
-Changing **Embedding Model** in Settings triggers a **cold rebuild** for that folder.
+Changing **Embedding Model** in Settings forces a **cold rebuild** for that folder, including the zvec and LanceDB stores. Auto and explicit incremental maintain both take that path. Search does not query the previous vec table. The old incremental alignment pass is not used for a model change: it called ingest with no rows and left the vec index empty, partial, or sized for the previous dimension.
 
 ### Schema (vec0 path)
 

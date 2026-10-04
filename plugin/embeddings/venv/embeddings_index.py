@@ -263,13 +263,17 @@ def delete_paragraphs(
         conn.close()
 
     meta_file = Path(str(meta_path))
+    loaded: Any
     if meta_file.is_file():
         try:
-            data = json.loads(meta_file.read_text(encoding="utf-8"))
+            loaded = json.loads(meta_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            data = {}
+            loaded = {}
     else:
-        data = {}
+        loaded = {}
+    # A JSON list or string has no fields to merge. Assigning chunk_count on
+    # it raises TypeError and leaves the non-object file in place.
+    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
     data["chunk_count"] = str(count)
     meta_file.parent.mkdir(parents=True, exist_ok=True)
     meta_file.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
