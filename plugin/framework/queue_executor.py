@@ -206,13 +206,33 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
     if scope is not None and fallback is not None:
 
         def _cancelled() -> bool:
-            return scope.is_cancelled() or fallback()
+            try:
+                return scope.is_cancelled() or fallback()
+            except Exception:
+                # Fall open to stop (treat as stopped) on exception
+                import logging
+                logging.getLogger(__name__).exception("stop_checker raised exception; failing closed (treating as stopped)")
+                return True
 
         return _cancelled
     if scope is not None:
-        return scope.is_cancelled
+        def _cancelled_scope() -> bool:
+            try:
+                return scope.is_cancelled()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("stop_checker raised exception; failing closed (treating as stopped)")
+                return True
+        return _cancelled_scope
     if fallback is not None:
-        return fallback
+        def _cancelled_fallback() -> bool:
+            try:
+                return fallback()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("stop_checker raised exception; failing closed (treating as stopped)")
+                return True
+        return _cancelled_fallback
     return lambda: False
 
 

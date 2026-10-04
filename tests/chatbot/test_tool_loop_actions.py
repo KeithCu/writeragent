@@ -1154,3 +1154,49 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
     assert seen["scope"] is old
     assert seen["checker"]() is False # Because not cancelled
     assert bind_send_stop_checker(new, lambda: False)() is False
+
+def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
+    from unittest.mock import MagicMock
+    from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, SpawnToolWorkerEffect
+    from plugin.framework.async_stream import StreamQueueKind
+
+    mock_host = MagicMock()
+    mock_host._active_execute_tool_fn = MagicMock(return_value={"status": "ok"})
+    mock_host._active_supports_status = False
+
+    # Force stop_checker to return True
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.capture_send_stop", lambda host: (None, lambda: True))
+
+    interpreter = ToolLoopEffectInterpreter(mock_host)
+    effect = SpawnToolWorkerEffect(
+        call_id="call_1",
+        func_name="my_tool",
+        func_args={"arg": "val"},
+        func_args_str='{"arg": "val"}',
+        is_async=False,
+    )
+
+    # Force current_turn to return a mock TurnController
+    mock_turn = MagicMock()
+    mock_turn.put = MagicMock(return_value=True)
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.current_turn", lambda host: mock_turn)
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.TurnController", MagicMock)
+
+    # Capture what run_tool passes to emit
+    emitted = []
+    def mock_emit(item):
+        emitted.append(item)
+
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.put_for_turn", lambda host, turn, q, item: emitted.append(item) or True)
+
+    # Intercept run_in_background to execute synchronously for the test
+    def mock_run_in_background(func, *args, **kwargs):
+        func()
+
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.run_in_background", mock_run_in_background)
+
+    interpreter._spawn_tool_worker(effect)
+
+    assert len(emitted) == 1
+    assert emitted[0][0] == StreamQueueKind.STOPPED
+    assert mock_host._active_execute_tool_fn.call_count == 0

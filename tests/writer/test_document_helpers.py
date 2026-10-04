@@ -304,6 +304,8 @@ def test_document_helpers_import_does_not_load_calc_analyzer():
         "    _mod = types.ModuleType('pyuno')\n"
         "    _mod.getComponentContext = lambda: None\n"
         "    sys.modules['pyuno'] = _mod\n"
+        "if 'uno' not in sys.modules:\n"
+        "    sys.modules['uno'] = types.ModuleType('uno')\n"
         "import plugin.doc.document_helpers\n"
         "assert 'plugin.calc.analyzer' not in sys.modules\n"
         "assert 'plugin.calc.bridge' not in sys.modules\n"
@@ -820,3 +822,128 @@ def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
     assert text_range.getString() == ""
 
 
+
+def test_do_extend_selection_observes_stop_checker(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
+    monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+
+    def mock_get_current_send_cancellation():
+        class MockScope:
+            def is_cancelled(self):
+                return True
+        return MockScope()
+
+    monkeypatch.setattr("plugin.framework.queue_executor.get_current_send_cancellation", mock_get_current_send_cancellation)
+
+    def stream_completion_mock(*args, **kwargs):
+        streams.append(kwargs)
+        # Should receive stop_checker that returns True
+        stop_checker = kwargs.get("stop_checker")
+        assert stop_checker is not None
+        assert stop_checker() is True
+
+    monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
+
+    editselection.do_extend_selection(object(), doc, object())
+
+    assert len(streams) == 1
+    assert streams[0]["stop_checker"]() is True
+
+
+def test_do_edit_selection_observes_stop_checker(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+    streams = []
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+
+    def mock_get_current_send_cancellation():
+        class MockScope:
+            def is_cancelled(self):
+                return True
+        return MockScope()
+
+    monkeypatch.setattr("plugin.framework.queue_executor.get_current_send_cancellation", mock_get_current_send_cancellation)
+
+    def stream_completion_mock(*args, **kwargs):
+        streams.append(kwargs)
+        # Should receive stop_checker that returns True
+        stop_checker = kwargs.get("stop_checker")
+        assert stop_checker is not None
+        assert stop_checker() is True
+
+    monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
+
+    editselection.do_edit_selection(object(), doc, object())
+
+    assert len(streams) == 1
+    assert streams[0]["stop_checker"]() is True
+
+
+def test_stop_checker_exception_fails_closed():
+    from plugin.framework.queue_executor import bind_send_stop_checker
+
+    class MockScope:
+        def is_cancelled(self):
+            raise ValueError("Some internal error")
+
+    # When scope raises an error, bind_send_stop_checker returns True
+    checker1 = bind_send_stop_checker(MockScope())
+    assert checker1() is True
+
+    def failing_fallback():
+        raise ValueError("Some internal error")
+
+    checker2 = bind_send_stop_checker(None, fallback=failing_fallback)
+    assert checker2() is True
+
+    checker3 = bind_send_stop_checker(MockScope(), fallback=failing_fallback)
+    assert checker3() is True
+
+
+def test_do_extend_selection_failure_visible(monkeypatch):
+    from plugin.writer import editselection
+
+    text_range = _MutableTextRange()
+    text_range.text = "Hello"
+    doc = _MenuDoc(text_range, recording=False)
+    messages = []
+
+    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
+    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
+    monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
+    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
+
+    def stream_completion_mock(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, stop_checker=None):
+        on_error(ValueError("simulated stream failure"))
+
+    monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
+
+    editselection.do_extend_selection(object(), doc, object())
+
+    assert len(messages) == 1
+    assert "simulated stream failure" in messages[0][2]
