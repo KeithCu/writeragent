@@ -112,6 +112,50 @@ def test_needs_cold_rebuild_with_corrupt_meta(tmp_path):
     assert embeddings_cache.needs_cold_rebuild(meta_path, "all-MiniLM-L6-v2") is False
 
 
+def test_needs_cold_rebuild_on_embedding_model_change(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    embeddings_cache.write_corpus_meta(
+        meta_path,
+        schema_version=embeddings_cache.SCHEMA_VERSION,
+        embedding_model="model-a",
+        chunk_count="4",
+        dim="384",
+    )
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is False
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-b") is True
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-b") is True
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+
+
+def test_query_blocked_missing_meta_is_not_a_model_mismatch(tmp_path):
+    meta_path = tmp_path / "missing.json"
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is True
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+
+
+def test_non_dict_corpus_meta_does_not_look_empty_or_cold(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text('["not", "a", "dict"]', encoding="utf-8")
+
+    assert embeddings_cache.read_corpus_meta(meta_path) == {}
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is False
+    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+
+    listing = str(tmp_path / "project")
+    Path(listing).mkdir()
+    base = embeddings_cache.folder_cache_dir(listing)
+    live_db = base / "corpus.db"
+    live_meta = base / "corpus_meta.json"
+    live_db.write_text("sqlite", encoding="utf-8")
+    live_meta.write_text("[]", encoding="utf-8")
+    embeddings_cache.maybe_upgrade_legacy_index(listing)
+    assert live_db.is_file()
+    assert live_meta.is_file()
+
+
 def test_resolve_index_context_no_listing_root():
     ctx = MagicMock()
     model = MagicMock()

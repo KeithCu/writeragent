@@ -123,16 +123,39 @@ def _remove_path(path: Path) -> bool:
         return False
 
 
-def read_corpus_meta(meta_path: Path) -> dict[str, str]:
-    """Load corpus_meta.json; return empty dict when missing."""
+def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
+    """Parse corpus_meta.json as an object.
+
+    None means missing, unreadable, or a JSON value that is not an object
+    (a list, string, or number). Callers that delete the corpus must not
+    treat None as a schema mismatch: that path cold-wipes a live index.
+    Decode errors were covered by #1153; non-objects still reached ``.get``.
+    """
     if not meta_path.is_file():
-        return {}
+        return None
     try:
-        data = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw_text = meta_path.read_text(encoding="utf-8")
+    except OSError:
         log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
-        return {}
+        return None
+    # read_text is str. A non-str means the path handle did not yield a file.
+    if not isinstance(raw_text, str):
+        return None
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError:
+        log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
+        return None
     if not isinstance(data, dict):
+        log.debug("corpus_meta %s is %s, not an object", meta_path, type(data).__name__)
+        return None
+    return data
+
+
+def read_corpus_meta(meta_path: Path) -> dict[str, str]:
+    """Load corpus_meta.json; return empty dict when missing, unreadable, or not an object."""
+    data = _load_meta_object(meta_path)
+    if not data:
         return {}
     return {str(k): str(v) for k, v in data.items()}
 
@@ -282,12 +305,11 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None) -> bool:
         return True
     if not meta_path.is_file():
         return True
-    try:
-        json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        # Corrupt meta, but DB exists. Assume not empty so we don't wipe it.
-        if db_path is not None and db_path.is_file():
-            return False
+    # Corrupt or non-object meta with a live DB is not "empty". Treating it as
+    # empty selects a cold rebuild and deletes the corpus. #1153 covered JSON
+    # decode errors; a JSON list or string took the chunk_count-0 path.
+    if _load_meta_object(meta_path) is None and db_path is not None and db_path.is_file():
+        return False
     return chunk_count_from_meta(meta_path) <= 0
 
 
@@ -330,14 +352,12 @@ def clear_folder_cache(listing_root: str) -> None:
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
     """On first access after upgrade, drop stale v1/v2 stores."""
     meta = corpus_meta_path(listing_root, create_parent=False)
-    if not meta.is_file():
+    data = _load_meta_object(meta)
+    if data is None:
+        # Missing, corrupt, or non-object JSON. Do not nuke the corpus, and
+        # do not call .get on a list.
         return
-    try:
-        data = json.loads(meta.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        # Corrupt file; do not nuke the corpus
-        return
-    if data.get("schema_version", "") == SCHEMA_VERSION:
+    if str(data.get("schema_version", "")) == SCHEMA_VERSION:
         remove_stale_corpus_stores(listing_root)
         return
     clear_folder_cache(listing_root)
@@ -358,15 +378,31 @@ def resolve_index_context(ctx: Any, model: Any) -> tuple[str, Path, Path, str] |
 def needs_cold_rebuild(meta_path: Path, embedding_model: str) -> bool:
     if not meta_path.is_file():
         return True
-    try:
-        json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        # Corrupt meta should not trigger a cold rebuild (which wipes the DB).
+    if _load_meta_object(meta_path) is None:
+        # Corrupt or non-object meta should not trigger a cold rebuild (which wipes the DB).
         return False
     if not schema_matches(meta_path):
         return True
     if chunk_count_from_meta(meta_path) == 0:
         return True
-    # Model mismatch does not require a cold rebuild of the DB anymore;
-    # missing vectors will be aligned incrementally.
-    return False
+    # What was wrong: a model change returned False, so auto maintain stayed
+    # incremental. The alignment pass calls ingest with no rows, and
+    # ingest_paragraphs returns before backfill, so the vec table stays empty,
+    # partial, or sized to the previous model's dimension while meta is
+    # rewritten to the new model. How: the model_matches_index check was
+    # dropped on the theory that missing vectors are filled incrementally.
+    # That fill never runs for an empty row list. Cold-rebuild instead.
+    return not model_matches_index(meta_path, embedding_model)
+
+
+def query_blocked_for_model(meta_path: Path, embedding_model: str) -> bool:
+    """True when a vector query would hit a stale or wrong-dimension index.
+
+    Missing meta is not blocked here (``index_is_empty`` covers that and
+    enqueues a first build). A different embedding model must cold-rebuild
+    before search: querying now reads an empty, partial, or wrong-dim vec
+    table and reports it as a normal result.
+    """
+    if not meta_path.is_file():
+        return False
+    return needs_cold_rebuild(meta_path, embedding_model)

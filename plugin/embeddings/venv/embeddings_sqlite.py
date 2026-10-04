@@ -241,11 +241,18 @@ def _dim_from_meta_path(meta_path: str) -> int | None:  # pyright: ignore[report
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    # Non-object JSON (a list or string) has no dim. .get would raise AttributeError,
+    # which the old except clause did not catch.
+    if not isinstance(data, dict):
+        return None
+    try:
         raw = data.get("dim", "0")
         dim = int(raw)
-        return dim if dim > 0 else None
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except (TypeError, ValueError):
         return None
+    return dim if dim > 0 else None
 
 
 def rebuild_fts_corpus_index(conn: sqlite3.Connection) -> None:
