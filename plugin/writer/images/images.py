@@ -658,7 +658,7 @@ class ImageDownload(ToolWriterImageBase):
     description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: false)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
+        "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: true)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
         "required": ["url"],
     }
 
@@ -666,7 +666,10 @@ class ImageDownload(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         url = kwargs.get("url", "")
 
-        verify_ssl = kwargs.get("verify_ssl", False)
+        verify_ssl = kwargs.get("verify_ssl", True)
+        # A missing or null flag must not turn verification off.
+        if verify_ssl is None:
+            verify_ssl = True
         force = kwargs.get("force", False)
 
         local_path = _download_image_to_cache(url, verify_ssl=verify_ssl, force=force)
@@ -903,10 +906,14 @@ class ImageReplace(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _download_image_to_cache(url: str, verify_ssl: bool = False, force: bool = False) -> str:
+def _download_image_to_cache(url: str, verify_ssl: bool = True, force: bool = False) -> str:
     """Download an image URL to the local cache directory.
 
     Returns the local file path. Uses a URL-based hash for caching.
+
+    TLS certificates are verified unless the caller passes ``verify_ssl=False``.
+    Image replace and image insert use this default, so an https URL is not
+    fetched with hostname checks disabled.
     """
 
     os.makedirs(_IMAGE_CACHE_DIR, exist_ok=True)
@@ -933,6 +940,9 @@ def _download_image_to_cache(url: str, verify_ssl: bool = False, force: bool = F
 
     log.info("image_download: downloading %s -> %s", url, local_path)
 
+    # What was wrong: the default was verify_ssl=False, so ImageReplace (and
+    # ImageInsert / ImageDownload) downloaded https URLs with CERT_NONE.
+    # Why this fixes it: verification stays on unless the caller opts out.
     if verify_ssl:
         context = None
     else:

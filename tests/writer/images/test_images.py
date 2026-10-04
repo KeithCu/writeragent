@@ -11,9 +11,12 @@ from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles
 from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.writer.images.images import (
+    ImageDownload,
     ImageGenerate,
     ImageInsert,
     ImageListNearbyFiles,
+    ImageReplace,
+    _download_image_to_cache,
     _resolve_crop_edges,
     _resolve_orient,
     resolve_image_generate_is_edit,
@@ -264,3 +267,64 @@ def test_images_domain_includes_list_nearby_image_files_not_document_research_li
     assert "image_list_nearby_files" in names
     assert "list_nearby_files" not in names
     assert "specialized_workflow_finished" in names
+
+
+def test_image_download_verifies_tls_by_default():
+    import inspect
+
+    assert inspect.signature(_download_image_to_cache).parameters["verify_ssl"].default is True
+    description = ImageDownload.parameters["properties"]["verify_ssl"]["description"]
+    assert "default: true" in description
+    assert "default: false" not in description
+
+
+def test_download_image_to_cache_does_not_disable_tls(tmp_path, monkeypatch):
+    import ssl
+
+    from plugin.writer.images import images as images_mod
+
+    monkeypatch.setattr(images_mod, "_IMAGE_CACHE_DIR", str(tmp_path))
+    seen = {}
+
+    class _Resp:
+        def read(self):
+            return b"\x89PNG"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _open(request, context=None):
+        seen["context"] = context
+        return _Resp()
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
+    path = _download_image_to_cache("https://example.com/logo.png")
+    assert path.startswith(str(tmp_path))
+    assert seen["context"] is None
+    assert not isinstance(seen["context"], ssl.SSLContext)
+
+
+def test_image_download_omitted_verify_ssl_requests_verification():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    with patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png") as download:
+        result = ImageDownload().execute(ctx, url="https://example.com/logo.png")
+    assert result["status"] == "ok"
+    assert download.call_args.kwargs["verify_ssl"] is True
+
+
+def test_image_replace_https_download_verifies_tls():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png") as download,
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
+    ):
+        result = ImageReplace().execute(ctx, name="Logo", path="https://example.com/logo.png")
+    assert result["status"] == "ok"
+    assert download.call_args.args == ("https://example.com/logo.png",)
+    assert download.call_args.kwargs.get("verify_ssl", True) is True
