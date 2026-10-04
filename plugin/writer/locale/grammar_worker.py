@@ -263,7 +263,7 @@ def run_grammar_check(
         grammar_obs("worker_grammar_done", chunk_len=len(chunk), results_len=len(results), elapsed_ms=elapsed_ms, bcp47=bcp47)
         if completion.apply_locale_after_success:
             for item, text in chunk:
-                grammar_persistence.apply_language_change(ec.ctx, item.doc_id, text, bcp47)
+                grammar_persistence.apply_language_change(ec.ctx, item.doc_id, text, bcp47, start_pos=getattr(item, 'n_start', 0))
 
 
     except Exception as e:
@@ -378,6 +378,9 @@ def call_grammar_llm(
     ec: Any,
 ) -> tuple[list[Any], int]:
     """Run grammar LLM for one sentence or a batch; return parsed results and elapsed ms."""
+    from . import grammar_proofread_locale
+    max_chars = grammar_proofread_locale.grammar_max_chars(ec.ctx)
+    chunk = [(item, text[:max_chars] if len(text) > max_chars else text) for item, text in chunk]
     batch = len(chunk) > 1
     doc_id = chunk[0][0].doc_id
     ignored_reasons = get_active_ignored_reasons(ec.ctx, doc_id)
@@ -809,15 +812,12 @@ def _worker_build_chunks(
         locales_in_use = _get_cached_document_locales(ctx, valid_items[0][0].doc_id)
         detect_lang_instruction = f" Choose from the following locales currently used in the document, or provide a new one if none match: {', '.join(locales_in_use)}."
 
-    truncated: list[tuple[GrammarWorkItem, str]] = [
-        (item, text[:max_chars] if len(text) > max_chars else text) for item, text in valid_items
-    ]
     chunks: list[list[tuple[GrammarWorkItem, str]]] = []
-    if len(truncated) > 1 and batch_size > 1:
-        for i in range(0, len(truncated), batch_size):
-            chunks.append(truncated[i : i + batch_size])
+    if len(valid_items) > 1 and batch_size > 1:
+        for i in range(0, len(valid_items), batch_size):
+            chunks.append(valid_items[i : i + batch_size])
     else:
-        for item, text in truncated:
+        for item, text in valid_items:
             chunks.append([(item, text)])
     return chunks, detect_lang_instruction
 

@@ -123,12 +123,11 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
     """Bind ``DocumentPersistence`` to the Writer model (loads udprops when available)."""
     if not doc_id:
         return
-    from plugin.framework.uno_context import get_active_document
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
     model = get_document_model_for_id(ctx, doc_id)
     if model is None:
-        model = get_active_document(ctx)
+        return
     get_persistence(ctx, doc_id, model=model)
 
 
@@ -654,6 +653,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     inflight_key=inflight_key,
                     enqueue_seq=seq,
                     provider=provider,
+                    n_start=sent_start,
                 )
             )
 

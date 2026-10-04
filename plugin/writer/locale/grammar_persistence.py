@@ -749,7 +749,7 @@ def get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
         return ["en-US"]
 
 
-def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bcp47: str) -> None:
+def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bcp47: str, start_pos: int = 0) -> None:
     """Update CharLocale on the sentence text span inside the document when language mismatch occurs."""
     import uno
     from . import grammar_proofread_locale
@@ -776,7 +776,16 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
             search_desc.SearchCaseSensitive = True
 
         found_range = None
-        if view_cursor:
+        try:
+            if start_pos > 0:
+                text_obj = model.getText()
+                doc_cursor = text_obj.createTextCursorByRange(text_obj.getStart())
+                doc_cursor.goRight(start_pos, False)
+                found_range = model.findNext(doc_cursor.getStart(), search_desc)
+        except Exception:
+            pass
+
+        if not found_range and view_cursor:
             found_range = model.findNext(view_cursor.getStart(), search_desc)
 
         if not found_range:
