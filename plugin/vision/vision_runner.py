@@ -234,8 +234,8 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
-        if stop_checker and stop_checker():
-            break
+        # A finished OCR is a document mutation and is inserted. Stop is checked
+        # at the top of the loop, so the next image is not started.
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
             def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:

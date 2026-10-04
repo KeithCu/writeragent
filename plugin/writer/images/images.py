@@ -211,8 +211,8 @@ class ImageGenerate(ToolWriterImageBase):
         img_path = paths[0]
 
         def _insert_or_replace() -> str:
-            if stop_checker and stop_checker():
-                return "Image generation was cancelled by the user."
+            # Bytes are already in hand. Stop may abort the network wait above;
+            # it does not skip this document insert.
             if is_edit:
                 replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
                 if not replaced:
@@ -223,8 +223,9 @@ class ImageGenerate(ToolWriterImageBase):
 
         msg = _run_on_main(_insert_or_replace, timeout=mt_timeout)
 
-        if stop_checker and stop_checker():
-            return self._tool_error("Cancelled", code="CANCELLED")
+        # Stop after the download must not turn a finished insert into an error.
+        # generate_image still receives stop_checker, so a network wait can abort.
+        # The insert itself is a document mutation and already ran.
 
         if provider in ("endpoint", "openrouter"):
             image_model_used = str(args.get("image_model") or get_image_model() or "").strip()

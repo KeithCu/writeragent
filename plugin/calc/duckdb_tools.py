@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.calc.address_utils import split_sheet_prefix
-from plugin.calc.base import ToolCalcAnalysisBase
+from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
@@ -47,7 +47,7 @@ def _reraise_if_disposed(exc: BaseException) -> None:
         raise
 
 
-class QueryFolderSqlTool(ToolCalcAnalysisBase):
+class QueryFolderSqlTool(ToolCalcPythonSqlBase):
     """Run read-only SQL (DuckDB) over folder files and/or live Calc table sources.
 
     ``tables`` catalog entries store a *stable identity* (sheet name, named /
@@ -58,7 +58,6 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
     """
 
     name: str | None = "query_folder_sql"
-    specialized_domain: ClassVar[str | None] = "python/sql"
     is_mutation: bool | None = False
     description: str = (
         "Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). "
