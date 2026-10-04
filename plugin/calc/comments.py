@@ -130,7 +130,12 @@ class AddCellComment(ToolCalcCommentBase):
 
         doc = ctx.doc
         sheet = resolve_sheet(doc, sheet_name)
-        col, row = _parse_cell_ref(cell_ref)
+
+        try:
+            col, row = _parse_cell_ref(cell_ref)
+        except ValueError as e:
+            return self._tool_error(str(e))
+
         cell = sheet.getCellByPosition(col, row)
 
         # Insert or update annotation
@@ -173,7 +178,11 @@ class DeleteCellComment(ToolCalcCommentBase):
 
         doc = ctx.doc
         sheet = resolve_sheet(doc, sheet_name)
-        col, row = _parse_cell_ref(cell_ref)
+
+        try:
+            col, row = _parse_cell_ref(cell_ref)
+        except ValueError as e:
+            return self._tool_error(str(e))
 
         annotations = sheet.getAnnotations()
         # Find and remove the annotation at this position

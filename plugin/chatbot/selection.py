@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.doc.doc_type import DocumentType, get_document_type
+from plugin.framework.async_drain_guard import add_drain_idle_callback
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.llm_client import LlmClient
@@ -89,7 +90,7 @@ def stream_completion_tasks(ctx: Any, client: LlmClient, tasks: list[StreamCompl
         task = tasks[task_index[0]]
         task_index[0] += 1
         apply_chunk_fn, on_error_fn = prepare_task_fn(task)
-        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, run_next_task, on_error_fn)
+        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, lambda: add_drain_idle_callback(run_next_task), on_error_fn)
 
     run_next_task()
 

@@ -10,6 +10,12 @@ def _model_for_data(data):
     doc = CalcDocStub(data=data)
     sheet = doc.getSheets().getByIndex(0)
     doc.CurrentController.Selection = sheet.getCellRangeByPosition(0, 0, end_col, end_row)
+
+    # Mock createCursor for used area bounds
+    cursor = MagicMock()
+    cursor.getRangeAddress.return_value = MagicMock(StartColumn=0, StartRow=0, EndColumn=end_col, EndRow=end_row)
+    sheet.createCursor = MagicMock(return_value=cursor)
+
     return doc, sheet
 
 
@@ -47,6 +53,30 @@ def test_calc_extend_streams_each_non_empty_cell():
     assert stream_calls == [("A", "extend system", 50)]
     assert sheet.getCellByPosition(0, 0).getString() == "A plus"
     assert sheet.getCellByPosition(1, 0).getString() == ""
+
+
+def test_calc_edit_skips_empty_cells():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("Original", ""),))
+    input_box = MagicMock(return_value=("shorten", "extra system"))
+    stream_calls = []
+
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn):
+        stream_calls.append((prompt, system_prompt, max_tokens))
+        apply_chunk_fn("Edited", False)
+        on_done_fn()
+
+    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
+         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.update_lru_history"), \
+         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
+        do_calc_extend_edit(MagicMock(), model, input_box, is_edit=True)
+
+    assert len(stream_calls) == 1
+    assert "Original" in stream_calls[0][0]
 
 
 def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
