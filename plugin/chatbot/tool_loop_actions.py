@@ -392,7 +392,7 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     if turn is None:
         turn = current_turn(host)
     payload_error = (StreamQueueKind.ERROR, format_error_payload(exc))
-    payload_done = (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(exc)))
+    payload_done = (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(exc), default=str))
     if is_tool_document_disposed(exc, model):
         put_for_turn(host, turn, q, payload_error)
         return
@@ -547,7 +547,7 @@ def build_tool_execute_fn(
                     "Web research approval could not be shown. The search was not started.",
                     code="WEB_RESEARCH_APPROVAL_UNAVAILABLE",
                 )
-                return json.dumps(format_error_payload(err))
+                return json.dumps(format_error_payload(err), default=str)
 
         active_page_idx = None
         if doc_type_str in ("draw", "impress"):
@@ -593,7 +593,7 @@ def build_tool_execute_fn(
                 message = res.get("message")
                 text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
                 raise DocumentDisposedError(text)
-            return json.dumps(res) if isinstance(res, dict) else str(res)
+            return json.dumps(res, default=str) if isinstance(res, dict) else str(res)
         except (ToolExecutionError, UnoObjectError) as e:
             if is_tool_document_disposed(e, doc):
                 raise
@@ -604,14 +604,14 @@ def build_tool_execute_fn(
             if "details" not in err_payload:
                 err_payload["details"] = {}
             err_payload["details"]["traceback"] = tb
-            return json.dumps(err_payload)
+            return json.dumps(err_payload, default=str)
         except Exception as e:
             if is_tool_document_disposed(e, doc):
                 raise
             log.exception("Unexpected tool error")
             tb = traceback.format_exc()
             wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb})
-            return json.dumps(format_error_payload(wrapped_error))
+            return json.dumps(format_error_payload(wrapped_error), default=str)
 
     return execute_fn
 
