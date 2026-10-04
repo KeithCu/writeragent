@@ -376,6 +376,7 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
 # Value: list of (spilled_row, spilled_col) coordinates
 SPILL_REGISTRY: dict[tuple[str, str, int, int], list[tuple[int, int]]] = {}
 LOADED_DOCUMENTS: set[str] = set()
+_SPILL_REGISTRY_LOCK = threading.Lock()
 _PENDING_SPILL_LOCK = threading.Lock()
 _PENDING_SPILL_TIMERS: list[tuple[str, threading.Timer]] = []
 
