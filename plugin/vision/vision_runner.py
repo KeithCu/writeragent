@@ -158,8 +158,9 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
     spec: dict[str, Any] = {"helper": name, "params": params_out}
+    stop_checker = getattr(ctx, "stop_checker", None)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
-    return run_vision(ctx, spec, png_bytes, context=context)
+    return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
 
 
 def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, stop_checker: Any = None) -> dict[str, Any]:
@@ -183,6 +184,8 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         # wasted the selection. Reject here.
         raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
 
+    if stop_checker is None:
+        stop_checker = getattr(ctx, "stop_checker", None)
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     explicit_name = str(params_dict.get("image_name") or "").strip()
 
@@ -200,14 +203,30 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
     target_names = execute_on_main_thread(_discover_names)
 
+    if stop_checker is None:
+        stop_checker = getattr(ctx, "stop_checker", None)
+    from plugin.framework.queue_executor import SendCancelled
+
     results: list[dict[str, Any]] = []
     for image_name in target_names:
-        if stop_checker and stop_checker():
-            break
+        if stop_checker is not None and stop_checker():
+            if results:
+                # Prior images were already inserted into the document. Break loop
+                # and return completed results so the tool result matches what landed.
+                break
+            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
 
         per_params = dict(params_dict)
         per_params["image_name"] = image_name
-        result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
+        try:
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
+        except SendCancelled:
+            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+        except Exception as exc:
+            if getattr(type(exc), "__name__", "") == "SendCancelled":
+                return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+            raise
+
         if result.get("status") == "error":
             # Image 1 may already be inserted. Keep status=error and stop the loop
             # (tests/writer/test_vision_ocr_mock_uno.py). Attach what landed so the
@@ -219,8 +238,8 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
-        if stop_checker and stop_checker():
-            break
+        # A finished OCR is a document mutation and is inserted. Stop is checked
+        # at the top of the loop, so the next image is not started.
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
             def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:

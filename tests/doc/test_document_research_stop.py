@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 from plugin.framework.queue_executor import SendCancelled
 from plugin.doc.document_research_specialized import DelegateReadDocument
@@ -24,13 +23,10 @@ def test_delegate_read_document_closes_when_stopped(
 
     def mock_run_on_main(fn):
         if fn.__name__ == "_do_close":
-            if _current_send_cancellation.get() is not None:
-                raise SendCancelled("Stopped")
-            else:
-                return fn()
+            raise SendCancelled("Stopped")
         return fn()
 
-    with patch("plugin.doc.document_research_specialized._run_on_main", side_effect=mock_run_on_main):
+    with patch("plugin.doc.document_research_specialized._run_on_main", side_effect=mock_run_on_main), patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
         # Bind a dummy scope so _current_send_cancellation.get() is not None initially
         token = _current_send_cancellation.set(MagicMock())
         try:
@@ -51,7 +47,8 @@ def test_delegate_read_document_closes_when_stopped(
         finally:
             _current_send_cancellation.reset(token)
 
-    mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
+    assert mock_post.called
+    assert mock_post.call_args[0][0].__name__ == '_do_close'
 
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
@@ -70,15 +67,12 @@ def test_grep_nearby_files_closes_when_stopped(
 
     def mock_execute_on_main(fn, *args, **kwargs):
         if fn.__name__ == "_close":
-            if _current_send_cancellation.get() is not None:
-                raise SendCancelled("Stopped")
-            else:
-                return fn(*args, **kwargs)
+            raise SendCancelled("Stopped")
         if fn.__name__ == "_search":
             raise SendCancelled("Stopped")
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute_on_main):
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute_on_main), patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
         token = _current_send_cancellation.set(MagicMock())
         try:
             ctx = MagicMock()
@@ -94,4 +88,37 @@ def test_grep_nearby_files_closes_when_stopped(
         finally:
             _current_send_cancellation.reset(token)
 
-    mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
+    assert mock_post.called
+    assert mock_post.call_args[0][0].__name__ == '_close'
+
+@patch("plugin.doc.document_research_grep._grep_text_in_calc")
+@patch("plugin.doc.document_research_grep.close_document_research_document")
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
+def test_grep_nearby_files_polls_stop_checker(
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_grep_calc,
+):
+    opened_model = MagicMock()
+    mock_resolve.return_value = ([MagicMock(path="/tmp/Budget.ods", url="file:///tmp/Budget.ods", entry_type="file", name="Budget.ods")], False, None)
+    mock_open.return_value = (opened_model, "calc", None, True)
+
+    def mock_execute_on_main(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute_on_main):
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.services = {}
+        stop_checker = MagicMock(return_value=False)
+        ctx.stop_checker = stop_checker
+
+        mock_grep_calc.return_value = ([], 0)
+
+        grep_nearby_files(ctx, opened_model, {}, "pattern", stop_checker=stop_checker)
+
+        mock_grep_calc.assert_called_once()
+        assert mock_grep_calc.call_args.kwargs.get("stop_checker") == stop_checker

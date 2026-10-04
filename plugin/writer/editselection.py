@@ -22,7 +22,6 @@ from plugin.framework.config import get_config_int, get_config_str, get_current_
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.errors import format_error_message
-from plugin.framework.async_stream import BlockingWaitStopped
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.chatbot.selection import create_validated_client, prompt_for_edit_instructions, stream_completion
@@ -83,16 +82,9 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         track_reviewable=review_recording_enabled(ctx),
     )
 
+    # A chunk already in hand is a document write and lands. Stop aborts the
+    # network read inside stream_completion, not this append.
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
-        stop_checker = getattr(ctx, "stop_checker", None)
-        if callable(stop_checker):
-            try:
-                if stop_checker():
-                    raise BlockingWaitStopped("Stopped by user")
-            except Exception as e:
-                if isinstance(e, BlockingWaitStopped):
-                    raise
-                raise BlockingWaitStopped("Stopped (stop_checker failed)") from e
         if not is_thinking:
             session.append_chunk(chunk_text)
 
@@ -105,6 +97,7 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         session.abort_and_restore()
         msgbox(ctx, title, _(format_error_message(e)))
 
+    # Stop is read from ctx inside stream_completion. Do not pass a separate checker.
     stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
 
 
@@ -134,16 +127,9 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         track_reviewable=review_recording_enabled(ctx),
     )
 
+    # A chunk already in hand is a document write and lands. Stop aborts the
+    # network read inside stream_completion, not this append.
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
-        stop_checker = getattr(ctx, "stop_checker", None)
-        if callable(stop_checker):
-            try:
-                if stop_checker():
-                    raise BlockingWaitStopped("Stopped by user")
-            except Exception as e:
-                if isinstance(e, BlockingWaitStopped):
-                    raise
-                raise BlockingWaitStopped("Stopped (stop_checker failed)") from e
         if not is_thinking:
             session.append_chunk(chunk_text)
 
@@ -156,4 +142,5 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         session.abort_and_restore()
         msgbox(ctx, title, _(format_error_message(e)))
 
+    # Stop is read from ctx inside stream_completion. Do not pass a separate checker.
     stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)

@@ -63,11 +63,11 @@ def run_trusted_worker_action(
     allow_heartbeat: bool = False,
     heartbeat_grace_sec: int | None = None,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
     error_code: str = "TRUSTED_ACTION_ERROR",
     error_label: str = "Trusted action",
     headers: bool | None = None,
     header_row: int | None = None,
-    stop_checker: Callable[[], bool] | None = None,
     cancellation_scope: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action in the warm venv worker without user code strings."""

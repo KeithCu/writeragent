@@ -31,6 +31,11 @@ def test_install_thread_violation_propagates() -> None:
 
 def test_install_other_errors_stay_a_debug_log(caplog: pytest.LogCaptureFixture) -> None:
     """A normal attach failure is still logged and does not leave wiring."""
+    # What was wrong: logger.debug calls are stripped in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("log.debug stripped in release bundle")
     session = MagicMock()
     session.install.side_effect = RuntimeError("focus attach failed")
     with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.panel_wiring"):

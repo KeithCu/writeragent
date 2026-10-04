@@ -119,7 +119,7 @@ def _weekday_daily(series: Any, step: Any) -> bool:
 
     if not isinstance(step, pd.Timedelta):
         return False
-    days = float(step / pd.Timedelta(days=1))
+    days = float(step.total_seconds() / 86400.0)
     if not 0.5 <= days <= 1.5:
         return False
     weekdays = {int(day) for day in series.index.dayofweek}
@@ -136,7 +136,7 @@ def _period_from_gaps(series: Any) -> int | None:
     step = deltas.median()
     if not isinstance(step, pd.Timedelta):
         return None
-    days = float(step / pd.Timedelta(days=1))
+    days = float(step.total_seconds() / 86400.0)
     if _weekday_daily(series, step):
         return 5
     if 0.5 <= days <= 1.5:

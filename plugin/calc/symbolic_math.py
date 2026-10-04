@@ -35,6 +35,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         },
         "required": ["helper"],
     }
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     long_running: bool = True
 
     def is_async(self) -> bool:

@@ -342,5 +342,26 @@ def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mo
 
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
 
-        assert mock_execute.call_count >= 4
+        assert mock_execute.call_count == 3
         assert result["status"] == "ok"
+
+@patch("plugin.doc.document_research.os.listdir")
+@patch("plugin.doc.document_research.resolve_listing_directory")
+@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
+def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, mock_rld, mock_listdir):
+    mock_rld.return_value = "/tmp"
+    # Create enough files to trigger the modulo check at idx % 50 == 0
+    mock_listdir.return_value = [f"file{i}.ods" for i in range(100)]
+
+    stop_checker = MagicMock(side_effect=[False, True])
+
+    result = grep_nearby_files(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        "Q4",
+        stop_checker=stop_checker,
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"

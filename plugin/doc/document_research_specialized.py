@@ -183,14 +183,8 @@ class DelegateReadDocument(ToolBase):
             try:
                 _run_on_main(_do_close)
             except (SendCancelled, TimeoutError, RuntimeError):
-                from plugin.framework.queue_executor import _current_send_cancellation
-                token = _current_send_cancellation.set(None)
-                try:
-                    _run_on_main(_do_close)
-                except Exception:
-                    pass
-                finally:
-                    _current_send_cancellation.reset(token)
+                from plugin.framework.queue_executor import post_to_main_thread
+                post_to_main_thread(_do_close)
 
         if isinstance(result, dict) and result.get("status") == "error":
             return result

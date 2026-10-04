@@ -113,6 +113,7 @@ class WriteDocumentSection(ToolWriterSpecialBase):
     description: str = "Insert or replace a section of document content with formatted HTML."
     is_mutation: bool | None = True
     long_running: bool = True
+    timeout: float = 300.0
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -129,6 +130,9 @@ class WriteDocumentSection(ToolWriterSpecialBase):
         },
         "required": ["content"],
     }
+
+    def is_async(self) -> bool:
+        return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         content = normalize_html_content_array(kwargs.get("content"))
@@ -192,4 +196,3 @@ class WritingPlanSessionTool(ToolBase):
         from plugin.chatbot.smol_agent import run_subagent_tool
 
         return run_subagent_tool("Writing plan", _run_writing_agent, ctx, **kwargs)
-

@@ -17,8 +17,7 @@ from plugin.framework.errors import is_disposed_exception
 log = logging.getLogger(__name__)
 
 
-from typing import Callable
-def apply_enhancement_project(doc: Any, project_path: Path, *, stop_checker: Callable[[], bool] | None = None) -> dict[str, Any]:
+def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
     """Apply notes/transitions from project enhancement JSON if present."""
     project_path = Path(project_path).expanduser().resolve()
     plan_path = project_path / "enhancement_plan.json"
@@ -31,8 +30,6 @@ def apply_enhancement_project(doc: Any, project_path: Path, *, stop_checker: Cal
     applied = 0
     failures: list[str] = []
     for item in plan.get("slides") or []:
-        if stop_checker and stop_checker():
-            return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
         if not isinstance(item, dict):
             continue
         slide_idx = item.get("slide_index")

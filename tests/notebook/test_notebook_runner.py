@@ -111,7 +111,6 @@ def test_execute_code_does_not_pump_idle():
         assert out == worker_result
         pump.assert_called_once()
         assert pump.call_args.kwargs.get("pump_idle") is False
-        assert callable(pump.call_args.kwargs.get("stop_checker"))
         run_venv.assert_not_called()
 
         # Call the mapped function to test inner logic
@@ -122,15 +121,11 @@ def test_execute_code_does_not_pump_idle():
         assert kwargs.get("python_tool_domain") == ""
         assert kwargs.get("session_id") == "notebook:test"
         assert kwargs.get("script_session_id") == "doc:test"
+        assert callable(kwargs.get("stop_checker"))
         release.assert_called_once_with("doc:test")
 
 def test_execute_code_stop_returns_interrupted_without_venv():
-    """``BlockingWaitStopped`` is another thread setting the flag.
-
-    The hamburger cannot do that: it runs on the UI thread that is inside
-    this wait, and the wait does not pump VCL.
-    """
-    from plugin.framework.async_stream import BlockingWaitStopped
+    """When stop_checker is true during exception handling in _run, we return stopped."""
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -138,18 +133,18 @@ def test_execute_code_stop_returns_interrupted_without_venv():
         patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
         patch(
             "plugin.notebook.notebook_runner.run_blocking_in_thread",
-            side_effect=BlockingWaitStopped("stopped"),
+            side_effect=lambda ctx, func, **kw: func(),
         ) as pump,
-        patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
-        patch("plugin.notebook.notebook_runner.reset_python_session") as reset,
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", side_effect=Exception("stalled")) as run_venv,
+        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
         patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
         patch("plugin.notebook.notebook_runner.release_script_document"),
+        patch("plugin.framework.worker_pool.run_in_background", lambda f, **kwargs: f()),
     ):
         out = execute_code(ctx, doc, "x = 1")
-        reset.assert_called_once_with(ctx, "notebook:test")
     assert out["status"] == "stopped"
     assert pump.call_args.kwargs.get("pump_idle") is False
-    run_venv.assert_not_called()
+    run_venv.assert_called_once()
 
 
 def test_run_cell_updates_registry_and_execution_count():
@@ -1457,16 +1452,54 @@ def test_run_cells_does_not_pump_idle_during_execute():
         patch("plugin.notebook.notebook_runner.apply_run_result"),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
-        patch("plugin.framework.uno_context.process_events_to_idle") as idle,
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
+        patch("plugin.notebook.writer_importer.flush_ui_idle") as flush_idle,
+        patch("plugin.framework.queue_executor.pump_ui_idle"),
     ):
         run_cells(ctx, doc, start_index=0)
 
     assert pumps == ["execute", "flush", "execute"]
-    idle.assert_not_called()
+    assert flush_idle.call_count == 1
     src = inspect.getsource(execute_code)
     assert "pump_idle=False" in src
     assert "processEventsToIdle" not in src or "never" in src.lower() or "not" in src.lower()
+
+
+def test_run_cells_between_cell_pump_under_drain_owner():
+    from plugin.notebook.notebook_runner import _pump_between_notebook_cells
+
+    ctx = MagicMock()
+    pumps: list[str] = []
+
+    def _flush(*_a, **_k):
+        pumps.append("flush")
+
+    def _pump_idle(*_a, **_k):
+        pumps.append("pump_ui_idle")
+
+    def _pump_work(*_a, **_k):
+        pumps.append("pump_main_thread_work_queue")
+
+    with (
+        patch("plugin.framework.async_drain_guard.get_drain_owner", return_value=None),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
+        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+    ):
+        _pump_between_notebook_cells(ctx)
+    assert pumps == ["pump_main_thread_work_queue", "flush"]
+
+    pumps.clear()
+    with (
+        patch("plugin.framework.async_drain_guard.get_drain_owner", return_value="owner"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
+        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+    ):
+        _pump_between_notebook_cells(ctx)
+    assert pumps == ["pump_main_thread_work_queue", "pump_ui_idle"]
 
 
 def test_run_cells_between_cell_pump_disposal_stops_execution():

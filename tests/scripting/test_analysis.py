@@ -476,16 +476,23 @@ def test_helper_golden_metrics(helper, call, metric_keys, requires):
         assert key in result["metrics"], f"missing metric {key!r} for {helper}"
 
 
-import pytest
-def test_insert_analysis_result_into_calc_returns_early_if_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_insert_analysis_result_into_calc() -> None:
+    from unittest.mock import MagicMock
     from plugin.calc.analysis_egress import insert_analysis_result_into_calc
-    class MockCtx:
-        def stop_checker(self):
-            return True
 
-    doc = None
-    ctx = MockCtx()
+    doc = object()
+    ctx = MagicMock()
     result = {"status": "ok", "result": "val"}
 
-    res = insert_analysis_result_into_calc(doc, ctx, result)
-    assert res == 0
+    def _write(_doc, _uno_ctx, grid, **_kwargs):
+        return len(grid)
+
+    with patch("plugin.calc.analysis_egress.insert_tabular_result_into_calc", side_effect=_write) as mock_insert:
+        res = insert_analysis_result_into_calc(doc, ctx, result)
+
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[0] is doc
+    assert mock_insert.call_args.args[1] is ctx
+    grid = mock_insert.call_args.args[2]
+    assert grid
+    assert res == len(grid)

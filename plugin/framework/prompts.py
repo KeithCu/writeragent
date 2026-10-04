@@ -559,7 +559,9 @@ CALC_WORKFLOW = """WORKFLOW:
 
 
 # Parked from Calc chat/MCP domain lists. Compute in Calc chat is =PY() on write_formula_range.
-CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python"})
+# python/sql is the same kind of parked domain: direct_flat and find_tools still list it
+# (for_discovery skips this set); the sidebar delegate enum does not.
+CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python", "python/sql"})
 
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = (

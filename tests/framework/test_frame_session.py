@@ -516,6 +516,11 @@ def test_thread_violation_from_add_mouse_click_handler_is_not_a_silent_install()
 
 def test_ordinary_attach_error_stays_a_debug_log(caplog):
     """A non-guard RuntimeError is still not a failed install."""
+    # What was wrong: logger.debug calls are stripped in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("log.debug stripped in release bundle")
     import logging
 
     session = FrameSession(MagicMock(), "doc-a")

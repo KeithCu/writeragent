@@ -144,6 +144,22 @@ class ToolCalcSpecialTracking(ToolCalcSpecialBase):
     intent: str | None = "review"
 
 
+class ToolCalcPythonSqlBase(ToolCalcSpecialBase):
+    """Read-only DuckDB SQL (query_folder_sql). Direct subclass so the discovery catalog lists it.
+
+    Calc chat hides this domain (CALC_HIDDEN_SPECIALIZED_DOMAINS), same as python.
+    find_tools uses for_discovery and still offers it. required_core_tools matches
+    ToolCalcAnalysisBase: no read_cell_range on this sub-agent.
+    """
+
+    specialized_domain: ClassVar[str | None] = "python/sql"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Run read-only SQL (DuckDB) against folder files and live Calc ranges; query_folder_sql."
+    )
+    intent: str | None = "analyze"
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
+
+
 class ToolCalcPythonBase(ToolCalcSpecialBase):
     """External venv Python (numpy/pandas stack); marker for delegation prompts."""
 

@@ -145,6 +145,12 @@ def test_get_real_interface_clears_toolpanel_and_retries():
 
 
 def test_get_real_interface_disposes_controller_when_create_fails_late():
+    # What was wrong: late failure was triggered by root.getPosSize() inside
+    # log.info("[LIBREPY FIRST LAYOUT]..."), which is stripped in release bundles.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("log.info call site stripped in release bundle")
     from plugin.framework.errors import UnoObjectError
 
     el = _element()

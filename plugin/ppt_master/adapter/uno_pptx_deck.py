@@ -15,8 +15,7 @@ from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx
 
 
-from typing import Callable
-def export_project_to_doc(doc: Any, project_path: Path, ctx: Any | None = None, *, stop_checker: Callable[[], bool] | None = None) -> dict[str, Any]:
+def export_project_to_doc(doc: Any, project_path: Path, ctx: Any | None = None) -> dict[str, Any]:
     """Export a ppt-master project into *doc* via PPTX → LO ODP import."""
     project_path = Path(project_path).expanduser().resolve()
     svg_files = collect_svg_files(project_path)
@@ -53,6 +52,5 @@ def export_project_to_doc(doc: Any, project_path: Path, ctx: Any | None = None, 
             pptx_path,
             clear_existing=True,
             save_mirror_odp=mirror_odp,
-            stop_checker=stop_checker,
         )
     )

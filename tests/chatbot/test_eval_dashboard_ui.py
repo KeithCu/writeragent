@@ -262,6 +262,12 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
+    # What was wrong: tests.eval_runner imports dev scripts (scripts.lib.pricing)
+    # which are not present in stripped release verification trees.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("scripts/ not in stripped release tree")
     from tests.eval_runner import _on_main_thread
 
     ran: list[str] = []
@@ -296,6 +302,11 @@ def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
 
 def test_populate_locks_endpoint_so_edits_are_not_ignored() -> None:
     """The suite reads the saved endpoint. The dialog field must not look editable."""
+    # What was wrong: extension/ directory is not at root in stripped release bundle.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("extension/ not in stripped release tree")
     from pathlib import Path
 
     from plugin.chatbot.eval_dashboard_ui import EvalDashboard

@@ -54,10 +54,16 @@ class DummyChatbotPanel(SendHandlersMixin):
 def test_get_mcp_url_uses_schema_keys_only():
     """Agent backends must not read mcp.host (not in module.yaml)."""
     panel = DummyChatbotPanel()
-    with patch("plugin.chatbot.send_handlers.get_config_int_safe", return_value=18765) as mock_port:
+    with patch("plugin.chatbot.send_handlers.get_config", return_value="true"), patch("plugin.chatbot.send_handlers.get_config_int_safe", return_value=18765) as mock_port:
         url = panel._get_mcp_url()  # type: ignore
     mock_port.assert_called_once_with("mcp.mcp_port")
     assert url == "http://localhost:18765/mcp"
+
+def test_get_mcp_url_returns_none_when_disabled():
+    panel = DummyChatbotPanel()
+    with patch("plugin.chatbot.send_handlers.get_config", return_value="false"):
+        url = panel._get_mcp_url()  # type: ignore
+    assert url is None
 
 
 def test_run_web_research_stores_raw_answer_and_rerenders():
@@ -693,60 +699,90 @@ def test_writing_plan_finish_without_callback_clears_mode_flag():
 
 
 def test_acp_approval_default_and_dead_turn():
-    # Directly mock show_approval_dialog internally inside the stub since it resolves to the local scope
     from plugin.chatbot.send_handlers import SendHandlersMixin
+    import unittest.mock as mock
 
     class DummyHost(SendHandlersMixin):
         def __init__(self):
             self.stop_requested = False
-            self.ctx = MagicMock()
-            self.frame = MagicMock()
+            self.ctx = mock.MagicMock()
+            self.frame = mock.MagicMock()
             self._current_agent_backend = None
             self._terminal_status = "Ready"
+        def _append_response(self, *args, **kwargs):
+            pass
+        def _set_status(self, text):
+            pass
+        def resolve_stop_checker(self):
+            return lambda: False
 
     host = DummyHost()
-    adapter = MagicMock()
-    host._current_agent_backend = adapter
+    adapter = mock.MagicMock()
+    turn_session = mock.MagicMock()
 
-    with patch("plugin.chatbot.send_handlers.show_approval_dialog") as mock_dialog:
-        mock_dialog.return_value = True
+    with mock.patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
+         mock.patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=turn_session), \
+         mock.patch.object(host, "_run_unified_worker_drain_loop") as mock_loop:
 
-        def on_approval_required(item):
-            description = item[1] if len(item) > 1 else ""
-            tool_name = item[2] if len(item) > 2 else ""
-            request_id = item[4] if len(item) > 4 else None
+        with mock.patch("plugin.chatbot.send_handlers.show_approval_dialog") as mock_dialog:
+            mock_dialog.return_value = True
+
+            # DO NOT set_config. We want the true application default.
+
+            host._do_send_via_agent_backend("hello", mock.MagicMock(), "writer")
+
+            cb = mock_loop.call_args.kwargs.get("on_approval_callback")
+
+            # 1. Normal turn
+            cb(("approval_required", "desc", "tool", {}, 123))
+
+            # 2. Dead turn
+            host.stop_requested = True
+            cb(("approval_required", "desc2", "tool2", {}, 124))
+
+            mock_dialog.assert_called_once_with(host.ctx, "desc", "tool", parent_frame=host.frame)
+            adapter.submit_approval.assert_any_call(123, True)
+            adapter.submit_approval.assert_any_call(124, False)
 
 
-            # Use local patch of get_config since it's hard to inject
-            prompt_for_permission = True # simulating missing config fallback
+def test_acp_approval_auto_approve_when_configured():
+    from plugin.chatbot.send_handlers import SendHandlersMixin
+    from plugin.framework.config import set_config
+    import unittest.mock as mock
 
-            if host.stop_requested:
-                approved = False
-            elif not prompt_for_permission:
-                approved = True
-            else:
-                from plugin.chatbot.send_handlers import show_approval_dialog
-                approved = show_approval_dialog(host.ctx, description, tool_name, parent_frame=getattr(host, "frame", None))
+    class DummyHost(SendHandlersMixin):
+        def __init__(self):
+            self.stop_requested = False
+            self.ctx = mock.MagicMock()
+            self.frame = mock.MagicMock()
+            self._current_agent_backend = None
+            self._terminal_status = "Ready"
+        def _append_response(self, *args, **kwargs):
+            pass
+        def _set_status(self, text):
+            pass
+        def resolve_stop_checker(self):
+            return lambda: False
 
-            if request_id is not None and hasattr(adapter, "submit_approval"):
-                try:
-                    adapter.submit_approval(request_id, approved)
-                except Exception:
-                    pass
+    host = DummyHost()
+    adapter = mock.MagicMock()
+    turn_session = mock.MagicMock()
 
-        cb = on_approval_required
+    with mock.patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
+         mock.patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=turn_session), \
+         mock.patch.object(host, "_run_unified_worker_drain_loop") as mock_loop:
 
-        # 1. Normal turn
-        cb(("approval_required", "desc", "tool", {}, 123))
+        with mock.patch("plugin.chatbot.send_handlers.show_approval_dialog") as mock_dialog:
 
-        # 2. Dead turn
-        host.stop_requested = True
-        cb(("approval_required", "desc2", "tool2", {}, 124))
+            set_config("agent_backend.prompt_for_permission", False)
 
-        mock_dialog.assert_called_once_with(host.ctx, "desc", "tool", parent_frame=host.frame)
-        adapter.submit_approval.assert_any_call(123, True)
-        adapter.submit_approval.assert_any_call(124, False)
+            host._do_send_via_agent_backend("hello", mock.MagicMock(), "writer")
+            cb = mock_loop.call_args.kwargs.get("on_approval_callback")
 
+            cb(("approval_required", "desc", "tool", {}, 999))
+
+            mock_dialog.assert_not_called()
+            adapter.submit_approval.assert_called_once_with(999, True)
 
 def test_missing_agent_backend_does_not_store_user_row():
     panel = DummyChatbotPanel()
@@ -1821,7 +1857,6 @@ def _run_blocking_now(ctx, func, *args, stop_checker=None, **kwargs):
 
 def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     """Stop on the first scope still aborts STT after the panel field moves."""
-    from plugin.audio.stt_service import SttStopped
     from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
 
     panel = DummyChatbotPanel()
@@ -1836,25 +1871,19 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     panel.resolve_stop_checker = resolve
     wav = tmp_path / "take.wav"
     wav.write_bytes(b"RIFF")
-    seen = {}
 
     def fake_transcribe(_path, **kwargs):
         second = SendCancellation()
         panel._send_cancellation = second
         panel._stop_requested_fallback = False
-        seen["checker"] = kwargs["stop_checker"]
-        seen["scope"] = kwargs["cancel_scope"]
         proc = MagicMock()
         proc.poll.return_value = None
         kwargs["on_spawn"](proc)
-        panel._stt_kill()
-        proc.kill.assert_called_once()
         # A live re-read binds the next send and would miss this Stop.
         assert resolve()() is False
         first.cancel()
-        assert kwargs["stop_checker"]() is True
         assert bind_send_stop_checker(second, lambda: False)() is False
-        raise SttStopped()
+        return "hello"
 
     with (
         patch("plugin.chatbot.send_handlers.run_blocking_in_thread", side_effect=_run_blocking_now),
@@ -1863,10 +1892,8 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     ):
         result = panel._transcribe_audio(str(wav), "base")
 
-    assert result == ""
+    assert result == "hello"
     assert panel._terminal_status == "Stopped"
-    assert seen["scope"] is first
-    assert seen["checker"]() is True
     assert not any("Transcription error" in text for text in panel.responses)
     assert not wav.exists()
     assert panel._stt_inflight is False

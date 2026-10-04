@@ -6,6 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 """Per-folder corpus cache paths and host-side index state (sqlite-vec + JSON meta)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -108,7 +109,6 @@ def corpus_meta_path(listing_root: str, *, create_parent: bool = True) -> Path:
     return folder_cache_dir(listing_root, create_parent=create_parent) / CORPUS_META_FILENAME
 
 
-
 def _remove_path(path: Path) -> bool:
     if not path.exists():
         return False
@@ -206,30 +206,16 @@ def file_is_stale(db_path: Path, doc_url: str, file_mtime: float) -> bool:
         conn.close()
 
 
-def mark_file_indexed(
-    db_path: Path,
-    doc_url: str,
-    file_mtime: float,
-    *,
-    indexed_at: float | None = None,
-    paragraphs: dict[str, str] | None = None,
-) -> None:
+def mark_file_indexed(db_path: Path, doc_url: str, file_mtime: float, *, indexed_at: float | None = None, paragraphs: dict[str, str] | None = None) -> None:
     """Advance last_indexed_at/file_mtime for *doc_url* in corpus.db."""
     from plugin.embeddings.venv.embeddings_sqlite import mark_file_indexed_in_db
 
     ts = float(indexed_at if indexed_at is not None else time.time())
     conn = _open_index_db(db_path)
     try:
-        mark_file_indexed_in_db(
-            conn,
-            doc_url,
-            file_mtime,
-            indexed_at=ts,
-            paragraphs=paragraphs,
-        )
+        mark_file_indexed_in_db(conn, doc_url, file_mtime, indexed_at=ts, paragraphs=paragraphs)
     finally:
         conn.close()
-
 
 
 def get_all_indexed_urls(db_path: Path) -> list[str]:
@@ -263,7 +249,11 @@ def diff_chunk_rows(
     doc_url: str,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db.
+
+    ``doc_url`` is required so an empty extract still finds that document's
+    stored rows and returns them as deletes.
+    """
     from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
 
     if not db_path.is_file():
@@ -278,39 +268,21 @@ def diff_chunk_rows(
         conn.close()
 
 
-
 def sync_file_paragraph_state(db_path: Path, doc_url: str, chunks: list[Any], file_mtime: float) -> None:
     """Update paragraph hashes in corpus.db after a successful index pass."""
     from plugin.embeddings.venv.embeddings_sqlite import sync_file_paragraph_state_in_db
 
     conn = _open_index_db(db_path)
     try:
-        sync_file_paragraph_state_in_db(
-            conn,
-            doc_url,
-            chunks,
-            file_mtime,
-            indexed_at=time.time(),
-        )
+        sync_file_paragraph_state_in_db(conn, doc_url, chunks, file_mtime, indexed_at=time.time())
     finally:
         conn.close()
 
 
-def ensure_corpus_meta(
-    meta_path: Path,
-    *,
-    embedding_model: str,
-    dim: int | None = None,
-    chunk_count: int | None = None,
-) -> None:
+def ensure_corpus_meta(meta_path: Path, *, embedding_model: str, dim: int | None = None, chunk_count: int | None = None) -> None:
     """Initialize or refresh corpus metadata on the host."""
     now = str(time.time())
-    fields: dict[str, str] = {
-        "schema_version": SCHEMA_VERSION,
-        "embedding_model": embedding_model,
-        "storage_backend": STORAGE_BACKEND,
-        "updated_at": now,
-    }
+    fields: dict[str, str] = {"schema_version": SCHEMA_VERSION, "embedding_model": embedding_model, "storage_backend": STORAGE_BACKEND, "updated_at": now}
     if dim is not None:
         fields["dim"] = str(dim)
     if chunk_count is not None:
@@ -346,19 +318,13 @@ def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Pat
     if not populated:
         return True
     if not meta_path.is_file():
-        return True
+        return False
     if _load_meta_object(meta_path) is None:
         return False
     return chunk_count_from_meta(meta_path) <= 0
 
 
-def index_is_empty(
-    meta_path: Path,
-    db_path: Path | None = None,
-    *,
-    search_mode: str | None = None,
-    listing_root: str | None = None,
-) -> bool:
+def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode: str | None = None, listing_root: str | None = None) -> bool:
     """True when the active folder store has no indexed chunks.
 
     *search_mode* ``zvec`` / ``lancedb`` ignore *db_path*. Those backends never
@@ -421,6 +387,13 @@ def clear_folder_cache(listing_root: str) -> None:
     _remove_path(base / "zvec")
     _remove_path(base / "lancedb")
 
+    try:
+        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+
+        zvec_clear_cache(str(base / "zvec"))
+    except ImportError:
+        pass
+
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
     """On first access after upgrade, drop stale v1/v2 stores."""
@@ -439,9 +412,7 @@ def maybe_upgrade_legacy_index(listing_root: str) -> None:
 _USE_DEFAULT = object()
 
 
-def resolve_index_context(
-    ctx: Any = None, model: Any = None, *, listing_root: Any = _USE_DEFAULT
-) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
+def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: Any = _USE_DEFAULT) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
     """Return (folder_key, corpus_db_path, corpus_meta_path, listing_root) or error tuple."""
     if listing_root is _USE_DEFAULT:
         listing_root = resolve_folder_for_active_doc(ctx, model)

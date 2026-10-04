@@ -477,8 +477,14 @@ def test_run_blocking_in_thread_pump_idle_false_does_not_pump():
 
     ctx = MagicMock()
     with patch("plugin.framework.async_stream.pump_ui_idle") as pump:
-        assert run_blocking_in_thread(ctx, lambda: "ok", pump_idle=False) == "ok"
+        with patch("plugin.framework.queue_executor.pump_main_thread_work_queue") as pump_queue:
+            def slow_worker():
+                import time
+                time.sleep(0.3)
+                return "ok"
+            assert run_blocking_in_thread(ctx, slow_worker, pump_idle=False) == "ok"
     pump.assert_not_called()
+    pump_queue.assert_called()
 
 
 def test_run_blocking_in_thread_stop_checker_returns_without_pump():

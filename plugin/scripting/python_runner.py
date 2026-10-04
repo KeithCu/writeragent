@@ -29,13 +29,7 @@ from plugin.writer.format import insert_content_at_position
 from plugin.doc.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
 from plugin.scripting.payload_codec import is_dataframe_payload
-from plugin.scripting.helper_domain import (
-    format_elapsed_time,
-    plot_insert_ok_outcome,
-    rps_error_outcome,
-    rps_insert_failed_outcome,
-    rps_ok_outcome,
-)
+from plugin.scripting.helper_domain import format_elapsed_time, plot_insert_ok_outcome, rps_error_outcome, rps_insert_failed_outcome, rps_ok_outcome
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -110,8 +104,6 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
     return "<br>".join(_html_insert_text(x) for x in data)
 
 
-
-
 def is_shape_tool_status_result(result: Any) -> bool:
     """True for shape_upsert/edit status dicts that must not be HTML-dumped into Writer."""
     if not isinstance(result, dict) or not result:
@@ -152,7 +144,7 @@ def format_result_for_writer(result: Any) -> str:
         html_parts = []
         # Priority keys to show without a bold label if they are strings
         priority_keys = ("title", "summary", "summary_text", "message", "text", "result")
-        
+
         # Use original insertion order. Skip underscores.
         sorted_keys = [k for k in result.keys() if not str(k).startswith("_")]
 
@@ -170,7 +162,7 @@ def format_result_for_writer(result: Any) -> str:
                     html_parts.append(f"<p><b>{escaped}</b></p>")
                 else:
                     html_parts.append(f"<p><b>{_html_insert_text(key)}:</b> {escaped}</p>")
-        
+
         return "\n".join(html_parts)
 
     return _html_insert_text(result).replace("\n", "<br>")
@@ -187,10 +179,7 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
         if result is None:
             return
         if is_shape_tool_status_result(result):
-            log.debug(
-                "Skipping Calc result insert for shape tool status dict (keys=%s)",
-                sorted(result.keys()) if isinstance(result, dict) else type(result).__name__,
-            )
+            log.debug("Skipping Calc result insert for shape tool status dict (keys=%s)", sorted(result.keys()) if isinstance(result, dict) else type(result).__name__)
             return
 
         # Determine anchor cell from selection
@@ -225,7 +214,6 @@ def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
     msgbox(uno_ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
 
 
-
 def resolve_run_script_name_config_key(doc: Any) -> str:
     """Return the config key for persisting the last selected Run Python Script name for *doc*."""
     if doc:
@@ -238,13 +226,7 @@ def resolve_run_script_name_config_key(doc: Any) -> str:
     return "last_python_script_name_writer"
 
 
-def _prepare_rps_execution(
-    ctx: Any,
-    doc: Any,
-    code: str,
-    *,
-    data_range: str | None = None,
-) -> dict[str, Any]:
+def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | None = None) -> dict[str, Any]:
     """Main-thread document reads before the venv wait.
 
     Returns ``early_outcome`` when the script should not start. Otherwise the
@@ -297,15 +279,11 @@ def _prepare_rps_execution(
         # arrays, which the template analyzes per section.
         if not isinstance(text, (str, list)):
             text = str(text)
-        exec_code = prepend_run_import_document_bindings(
-            code,
-            bindings={"text": text, "document_context": document_context if isinstance(document_context, dict) else {}},
-        )
+        exec_code = prepend_run_import_document_bindings(code, bindings={"text": text, "document_context": document_context if isinstance(document_context, dict) else {}})
 
     if "run_vision" in code and script_uses_run_import(code, run_name="run_vision"):
-        from plugin.framework.errors import ToolExecutionError
         from plugin.vision.vision_common import merge_vision_params
-        from plugin.vision.vision_runner import resolve_vision_image_bytes, run_and_insert_vision_for_selection, supports_vision_manual
+        from plugin.vision.vision_runner import supports_vision_manual
 
         if not supports_vision_manual(doc):
             return _early({"ok": False, "message": _("Vision helpers require a Writer or Calc document.")})
@@ -315,49 +293,27 @@ def _prepare_rps_execution(
         image_name = str(params.get("image_name") or "").strip() or None
         helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
 
-        # Writer selection with discovered graphic(s): host OCR+insert by name.
-        # Covers multi-select and text ranges (even one image) — selection export cannot.
-        if not image_name and is_writer(doc):
-            from plugin.doc.visual_helpers import graphic_objects_in_selection
-
-            discovered = graphic_objects_in_selection(doc)
-            if discovered:
-                # Do NOT execute OCR wait on main thread. We extract bytes and pass jobs.
-                # Since _run_prepared_rps runs on a background thread, we must not pass `doc` to
-                # functions that might accidentally use it directly there. We will export the bytes HERE.
-                from plugin.vision.vision_runner import resolve_vision_image_bytes
-
-                jobs = []
-                for name, _obj in discovered:
-                    try:
-                        png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(name))
-                    except ToolExecutionError as exc:
-                        return _early(rps_error_outcome(str(exc), t0=t0))
-                    jobs.append({"image_name": name, "bytes": png_bytes})
-
-                return {
-                    "early_outcome": None,
-                    "is_vision_selection": True,
-                    "ctx": ctx,
-                    "doc": doc,
-                    "code": code,
-                    "t0": t0,
-                    "helper_name": helper_name,
-                    "params": params,
-                    "jobs": jobs,
-                    "exec_code": code,
-                    "py_data": {},
-                    "bindings": {},
-                    "session_id": "",
-                }
-
-        try:
-            bindings = {"image": resolve_vision_image_bytes(ctx, doc, image_name=image_name)}
-        except ToolExecutionError as exc:
-            return _early(rps_error_outcome(str(exc), t0=t0))
+        return {
+            "early_outcome": None,
+            "is_vision_selection": True,
+            "ctx": ctx,
+            "doc": doc,
+            "code": code,
+            "t0": t0,
+            "helper_name": helper_name,
+            "params": params,
+            "image_name": image_name,
+            "exec_code": code,
+            "py_data": {},
+            "bindings": {},
+            "session_id": "",
+        }
 
     try:
         from plugin.scripting.session_manager import rps_session_id
+        from plugin.scripting.session_manager import pin_script_document
+
+        pin_script_document(doc)
 
         rps_sid = rps_session_id(ctx, doc)
         from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
@@ -367,83 +323,49 @@ def _prepare_rps_execution(
         log.exception("execute_and_insert_result failed")
         return _early(rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
 
-    return {
-        "early_outcome": None,
-        "ctx": ctx,
-        "doc": doc,
-        "code": code,
-        "t0": t0,
-        "exec_code": exec_code,
-        "py_data": py_data,
-        "bindings": bindings,
-        "session_id": rps_sid,
-    }
+    return {"early_outcome": None, "ctx": ctx, "doc": doc, "code": code, "t0": t0, "exec_code": exec_code, "py_data": py_data, "bindings": bindings, "session_id": rps_sid}
 
 
 def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
     """Blocking venv IPC. Callers must not touch the document model here."""
     if prepared.get("is_vision_selection"):
-        from plugin.scripting.client import run_vision
-        from plugin.vision.vision_common import merge_vision_params
+        from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
         ctx = prepared["ctx"]
+        doc = prepared["doc"]
         helper_name = prepared["helper_name"]
         params = prepared["params"]
-        jobs = prepared["jobs"]
+        image_name = prepared.get("image_name")
 
-        results: list[dict[str, Any]] = []
-        for job in jobs:
-            # Reconstruct what run_trusted_vision does, but skip the UNO export (we already have bytes)
-            params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
-            params_dict["image_name"] = job["image_name"]
+        params_dict = dict(params) if isinstance(params, dict) else {}
+        if image_name:
+            params_dict["image_name"] = image_name
 
-            spec = {"helper": helper_name, "params": params_dict}
-            context = {"source": "graphic_name", "image_name": job["image_name"]}
+        # run_and_insert_vision_for_selection safely marshals document operations to the main thread
+        # while keeping the 120s OCR wait on this background thread.
+        result = run_and_insert_vision_for_selection(
+            ctx, doc, helper=helper_name, params=params_dict, insert_into_document=False
+        )
 
-            # This is the ~120s OCR wait off the main thread!
-            res = run_vision(ctx, spec, job["bytes"], context=context)
-            if res.get("status") == "error":
-                failed = dict(res)
-                failed["images_processed"] = len(results)
-                failed["image_names"] = [j["image_name"] for j in jobs[:len(results)]]
-                failed["failed_image"] = job["image_name"]
-                failed["inserted"] = False
-                failed["partial"] = bool(results)
-                return {"status": "ok", "vision_selection_result": failed}
-            results.append(res)
+        # Attach individual_results since _finish_rps_execution expects it for insert.
+        # run_and_insert_vision_for_selection returns `results` under the key `results` if len > 1,
+        # but to keep _finish_rps_execution working, we map them here.
+        if "results" in result and result["results"]:
+            result["individual_results"] = result.pop("results")
+        elif result.get("status") == "ok":
+            # For a single result, run_and_insert_vision_for_selection does not return a list.
+            # Wrap the entire result as an individual result so _finish_rps_execution can insert it.
+            # It also adds context with image_name so the egress logic can figure out the anchor.
+            image_names = result.get("image_names")
+            context_name = image_name or (image_names[0] if image_names else None)
+            indiv_res = dict(result)
+            if context_name:
+                indiv_res["context"] = {"image_name": context_name}
+            result["individual_results"] = [indiv_res]
 
-        full_parts = [str(r.get("full_text") or "") for r in results]
-        warnings = []
-        for r in results:
-            w = r.get("warnings")
-            if isinstance(w, list):
-                warnings.extend(w)
-        metrics = {"images_processed": len(results)}
-        if len(results) == 1:
-            single_metrics = results[0].get("metrics")
-            if isinstance(single_metrics, dict):
-                metrics.update(single_metrics)
+        return {"status": "ok", "vision_selection_result": result}
 
-        aggregated = {
-            "status": "ok",
-            "helper": helper_name,
-            "full_text": "\n\n".join(part for part in full_parts if part),
-            "warnings": warnings,
-            "metrics": metrics,
-            "images_processed": len(results),
-            "image_names": [j["image_name"] for j in jobs],
-            "inserted": False,
-            "individual_results": results, # Store for insertion later
-        }
-        return {"status": "ok", "vision_selection_result": aggregated}
-
-    return run_code_in_user_venv(
-        prepared["ctx"],
-        prepared["exec_code"],
-        data=prepared["py_data"],
-        bindings=prepared["bindings"],
-        session_id=prepared["session_id"],
-    )
+    return run_code_in_user_venv(prepared["ctx"], prepared["exec_code"], data=prepared["py_data"], bindings=prepared["bindings"], session_id=prepared["session_id"])
 
 
 def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
@@ -481,13 +403,9 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
         formatted_time = format_elapsed_time(time.perf_counter() - t0)
         count = int(result.get("images_processed") or discovered_count)
         if count > 1:
-            status_ok = _(
-                "Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})"
-            ).format(helper=helper_name, count=count, time=formatted_time)
+            status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(helper=helper_name, count=count, time=formatted_time)
         else:
-            status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
-                helper=helper_name, time=formatted_time
-            )
+            status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(helper=helper_name, time=formatted_time)
         return rps_ok_outcome(status_ok, result=result, stdout=None)
 
     if response.get("status") != "ok":
@@ -499,12 +417,7 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
     stdout = response.get("stdout")
 
     if result_data is None and not stdout:
-        return {
-            "ok": True,
-            "status_ok_text": _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time),
-            "stdout": stdout,
-            "result": result_data,
-        }
+        return {"ok": True, "status_ok_text": _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time), "stdout": stdout, "result": result_data}
 
     if doc:
         try:
@@ -516,13 +429,7 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
                     if post is not None:
                         return post
                     if try_insert_plot_result(ctx, doc, result_data):
-                        return plot_insert_ok_outcome(
-                            helper="",
-                            title="Plot",
-                            t0=t0,
-                            stdout=stdout,
-                            result=result_data,
-                        )
+                        return plot_insert_ok_outcome(helper="", title="Plot", t0=t0, stdout=stdout, result=result_data)
                     continue
                 post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
                 if post is not None:
@@ -530,28 +437,18 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
 
             if is_calc(doc):
                 if is_shape_tool_status_result(result_data):
-                    log.debug(
-                        "Skipping Calc result insert for shape tool status dict (keys=%s)",
-                        sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__,
-                    )
+                    log.debug("Skipping Calc result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__)
                 else:
                     insert_result_into_calc(doc, ctx, result_data)
             elif is_writer(doc):
                 if is_shape_tool_status_result(result_data):
-                    log.debug(
-                        "Skipping Writer result insert for shape tool status dict (keys=%s)",
-                        sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__,
-                    )
+                    log.debug("Skipping Writer result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__)
                 else:
                     formatted = format_result_for_writer(result_data)
                     if formatted:
                         from plugin.writer.format import run_writer_mutation_with_optional_review
 
-                        run_writer_mutation_with_optional_review(
-                            doc,
-                            ctx,
-                            lambda: insert_content_at_position(doc, ctx, formatted, "selection"),
-                        )
+                        run_writer_mutation_with_optional_review(doc, ctx, lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
             elif is_draw(doc):
                 insert_result_into_draw(doc, ctx, result_data)
             else:
@@ -564,21 +461,10 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
     if stdout:
         log.info("Python script stdout: %s", stdout)
 
-    return {
-        "ok": True,
-        "status_ok_text": _("Script executed successfully. (took {time})").format(time=formatted_time),
-        "stdout": stdout,
-        "result": result_data,
-    }
+    return {"ok": True, "status_ok_text": _("Script executed successfully. (took {time})").format(time=formatted_time), "stdout": stdout, "result": result_data}
 
 
-def execute_and_insert_result(
-    ctx: Any,
-    doc: Any,
-    code: str,
-    *,
-    data_range: str | None = None,
-) -> dict[str, Any]:
+def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str | None = None) -> dict[str, Any]:
     """Run *code* in the user venv and insert the result into *doc* when possible.
 
     Synchronous. The native dialog and Monaco Run must not call this on the
@@ -626,14 +512,7 @@ def _picker_template_name(name: str) -> bool:
     return any(parse_picker_display_name(domain.display_prefix, name) for domain in get_picker_domains())
 
 
-def _run_python_monaco(
-    ctx: Any,
-    doc: Any,
-    *,
-    initial_code: str,
-    selected_script_name: str,
-    exe: str,
-) -> bool:
+def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script_name: str, exe: str) -> bool:
     """Open Monaco for Run Python Script. Return True when the editor session started."""
     from plugin.scripting.domain_registry import script_header_needs_data_binding
 
@@ -649,28 +528,18 @@ def _run_python_monaco(
     # insert two results and the later frame would win the save token.
     run_busy = {"on": False}
 
-    def on_save(
-        code: str,
-        _save_as_plain: bool,
-        data_binding: str | None = None,
-        action: str = "run",
-    ) -> dict[str, Any] | DeferredEditorResult:
+    def on_save(code: str, _save_as_plain: bool, data_binding: str | None = None, action: str = "run") -> dict[str, Any] | DeferredEditorResult:
         # A second Run is refused before the library write. Save still persists
         # while a run is in flight; only Run is one-at-a-time on this editor.
         if action != "save" and run_busy["on"]:
             return {"type": "error", "message": _("A script is already running.")}
         # Save the edited code back to the currently selected script
         from plugin.scripting.python_runner import resolve_run_script_name_config_key
+
         name_config_key = resolve_run_script_name_config_key(doc)
         last_name = get_config_str(name_config_key)
         if last_name:
-            from plugin.scripting.document_scripts import (
-                get_document_scripts,
-                get_user_scripts,
-                parse_document_script_display_name,
-                save_document_script,
-                save_user_script,
-            )
+            from plugin.scripting.document_scripts import get_document_scripts, get_user_scripts, parse_document_script_display_name, save_document_script, save_user_script
 
             if last_name in get_user_scripts():
                 save_user_script(last_name, code)
@@ -690,17 +559,9 @@ def _run_python_monaco(
                     # Why this works: a missing library script returns an error.
                     # Built-in templates are not in either library; they still
                     # fall through so Run executes the buffer.
-                    return {
-                        "type": "error",
-                        "message": _(
-                            "Script '{0}' is not in My Scripts or this document, so it was not saved."
-                        ).format(last_name),
-                    }
+                    return {"type": "error", "message": _("Script '{0}' is not in My Scripts or this document, so it was not saved.").format(last_name)}
                 elif action == "save":
-                    return {
-                        "type": "error",
-                        "message": _("Built-in helpers are read-only. Use Copy to My Scripts to customize.")
-                    }
+                    return {"type": "error", "message": _("Built-in helpers are read-only. Use Copy to My Scripts to customize.")}
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
         # What was wrong: Run called execute_and_insert_result on the UI
@@ -758,27 +619,13 @@ def _run_python_monaco(
     return launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
 
-def _report_run_python_open_failed(
-    ctx: Any,
-    reason: str,
-    *,
-    detail: str | None = None,
-    exc: BaseException | None = None,
-) -> None:
+def _report_run_python_open_failed(ctx: Any, reason: str, *, detail: str | None = None, exc: BaseException | None = None) -> None:
     from plugin.chatbot.dialogs import msgbox_with_report
     from plugin.scripting.editor_ipc import exception_traceback, failure_message
 
     full_detail = "\n\n".join(filter(None, [(detail or "").strip(), exception_traceback(exc).rstrip() if exc is not None else ""]))
     message = failure_message(reason, detail=full_detail or None)
-    msgbox_with_report(
-        ctx,
-        _("Error"),
-        message,
-        box_type=3,
-        reportable=True,
-        report_title="Run Python Script failed to open",
-        report_extra=message if exc is None else exception_traceback(exc),
-    )
+    msgbox_with_report(ctx, _("Error"), message, box_type=3, reportable=True, report_title="Run Python Script failed to open", report_extra=message if exc is None else exception_traceback(exc))
 
 
 def run_python_dialog(uno_ctx: Any = None) -> None:
@@ -804,20 +651,10 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
                 # (calc cell, this script, init script, or LaTeX) before it
                 # replaces the window. Cancel and a queued save both return
                 # True so the native dialog stays closed.
-                monaco_launch_ok = _run_python_monaco(
-                    uno_ctx,
-                    doc,
-                    initial_code=initial_code,
-                    selected_script_name=last_name,
-                    exe=exe,
-                )
+                monaco_launch_ok = _run_python_monaco(uno_ctx, doc, initial_code=initial_code, selected_script_name=last_name, exe=exe)
             except Exception as exc:
                 log.exception("run_python_dialog: Monaco path raised; trying native dialog")
-                _report_run_python_open_failed(
-                    uno_ctx,
-                    _("Run Python Script failed to open the Monaco editor."),
-                    exc=exc,
-                )
+                _report_run_python_open_failed(uno_ctx, _("Run Python Script failed to open the Monaco editor."), exc=exc)
                 user_alerted = True
             else:
                 if monaco_launch_ok:
@@ -831,16 +668,8 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
 
         log.error("run_python_dialog: native script dialog failed to open")
         if not user_alerted:
-            _report_run_python_open_failed(
-                uno_ctx,
-                _("Could not open the built-in script dialog."),
-                detail=native_detail,
-            )
+            _report_run_python_open_failed(uno_ctx, _("Could not open the built-in script dialog."), detail=native_detail)
     except Exception as exc:
         log.exception("run_python_dialog failed")
         if monaco_expected:
-            _report_run_python_open_failed(
-                uno_ctx,
-                _("An unexpected error occurred while opening Run Python Script."),
-                exc=exc,
-            )
+            _report_run_python_open_failed(uno_ctx, _("An unexpected error occurred while opening Run Python Script."), exc=exc)

@@ -243,6 +243,7 @@ def test_empty_source_does_not_touch_the_target(monkeypatch):
     assert target_pages[0].shapes == ["USER"]
 
 
+
 class DisposedException(Exception):
     pass
 

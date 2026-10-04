@@ -19,7 +19,7 @@ def _cell_address_str(cell: Any) -> str:
     return format_address(addr.Column, addr.Row)
 
 
-def search_spreadsheet_cells(doc: Any, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 50, all_sheets: bool = True, sheet_name: str | None = None) -> list[dict[str, Any]]:
+def search_spreadsheet_cells(doc: Any, pattern: str, *, regex: bool = False, case_sensitive: bool = False, max_results: int = 50, all_sheets: bool = True, sheet_name: str | None = None, stop_checker: Any = None) -> list[dict[str, Any]]:
     """Search a Calc document for *pattern*; return match dicts with sheet, cell, value."""
     from plugin.calc.calc_utils import resolve_sheet
     from plugin.calc.bridge import is_agent_visible_sheet
@@ -37,6 +37,8 @@ def search_spreadsheet_cells(doc: Any, pattern: str, *, regex: bool = False, cas
         targets = [(sheet, sheet.getName())]
 
     for sheet, sname in targets:
+        if stop_checker and stop_checker():
+            break
         sd = sheet.createSearchDescriptor()
         sd.SearchString = pattern
         sd.SearchRegularExpression = bool(regex)
@@ -47,6 +49,8 @@ def search_spreadsheet_cells(doc: Any, pattern: str, *, regex: bool = False, cas
             continue
 
         for i in range(found.getCount()):
+            if stop_checker and stop_checker():
+                break
             if len(matches) >= max_results:
                 return matches
             cell = found.getByIndex(i)

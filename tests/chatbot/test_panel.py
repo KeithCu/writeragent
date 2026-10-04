@@ -13,7 +13,6 @@ import sys
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import (
     ClearButtonListener,
     QueryKeyListener,
@@ -63,20 +62,21 @@ def _live_bus_callbacks(bus: Any, event: str) -> list[Any]:
 def _make_send_listener() -> SendButtonListener:
     with patch("plugin.framework.config.get_config_str", return_value=""):
         with patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False):
-            session = MagicMock()
-            session.messages = [{"role": "system", "content": "test"}]
-            return SendButtonListener(
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                session,
-            )
+            with patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True):
+                session = MagicMock()
+                session.messages = [{"role": "system", "content": "test"}]
+                return SendButtonListener(
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    MagicMock(),
+                    session,
+                )
 
 
 class TestGrammarStatusDocType:
@@ -313,7 +313,7 @@ class TestSendDispose:
 
         mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
         mock_turn._alive = True
-        listener._last_mcp_turn = mock_turn
+        listener._last_mcp_turn = {"": mock_turn}
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
@@ -335,7 +335,7 @@ class TestSendDispose:
 
         mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
         mock_turn._alive = True
-        listener._last_mcp_turn = mock_turn
+        listener._last_mcp_turn = {"": mock_turn}
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
@@ -621,7 +621,7 @@ class TestSendDispose:
         assert len(posted) == 1
         assert not first.is_cancelled()
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-        assert killed == ["kill"]
+        assert killed == []
         assert first.is_cancelled()
         assert listener._stop_requested_fallback
 
@@ -1133,20 +1133,42 @@ class TestHandsFreeRecord:
 
 
 
-class TestStopClearsAudioWavPath:
-    def test_disposing_clears_audio_wav_path(self) -> None:
+class TestStopPreservesAudioWavPath:
+    def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
-        from plugin.chatbot.send_state import StopSendEffect
-
         from plugin.chatbot.send_state import SendEvent, SendEventKind
         # We need the listener to execute StopSendEffect.
-        # This is triggered by STOP_CLICKED
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
+        # Audio path is preserved so it can be transcribed into the query box.
+        assert listener.audio_wav_path == "/tmp/fake.wav"
+
+    @patch("os.remove")
+    def test_disposing_clears_audio_wav_path(self, mock_remove) -> None:
+        listener = _make_send_listener()
+        listener.audio_wav_path = "/tmp/fake.wav"
+        listener.disposing()
+
         assert listener.audio_wav_path is None
+        mock_remove.assert_called_once_with("/tmp/fake.wav")
+
+    @patch("os.remove")
+    def test_error_occurred_clears_audio_wav_path(self, mock_remove) -> None:
+        listener = _make_send_listener()
+        listener.audio_wav_path = "/tmp/fake.wav"
+        # Simulate Error terminal status which should clear WAV in the drain finally block
+        listener._terminal_status = "Error"
+        listener._panel_teardown = False
+
+        # We can just call _run_send_drain directly, mocking _do_send to not change terminal_status
+        with patch.object(listener, "_do_send"):
+            listener._run_send_drain()
+
+        assert listener.audio_wav_path is None
+        mock_remove.assert_called_once_with("/tmp/fake.wav")
 
 class TestStoppedTTS:
     def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
@@ -1161,5 +1183,21 @@ class TestStoppedTTS:
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak
         ):
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
+            listener._run_send_drain()
+            mock_speak.assert_not_called()
+
+    def test_do_send_empty_stt_does_not_invoke_tts(self) -> None:
+        listener = _make_send_listener()
+        # Not "Ready" and not "Stopped"
+        listener._terminal_status = "Error"
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+
+        with (
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak
+        ):
+            mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this either."}]
             listener._run_send_drain()
             mock_speak.assert_not_called()
