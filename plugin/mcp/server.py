@@ -476,14 +476,8 @@ class HttpServer:
         if not self._running:
             return
         self._running = False
-        threads_to_join = []
         try:
             if self._server:
-                # The SSE state registry tracks active threads (via note_sse_keepalive,
-                # which routes use) so we can wait for in-flight requests to complete.
-                _, _, threads, lock = _sse_state(self._server)
-                with lock:
-                    threads_to_join = list(threads)
                 self._server.shutdown()
                 self._server.server_close()
                 log.info("HTTP server stopped")
@@ -491,13 +485,6 @@ class HttpServer:
             # shutdown() does not join request threads. SSE keepalives are
             # still blocked in select until their sockets are closed.
             stop_sse_keepalives(self._server)
-
-            # Join in-flight threads. We give them a bit of time, shutdown() only shuts down new accept calls.
-            for t in threads_to_join:
-                if t.is_alive() and t is not threading.current_thread():
-                    t.join(timeout=2.0)
-                    if t.is_alive():
-                        log.warning("HTTP server request thread %s still alive after stop", getattr(t, "name", "unknown"))
 
     @background
     def _run(self) -> None:

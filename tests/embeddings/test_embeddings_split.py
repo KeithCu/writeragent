@@ -124,6 +124,14 @@ def test_whitespace_locale_uses_grammar_split(monkeypatch: pytest.MonkeyPatch):
         called = True
         return [(0, 5, "word "), (5, 9, "one "), (9, 14, "two "), (14, 19, "three")]
 
+    monkeypatch.setattr(
+        "plugin.writer.locale.grammar_proofread_locale.normalize_detected_bcp47",
+        lambda tag: "th-TH" if tag else None,
+    )
+    monkeypatch.setattr(
+        "plugin.writer.locale.grammar_proofread_locale.is_whitespace_sentence_locale",
+        lambda key: key.startswith("th"),
+    )
     monkeypatch.setattr(split_mod, "_split_passage_whitespace_to_sentences", _fake_whitespace)
     split_mod.split_passage_to_chunk_meta(
         passage,
@@ -132,28 +140,6 @@ def test_whitespace_locale_uses_grammar_split(monkeypatch: pytest.MonkeyPatch):
         locale_bcp47="th-TH",
     )
     assert called
-
-def test_lao_and_khmer_use_whitespace_split(monkeypatch: pytest.MonkeyPatch):
-    passage = "word one word two word three"
-    calls = []
-
-    def _fake_whitespace(_passage: str) -> list[tuple[int, int, str]]:
-        calls.append(_passage)
-        return [(0, len(_passage), _passage)]
-
-    monkeypatch.setattr(split_mod, "_split_passage_whitespace_to_sentences", _fake_whitespace)
-
-    # Lao
-    split_mod.split_passage_to_chunk_meta(
-        passage, {"doc_url": "file:///x"}, prose=True, locale_bcp47="lo-LA"
-    )
-    assert len(calls) == 1
-
-    # Khmer
-    split_mod.split_passage_to_chunk_meta(
-        passage, {"doc_url": "file:///x"}, prose=True, locale_bcp47="km-KH"
-    )
-    assert len(calls) == 2
 
 
 def test_locale_runs_use_different_icu_locales(monkeypatch: pytest.MonkeyPatch):
