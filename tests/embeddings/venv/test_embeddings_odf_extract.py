@@ -30,6 +30,14 @@ def test_extract_draw_pages_from_odp(tmp_path: Path):
     assert "Speaker note about revenue" in passages[1]
 
 
+def test_extract_draw_pages_with_spans(tmp_path: Path):
+    odp = tmp_path / "deck_spans.odp"
+    write_deck_odp(odp, body="Base text", spans=[" and span text", " and more text"])
+    passages = embeddings_odf_extract.extract_draw_pages(str(odp))
+    assert len(passages) == 1
+    assert "Base text and span text and more text" in passages[0]
+
+
 def test_extract_draw_pages_from_odg(tmp_path: Path):
     odg = tmp_path / "fig.odg"
     write_drawing_odg(odg, body="Diagram label")

@@ -51,6 +51,49 @@ def test_extract_pptx_passages(tmp_path: Path):
     assert passages == ["[Slide: Slide1]\tSlide text"]
 
 
+def test_extract_pptx_passages_order_and_notes(tmp_path: Path):
+    pptx = tmp_path / "deck2.pptx"
+    with zipfile.ZipFile(pptx, "w") as zf:
+        zf.writestr("ppt/presentation.xml", '''<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<p:sldIdLst>
+<p:sldId id="256" r:id="rId2"/>
+<p:sldId id="257" r:id="rId3"/>
+</p:sldIdLst>
+</p:presentation>''')
+
+        zf.writestr("ppt/_rels/presentation.xml.rels", '''<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide10.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/>
+</Relationships>''')
+
+        zf.writestr("ppt/slides/slide10.xml", '''<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Slide 1 text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>''')
+
+        zf.writestr("ppt/slides/slide2.xml", '''<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Slide 2 text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>''')
+
+        zf.writestr("ppt/slides/_rels/slide10.xml.rels", '''<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/>
+</Relationships>''')
+        zf.writestr("ppt/slides/_rels/slide2.xml.rels", '''<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide2.xml"/>
+</Relationships>''')
+
+        zf.writestr("ppt/notesSlides/notesSlide1.xml", '''<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Slide 1 notes</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>''')
+
+        zf.writestr("ppt/notesSlides/notesSlide2.xml", '''<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Slide 2 notes</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>''')
+
+    passages = ooxml.extract_pptx_passages(str(pptx))
+    assert passages == [
+        "[Slide: Slide1]\tSlide 1 text",
+        "[Notes: Slide1]\tSlide 1 notes",
+        "[Slide: Slide2]\tSlide 2 text",
+        "[Notes: Slide2]\tSlide 2 notes"
+    ]
+
+
 def test_extract_docx_paragraphs_uses_python_docx(tmp_path: Path):
     pytest.importorskip("docx")
     from docx import Document

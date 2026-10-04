@@ -231,6 +231,33 @@ def mark_file_indexed(
         conn.close()
 
 
+
+def get_all_indexed_urls(db_path: Path) -> list[str]:
+    """Return a list of all doc_url entries in corpus.db's indexed_files."""
+    from plugin.embeddings.venv.embeddings_sqlite import get_all_indexed_urls_in_db
+
+    if not db_path.is_file():
+        return []
+    conn = _open_index_db(db_path)
+    try:
+        return get_all_indexed_urls_in_db(conn)
+    finally:
+        conn.close()
+
+
+def remove_file_from_index(db_path: Path, doc_url: str) -> None:
+    """Remove a file's freshness metadata from corpus.db."""
+    from plugin.embeddings.venv.embeddings_sqlite import remove_file_from_index_in_db
+
+    if not db_path.is_file():
+        return
+    conn = _open_index_db(db_path)
+    try:
+        remove_file_from_index_in_db(conn, doc_url)
+    finally:
+        conn.close()
+
+
 def diff_chunk_rows(
     db_path: Path,
     chunks: list[Any],
