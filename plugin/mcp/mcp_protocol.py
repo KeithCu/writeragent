@@ -786,10 +786,22 @@ class MCPProtocolHandler:
         # find_tools is the discovery search tool; it is only advertised in
         # direct_discovery mode, so reject calling it by name in other modes -- otherwise
         # the default (delegate) behavior would not really be unchanged.
-        if tool_name == "find_tools" and self._tool_exposure_mode() != "direct_discovery":
+        mode = self._tool_exposure_mode()
+        if tool_name == "find_tools" and mode != "direct_discovery":
             return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
 
         tool = self.tool_registry.get(tool_name)
+
+        if tool:
+            tier = getattr(tool, "tier", "core")
+            if mode == "direct_flat":
+                exclude_tiers = MCP_DIRECT_FLAT_EXCLUDE_TIERS
+            else:
+                exclude_tiers = MCP_DELEGATE_EXCLUDE_TIERS
+
+            if tier in exclude_tiers:
+                return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": f"Tool '{tool_name}' is not available in the current exposure mode."}, ensure_ascii=False)}], "isError": True}
+
         is_long_running = getattr(tool, "long_running", False) if tool else False
 
         initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})

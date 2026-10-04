@@ -170,6 +170,71 @@ def _payload(result):
     return result
 
 
+def test_tools_call_rejects_unadvertised_tiers():
+    class FakeTool(ToolBase):
+        name = "secret_tool"
+        tier = "specialized"
+        description = "secret"
+        parameters = {}
+        def execute(self, ctx, **kwargs):
+            return "done"
+
+    class FakeChatTool(ToolBase):
+        name = "chat_tool"
+        tier = "chat"
+        description = "chat"
+        parameters = {}
+        def execute(self, ctx, **kwargs):
+            return "done"
+
+    # Fake services so we can mock config
+    class FakeServices:
+        def __init__(self, mode, tools=None):
+            self.mode = mode
+            self.tools = tools
+            class FakeConfig:
+                def get(inner_self, key, default):
+                    if key == "mcp.tool_exposure_mode":
+                        return self.mode
+                    return default
+            self.config = FakeConfig()
+            self.document = _DocSvc(_LiveDoc())
+
+        def get(self, key):
+            if key == "main_thread":
+                return _InlineMain()
+            return None
+
+    registry = ToolRegistry(FakeServices("delegate"))
+    registry._tools["secret_tool"] = FakeTool()
+    registry._tools["chat_tool"] = FakeChatTool()
+
+    # 1. delegate mode: rejects 'specialized' and 'chat'
+    handler_delegate = MCPProtocolHandler(FakeServices("delegate", tools=registry))
+    handler_delegate.tool_registry = registry
+
+    res1 = handler_delegate._mcp_tools_call({"name": "secret_tool", "arguments": {}})
+    assert res1.get("isError") is True
+    assert _payload(res1)["code"] == "UNKNOWN_TOOL"
+
+    res2 = handler_delegate._mcp_tools_call({"name": "chat_tool", "arguments": {}})
+    assert res2.get("isError") is True
+    assert _payload(res2)["code"] == "UNKNOWN_TOOL"
+
+    # 2. direct_flat mode: allows 'specialized', rejects 'chat'
+    handler_flat = MCPProtocolHandler(FakeServices("direct_flat", tools=registry))
+    handler_flat.tool_registry = registry
+    handler_flat.event_bus = MagicMock()
+
+    res3 = handler_flat._mcp_tools_call({"name": "secret_tool", "arguments": {}})
+    # Call is accepted and starts processing (it returns None, but event bus gets called)
+    assert not isinstance(res3, dict) or res3.get("isError") is not True
+
+    res4 = handler_flat._mcp_tools_call({"name": "chat_tool", "arguments": {}})
+    assert res4.get("isError") is True
+    assert _payload(res4)["code"] == "UNKNOWN_TOOL"
+
+
 @pytest.mark.parametrize("bypass", [True, 1, "yes"])
 def test_tools_call_cannot_skip_disposed_document_check(bypass):
     """A client bypass_thread_guard value must still go through execute_safe.
