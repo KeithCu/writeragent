@@ -132,9 +132,9 @@ def _list_placeholders(page: Any) -> list[dict[str, Any]]:
 
 
 # C1: available=[] is truthful (no presentation placeholders yet) but mercury
-# retried the same role call. Hint + suggest_layout points at set_slide_layout
-# / delegate slide_layouts — the recovery the headed run eventually stumbled on.
-_EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Call set_slide_layout (or delegate domain=slide_layouts) with layout='text', then list_placeholders."
+# retried the same role call. Hint + suggest_layout points at delegate
+# slide_layouts — set_slide_layout is specialized and not on the main tool list.
+_EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then list_placeholders."
 
 
 def _shape_text_count(page: Any) -> int:
@@ -195,7 +195,7 @@ class ListPlaceholders(ToolBase):
 
     name: str | None = "list_placeholders"
     intent: str | None = "navigate"
-    description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before set_placeholder_text. If count=0, set layout 'text' (set_slide_layout or delegate domain=slide_layouts) then retry."
+    description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before set_placeholder_text. If count=0, delegate domain=slide_layouts with layout='text', then retry."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
@@ -230,7 +230,7 @@ class GetPlaceholderText(ToolBase):
                 return self._tool_error("Shape index out of range.")
             shape = page.getByIndex(shape_index)
         elif role:
-            shape, _unused = _find_placeholder(page, role)
+            shape, shape_index = _find_placeholder(page, role)
             if shape is None:
                 return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
         else:

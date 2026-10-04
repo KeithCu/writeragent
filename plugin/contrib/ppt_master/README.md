@@ -44,7 +44,7 @@ git clone https://github.com/hugohe3/ppt-master.git
 ## Merge policy
 
 - **Do not** copy `scripts/svg_to_pptx/` into contrib unless you must **change** upstream code.
-- UNO export uses LibreOffice's native PPTX filter → copy shapes into Impress (see `uno_pptx_import`).
+- UNO export uses LibreOffice's native PPTX filter, then copies shapes into Impress (`uno_pptx_import`). Pictures are reimported with GraphicProvider so the hidden PPTX pool is not shared. A slide whose copy returns no shapes keeps its previous shapes.
 
 ## MIT License (upstream ppt-master)
 

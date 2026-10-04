@@ -81,7 +81,10 @@ def apply_fill_value(shape: Any, value: Any) -> tuple[bool, str]:
     """Write *value* onto a paper-form shape or ControlShape model."""
     try:
         shape_type = shape.getShapeType()
-    except Exception:
+    except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(e):
+            raise
         shape_type = ""
 
     if is_control_shape_type(shape_type):
@@ -92,6 +95,9 @@ def apply_fill_value(shape: Any, value: Any) -> tuple[bool, str]:
             shape.setString("" if value is None else str(value))
             return True, "set text"
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             return False, "setString failed: %s" % exc
     return False, "Shape cannot hold text."
 
@@ -100,6 +106,9 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
     try:
         model = shape.Control
     except Exception as exc:
+        from plugin.framework.errors import is_disposed_exception
+        if is_disposed_exception(exc):
+            raise
         return False, "ControlShape has no model: %s" % exc
     if model is None:
         return False, "ControlShape has no model."
@@ -112,6 +121,9 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
             model.State = state
             return True, "set state"
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             return False, "Setting State failed: %s" % exc
 
     if hasattr(model, "Text"):
@@ -119,6 +131,9 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
             model.Text = "" if value is None else str(value)
             return True, "set text"
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             return False, "Setting Text failed: %s" % exc
 
     if hasattr(model, "State"):
@@ -129,6 +144,9 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
             model.State = state
             return True, "set state"
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             return False, "Setting State failed: %s" % exc
 
     if hasattr(shape, "setString"):
@@ -136,6 +154,9 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
             shape.setString("" if value is None else str(value))
             return True, "set text"
         except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
             return False, "setString failed: %s" % exc
     return False, "Control cannot accept a text or State value."
 
@@ -191,7 +212,10 @@ class FillDrawFields(ToolDrawShapeBase):
 
         try:
             page = bridge.get_pages().getByIndex(actual_idx)
-        except Exception:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             return self._tool_error("Invalid page index: %s" % actual_idx)
         if page is None:
             return self._tool_error("No draw page available.")

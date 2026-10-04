@@ -265,6 +265,40 @@ def test_blank_master_signal():
     assert _blank_master_signal([{"name": "Metropolis", "shape_count": 6}]) is False
 
 
+def test_inherit_master_from_neighbor_at_zero_skips_the_new_page():
+    """insert_at=0 must not copy the new page's own master.
+
+    The off-by-one left the new page at index 1 while the caller still
+    passed insert_at=0, so the only adjacent slot was the new page itself.
+    """
+    designed = MagicMock()
+    designed.Name = "Designed"
+    neighbor = MagicMock()
+    neighbor.MasterPage = designed
+    new_page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda i: neighbor if i == 0 else new_page
+    name = inherit_master_from_neighbor(pages, new_page, 0)
+    assert name == "Designed"
+    assert new_page.MasterPage is designed
+
+
+def test_inherit_master_from_neighbor_at_zero_uses_following_slide():
+    """When the new page really occupies index 0, copy the slide now at 1."""
+    designed = MagicMock()
+    designed.Name = "Designed"
+    neighbor = MagicMock()
+    neighbor.MasterPage = designed
+    new_page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda i: new_page if i == 0 else neighbor
+    name = inherit_master_from_neighbor(pages, new_page, 0)
+    assert name == "Designed"
+    assert new_page.MasterPage is designed
+
+
 def test_inherit_master_from_neighbor_copies_previous():
     prev_master = MagicMock()
     prev_master.Name = "Designed"
@@ -287,7 +321,7 @@ def test_add_slide_reports_inherited_master():
     pages = MagicMock()
     pages.getCount.return_value = 1
     bridge = MagicMock()
-    bridge.create_slide.return_value = page
+    bridge.create_slide.return_value = (page, 1)
     bridge.get_active_page_index.return_value = 1
     bridge.get_pages.return_value = pages
     with (
@@ -358,3 +392,35 @@ def test_designs_module_has_no_hardcoded_install_prefix():
         src = inspect.getsource(mod)
         assert "/usr/lib/libreoffice" not in src
         assert "/opt/libreoffice" not in src
+
+def test_extract_otp_picture_capped_read():
+    import zipfile
+    import os
+    import tempfile
+    from plugin.draw.designs import _extract_otp_picture
+
+    with tempfile.TemporaryDirectory() as td:
+        otp_path = os.path.join(td, "test.otp")
+        with zipfile.ZipFile(otp_path, "w") as zf:
+            zf.writestr("Pictures/image.png", b"x" * (2 * 1024 * 1024 + 10))
+
+        # Test extraction fails due to limit
+        out_path = _extract_otp_picture(otp_path, td, 0)
+        assert out_path is None
+
+def test_enumerate_impress_designs_limit():
+    import tempfile
+    import os
+    from unittest.mock import patch
+    from plugin.draw.designs import enumerate_impress_designs
+
+    with tempfile.TemporaryDirectory() as td:
+        for i in range(1005):
+            open(os.path.join(td, f"file{i}.otp"), "w").close()
+
+        class MockCtx:
+            pass
+
+        with patch("plugin.draw.designs._iter_template_directories", return_value=[td]):
+            designs = enumerate_impress_designs(MockCtx())
+            assert len(designs) == 1000

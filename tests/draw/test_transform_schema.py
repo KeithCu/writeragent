@@ -6,6 +6,7 @@ import json
 
 from plugin.draw.transform_schema import (
     AUTOLAYOUT_BY_NAME,
+    AUTOLAYOUT_ID,
     COLLABORA_TRANSFORM_DSL_URL,
     get_slide_commands,
     is_deferred_command_key,
@@ -57,7 +58,7 @@ def test_resolve_layout_id_comprehensive():
     assert resolve_layout_id("  autolayout_title_2content  ") == 3
     assert resolve_layout_id("autolayout_title_only") == 19
 
-    # PowerPoint-style aliases are not Impress page.Layout ids.
+    # Transform DSL names are AUTOLAYOUT_*; friendly names go through layout_id.
     assert resolve_layout_id("title") is None
     assert resolve_layout_id("  BLANK  ") is None
     assert resolve_layout_id("two_column_text") is None
@@ -112,6 +113,12 @@ def test_deferred_keys():
 def test_autolayout_map_matches_collabora_ids():
     assert AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_ONLY"] == 19
     assert AUTOLAYOUT_BY_NAME["AUTOLAYOUT_NONE"] == 20
+    assert AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_2CONTENT"] == AUTOLAYOUT_ID["AUTOLAYOUT_TITLE_2CONTENT"] == 3
+    # Historic ids the Collabora subset omits. set_slide_layout still uses them.
+    assert AUTOLAYOUT_ID["AUTOLAYOUT_CHART"] == 2
+    assert AUTOLAYOUT_ID["AUTOLAYOUT_TAB"] == 8
+    assert AUTOLAYOUT_ID["AUTOLAYOUT_OBJ"] == 11
+    assert AUTOLAYOUT_ID["AUTOLAYOUT_TITLE_ONLY"] == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_ONLY"]
 
 
 def test_collabora_fixtures_load_from_tests_package():

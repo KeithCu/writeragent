@@ -176,6 +176,36 @@ def test_role_miss_fallback_indices_for_class_only_shapes():
     assert extra["fallback_indices"] == [{"index": 0, "class": "TitleTextShape", "name": "Title"}]
 
 
+def test_get_placeholder_text_by_role_returns_index():
+    page = _FakePage([
+        _FakeShape(class_name="TitleTextShape", text="Title"),
+        _FakeShape(class_name="OutlinerShape", text="Body")
+    ])
+
+    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
+        from plugin.draw.placeholders import GetPlaceholderText
+        res = GetPlaceholderText().execute(SimpleNamespace(doc=object()), role="body")
+
+    assert res["status"] == "ok"
+    assert res["role"] == "body"
+    assert res["index"] == 1
+
+    # We should also be able to pass that index to SetPlaceholderText directly
+    class _MockShapeWithSetString(_FakeShape):
+        def setString(self, text):
+            self._text = text
+
+    page2 = _FakePage([
+        _MockShapeWithSetString(class_name="TitleTextShape", text="Title"),
+        _MockShapeWithSetString(class_name="OutlinerShape", text="Body")
+    ])
+    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page2):
+        res2 = SetPlaceholderText().execute(SimpleNamespace(doc=object()), text="New Body", index=res["index"])
+
+    assert res2["status"] == "ok"
+    assert page2.getByIndex(1).getString() == "New Body"
+
+
 def test_set_placeholder_text_empty_role_miss_payload():
     page = _FakePage([])
     with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
@@ -185,7 +215,8 @@ def test_set_placeholder_text_empty_role_miss_payload():
     assert details["available"] == []
     assert details["suggest_layout"] == "text"
     assert details["shape_text_count"] == 0
-    assert "set_slide_layout" in details["hint"]
+    assert "slide_layouts" in details["hint"]
+    assert "set_slide_layout" not in details["hint"]
     assert "Placeholder 'title' not found on this slide." == err["message"]
 
 

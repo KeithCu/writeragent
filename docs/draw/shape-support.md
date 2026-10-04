@@ -7,7 +7,7 @@ The most common and simple shapes are implemented as direct UNO classes. These i
 - `com.sun.star.drawing.RectangleShape`
 - `com.sun.star.drawing.EllipseShape`
 - `com.sun.star.drawing.TextShape`
-- `com.sun.star.drawing.LineShape`
+- `com.sun.star.drawing.LineShape` — an axis-aligned line has a zero width (vertical) or a zero height (horizontal). `shape_upsert` with `shape_type` `line` accepts that box. Other shapes still need both sides positive. A negative side, or both sides zero, is rejected (`DRAW_INVALID_SIZE`).
 - `com.sun.star.drawing.ConnectorShape`
 
 These shapes are straightforward to instantiate and configure. They have dedicated properties for styling (e.g., `FillColor`, `LineColor`).

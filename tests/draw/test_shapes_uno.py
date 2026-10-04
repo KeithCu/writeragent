@@ -94,3 +94,55 @@ def test_writer_octagon_geometry_after_add(ctx, doc):
     names = {str(prop.Name) for prop in geom}
     assert "Type" in names
     assert "Path" in names or "ViewBox" in names
+
+
+@native_test
+@with_native_doc("draw")
+def test_shape_upsert_axis_aligned_line(ctx, doc):
+    """Horizontal and vertical lines have a zero side. Rectangles do not."""
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    horizontal = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=500,
+        y=500,
+        width=4000,
+        height=0,
+    )
+    assert horizontal.get("status") == "ok", horizontal
+    shape = page.getByIndex(page.getCount() - 1)
+    size = shape.getSize()
+    assert size.Width == 4000
+    assert size.Height == 0
+    assert "LineShape" in shape.getShapeType()
+
+    vertical = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="line",
+        page=0,
+        x=800,
+        y=800,
+        width=0,
+        height=2500,
+    )
+    assert vertical.get("status") == "ok", vertical
+    shape = page.getByIndex(page.getCount() - 1)
+    size = shape.getSize()
+    assert size.Width == 0
+    assert size.Height == 2500
+
+    rejected = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=100,
+        y=100,
+        width=4000,
+        height=0,
+    )
+    assert rejected.get("status") == "error", rejected

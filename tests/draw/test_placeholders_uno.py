@@ -65,7 +65,8 @@ def test_add_slide_blank_and_none_escape_empty(ctx, doc):
         page_idx = added["active_page_index"]
         assert page_idx == doc.getDrawPages().getCount() - 1, added
         page = doc.getDrawPages().getByIndex(page_idx)
-        # Escape hatch leaves insertNewByIndex (empty), not _LAYOUTS["blank"]=11.
+        # blank/none assign AUTOLAYOUT_NONE (20). The old id 11 was an OLE layout.
+        assert page.Layout == 20, "Layout=%s added=%s" % (page.Layout, added)
         assert page.getCount() == 0, "shapes=%s Layout=%s added=%s" % (page.getCount(), page.Layout, added)
         listed = _exec_tool(doc, ctx, "list_placeholders", {"page": page_idx})
         assert listed.get("status") == "ok", listed
@@ -78,7 +79,8 @@ def test_add_slide_blank_and_none_escape_empty(ctx, doc):
         assert details.get("available") == [], miss
         assert details.get("suggest_layout") == "text", miss
         assert details.get("shape_text_count") == 0, miss
-        assert "set_slide_layout" in (details.get("hint") or ""), miss
+        assert "slide_layouts" in (details.get("hint") or ""), miss
+        assert "set_slide_layout" not in (details.get("hint") or ""), miss
 
 
 @native_test

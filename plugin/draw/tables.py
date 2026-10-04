@@ -266,7 +266,16 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
         actual_idx = bridge.get_active_page_index()
     try:
         page = bridge.get_pages().getByIndex(actual_idx)
-    except Exception:
+    except Exception as exc:
+        # What was wrong: DisposedException became "Invalid page index".
+        # How: get_pages/getByIndex raise when the document is gone, and
+        # this handler mapped every Exception to a bad index.
+        # Why this works: re-raise disposal; a real bad index still
+        # returns the page-index error.
+        from plugin.framework.errors import is_disposed_exception
+
+        if is_disposed_exception(exc):
+            raise
         return {"status": "error", "message": "Invalid page index: %s" % actual_idx, "code": "TOOL_EXECUTION_ERROR"}
     if page is None:
         return {"status": "error", "message": "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}

@@ -68,3 +68,45 @@ def test_write_agent_summary(tmp_path: Path):
     text = out.read_text(encoding="utf-8")
     assert "01_cover.svg" in text
     assert "FAIL" in text
+
+def test_evaluate_slide_fidelity_closes_target_doc_after_read(monkeypatch, tmp_path: Path):
+    from plugin.ppt_master import fidelity
+
+    class DummyDoc:
+        def __init__(self):
+            self.closed = False
+        def close(self, deliver_ownership):
+            self.closed = True
+
+    class DummyPage:
+        def getCount(self):
+            return 1
+
+    doc = DummyDoc()
+    page = DummyPage()
+
+    def mock_import(ctx, pptx_path, slide_index, odp_path):
+        return doc, page
+
+    def mock_metrics(tgt_page):
+        tgt_page.getCount()
+        from plugin.ppt_master.fidelity import StructuralMetrics
+        return StructuralMetrics()
+
+    monkeypatch.setattr(fidelity, "import_slide_to_odp", mock_import)
+    monkeypatch.setattr(fidelity, "structural_metrics_pptx", mock_metrics)
+    monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
+
+    fidelity.evaluate_slide_fidelity(
+        None,
+        project_dir=tmp_path,
+        slide_label="test.svg",
+        slide_index=0,
+        pptx_path=tmp_path / "test.pptx",
+        reference_deck_pdf=tmp_path / "ref.pdf",
+        work_dir=tmp_path,
+        soffice="echo",
+        skip_visual=True,
+    )
+
+    assert doc.closed is True

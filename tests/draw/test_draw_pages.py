@@ -4,7 +4,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.pages import AddSlide, DuplicateSlide, MoveSlide, RenameSlide
+from plugin.draw.pages import AddSlide, DeleteSlide, DuplicateSlide, MoveSlide, RenameSlide
 
 
 def _ctx():
@@ -23,9 +23,12 @@ def _draw_ctx():
     return ctx
 
 
-def _add_slide_bridge(page, active_idx=1, page_count=1):
+def _add_slide_bridge(page, active_idx=1, page_count=1, landed=None):
     bridge = MagicMock()
-    bridge.create_slide.return_value = page
+    # create_slide returns the page and the slot it actually occupies.
+    if landed is None:
+        landed = page_count
+    bridge.create_slide.return_value = (page, landed)
     bridge.get_active_page_index.return_value = active_idx
     bridge.get_pages.return_value.getCount.return_value = page_count
     return bridge
@@ -95,6 +98,46 @@ def test_add_slide_reports_inserted_index_not_stale_active():
         out = AddSlide().execute(ctx)
     assert out["active_page_index"] == 1
     assert out["layout"] == "text"
+
+
+def test_add_slide_reports_landed_index_for_page_zero():
+    """page=0 must report the slot create_slide actually filled, not a stale active page."""
+    ctx = _impress_ctx()
+    page = MagicMock()
+    page.Layout = 20
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.designs.inherit_master_from_neighbor", return_value="Designed") as inherit,
+    ):
+        bridge_cls.return_value = _add_slide_bridge(page, active_idx=2, page_count=3, landed=0)
+        out = AddSlide().execute(ctx, page=0)
+    assert out["active_page_index"] == 0
+    assert out["master"] == "Designed"
+    assert inherit.call_args[0][2] == 0
+    assert inherit.call_args[0][1] is page
+
+
+def test_delete_slide_refuses_only_page():
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 1
+        out = DeleteSlide().execute(ctx, page=0)
+    assert out["status"] == "error"
+    assert out["message"] == "Cannot delete the only slide"
+    bridge.delete_slide.assert_not_called()
+
+
+def test_delete_slide_removes_page_when_another_remains():
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 2
+        bridge.get_active_page_index.return_value = 0
+        out = DeleteSlide().execute(ctx, page=1)
+    assert out["status"] == "ok"
+    bridge.delete_slide.assert_called_once_with(1)
+    assert out["active_page_index"] == 0
 
 
 def test_bridge_duplicate_calls_doc_duplicate():
