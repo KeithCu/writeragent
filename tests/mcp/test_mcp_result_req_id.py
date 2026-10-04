@@ -1,5 +1,4 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from plugin.chatbot.panel import SendButtonListener
 
 def test_mcp_result_ignores_old_req_id():

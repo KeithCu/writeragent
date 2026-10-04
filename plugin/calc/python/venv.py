@@ -196,7 +196,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     from plugin.framework.queue_executor import execute_on_main_thread
 
                     if stop_checker and stop_checker():
-                        out["message"] = f"Plot generation skipped: stopped by user"
+                        out["message"] = "Plot generation skipped: stopped by user"
                         out["image_inserted"] = False
                         return out
 

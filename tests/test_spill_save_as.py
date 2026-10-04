@@ -1,13 +1,9 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from plugin.calc.python.function import (
     _spill_registry_doc_key,
-    load_spill_registry_for_doc,
-    save_spill_registry_for_doc,
     SPILL_REGISTRY,
-    LOADED_DOCUMENTS,
-    _SPILL_REGISTRY_LOCK
+    LOADED_DOCUMENTS
 )
 
 def test_spill_registry_doc_key():

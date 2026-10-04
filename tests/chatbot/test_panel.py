@@ -13,7 +13,6 @@ import sys
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import (
     ClearButtonListener,
     QueryKeyListener,
@@ -1139,7 +1138,6 @@ class TestStopClearsAudioWavPath:
     def test_disposing_clears_audio_wav_path(self, mock_remove) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
-        from plugin.chatbot.send_state import StopSendEffect
 
         from plugin.chatbot.send_state import SendEvent, SendEventKind
         # We need the listener to execute StopSendEffect.

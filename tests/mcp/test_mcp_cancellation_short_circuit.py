@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock
 from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.framework.tool import ToolContext
