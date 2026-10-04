@@ -145,6 +145,7 @@ def test_execute_code_stop_returns_interrupted_without_venv():
         patch("plugin.notebook.notebook_runner.reset_python_session") as reset,
         patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
         patch("plugin.notebook.notebook_runner.release_script_document"),
+        patch("plugin.framework.worker_pool.run_in_background", lambda f, **kwargs: f()),
     ):
         out = execute_code(ctx, doc, "x = 1")
         bg.assert_called_once_with(reset, ctx, "notebook:test", name="notebook_reset_on_stop")

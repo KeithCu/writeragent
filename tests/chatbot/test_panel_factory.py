@@ -791,3 +791,30 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     assert isinstance(listener.mode_flags, SidebarModeFlags)
     el._apply_sidebar_mode.assert_called_once()
     assert el._apply_sidebar_mode.call_args.args[-1] is toggle
+
+
+def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_path):
+    """Save As over an existing file with its own history must not overwrite that history."""
+    import hashlib
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    old_url = "file:///tmp/source.odt"
+    new_url = "file:///tmp/target.odt"
+    old_id = hashlib.sha256(old_url.encode("utf-8")).hexdigest()
+    new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
+    props = {"WriterAgentSessionID": old_id, "WriterAgentSessionURL": old_url}
+    db_path = str(tmp_path / "writeragent_history.db")
+
+    # Source chat
+    get_chat_history(old_id, db_path).add_message("user", "source chat")
+    # Pre-existing target chat
+    get_chat_history(new_id, db_path).add_message("user", "pre-existing target chat")
+
+    history = _save_as_sessions(tmp_path, props, new_url)
+
+    # The source chat must stay intact
+    assert history(old_id, db_path).get_messages()[0]["content"] == "source chat"
+    # The target chat must not be overwritten by the source chat
+    assert history(new_id, db_path).get_messages()[0]["content"] == "pre-existing target chat"
+    assert len(history(new_id, db_path).get_messages()) == 1
