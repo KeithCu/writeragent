@@ -125,6 +125,14 @@ def dispatch_worker_response(
             llm_response["result"] = llm_out.get("result")
         else:
             llm_response["message"] = llm_out.get("message", "LLM request failed")
+            # What was wrong: handle_llm_request returned code USER_STOPPED
+            # and this rebuild kept only status and message. The child
+            # _raise_if_stopped treats any other error as RuntimeError, so
+            # run_turn kept taking steps until max_tool_rounds.
+            # Why this works: the child raises UserStopped only when code is
+            # USER_STOPPED. Copy whatever code the handler set.
+            if llm_out.get("code"):
+                llm_response["code"] = llm_out["code"]
         try:
             frame = pack_pickle_frame(llm_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except IpcFrameError as exc:
