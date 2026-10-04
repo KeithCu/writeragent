@@ -171,6 +171,8 @@ def extract_indexable_passages(path: str) -> list[str] | None:
 
 def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
     """List indexable document siblings in *directory* (stdlib scan, no UNO)."""
+    from plugin.doc.document_research import _should_skip_filename
+
     listing_root = _normalize_path(directory)
     entries: list[WriterFileEntry] = []
     try:
@@ -179,6 +181,8 @@ def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
         log.debug("guess_indexable_paths listdir failed for %s", listing_root, exc_info=True)
         return []
     for name in names:
+        if _should_skip_filename(name):
+            continue
         full = os.path.join(listing_root, name)
         if not os.path.isfile(full):
             continue

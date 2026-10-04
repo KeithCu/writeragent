@@ -1,29 +1,20 @@
-1.  **Fix `diff_chunk_rows` to explicitly accept `doc_url`:**
-    *   In `plugin/embeddings/venv/embeddings_sqlite.py`, modify `diff_chunk_rows_in_db` to take `doc_url: str` as an argument.
-        *   If `chunks` is empty, use the provided `doc_url` to query `conn.execute("SELECT ... FROM chunks WHERE doc_url = ?", (doc_url,))`.
-        *   Ensure that when `chunks` is empty, the returned `to_delete` list correctly contains all existing chunks for that `doc_url`.
-    *   In `plugin/embeddings/embeddings_cache.py`, modify `diff_chunk_rows` to accept `doc_url: str` and pass it to `diff_chunk_rows_in_db`.
-    *   In `plugin/embeddings/venv/embeddings_folder_maintain.py`, update the call to `diff_chunk_rows` in `_incremental_refresh` to pass `entry.url`.
+1. **Fix MCP Cancel for PPT-Master Tools**
+   - In `plugin/ppt_master/tools.py`, update `ExportPresentationProject`, `ValidatePptMasterProject`, `ApplyPptMasterTemplateFill`, and `ApplyPptMasterNativeEnhance` to check `ctx.stop_checker()` at the very top of their `execute()` methods and return `{"status": "error", "code": "USER_STOPPED"}` if it evaluates to `True`.
+   - Plumb `ctx.stop_checker` into `export_project_to_impress` (in `client.py` and `uno_pptx_deck.py`) and down to `import_pptx_to_doc` (in `uno_pptx_import.py`).
 
-2.  **Fix marking of failed extractions:**
-    *   In `plugin/embeddings/venv/embeddings_folder_maintain.py`, modify `_cold_build` and `_incremental_refresh`.
-    *   We need to differentiate between an empty successful extraction and a failed extraction.
-    *   In `plugin/embeddings/venv/embeddings_folder_maintain.py`, `_extract_file_chunks(entry)` delegates to `indexable_chunks_from_path`, which calls `extract_indexable_passages(norm)`.
-    *   The `extract_calc_rows` and `extract_spreadsheet_rows` currently return `[]` on failure (missing pandas/engine or exception). We need to distinguish success (0 rows) from failure.
-    *   Actually, a simpler way is to raise an explicit exception like `ImportError` or a custom `ExtractionFailedError` instead of returning `[]` and swallowing the exception in `extract_calc_rows`/`extract_spreadsheet_rows`. But we should check how they are currently used. Let's look at `extract_calc_rows`. Currently it catches `ImportError` and `Exception` and returns `[]`.
-    *   Alternatively, return `None` on failure from `extract_calc_rows` and `extract_spreadsheet_rows`, and handle `None` down the chain? The return type is `list[str]`.
-    *   Let's check `extract_calc_rows`. If it returns `[]` on failure, `indexable_chunks_from_path` will return `(0, [])`.
-    *   Let's modify `extract_calc_rows` to raise an exception, or return `None`, or have `indexable_chunks_from_path` catch it.
-    *   Wait, the memory says: "Distinguish empty success from extract failure. Add unit tests that fail when an emptied sheet keeps old chunk rows and when a failed extract is marked fresh."
-    *   If `extract_calc_rows` returns `None` on failure, we can distinguish. Or it can just raise the exception. Let's look at `extract_calc_rows` and `extract_spreadsheet_rows`. I'll modify them to raise an `ExtractError` or `ValueError` or just let the exception propagate, but wait, `extract_calc_rows` has logging. If we change it to return `None`, we need to adjust the typing.
-    *   Let's check the return type of `extract_calc_rows` in `plugin/embeddings/venv/embeddings_odf_extract.py`: `def extract_calc_rows(path: str) -> list[str]:`. We can change it to `list[str] | None`.
+2. **Fix `_last_mcp_turn` in Chatbot Panel**
+   - In `plugin/chatbot/panel.py`, `_last_mcp_turn` currently only stores the most recent turn. This means overlapping or concurrent MCP requests could cause results to be dropped or misattributed.
+   - Update `_last_mcp_turn` to be a dictionary mapping `req_id` (or similar request identifier) to the turn, or if `req_id` isn't available, map `turn.generation` or similar unique turn identifier. Or better, update it to be keyed by `req_id` if we can plumb it, but looking at `_on_mcp_request`, it might not have `req_id`. Wait, the instruction says: "key by request id / turn stamp." Let's check what `kwargs` are passed to `_on_mcp_request`. In `plugin/mcp/mcp_protocol.py`, `req_id` is available. Let's see if we can pass it. Or just key by `current_turn(self)` stamp if we have multiple in-flight? Actually, the prompt says "key by request id / turn stamp." I will use `req_id` if provided in kwargs, else `""`. Wait, `current_turn` gives a `TurnController` which has a `.generation`.
 
-3.  **Implement the Unit Tests:**
-    *   Write test `test_emptied_calc_retains_chunks` in `tests/embeddings/venv/test_embeddings_extract_failures.py`.
-    *   Write test `test_failed_extract_cold_build_skips` in `tests/embeddings/venv/test_embeddings_extract_failures.py`.
-    *   Write test `test_failed_extract_incremental_refresh_skips` in `tests/embeddings/venv/test_embeddings_extract_failures.py`.
+3. **Plumb cancel points in per-slide import loop**
+   - In `plugin/ppt_master/adapter/uno_pptx_import.py`, modify `_import_slides_from_source` to accept `stop_checker`. Inside the slide import loop (around line 170), check `stop_checker()`. If `True`, break the loop and return `{"status": "error", "message": "Import cancelled by user", "code": "USER_STOPPED"}`. Ensure that it cleans up properly (which it should, by leaving existing slides and only deleting newly added ones if it fails, but here we intentionally abort).
 
-4.  **Complete pre-commit steps.**
-    *   Run tests, verify no linting errors, check the format.
+4. **Add Unit Tests**
+   - Add/update tests in `tests/` for `ExportPresentationProject` cancel behavior and `_import_slides_from_source` cancel.
+   - Run tests.
 
-5.  **Submit the PR.**
+5. **Pre-commit Checks**
+   - Ensure proper testing, verification, review, and reflection are done.
+
+6. **Submit PR**
+   - Use `submit` to push changes to branch.

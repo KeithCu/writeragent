@@ -17,7 +17,7 @@ from typing import Any, cast
 
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
-from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp, load_pptx_as_impress_doc
+from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
 from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
 

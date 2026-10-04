@@ -72,7 +72,13 @@ class StopSendEffect:
     pass
 
 
-SendEffects = Union[UpdateUIEffect, StartRecordingEffect, StopRecordingEffect, StartSendEffect, StopSendEffect]
+@dataclass(frozen=True)
+class TranscribeOnlyEffect:
+    """Transcribe recorded audio into the query box without sending to the model."""
+    pass
+
+
+SendEffects = Union[UpdateUIEffect, StartRecordingEffect, StopRecordingEffect, StartSendEffect, StopSendEffect, TranscribeOnlyEffect]
 
 
 # --- Pure Transition Function ---
@@ -201,6 +207,24 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         return FsmTransition(new_state, effects)
 
     elif event.kind == SendEventKind.STOP_CLICKED:
+        if state.is_recording:
+            # AI/DEV INVARIANT: Stop clicked while recording MUST transcribe into query_control
+            # without sending to the model.
+            # When the user is talking and clicks Stop, we end the recording take and transcribe
+            # the audio into the query box. We do NOT abort the transcription, throw away the audio,
+            # or auto-send the text to the model. The user can review, edit, or send whenever ready.
+            new_state = SendButtonState(
+                is_busy=True,
+                is_recording=False,
+                has_text=state.has_text,
+                has_audio=False,
+                audio_supported=state.audio_supported,
+            )
+            effects.append(StopRecordingEffect())
+            effects.append(TranscribeOnlyEffect())
+            effects.append(UpdateUIEffect(send_enabled=False, stop_enabled=True, send_label="Send", status_text="Transcribing..."))
+            return FsmTransition(new_state, effects)
+
         if not state.is_busy:
             return FsmTransition(state, effects)
 

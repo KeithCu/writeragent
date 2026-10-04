@@ -9,12 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawPptMasterBase
-from plugin.ppt_master.client import (
-    apply_native_enhance,
-    apply_template_fill,
-    export_project_to_impress,
-    validate_project_structure,
-)
+from plugin.ppt_master.client import apply_native_enhance, apply_template_fill, export_project_to_impress, validate_project_structure
 from plugin.ppt_master.paths import PPT_MASTER_INSTALL_CMD, apply_data_root_env, data_root_status
 
 if TYPE_CHECKING:
@@ -23,32 +18,22 @@ if TYPE_CHECKING:
 
 class ExportPresentationProject(ToolDrawPptMasterBase):
     name: str | None = "export_presentation_project"
-    description: str = (
-        "Export a ppt-master project folder into the active Impress/Draw document "
-        "by building or loading exports/*.pptx and importing via LibreOffice's native PPTX filter."
-    )
+    description: str = "Export a ppt-master project folder into the active Impress/Draw document by building or loading exports/*.pptx and importing via LibreOffice's native PPTX filter."
     is_mutation: bool | None = True
     long_running: bool = True
     timeout: float = 600.0
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "project_path": {"type": "string", "description": "Path to ppt-master project directory."},
-        },
-        "required": ["project_path"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"project_path": {"type": "string", "description": "Path to ppt-master project directory."}}, "required": ["project_path"]}
 
     def is_async(self) -> bool:
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         st = data_root_status(ctx.ctx)
         if not st.get("ok"):
-            return self._tool_error(
-                f"PPT-Master data package not found. Install with: {PPT_MASTER_INSTALL_CMD}",
-                code="PPT_MASTER_DATA_MISSING",
-            )
+            return self._tool_error(f"PPT-Master data package not found. Install with: {PPT_MASTER_INSTALL_CMD}", code="PPT_MASTER_DATA_MISSING")
         path = kwargs.get("project_path")
         if not path:
             return self._tool_error("project_path is required.", code="MISSING_PATH")
@@ -59,15 +44,11 @@ class ValidatePptMasterProject(ToolDrawPptMasterBase):
     name: str | None = "validate_ppt_master_project"
     description: str = "Check that a ppt-master project folder has expected artifacts (SVG slides, design spec)."
     is_mutation: bool | None = False
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "project_path": {"type": "string", "description": "Path to ppt-master project directory."},
-        },
-        "required": ["project_path"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"project_path": {"type": "string", "description": "Path to ppt-master project directory."}}, "required": ["project_path"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")
         if not path:
@@ -79,15 +60,11 @@ class ApplyPptMasterTemplateFill(ToolDrawPptMasterBase):
     name: str | None = "apply_ppt_master_template_fill"
     description: str = "Apply a ppt-master fill_plan.json to the active presentation (template-fill route)."
     is_mutation: bool | None = True
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "fill_plan_path": {"type": "string", "description": "Path to fill_plan.json."},
-        },
-        "required": ["fill_plan_path"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"fill_plan_path": {"type": "string", "description": "Path to fill_plan.json."}}, "required": ["fill_plan_path"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         plan_path = kwargs.get("fill_plan_path")
         if not plan_path:
@@ -99,15 +76,11 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
     name: str | None = "apply_ppt_master_native_enhance"
     description: str = "Apply ppt-master native enhancement (notes, transitions) from a project folder."
     is_mutation: bool | None = True
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "project_path": {"type": "string", "description": "Path to ppt-master enhancement project."},
-        },
-        "required": ["project_path"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"project_path": {"type": "string", "description": "Path to ppt-master enhancement project."}}, "required": ["project_path"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        if getattr(ctx, "stop_checker", None) and ctx.stop_checker():
+            return self._tool_error("Cancelled by user", code="USER_STOPPED")
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")
         if not path:

@@ -1,4 +1,3 @@
-import re
 
 with open("plugin/writer/content.py", "r") as f:
     text = f.read()

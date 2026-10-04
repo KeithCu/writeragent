@@ -1,4 +1,3 @@
-import re
 
 with open("tests/embeddings/venv/test_embeddings_folder_maintain.py", "r") as f:
     content = f.read()

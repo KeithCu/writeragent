@@ -6,8 +6,10 @@ from plugin.chatbot.send_state import (
     SendEvent,
     SendEventKind,
     StartRecordingEffect,
+    StopRecordingEffect,
     StartSendEffect,
     StopSendEffect,
+    TranscribeOnlyEffect,
     UpdateUIEffect,
     next_state,
 )
@@ -178,3 +180,20 @@ def test_stop_clicked_twice_while_busy_stays_busy():
     assert tr2.state.is_busy is True
     assert tr2.state.is_recording is False
     assert any(isinstance(e, StopSendEffect) for e in tr2.effects)
+
+
+def test_stop_clicked_while_recording_transcribes_only():
+    """Stop while recording ends the take and transcribes it into the query box without sending."""
+    state = SendButtonState(False, False, False, False, True)
+    rec_tr = next_state(state, SendEvent(SendEventKind.RECORD_CLICKED))
+    assert rec_tr.state.is_recording is True
+
+    stop_tr = next_state(rec_tr.state, SendEvent(SendEventKind.STOP_CLICKED))
+    assert stop_tr.state.is_recording is False
+    assert stop_tr.state.is_busy is True
+    assert any(isinstance(e, StopRecordingEffect) for e in stop_tr.effects)
+    assert any(isinstance(e, TranscribeOnlyEffect) for e in stop_tr.effects)
+    assert not any(isinstance(e, StartSendEffect) for e in stop_tr.effects)
+    ui_eff = next(e for e in stop_tr.effects if isinstance(e, UpdateUIEffect))
+    assert ui_eff.status_text == "Transcribing..."
+
