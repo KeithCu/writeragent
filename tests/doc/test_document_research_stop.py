@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 from plugin.framework.queue_executor import SendCancelled
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.doc.document_research_grep import grep_nearby_files
+from plugin.framework.tool import ToolContext
 from plugin.framework.tool import ToolRegistry
 
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent")
