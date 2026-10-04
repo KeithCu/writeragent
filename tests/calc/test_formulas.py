@@ -165,6 +165,24 @@ def test_evaluate_formula_defined_name_does_not_write_the_live_sheet():
     assert doc.temp.range_calls == []
 
 
+def test_evaluate_formula_nonzero_stays_a_float_when_result_kind_differs():
+    # FormulaResult.VALUE is 0 on some LibreOffice builds and 1 on others.
+    # A hardcoded 1 used to send =2+3 through getString(), so the result was
+    # the text "5" and the UNO check against 5.0 failed.
+    doc = _EvalDoc()
+    doc.temp_cell.kind = FORMULA
+    doc.temp_cell.value = 5
+    doc.temp_cell.text = "5"
+    doc.temp_cell.FormulaResultType = 0
+
+    result = EvaluateFormula().execute(_eval_ctx(doc), formula="=2+3", cell="A1")
+
+    assert result["status"] == "ok"
+    assert result["result"] == 5.0
+    assert isinstance(result["result"], float)
+    assert result["result_type"] == "formula"
+
+
 def test_evaluate_formula_numeric_zero_stays_a_number():
     doc = _EvalDoc()
     doc.temp_cell.kind = FORMULA

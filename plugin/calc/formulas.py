@@ -53,11 +53,47 @@ except ImportError:
     EMPTY, VALUE, TEXT, FORMULA = cast("Any", 0), cast("Any", 1), cast("Any", 2), cast("Any", 3)
     UNO_AVAILABLE = False
 
-# com.sun.star.sheet.FormulaResult: VALUE=1, STRING=2, ERROR=4.
-# A formula cell stays FORMULA even when the result is the number 0.
-FORMULA_RESULT_VALUE = 1
+# Used when FormulaResult.VALUE cannot be read (unit tests, or a mock enum).
+# Live builds disagree: some expose VALUE as 0, some as 1.
+_FORMULA_RESULT_VALUE_FALLBACK = 1
+_formula_result_value_code: int | None = None
 
 log = logging.getLogger("writeragent.calc")
+
+
+def _numeric_formula_value(numeric: Any) -> float | None:
+    """Float for a real number from ``getValue()``. Booleans are not numbers here."""
+    if isinstance(numeric, bool) or not isinstance(numeric, (int, float)):
+        return None
+    return float(numeric)
+
+
+def _runtime_formula_result_value() -> int:
+    """``FormulaResult.VALUE`` on this LibreOffice, else 1.
+
+    What was wrong: a hardcoded ``1`` missed builds where ``VALUE`` is ``0``.
+    """
+    global _formula_result_value_code
+    if _formula_result_value_code is not None:
+        return _formula_result_value_code
+    code = _FORMULA_RESULT_VALUE_FALLBACK
+    try:
+        from com.sun.star.sheet.FormulaResult import VALUE as result_value
+
+        code = int(result_value)
+    except Exception:
+        code = _FORMULA_RESULT_VALUE_FALLBACK
+    _formula_result_value_code = code
+    return code
+
+
+def _formula_result_is_value(kind: Any) -> bool:
+    if kind is None:
+        return False
+    try:
+        return int(kind) == _runtime_formula_result_value()
+    except (TypeError, ValueError):
+        return False
 
 
 def _context_position(cell_address: str) -> tuple[int, int]:
@@ -76,28 +112,29 @@ def _context_position(cell_address: str) -> tuple[int, int]:
 
 
 def _formula_cell_result(cell: Any) -> Any:
-    """Return a formula cell's result, keeping numeric zero as a number.
+    """Return a formula cell's result, keeping numbers as floats.
 
-    What was wrong: ``=1-1`` came back as the string ``"0"``.
-    How: ``getValue() != 0`` is false for zero, so the branch called ``getString()``.
-    Why: ``FormulaResultType`` ``VALUE`` (1) is a number, including 0.
-    Text results stay ``getString()``.
+    What was wrong: ``=2+3`` came back as the text ``"5"`` (and ``=1-1`` as
+    ``"0"``). The previous contract for a numeric formula is ``getValue()``,
+    which is a float (``5.0``).
+    How: ``FormulaResultType`` was compared to a hardcoded ``1``. Where
+    ``FormulaResult.VALUE`` is ``0``, that check failed and ``getString()``
+    won. Zero also used to take ``getString()`` because ``getValue() != 0``
+    is false.
+    Why: any non-zero ``getValue()`` is a number. Numeric zero is
+    ``FormulaResult.VALUE`` from this runtime; text stays ``getString()``.
     """
     numeric = cell.getValue()
-    kind = getattr(cell, "FormulaResultType", None)
-    if kind is not None:
-        try:
-            kind_int = int(kind)
-        except (TypeError, ValueError):
-            kind_int = -1
-        if kind_int == FORMULA_RESULT_VALUE:
-            return numeric
-        return cell.getString()
-    if numeric != 0:
-        return numeric
+    as_float = _numeric_formula_value(numeric)
+    # Non-zero does not need the enum. A mismatched VALUE code must not
+    # replace the float with the display string.
+    if as_float is not None and as_float != 0.0:
+        return as_float
+    if _formula_result_is_value(getattr(cell, "FormulaResultType", None)) and as_float is not None:
+        return as_float
     text = cell.getString()
-    if isinstance(text, str) and text.strip() in {"0", "0.0", "0.00", "-0"}:
-        return numeric
+    if as_float is not None and isinstance(text, str) and text.strip() in {"0", "0.0", "0.00", "-0"}:
+        return as_float
     return text
 
 
