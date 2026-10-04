@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """HTTP/MCP bind: single attempt, clear failure — no LibreOffice required."""
 import socket
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
@@ -376,3 +378,103 @@ def test_mcp_port_rebind_failure_stops_old_listener_and_reports(monkeypatch):
     import plugin.mcp as mcp_mod
 
     assert mcp_mod._last_start_error is boom
+
+
+def _open_listener():
+    """Real bound HTTPServer whose server_close is the stdlib one, counted."""
+    httpd = HTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+    httpd.server_closes = 0
+    httpd.shutdowns = 0
+    real_close = httpd.server_close
+
+    def server_close():
+        httpd.server_closes += 1
+        real_close()
+
+    httpd.server_close = server_close
+    httpd._real_close = real_close
+    return httpd
+
+
+def _http_server_on(httpd):
+    host, port = httpd.server_address
+    server = HttpServer(route_registry=_EmptyRoutes(), port=port, host=host)
+    server._server = httpd
+    server._running = True
+    return server
+
+
+def _release_listener(httpd):
+    sock = getattr(httpd, "socket", None)
+    if sock is not None and sock.fileno() != -1:
+        httpd._real_close()
+
+
+def test_accept_loop_exit_closes_listen_socket():
+    """serve_forever ending on its own must release the listen socket.
+
+    stop() returns as soon as _running is false, so it never reaches
+    server_close(). A later stop() must not close the socket again.
+    """
+    httpd = _open_listener()
+    httpd.serve_forever = lambda poll_interval=0.5: None
+    server = _http_server_on(httpd)
+    thread = threading.Thread(target=server._run, name="http-accept-exit", daemon=True)
+    try:
+        thread.start()
+        thread.join(2)
+        assert not thread.is_alive()
+        assert not server.is_running()
+        assert httpd.server_closes == 1
+        assert httpd.socket.fileno() == -1
+        assert httpd._sse_stop.is_set()
+        # If stop() called shutdown() after the loop had already returned,
+        # the real shutdown() would wait forever on an unset event.
+        stop_thread = threading.Thread(target=server.stop, name="http-stop-after-exit", daemon=True)
+        stop_thread.start()
+        stop_thread.join(2)
+        assert not stop_thread.is_alive()
+        assert httpd.server_closes == 1
+        assert httpd.shutdowns == 0
+    finally:
+        if thread.is_alive():
+            thread.join(1)
+        _release_listener(httpd)
+
+
+def test_stop_closes_listen_socket_once():
+    """The normal stop() path closes the listener once, with no second close from _run."""
+    httpd = _open_listener()
+    release = threading.Event()
+    entered = threading.Event()
+
+    def serve_forever(poll_interval=0.5):
+        entered.set()
+        assert release.wait(2)
+
+    def shutdown():
+        httpd.shutdowns += 1
+        release.set()
+
+    httpd.serve_forever = serve_forever
+    httpd.shutdown = shutdown
+    server = _http_server_on(httpd)
+    thread = threading.Thread(target=server._run, name="http-stop-once", daemon=True)
+    try:
+        thread.start()
+        assert entered.wait(2)
+        server.stop()
+        thread.join(2)
+        assert not thread.is_alive()
+        assert not server.is_running()
+        assert httpd.shutdowns == 1
+        assert httpd.server_closes == 1
+        assert httpd.socket.fileno() == -1
+        server.stop()
+        assert httpd.server_closes == 1
+        assert httpd.shutdowns == 1
+    finally:
+        release.set()
+        if thread.is_alive():
+            thread.join(1)
+        _release_listener(httpd)
