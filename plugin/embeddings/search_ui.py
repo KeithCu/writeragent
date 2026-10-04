@@ -209,6 +209,10 @@ class SearchDialog:
                         setattr(e, "Consume", True)
                 except Exception:
                     pass
+                btn_search = dlg.getControl("BtnSearch")
+                if btn_search and not btn_search.getModel().Enabled:
+                    # Search is already in progress
+                    return
                 owner._run_search(dlg)
 
         enter_listener = _SearchEnterKeyListener()
@@ -365,6 +369,7 @@ class SearchDialog:
                     k,
                     model=model,
                     near_slop=10,
+                    doc_url_filter=None,
                 )
                 hits = list(result.get("hits") or [])
                 execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)

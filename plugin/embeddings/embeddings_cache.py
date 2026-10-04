@@ -438,6 +438,7 @@ def maybe_upgrade_legacy_index(listing_root: str) -> None:
 
 _USE_DEFAULT = object()
 
+
 def resolve_index_context(
     ctx: Any = None, model: Any = None, *, listing_root: Any = _USE_DEFAULT
 ) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:

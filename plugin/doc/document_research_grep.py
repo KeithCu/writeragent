@@ -22,6 +22,7 @@ from plugin.doc.document_research import (
     guess_doc_type_from_path,
     list_nearby_files,
     open_document_for_read,
+    _USE_DEFAULT,
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import search_paragraph_texts
@@ -33,8 +34,6 @@ DEFAULT_GREP_MAX_RESULTS_PER_FILE = 5
 DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
 _DRAW_GREP_SHAPE_CAP = 200
 
-
-from plugin.doc.document_research import _USE_DEFAULT
 
 def resolve_grep_candidates(
     ctx: Any,
@@ -385,7 +384,7 @@ def grep_nearby_files(
 
     subset_norm = str(file_subset).strip() if file_subset else None
 
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import execute_on_main_thread, SendCancelled
 
     def _resolve() -> tuple[list[FileEntry], bool, str | None]:
         return resolve_grep_candidates(
@@ -394,7 +393,11 @@ def grep_nearby_files(
             file_subset=subset_norm,
         )
 
-    candidates, truncated_files, list_err = execute_on_main_thread(_resolve)
+    try:
+        candidates, truncated_files, list_err = execute_on_main_thread(_resolve)
+    except SendCancelled:
+        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+
     if list_err:
         return {"status": "error", "message": list_err}
 
@@ -402,11 +405,12 @@ def grep_nearby_files(
     errors: list[dict[str, str]] = []
     total_snippets = 0
     stopped_early = False
+    user_stopped = False
     files_scanned = 0
 
     for idx, entry in enumerate(candidates):
         if stop_checker and stop_checker():
-            stopped_early = True
+            user_stopped = True
             break
         if total_snippets >= DEFAULT_GREP_MAX_TOTAL_RESULTS:
             stopped_early = True
@@ -427,7 +431,11 @@ def grep_nearby_files(
         def _open() -> tuple[Any | None, str | None, str | None, bool]:
             return open_document_for_read(ctx, target)
 
-        model, doc_type, open_err, opened_for_document_research = execute_on_main_thread(_open)
+        try:
+            model, doc_type, open_err, opened_for_document_research = execute_on_main_thread(_open)
+        except SendCancelled:
+            return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+
         files_scanned += 1
 
         if model is None or doc_type is None:
@@ -447,11 +455,24 @@ def grep_nearby_files(
                     case_sensitive=case_sensitive,
                     max_results_per_file=per_file_limit,
                 )
-            matches, match_count, partial, search_err = execute_on_main_thread(_search)
+            try:
+                matches, match_count, partial, search_err = execute_on_main_thread(_search)
+            except SendCancelled:
+                return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
         finally:
             def _close() -> None:
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
-            execute_on_main_thread(_close)
+            try:
+                execute_on_main_thread(_close)
+            except (SendCancelled, TimeoutError, RuntimeError):
+                from plugin.framework.queue_executor import _current_send_cancellation
+                token = _current_send_cancellation.set(None)
+                try:
+                    execute_on_main_thread(_close)
+                except Exception:
+                    pass
+                finally:
+                    _current_send_cancellation.reset(token)
 
         _process_events_if_available(ctx)
 
@@ -477,6 +498,9 @@ def grep_nearby_files(
         if total_snippets >= DEFAULT_GREP_MAX_TOTAL_RESULTS:
             stopped_early = True
             break
+
+    if user_stopped:
+        return {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
     result: dict[str, Any] = {
         "status": "ok",

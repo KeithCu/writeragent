@@ -479,6 +479,7 @@ def _entries_from_open_only(
 
 _USE_DEFAULT = object()
 
+
 def list_nearby_files(
     ctx: Any,
     active_model: Any,
