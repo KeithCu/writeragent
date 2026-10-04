@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 try:
     import lancedb as _lancedb  # type: ignore[import-not-found]
     import pyarrow as _pa  # type: ignore[import-not-found]
+
     HAS_LANCEDB = True
 except Exception:
     _lancedb = None  # type: ignore[assignment]
@@ -32,6 +33,7 @@ pa = _pa  # type: ignore[assignment]
 
 def _embed_texts(model_name: str, texts: list[str], *, normalize: bool = True) -> list[list[float]]:
     from plugin.embeddings.venv.embeddings_index import embed_texts as _et
+
     out = _et(model_name, texts, normalize=normalize)
     return out.get("vectors") or []
 
@@ -52,15 +54,7 @@ def _get_or_create_table(db_path: str, dim: int) -> Any:
     db = lancedb.connect(db_path)  # type: ignore[attr-defined]
     table_name = "wa_folder_corpus"
 
-    schema = pa.schema([
-        pa.field("id", pa.string()),
-        pa.field("doc_url", pa.string()),
-        pa.field("body", pa.string()),
-        pa.field("para_index", pa.int32()),
-        pa.field("content_hash", pa.string()),
-        pa.field("file_mtime", pa.float64()),
-        pa.field("vector", pa.list_(pa.float32(), int(dim))),
-    ])
+    schema = pa.schema([pa.field("id", pa.string()), pa.field("doc_url", pa.string()), pa.field("body", pa.string()), pa.field("para_index", pa.int32()), pa.field("content_hash", pa.string()), pa.field("file_mtime", pa.float64()), pa.field("vector", pa.list_(pa.float32(), int(dim)))])
 
     try:
         tbl = db.open_table(table_name)
@@ -88,16 +82,7 @@ def _open_for_search(db_path: str) -> Any:
     return db.open_table("wa_folder_corpus")
 
 
-def lancedb_ingest_rows(
-    db_path: str,
-    meta_path: str,
-    model_name: str,
-    rows: list[dict[str, Any]],
-    *,
-    build_fts: bool = True,
-    build_vectors: bool = True,
-    heartbeat_fn: Any | None = None,
-) -> dict[str, Any]:
+def lancedb_ingest_rows(db_path: str, meta_path: str, model_name: str, rows: list[dict[str, Any]], *, build_fts: bool = True, build_vectors: bool = True, heartbeat_fn: Any | None = None) -> dict[str, Any]:
     """Ingest paragraph rows into a LanceDB table."""
     if not rows:
         return {"indexed": 0, "upserted": 0, "dim": 0, "storage_backend": "lancedb"}
@@ -126,15 +111,9 @@ def lancedb_ingest_rows(
     # Construct the list of dicts to add/upsert
     data_list = []
     for idx, r in enumerate(rows):
-        data_list.append({
-            "id": _stable_doc_id(r),
-            "doc_url": str(r.get("doc_url") or ""),
-            "body": bodies[idx],
-            "para_index": int(r.get("para_index") or 0),
-            "content_hash": str(r.get("content_hash") or ""),
-            "file_mtime": float(r.get("file_mtime") or 0.0),
-            "vector": vectors[idx] if vectors else [0.0] * dim,
-        })
+        data_list.append(
+            {"id": _stable_doc_id(r), "doc_url": str(r.get("doc_url") or ""), "body": bodies[idx], "para_index": int(r.get("para_index") or 0), "content_hash": str(r.get("content_hash") or ""), "file_mtime": float(r.get("file_mtime") or 0.0), "vector": vectors[idx] if vectors else [0.0] * dim}
+        )
 
     # Perform upsert
     try:
@@ -160,21 +139,12 @@ def lancedb_ingest_rows(
 
     # Write/refresh the shared corpus_meta.json
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta
+
     meta_p = Path(str(meta_path))
-    ensure_corpus_meta(
-        meta_p,
-        embedding_model=model_name,
-        dim=dim or None,
-        chunk_count=count,
-    )
+    ensure_corpus_meta(meta_p, embedding_model=model_name, dim=dim or None, chunk_count=count)
     write_corpus_meta(meta_p, storage_backend="lancedb", updated_at=str(time.time()))
 
-    return {
-        "indexed": len(rows),
-        "upserted": len(rows),
-        "dim": dim,
-        "storage_backend": "lancedb",
-    }
+    return {"indexed": len(rows), "upserted": len(rows), "dim": dim, "storage_backend": "lancedb"}
 
 
 def lancedb_delete_keys(db_path: str, keys: list[dict[str, Any]]) -> int:
@@ -206,25 +176,10 @@ def _shape_hit(d: dict[str, Any]) -> dict[str, Any]:
     if "_distance" in d and "_score" not in d:
         score = max(0.0, 1.0 - score)
 
-    return {
-        "doc_url": str(d.get("doc_url") or ""),
-        "score": score,
-        "snippet": str(d.get("body") or "").strip(),
-        "para_index": int(d.get("para_index") or 0) if d.get("para_index") is not None else None,
-        "content_hash": str(d.get("content_hash") or ""),
-    }
+    return {"doc_url": str(d.get("doc_url") or ""), "score": score, "snippet": str(d.get("body") or "").strip(), "para_index": int(d.get("para_index") or 0) if d.get("para_index") is not None else None, "content_hash": str(d.get("content_hash") or "")}
 
 
-def lancedb_knn_search(
-    db_path: str,
-    query_text: str,
-    k: int,
-    *,
-    model_name: str,
-    doc_url_filter: str | None = None,
-    use_mmr: bool = True,
-    rerank_model: str | None = None,
-) -> dict[str, Any]:
+def lancedb_knn_search(db_path: str, query_text: str, k: int, *, model_name: str, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None) -> dict[str, Any]:
     """Semantic vector search."""
     if not HAS_LANCEDB:
         return {"hits": [], "error": "lancedb not available in venv", "backend": "lancedb"}
@@ -242,17 +197,7 @@ def lancedb_knn_search(
     return {"hits": hits, "backend": "lancedb"}
 
 
-def lancedb_hybrid_search(
-    db_path: str,
-    query_text: str,
-    k: int,
-    *,
-    model_name: str,
-    near_slop: int = 10,
-    doc_url_filter: str | None = None,
-    use_mmr: bool = True,
-    rerank_model: str | None = None,
-) -> dict[str, Any]:
+def lancedb_hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, near_slop: int = 10, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None) -> dict[str, Any]:
     """Hybrid FTS + vector search."""
     if not HAS_LANCEDB:
         return {"hits": [], "error": "lancedb not available in venv", "backend": "lancedb"}
@@ -280,14 +225,7 @@ def lancedb_hybrid_search(
     return {"hits": hits, "backend": "lancedb"}
 
 
-def maintain_folder_lancedb(
-    listing_root: str,
-    embedding_model: str,
-    *,
-    mode: str = "auto",
-    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
-    hb: Any | None = None,
-) -> dict[str, Any]:
+def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: str = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None, hb: Any | None = None) -> dict[str, Any]:
     """LanceDB specific folder maintain."""
 
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, lancedb_collection_path
@@ -302,26 +240,20 @@ def maintain_folder_lancedb(
 
     if mode != "cold":
         from plugin.embeddings.embeddings_cache import chunk_count_from_meta
+
         row_count = chunk_count_from_meta(meta_path)
         if row_count > 0:
             if heartbeat_fn:
                 heartbeat_fn({"phase": "done", "mode": mode, "indexed_paragraphs": 0, "upserted": 0})
             from plugin.embeddings.embeddings_fs import guess_indexable_paths
-            return {
-                "mode": mode,
-                "indexed_paragraphs": 0,
-                "files": len(guess_indexable_paths(root)),
-                "upserted": 0,
-                "row_count": row_count,
-                "storage_backend": "lancedb",
-            }
+
+            return {"mode": mode, "indexed_paragraphs": 0, "files": len(guess_indexable_paths(root)), "upserted": 0, "row_count": row_count, "storage_backend": "lancedb"}
 
     if not HAS_LANCEDB or lancedb is None:
-        raise RuntimeError(
-            "LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv."
-        )
+        raise RuntimeError("LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv.")
 
     coll_path = str(lancedb_collection_path(root, create_parent=True))
+
     class _HB:
         _fn: Callable[[dict[str, Any]], None] | None
         _last: float
@@ -374,6 +306,29 @@ def maintain_folder_lancedb(
     ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
     write_corpus_meta(meta_path, storage_backend="lancedb")
 
+    # Purge deleted files
+    current_urls = {entry.url for entry in files}
+    db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
+    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+
+    indexed_urls = get_all_indexed_urls(Path(db_path))
+
+    tbl = None
+    try:
+        tbl = _open_for_search(coll_path)
+    except Exception:
+        pass
+
+    for url in indexed_urls:
+        if url in current_urls:
+            continue
+        if tbl is not None:
+            try:
+                tbl.delete(f"doc_url = '{url}'")
+            except Exception:
+                pass
+        remove_file_from_index(Path(db_path), url)
+
     for idx, entry in enumerate(files):
         _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": "lancedb"})
 
@@ -383,21 +338,9 @@ def maintain_folder_lancedb(
             log.debug("lancedb extract failed for %s: %s", entry.name, e)
             continue
 
-        rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end,
-                 "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
+        rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end, "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
 
-        _hb.force(
-            {
-                "phase": "extract",
-                "file": entry.name,
-                "paragraphs": paragraph_count,
-                "chunks": len(rows),
-                "mode": "lancedb",
-            }
-        )
-
-        if not rows:
-            continue
+        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "lancedb"})
 
         # For clean per-file refresh, delete previous docs for this doc_url.
         try:
@@ -406,28 +349,15 @@ def maintain_folder_lancedb(
         except Exception:
             pass
 
-        res = lancedb_ingest_rows(
-            coll_path,
-            str(meta_path),
-            embedding_model,
-            rows,
-            build_fts=True,
-            build_vectors=True,
-        )
+        if not rows:
+            continue
+
+        res = lancedb_ingest_rows(coll_path, str(meta_path), embedding_model, rows, build_fts=True, build_vectors=True)
         up = int(res.get("upserted") or res.get("indexed") or 0)
         upserted_total += up
         indexed += len(rows)
 
-        _hb.force(
-            {
-                "phase": "index",
-                "file": entry.name,
-                "paragraphs": paragraph_count,
-                "chunks": up,
-                "upserted": up,
-                "mode": "lancedb",
-            }
-        )
+        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "lancedb"})
 
     try:
         tbl = _open_for_search(coll_path)
@@ -440,11 +370,4 @@ def maintain_folder_lancedb(
 
     _hb.force({"phase": "done", "mode": "lancedb", "indexed_paragraphs": indexed, "upserted": upserted_total})
 
-    return {
-        "mode": "lancedb",
-        "indexed_paragraphs": indexed,
-        "files": total,
-        "upserted": upserted_total,
-        "row_count": final_count,
-        "storage_backend": "lancedb",
-    }
+    return {"mode": "lancedb", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "lancedb"}
