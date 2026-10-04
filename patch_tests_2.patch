@@ -1,0 +1,30 @@
+<<<<<<< SEARCH
+    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
+    @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
+    @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
+    @patch("plugin.framework.uno_context.get_desktop")
+    @patch("plugin.embeddings.search_ui.get_active_document")
+    @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
+    @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
+    @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
+    @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
+    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg, mock_get_model):
+=======
+    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
+    @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
+    @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
+    @patch("plugin.framework.uno_context.get_desktop")
+    @patch("plugin.embeddings.search_ui.get_active_document")
+    @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
+    @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
+    @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
+    @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
+    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg, mock_get_model):
+
+        # Capture the heartbeat_fn to test the exception guard
+        hb_capture = []
+        def _mock_maintain(*args, **kwargs):
+            if "heartbeat_fn" in kwargs:
+                hb_capture.append(kwargs["heartbeat_fn"])
+        mock_maintain.side_effect = _mock_maintain
+>>>>>>> REPLACE
