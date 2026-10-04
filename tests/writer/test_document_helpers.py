@@ -23,6 +23,7 @@ class _MockUndoManager:
     def __init__(self):
         self.entered = False
         self.left = False
+        self.undone = False
 
     def enterUndoContext(self, title: str) -> None:
         self.entered = True
@@ -30,6 +31,9 @@ class _MockUndoManager:
 
     def leaveUndoContext(self) -> None:
         self.left = True
+
+    def undo(self) -> None:
+        self.undone = True
 
 
 class _MockDoc:
@@ -136,7 +140,9 @@ def test_writer_streamed_rewrite_session_abort_restores_original_text():
     session.append_chunk("Partial")
     session.abort_and_restore()
 
-    assert text_range.getString() == "Original"
+    # The actual text restoration is now handled by doc.getUndoManager().undo() which is mocked.
+    # We check that undo was called.
+    assert doc.undo.undone is True
     assert doc.getPropertyValue("RecordChanges") is True
     assert doc.undo.left is True
 

@@ -268,3 +268,26 @@ def test_exception_restores_recording_and_author_uno(ctx, doc):
     except RuntimeError:
         pass
     assert doc.getPropertyValue("RecordChanges") is False, "recording restored on exception"
+
+@native_test
+@with_native_doc("writer")
+def test_anchor_failure_leaves_unregistered_does_not_hang_uno(ctx, doc):
+    _body(doc, ctx, "Anchor failure clause here.")
+    doc.setPropertyValue("RecordChanges", False)
+    with EditReviewSession(doc, ctx, enabled=True) as session:
+        def mutate():
+            # Apply an edit
+            t = doc.getText()
+            c = t.createTextCursor()
+            c.gotoStart(False)
+            c.gotoEndOfParagraph(True)
+            c.setString("Edited.")
+            # Cause anchor failure by clearing bookmarks
+            for name in doc.getBookmarks().getElementNames():
+                doc.getBookmarks().getByName(name).dispose()
+        session.record_mutation(mutate)
+
+    # Wait should not hang and should not block completion due to the untagged edit
+    result = session.wait_for_review(timeout=0.1)
+    # The session is fully complete (empty set of changes) since the anchor failed
+    assert result == {"complete": True, "timed_out": False, "changes": []}, result

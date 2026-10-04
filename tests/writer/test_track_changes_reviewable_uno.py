@@ -726,3 +726,41 @@ def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
         set_config(_FLAG, prev_mode)
         set_config("doc.edit_review_timeout", prev_timeout)
         _reject_all(doc, ctx)
+
+@native_test
+@with_native_doc("writer")
+def test_streamed_rewrite_preserves_tracked_deletions_uno(ctx, doc):
+    """A streamed rewrite over a range containing an existing tracked deletion must NOT permanently wipe it out if aborted.
+    Selection edits destroy tracked deletions inside the range so abort loses user data."""
+    _reset(doc, ctx, "Original text with some words to delete.")
+
+    # Create an initial tracked deletion
+    doc.setPropertyValue("RecordChanges", True)
+    rng = doc.getText().createTextCursor()
+    rng.gotoStart(False)
+    rng.goRight(14, False)
+    rng.goRight(10, True) # Select "with some "
+    rng.setString("")
+    doc.setPropertyValue("RecordChanges", False)
+
+    # Verify we have a redline
+    assert len(_redlines(doc)) == 1
+
+    # Select the whole paragraph
+    rng.gotoStart(False)
+    rng.gotoEndOfParagraph(True)
+
+    # The original_text should be passed without the deleted text to mimic how editselection.py uses get_string_without_tracked_deletions
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    original_text = get_string_without_tracked_deletions(rng)
+
+    # Simulate a stream rewrite that is aborted
+    session = WriterStreamedRewriteSession(doc, rng, original_text, track_reviewable=True)
+    session.append_chunk("Trying to ")
+    session.append_chunk("overwrite.")
+
+    # Abort it
+    session.abort_and_restore()
+
+    # The original redline must still exist!
+    assert len(_redlines(doc)) == 1, "The tracked deletion must be preserved after abort!"
