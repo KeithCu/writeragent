@@ -1058,6 +1058,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     from plugin.chatbot.history_db import get_chat_history
                     old_db = get_chat_history(old_session_id)
                     new_db = get_chat_history(session_id)
+                    new_db.clear()
                     for msg in old_db.get_messages():
                         new_db.add_message(msg["role"], msg["content"], msg.get("tool_calls"))
                 except Exception:
