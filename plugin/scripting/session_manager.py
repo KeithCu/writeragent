@@ -292,6 +292,11 @@ _SESSION_DOCS: dict[str, weakref.ReferenceType[Any]] = {}
 # id(doc) when the model cannot be weak-referenced. Cleared with the session.
 _SESSION_DOC_IDS: dict[str, int] = {}
 _SESSION_INIT: dict[str, dict[str, Any]] = {}
+# Chat run_venv_python_script pins ctx.doc for one execute. PyUNO models
+# often reject weakref, so this is a strong reference and must be released
+# when the call returns. The token is not a worker namespace id.
+_SCRIPT_DOC_PINS: dict[str, Any] = {}
+_SCRIPT_DOC_PIN_LOCK = threading.Lock()
 
 
 def _system_dir_from_file_url(url: str) -> str | None:
@@ -766,6 +771,30 @@ def rps_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     return f"rps:{_workbook_session_key(doc)}"
 
 
+def pin_script_document(doc: Any) -> str | None:
+    """Return a host-only id that :func:`document_for_script_session` resolves to *doc*.
+
+    Chat ``run_venv_python_script`` forwards this so ``wa.draw`` / ``wa.shape``
+    bind to ``ctx.doc`` instead of the focused window. The id is not the
+    worker namespace (Isolated mode still starts a fresh kernel). Call
+    :func:`release_script_document` when the execute returns.
+    """
+    if doc is None:
+        return None
+    token = f"doc:{uuid.uuid4()}"
+    with _SCRIPT_DOC_PIN_LOCK:
+        _SCRIPT_DOC_PINS[token] = doc
+    return token
+
+
+def release_script_document(session_id: str | None) -> None:
+    """Drop a pin from :func:`pin_script_document`. Other session ids are ignored."""
+    if not isinstance(session_id, str) or not session_id.startswith("doc:"):
+        return
+    with _SCRIPT_DOC_PIN_LOCK:
+        _SCRIPT_DOC_PINS.pop(session_id, None)
+
+
 def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     """Open document whose workbook key matches *session_id*.
 
@@ -776,7 +805,20 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     ``ppt_master:{url}`` uses that same URL key. A long PPT-Master turn then
     exports into the sidebar frame's deck. ``ppt_master:active`` (no URL)
     does not match and the caller falls back to the focused document.
+
+    ``doc:{uuid}`` is a host pin from :func:`pin_script_document` (chat
+    ``run_venv_python_script``). It returns that object and does not walk
+    the desktop. A pin that was already released does not match.
     """
+    if isinstance(session_id, str) and session_id.startswith("doc:"):
+        with _SCRIPT_DOC_PIN_LOCK:
+            pinned = _SCRIPT_DOC_PINS.get(session_id)
+        if pinned is None:
+            return None
+        from plugin.framework.thread_guard import guard_uno
+
+        # Same main-thread wrap as the desktop enumeration path below.
+        return guard_uno(pinned)
     if not isinstance(session_id, str) or ":" not in session_id:
         return None
     prefix, key = session_id.split(":", 1)

@@ -3,6 +3,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.draw.tables import (
     delete_draw_table,
     fill_table_cells,
@@ -172,6 +174,29 @@ def test_insert_table_ok():
 def test_insert_table_rejects_zero_rows():
     out = insert_draw_table(MagicMock(), rows=0, columns=2)
     assert out["status"] == "error"
+
+
+class DisposedException(Exception):
+    """Type name matches is_disposed_exception."""
+
+
+def test_insert_table_disposed_page_is_not_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            insert_draw_table(ctx, rows=2, columns=2, page=0)
+
+
+def test_insert_table_bad_page_stays_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
+        out = insert_draw_table(ctx, rows=2, columns=2, page=4)
+    assert out["status"] == "error"
+    assert out["message"].startswith("Invalid page index")
 
 
 def test_table_insert_tool_dispatches_draw():

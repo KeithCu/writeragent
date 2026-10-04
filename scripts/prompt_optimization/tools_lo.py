@@ -106,11 +106,14 @@ def _restore_eval_fallback_ctx() -> None:
 def _pin_caller_current_component() -> None:
     """Make ``Desktop.getCurrentComponent()`` this caller's document.
 
-    What was wrong: ``host_rpc.execute_tool`` (venv ``wa.shape`` RPC) ignores
+    What was wrong: ``host_rpc.execute_tool`` with no session id ignores
     the eval ``ToolContext`` and calls ``get_active_document(get_ctx())``.
     That is the desktop's current component. The last
     ``loadComponentFromURL`` becomes current, including another agent's
-    hidden factory doc, so the shape is written into the wrong document.
+    hidden factory doc, so a direct shape RPC is written into the wrong
+    document. Chat ``run_venv_python_script`` pins ``ctx.doc`` for the
+    script. This desktop pin still covers direct ``execute_tool`` and any
+    RPC that has no session id.
 
     Why this fixes it: ``_lo_queue`` has one consumer. Activating
     ``_lo_docs[caller_tid]`` before the callable runs keeps that component

@@ -8,6 +8,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.calc_addin_data import _resolve_python_data
 from plugin.calc.python.venv import RunVenvPythonScript
 from plugin.tests.testing_utils import TestingFactory
@@ -113,3 +115,35 @@ def test_calc_schema_includes_data_range():
     assert "data_range" in props
     assert "data" in props
     assert "timeout_sec" not in props
+
+
+@patch("plugin.calc.python.venv.run_code_in_user_venv")
+def test_execute_pins_ctx_doc_for_script_tools(mock_run):
+    """wa.draw / wa.shape must see ctx.doc, not a shared worker namespace."""
+    mock_run.return_value = {"status": "ok", "result": 1}
+    tool = RunVenvPythonScript()
+    ctx = TestingFactory.create_context(doc_type="draw")
+    with (
+        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:deck") as mock_pin,
+        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+    ):
+        out = tool.execute(ctx, code="import writeragent as wa")
+    assert out["status"] == "ok"
+    mock_pin.assert_called_once_with(ctx.doc)
+    assert mock_run.call_args.kwargs["script_session_id"] == "doc:deck"
+    assert "session_id" not in mock_run.call_args.kwargs
+    mock_release.assert_called_once_with("doc:deck")
+
+
+@patch("plugin.calc.python.venv.run_code_in_user_venv")
+def test_execute_releases_doc_pin_when_script_raises(mock_run):
+    mock_run.side_effect = RuntimeError("worker down")
+    tool = RunVenvPythonScript()
+    ctx = TestingFactory.create_context(doc_type="draw")
+    with (
+        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:deck"),
+        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+        pytest.raises(RuntimeError, match="worker down"),
+    ):
+        tool.execute(ctx, code="import writeragent as wa")
+    mock_release.assert_called_once_with("doc:deck")

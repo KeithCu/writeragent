@@ -152,7 +152,27 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             if kwargs.get("data_range") is not None or kwargs.get("data") is not None:
                 log.debug("run_venv_python_script: ignoring data/data_range on doc_type=%s", ctx.doc_type)
 
-        res = run_code_in_user_venv(ctx.ctx, code, data=py_data, active_domain=ctx.active_domain, python_tool_domain=ctx.python_tool_domain)
+        # What was wrong: wa.draw / wa.shape inside this script bound to the
+        # front window. The IPC request had no session id, so host tool RPC
+        # used get_active_document instead of ctx.doc.
+        # How: pin ctx.doc for this call only. The pin is not the worker
+        # session_id, so Isolated mode still gets a fresh namespace.
+        # Why this works: document_for_script_session resolves doc:… before
+        # the desktop's current component.
+        from plugin.scripting.session_manager import pin_script_document, release_script_document
+
+        script_session_id = pin_script_document(ctx.doc)
+        try:
+            res = run_code_in_user_venv(
+                ctx.ctx,
+                code,
+                data=py_data,
+                active_domain=ctx.active_domain,
+                python_tool_domain=ctx.python_tool_domain,
+                script_session_id=script_session_id,
+            )
+        finally:
+            release_script_document(script_session_id)
 
         result = res.get("result")
         if res.get("status") == "ok":

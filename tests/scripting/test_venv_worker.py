@@ -937,6 +937,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         on_heartbeat=None,
         action=None,
         python_tool_domain=None,
+        script_session_id=None,
     )
 
     mock_execute.reset_mock()
@@ -957,6 +958,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         on_heartbeat=None,
         action=None,
         python_tool_domain=None,
+        script_session_id=None,
     )
 
     mock_execute.reset_mock()
@@ -977,6 +979,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         on_heartbeat=None,
         action=None,
         python_tool_domain=None,
+        script_session_id=None,
     )
 
     mock_execute.reset_mock()
@@ -997,7 +1000,99 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         on_heartbeat=None,
         action=None,
         python_tool_domain=None,
+        script_session_id=None,
     )
+
+
+def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10),
+        patch("plugin.scripting.venv_worker.get_config_str", return_value=""),
+        patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable),
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.execute") as mock_execute,
+    ):
+        mock_execute.return_value = {"status": "ok", "result": 1}
+        run_code_in_user_venv(ctx, "result = 1", script_session_id="doc:pin")
+    assert mock_execute.call_args.kwargs["script_session_id"] == "doc:pin"
+    assert mock_execute.call_args.kwargs["session_id"] is None
+
+
+def test_host_script_session_id_prefers_pin():
+    from plugin.scripting.venv_worker import host_script_session_id
+
+    assert host_script_session_id("rps:file:///a.odg", "doc:pin") == "doc:pin"
+    assert host_script_session_id("rps:file:///a.odg", None) == "rps:file:///a.odg"
+    assert host_script_session_id("rps:file:///a.odg", "  ") == "rps:file:///a.odg"
+    assert host_script_session_id(None, None) is None
+    assert host_script_session_id("  ", "doc:pin") == "doc:pin"
+
+
+def _ipc_one_tool_call(*, session_id, script_session_id):
+    """Drive one tool_call frame through the host without a real worker."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    captured: dict[str, dict] = {}
+
+    def _write_frame(stdin, request, **kwargs):
+        del stdin, kwargs
+        captured["request"] = request
+
+    mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
+    reads = {"n": 0}
+
+    def _read(stdout, timeout_sec):
+        del stdout, timeout_sec
+        reads["n"] += 1
+        request = captured["request"]
+        if reads["n"] == 1:
+            return pickle.dumps(
+                {"type": "tool_call", "id": "c1", "tool": "shape_upsert", "args": {"action": "create"}},
+                protocol=5,
+            )
+        return pickle.dumps({"status": "ok", "id": request["id"], "result": 1}, protocol=5)
+
+    mgr._read_response_bytes = _read  # type: ignore[method-assign]
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
+        result = mgr._execute_ipc_unlocked(
+            "result = 1",
+            timeout_sec=1,
+            session_id=session_id,
+            script_session_id=script_session_id,
+        )
+    return captured["request"], mock_tool.call_args, result
+
+
+def test_pinned_script_session_reaches_tool_rpc_without_kernel_session():
+    request, call, result = _ipc_one_tool_call(session_id=None, script_session_id="doc:pinned-deck")
+    assert result["status"] == "ok"
+    assert "session_id" not in request
+    assert call.kwargs["script_session_id"] == "doc:pinned-deck"
+
+
+def test_request_session_id_still_reaches_tool_rpc_without_pin():
+    request, call, result = _ipc_one_tool_call(session_id="rps:file:///deck.odg", script_session_id=None)
+    assert result["status"] == "ok"
+    assert request["session_id"] == "rps:file:///deck.odg"
+    assert call.kwargs["script_session_id"] == "rps:file:///deck.odg"
+
+
+def test_execute_forwards_script_session_id_not_as_kernel_session():
+    mgr = PythonWorkerManager(sys.executable, {})
+    with (
+        patch.object(mgr, "_acquire_io", return_value=None),
+        patch.object(mgr, "_release_io"),
+        patch.object(mgr, "_ensure_warmed_unlocked", return_value=None),
+        patch.object(mgr, "_execute_ipc_unlocked", return_value={"status": "ok"}) as ipc,
+    ):
+        mgr.execute("result = 1", script_session_id="doc:pin")
+    assert ipc.call_args.kwargs["script_session_id"] == "doc:pin"
+    assert ipc.call_args.kwargs["session_id"] is None
 
 
 def test_split_grid_pickle_and_json_round_trip():
