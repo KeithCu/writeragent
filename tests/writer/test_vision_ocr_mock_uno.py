@@ -127,6 +127,30 @@ def _run_mock_ocr_expect_fail(ctx: Any, doc: Any, *, fail_image_name: str) -> tu
     return result, captured
 
 
+def _run_mock_ocr_with_stop(ctx: Any, doc: Any, *, stop_after_image_name: str) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    captured: list[tuple[str, str]] = []
+
+    # We create a fake run_vision that calls the standard ok one, but then triggers stop on ctx
+    original_ok = _make_fake_run_vision(captured)
+
+    def fake_run_vision_with_stop(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, stop_checker: Any = None):
+        res = original_ok(_ctx, spec, png_bytes, context)
+        image_name = context.get("image_name") if context else None
+        if not image_name and context and context.get("source") == "graphic_name":
+            image_name = spec.get("params", {}).get("image_name")
+
+        if image_name == stop_after_image_name:
+            # Tell the context that we are now stopped
+            if hasattr(ctx, "_wa_is_stopped"):
+                ctx._wa_is_stopped = True
+
+        return res
+
+    with patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision_with_stop):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", params={})
+    return result, captured
+
+
 def _select_whole_document(doc: Any) -> None:
     view = doc.getCurrentController().getViewCursor()
     view.gotoStart(False)
@@ -339,6 +363,25 @@ def test_mock_ocr_multi_select_reverse_click_order(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_mock_ocr_stop_checker_aborts_without_insert(ctx, doc):
+    """If stop_checker returns True, run_and_insert_vision_for_selection returns USER_STOPPED."""
+    from plugin.vision.vision_runner import run_and_insert_vision_for_selection
+
+    fixture = _build_labeled_fixture(ctx, doc, image_count=2)
+    ctx.stop_checker = lambda: True
+    try:
+        _select_whole_document(doc)
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure")
+        assert result.get("status") == "error"
+        assert result.get("code") == "USER_STOPPED"
+        body = doc.getText().getString()
+        _assert_strict_order(body, "T0", "T1", "T3")
+    finally:
+        _cleanup_temp_paths(fixture["temp_paths"])
+
+
+@native_test
+@with_native_doc("writer")
 def test_mock_ocr_mid_loop_failure_leaves_partial_insert(ctx, doc):
     """Image 2 OCR fails: image 1 inserted, 2–3 untouched, labels and graphics remain."""
     fixture = _build_labeled_fixture(ctx, doc, image_count=3)
@@ -366,6 +409,34 @@ def test_mock_ocr_mid_loop_failure_leaves_partial_insert(ctx, doc):
             assert not stray, f"unexpected successful OCR token for {name!r}: {stray!r}"
         _assert_strict_order(body, "T0", token_a, "T1", "T2", "T3")
         _assert_graphics_named(doc, fixture["names"])
+    finally:
+        _cleanup_temp_paths(fixture["temp_paths"])
+
+
+@native_test
+@with_native_doc("writer")
+def test_mock_ocr_stop_prevents_insert(ctx, doc):
+    """If stop_checker becomes true during OCR, it aborts without inserting the stopped image."""
+    fixture = _build_labeled_fixture(ctx, doc, image_count=2)
+    stop_name = fixture["names"][0]
+
+    # Mock stop_checker mechanism on the context
+    ctx._wa_is_stopped = False
+    ctx.stop_checker = lambda: getattr(ctx, "_wa_is_stopped", False)
+
+    try:
+        _select_whole_document(doc)
+        result, captured = _run_mock_ocr_with_stop(ctx, doc, stop_after_image_name=stop_name)
+
+        assert result["status"] == "error"
+        assert result.get("code") == "STOPPED"
+
+        # Check doc: the first image was processed by OCR but stop happened before insert
+        body = doc.getText().getString()
+        token_a = _ocr_token_for_name(captured, stop_name)
+
+        assert token_a not in body, "Text was inserted despite stop_checker being true"
+        assert result["images_processed"] == 1
     finally:
         _cleanup_temp_paths(fixture["temp_paths"])
 
