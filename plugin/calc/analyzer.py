@@ -25,8 +25,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, safe_call
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, is_disposed_exception, safe_call
 from plugin.framework.thread_guard import main_thread_only
+from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import filter_agent_sheet_names, is_agent_visible_sheet
 
 log = logging.getLogger("writeragent.calc")
@@ -74,8 +75,8 @@ class SheetAnalyzer:
             row_count = end_row - start_row + 1
             col_count = end_col - start_col + 1
 
-            start_col_str = self.bridge._index_to_column(start_col)
-            end_col_str = self.bridge._index_to_column(end_col)
+            start_col_str = index_to_column(start_col)
+            end_col_str = index_to_column(end_col)
             used_range = f"{start_col_str}{start_row + 1}:{end_col_str}{end_row + 1}"
 
             header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
@@ -125,6 +126,12 @@ class SheetAnalyzer:
 
             return result
         except Exception as e:
+            # What was wrong: wrapping DisposedException as ToolExecutionError
+            # hid disposal from get_calc_context_for_chat and from get_sheet_summary's
+            # tool path (execute_safe then reported TOOL_EXECUTION_ERROR).
+            # Re-raise so callers still see the original dispose exception.
+            if is_disposed_exception(e):
+                raise
             log.exception("Error creating sheet summary")
             raise ToolExecutionError(str(e)) from e
 
@@ -162,7 +169,6 @@ def get_calc_context_for_chat(model: Any, max_context: int = 8000, ctx: Any = No
         if selection:
             if hasattr(selection, "getRangeAddress"):
                 addr = safe_call(selection.getRangeAddress, "Get range address")
-                from plugin.calc.address_utils import index_to_column
 
                 sel_range = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}:{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
                 ctx_str += f"Current Selection: {sel_range}\n"

@@ -15,10 +15,12 @@ from plugin.calc.address_utils import parse_range_string, split_sheet_prefix
 from plugin.calc.duckdb_tools import (
     QueryFolderSqlTool,
     _read_sibling_office_file_as_grid,
+    _sheet_qualified_a1,
+    _source_is_open_workbook,
     parse_table_source_spec,
     resolve_table_source_a1,
 )
-from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, write_sidecar_meta
+from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, write_sidecar_meta, source_stat
 from plugin.framework.errors import ToolExecutionError
 
 
@@ -159,6 +161,8 @@ def _grid_for_requested_range(range_name: str) -> list[list[dict]]:
 def test_query_folder_sql_tool_basic_schema():
     t = QueryFolderSqlTool()
     assert t.name == "query_folder_sql"
+    assert t.specialized_domain == "python/sql"
+    assert getattr(t, "is_mutation", None) is False
     p = t.parameters
     assert "sql" in p["properties"]
     assert "sql" in p.get("required", [])
@@ -873,7 +877,8 @@ def test_sql_path_uses_cache_on_second_query(
     cached_ods, meta_path = paths
     cached_ods.parent.mkdir(parents=True, exist_ok=True)
     cached_ods.write_bytes(b"PK\x03\x04cached-ods")
-    write_sidecar_meta(meta_path, str(xlsx))
+    abs_path, mtime_ns, size = source_stat(str(xlsx))
+    write_sidecar_meta(meta_path, abs_path, mtime_ns, size)
 
     t = QueryFolderSqlTool()
     res = t.execute(
@@ -888,3 +893,146 @@ def test_sql_path_uses_cache_on_second_query(
     assert pre["budget.xlsx"]["grid"] == [["Region", "Sales"], ["North", 100]]
     flat = mock_run.call_args.kwargs.get("flat_files") or {}
     assert any(str(v).endswith("sales.csv") for v in flat.values())
+
+
+class _DisposedException(Exception):
+    """Name must contain DisposedException so is_disposed_exception matches."""
+
+
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.read_table_source_grid", return_value=[["h"], [1]])
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.thread_guard.on_main_thread", return_value=False)
+def test_query_folder_sql_keeps_ipc_off_main_thread(mock_on_main, mock_exec, mock_resolve, mock_read, mock_run):
+    """Sheet reads hop to the UI thread. DuckDB IPC stays on the worker."""
+    del mock_on_main, mock_resolve
+    inside = {"flag": False}
+
+    def exec_main(fn, *args, **kwargs):
+        inside["flag"] = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            inside["flag"] = False
+
+    def read(*_args, **_kwargs):
+        assert inside["flag"], "sheet read must run on the main thread"
+        return [["Region"], ["North"]]
+
+    def run(*_args, **_kwargs):
+        assert not inside["flag"], "DuckDB IPC must not run inside execute_on_main_thread"
+        return {"status": "ok", "total_rows": 1}
+
+    mock_exec.side_effect = exec_main
+    mock_read.side_effect = read
+    mock_run.side_effect = run
+
+    res = QueryFolderSqlTool().execute(_mk_ctx(), sql="SELECT * FROM sales", tables={"sales": {"sheet": "Sales"}})
+    assert res["status"] == "ok"
+    mock_exec.assert_called_once()
+    mock_run.assert_called_once()
+
+
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.read_table_source_grid")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+def test_grid_read_disposal_reports_document_disposed(mock_resolve, mock_read, mock_run):
+    del mock_resolve
+    mock_read.side_effect = _DisposedException("document gone")
+    res = QueryFolderSqlTool().execute_safe(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+    mock_run.assert_not_called()
+
+
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.read_table_source_grid")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+def test_grid_read_other_errors_stay_generic(mock_resolve, mock_read, mock_run):
+    del mock_resolve
+    mock_read.side_effect = RuntimeError("boom")
+    res = QueryFolderSqlTool().execute(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
+    assert res["status"] == "error"
+    assert res.get("code") != "DOCUMENT_DISPOSED"
+    assert "boom" in res.get("message", "")
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+@patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+def test_sibling_grid_disposal_reports_document_disposed(mock_resolve, mock_run, mock_read_office, _mock_isfile):
+    del mock_resolve
+    mock_read_office.side_effect = _DisposedException("sibling gone")
+    res = QueryFolderSqlTool().execute_safe(_mk_ctx(), sql="SELECT 1", files=["budget.xlsx"])
+    assert res["code"] == "DOCUMENT_DISPOSED"
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_sibling_reader_reraises_disposed(mock_open, mock_read, _mock_close, tmp_path):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_read.side_effect = _DisposedException("gone")
+    try:
+        _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    except _DisposedException:
+        return
+    except ToolExecutionError as exc:
+        raise AssertionError(f"disposal rewritten as tool error: {exc}") from exc
+    raise AssertionError("expected DisposedException")
+
+
+def test_named_range_disposal_is_not_a_missing_range():
+    def _boom():
+        raise _DisposedException("gone")
+
+    bad = SimpleNamespace(getReferredCells=_boom, getDataArea=_boom)
+    ctx = _mk_ctx()
+    ctx.doc = _fake_model(named_ranges=_named_container({"SalesData": bad}))
+    with patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project"), patch("plugin.scripting.client.run_folder_sql") as mock_run:
+        res = QueryFolderSqlTool().execute_safe(ctx, sql="SELECT 1", tables={"sales": {"named_range": "SalesData"}})
+    assert res["code"] == "DOCUMENT_DISPOSED"
+    mock_run.assert_not_called()
+
+
+def test_controller_disposal_is_not_a_missing_name():
+    ctx = _mk_ctx()
+    model = _fake_model()
+
+    def _controller():
+        raise _DisposedException("gone")
+
+    model.getCurrentController = _controller
+    ctx.doc = model
+    with patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project"), patch("plugin.scripting.client.run_folder_sql") as mock_run:
+        res = QueryFolderSqlTool().execute_safe(ctx, sql="SELECT 1", tables={"sales": {"named_range": "SalesData"}})
+    assert res["code"] == "DOCUMENT_DISPOSED"
+    assert "SalesData" not in res.get("message", "")
+    mock_run.assert_not_called()
+
+
+@patch("plugin.framework.uno_context.resolve_document_by_url")
+def test_open_workbook_probe_reraises_disposal(mock_resolve):
+    mock_resolve.side_effect = _DisposedException("gone")
+    try:
+        _source_is_open_workbook(object(), "/tmp/budget.xlsx")
+    except _DisposedException:
+        return
+    raise AssertionError("open-workbook probe swallowed disposal")
+
+
+def test_apostrophe_sheet_name_round_trips_qualified_a1():
+    addr = _fake_addr()
+    model = _fake_model(sheets=_fake_sheets(names=("O'Brien",), addr=addr))
+    parsed = parse_table_source_spec({"sheet": "O'Brien"})
+    qualified = resolve_table_source_a1(model, parsed)
+    assert qualified == "'O''Brien'.C5:D6"
+    assert split_sheet_prefix(qualified) == ("O'Brien", "C5:D6")
+    assert _sheet_qualified_a1("Actuals", "A1:B2") == "Actuals.A1:B2"
+    assert _sheet_qualified_a1("Q1 Sales", "A1") == "'Q1 Sales'.A1"
+    assert _sheet_qualified_a1("Q1.Sales", "A1") == "'Q1.Sales'.A1"

@@ -437,9 +437,9 @@ def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
     assert "write_formula_range" in result["message"]
     assert "fill-down" in result["message"]
     assert result["message"].index("write_formula_range") < result["message"].index("=PY")
-    # Preview clips rows to 10; 9 data rows stay A1:I9 but still mark truncated.
-    assert result["preview_range"] == "A1:I9"
-    inspector_cls.return_value.read_range.assert_called_once_with("A1:I9", include_format_info=True)
+    # Preview clips rows to 10 and columns to 8; 9 data rows stay 9 but columns become 8 (A1:H9).
+    assert result["preview_range"] == "A1:H9"
+    inspector_cls.return_value.read_range.assert_called_once_with("A1:H9", include_format_info=True)
 
 
 def test_read_cell_range_tool_keeps_small_range_full():
@@ -473,6 +473,40 @@ def test_preview_if_large_keeps_sheet_prefix():
     preview = _preview_if_large(bridge, "'Data Sheet'!A1:H500")
     assert preview is not None
     assert preview["preview_range"] == "'Data Sheet'!A1:H10"
+
+
+def test_preview_if_large_caps_columns_and_adds_sheet_name():
+    from plugin.calc.cells import _preview_if_large
+
+    bridge = MagicMock()
+    # Mock A1:AMJ1 (1 row, 1024 columns)
+    cell_range = _range_addr(start_col=0, end_col=1023, start_row=0, end_row=0)
+    sheet_mock = MagicMock()
+    sheet_mock.getName.return_value = "My Sheet"
+    cell_range.getSpreadsheet = MagicMock(return_value=sheet_mock)
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    # range_name lacks sheet name
+    preview = _preview_if_large(bridge, "MyNamedRange")
+
+    assert preview is not None
+    # Caps to 8 columns max, row remains 1. End column is H (index 7).
+    assert preview["preview_range"] == "'My Sheet'.A1:H1"
+
+
+def test_preview_if_large_quotes_non_plain_identifier_sheet_name():
+    from plugin.calc.cells import _preview_if_large
+
+    bridge = MagicMock()
+    cell_range = _range_addr(start_col=0, end_col=1023, start_row=0, end_row=0)
+    sheet_mock = MagicMock()
+    sheet_mock.getName.return_value = "Q1.Sales"
+    cell_range.getSpreadsheet = MagicMock(return_value=sheet_mock)
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    preview = _preview_if_large(bridge, "MyNamedRange")
+    assert preview is not None
+    assert preview["preview_range"] == "'Q1.Sales'.A1:H1"
 
 
 def test_column_distinct_peek_lists_low_cardinality_and_skips_phone_book():

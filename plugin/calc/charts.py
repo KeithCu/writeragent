@@ -17,13 +17,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 """Calc chart management tools: list, info, create, edit, delete.
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
 """
 
 import logging
+import time
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int as _parse_color
 from plugin.framework.tool import ToolBaseDummy
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
+from plugin.framework.errors import is_disposed_exception
 import uno
 
 
@@ -56,10 +58,29 @@ CHART_CLSID = "12DCAE36-07DA-43C1-9C17-56A938C64445"
 CHART_CLSID_DRAW_OLE = "12DCAE26-281F-416F-A234-C3086127382E"
 
 
+def _byte_sequence_payload(clsid: Any) -> bytes | bytearray | None:
+    """Payload of a UNO ByteSequence, or None when *clsid* is not one.
+
+    What was wrong: ``uno.ByteSequence`` is not ``bytes``, so CLSID checks fell
+    through to ``str(seq)`` (``<ByteSequence instance ...>``) and chart embeds
+    disappeared from list/get/delete/resolve.
+    How: Python UNO stores the bytes on ``.value``; some bridges use ``.Value``.
+    Why: unwrap that payload before the bytes/string checks so the GUID compares.
+    """
+    for attr in ("Value", "value"):
+        payload = getattr(clsid, attr, None)
+        if isinstance(payload, (bytes, bytearray)):
+            return payload
+    return None
+
+
 def _normalize_clsid_value(clsid: Any) -> str:
     """Coerce UNO CLSID (string, ByteSequence, etc.) to a comparable string."""
     if clsid is None:
         return ""
+    payload = _byte_sequence_payload(clsid)
+    if payload is not None:
+        clsid = payload
     if isinstance(clsid, str):
         return clsid
     if isinstance(clsid, (bytes, bytearray)):
@@ -169,41 +190,109 @@ CHART_SERVICE_MAP = {
 
 
 def _axis_title_shape_string(shape: Any, value: str | None) -> str | None:
-    """Read or write axis title text on a diagram title shape (ChartAxis*Supplier)."""
-    if shape is None:
+    """Read or write axis title text on a diagram title shape (ChartAxis*Supplier).
+
+    What was wrong: a missing ``String`` property still returned *value*, so
+    callers logged the axis title as set.
+    How: ``hasattr`` failed and the write branch returned the requested text
+    anyway.
+    Why: return None unless the property exists, so a missing setter is not a
+    successful write.
+    """
+    if shape is None or not hasattr(shape, "String"):
         return None
     if value is not None:
-        if hasattr(shape, "String"):
-            shape.String = value
+        shape.String = value
         return value
-    if hasattr(shape, "String"):
-        return shape.String
-    return None
+    return shape.String
 
 
-def _process_events(ctx: Any = None) -> None:
-    """Give LO a moment to process UI events and update object names/states."""
+def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
+    """Pump UI events once so chart object names and models can settle.
+
+    Returns True only when an idle pump finished. False means idle did not
+    arrive (testing, headless, no context, past *deadline*, or the pump did
+    not run). Callers must stop instead of spinning on the UI thread.
+    """
     import os
+    import time
 
+    if deadline is not None and time.monotonic() >= deadline:
+        return False
     if os.environ.get("WRITERAGENT_TESTING") == "1":
-        return
+        return False
     try:
         from plugin.framework.uno_context import get_desktop, get_ctx
 
         uctx = ctx or get_ctx()
         if not uctx:
-            return
+            return False
         # Bypass if running in headless mode (no active frame) to avoid event pump hangs during chart rendering
         desktop = get_desktop(uctx)
         if desktop and desktop.getActiveFrame() is None:
-            return
+            return False
 
         from plugin.framework.uno_context import process_events_to_idle
 
-        process_events_to_idle(uctx)
+        return bool(process_events_to_idle(uctx))
     except Exception:
         # Avoid letting UI event processing crash the tool
-        pass
+        return False
+
+
+# Sleep budget of the old 10-step poll. A pump that never reaches idle must not
+# repeat; processEventsToIdle itself has no timeout, so this caps further spins.
+_WRITER_CHART_MODEL_WAIT_SEC = 0.5
+_WRITER_CHART_MODEL_POLL_SEC = 0.05
+
+
+def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _WRITER_CHART_MODEL_WAIT_SEC) -> Any | None:
+    """Poll for an embedded Writer chart model without spinning the UI thread.
+
+    What was wrong: chart create pumped ``_process_events`` and slept in a tight
+    loop on the UI thread. ``processEventsToIdle`` does not return when idle
+    never arrives, so the wait froze the UI.
+    How: the loop had a fixed retry count and no total deadline, and it kept
+    going when the pump was a no-op.
+    Why: stop at a hard timeout, and stop immediately when a pump does not
+    report that idle was reached.
+    """
+    import time
+
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    chart_doc = _chart_document_from_host(chart_obj)
+    if chart_doc is not None:
+        log.info("Obtained chart model on attempt 1")
+        return chart_doc
+    pumps = 0
+    while time.monotonic() < deadline:
+        pumps += 1
+        log.debug("Model missing on attempt %d, pumping events...", pumps)
+        idle_reached = _process_events(getattr(ctx, "ctx", ctx), deadline=deadline)
+        chart_doc = _chart_document_from_host(chart_obj)
+        if chart_doc is not None:
+            log.info("Obtained chart model on attempt %d", pumps + 1)
+            return chart_doc
+        if not idle_reached:
+            log.debug("Writer chart model wait stopped: idle did not arrive")
+            return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
+            return None
+        time.sleep(min(_WRITER_CHART_MODEL_POLL_SEC, remaining))
+    log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
+    return None
+
+
+# com.sun.star.chart.ChartLegend.Alignment. Not ChartLegendAlignment.
+_CHART_LEGEND_POSITION_ENUM = "com.sun.star.chart.ChartLegendPosition"
+_LEGEND_POSITION_MEMBER = {
+    "top": "TOP",
+    "bottom": "BOTTOM",
+    "left": "LEFT",
+    "right": "RIGHT",
+}
 
 
 # Shared parameters for Create and Edit
@@ -277,8 +366,9 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
     if x_axis_title is not None and hasattr(diagram, "HasXAxisTitle"):
         diagram.HasXAxisTitle = True
         try:
-            _axis_title_shape_string(diagram.getXAxisTitle(), x_axis_title)
-            log.debug("Set X axis title: '%s'", x_axis_title)
+            written = _axis_title_shape_string(diagram.getXAxisTitle(), x_axis_title)
+            if written is not None:
+                log.debug("Set X axis title: '%s'", written)
         except Exception:
             log.exception("Setting X axis title failed")
 
@@ -286,12 +376,15 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
     if y_axis_title is not None and hasattr(diagram, "HasYAxisTitle"):
         diagram.HasYAxisTitle = True
         try:
-            _axis_title_shape_string(diagram.getYAxisTitle(), y_axis_title)
-            log.debug("Set Y axis title: '%s'", y_axis_title)
+            written = _axis_title_shape_string(diagram.getYAxisTitle(), y_axis_title)
+            if written is not None:
+                log.debug("Set Y axis title: '%s'", written)
         except Exception:
             log.exception("Setting Y axis title failed")
 
     # 5. Legend
+    # offapi ChartLegend.Alignment is ChartLegendPosition (NONE/LEFT/TOP/RIGHT/BOTTOM).
+    # There is no ChartLegendAlignment type.
     has_legend = kwargs.get("has_legend")
     if has_legend is not None:
         chart_doc.HasLegend = has_legend
@@ -299,22 +392,20 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
 
     legend_pos = kwargs.get("legend_position")
     if legend_pos and chart_doc.HasLegend:
-        try:
-            pos_map = {
-                "none": None,
-                "top": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "TOP"),
-                "bottom": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "BOTTOM"),
-                "left": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "LEFT"),
-                "right": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "RIGHT"),
-            }
-            if legend_pos in pos_map:
-                if legend_pos == "none":
-                    chart_doc.HasLegend = False
-                else:
-                    chart_doc.getLegend().Alignment = pos_map[legend_pos]
-                log.debug("Set legend position: %s", legend_pos)
-        except (ImportError, AttributeError):
-            log.exception("ChartLegendAlignment enum not available")
+        if legend_pos == "none":
+            chart_doc.HasLegend = False
+            log.debug("Set legend position: none")
+        elif legend_pos in _LEGEND_POSITION_MEMBER:
+            # What was wrong: this called uno.Enum("...ChartLegendAlignment", ...).
+            # How: that type is not in the API, so uno.Enum raises
+            # com.sun.star.uno.RuntimeException. The handler only caught
+            # ImportError and AttributeError, which let it escape after the
+            # chart had already been inserted.
+            # Why: Alignment is ChartLegendPosition. If this still fails, the
+            # create path removes the chart it just inserted.
+            member = _LEGEND_POSITION_MEMBER[legend_pos]
+            chart_doc.getLegend().Alignment = uno.Enum(_CHART_LEGEND_POSITION_ENUM, member)
+            log.debug("Set legend position: %s", legend_pos)
 
     # 6. Background Color
     bg_color = kwargs.get("bg_color")
@@ -352,9 +443,18 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
                             series_list = ctype.getDataSeries()
                             for idx, s in enumerate(series_list):
                                 color_val = parsed_colors[idx % len(parsed_colors)]
-                                for prop in ["Color", "FillColor", "LineColor"]:
-                                    if s.getPropertySetInfo().hasPropertyByName(prop):
-                                        s.setPropertyValue(prop, color_val)
+                                try:
+                                    for prop in ["Color", "FillColor", "LineColor"]:
+                                        if s.getPropertySetInfo().hasPropertyByName(prop):
+                                            s.setPropertyValue(prop, color_val)
+                                except Exception as exc:
+                                    # What was wrong: one disposed series aborted coloring for every later series.
+                                    # How: getPropertySetInfo/setPropertyValue raised out of the shared try.
+                                    # Why: skip that series and keep applying colors to the rest.
+                                    if is_disposed_exception(exc):
+                                        log.debug("Skipping disposed chart series %d", idx)
+                                        continue
+                                    raise
                                 log.info("Set data series %d color to RGB %d", idx, color_val)
                                 series_count += 1
                     log.info("Successfully styled %d chart data series with colors %s", series_count, colors)
@@ -420,6 +520,43 @@ def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
         log.exception("Failed to apply chart data arrays: %s", e)
 
 
+def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
+    """Remove a chart inserted before a later create step failed.
+
+    What was wrong: ``manage_charts`` create returned an error after the chart
+    was already in the document, so the sheet, text, or slide kept a chart the
+    caller was told did not exist.
+    How: ``legend_position`` called ``uno.Enum`` for ``ChartLegendAlignment``.
+    That type is not in the UNO API, so ``uno.Enum`` raises
+    ``com.sun.star.uno.RuntimeException``. The legend handler only caught
+    ``ImportError`` and ``AttributeError``, and the create handler did not
+    remove the chart it had just inserted. The same window exists for any
+    property set that fails after the insert (diagram, title, legend).
+    Why: delete this insert before the error is returned. A failed delete is
+    logged and does not replace the original error.
+    """
+    try:
+        remove()
+    except Exception:
+        log.exception("Failed to remove chart %r after a create error", name)
+
+
+def _drop_writer_chart_insert(doc: Any, text: Any, chart_obj: Any, name: str) -> None:
+    """Remove a Writer chart embedded before a later create step failed."""
+
+    def _remove() -> None:
+        try:
+            text.removeTextContent(chart_obj)
+        except Exception:
+            objects = doc.getEmbeddedObjects()
+            if objects.hasByName(name):
+                objects.removeByName(name)
+            else:
+                raise
+
+    _drop_failed_chart_insert(_remove, name)
+
+
 def _format_chart_exception_msg(e: Exception) -> str:
     """Format an exception into a non-empty descriptive string (handles UNO exception Message field)."""
     detail = getattr(e, "Message", None) or str(e)
@@ -439,12 +576,13 @@ def _get_all_calc_chart_names(doc: Any) -> set[str]:
         sheets = doc.getSheets()
         for name in sheets.getElementNames():
             names.update(sheets.getByName(name).getCharts().getElementNames())
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
     return names
 
 
-def _find_calc_chart_and_sheet(doc: Any, chart_name: str) -> tuple[Any | None, Any | None]:
+def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None = None) -> tuple[Any | None, Any | None]:
     """Find a chart object and its parent sheet across all sheets in a Calc document.
 
     Note: Chart names in Calc are document-wide objects (e.g. Chart_0, Chart_1).
@@ -453,20 +591,47 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str) -> tuple[Any | None, A
     """
     try:
         sheets = doc.getSheets()
+        if sheet_name and sheets.hasByName(sheet_name):
+            sheet = sheets.getByName(sheet_name)
+            charts = sheet.getCharts()
+            if charts.hasByName(chart_name):
+                return charts.getByName(chart_name), sheet
+
         for name in sheets.getElementNames():
             sheet = sheets.getByName(name)
             charts = sheet.getCharts()
             if charts.hasByName(chart_name):
                 return charts.getByName(chart_name), sheet
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
     return None, None
 
 
-def _resolve_chart(doc: Any, chart_name: str) -> Any | None:
+def _ole2_shape_at(page: Any, index: int) -> Any | None:
+    """OLE2 shape at *index*, or None when it is another type or disposed.
+
+    What was wrong: ``getShapeType`` on one disposed shape aborted list/resolve
+    for every later shape on the page.
+    How: the page loop called ``getShapeType`` with no per-shape guard, so one
+    ``DisposedException`` escaped and ended the operation.
+    Why: skip that shape and keep scanning. Other errors still propagate.
+    """
+    try:
+        shape = page.getByIndex(index)
+        if shape.getShapeType() != "com.sun.star.drawing.OLE2Shape":
+            return None
+        return shape
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            return None
+        raise
+
+
+def _resolve_chart(doc: Any, chart_name: str, sheet_name: str | None = None) -> Any | None:
     """Resolve a chart object by name across Calc, Writer, or Draw."""
     if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
-        chart_obj, _ = _find_calc_chart_and_sheet(doc, chart_name)
+        chart_obj, _ = _find_calc_chart_and_sheet(doc, chart_name, sheet_name)
         return chart_obj
     elif supportsService(doc, "com.sun.star.text.TextDocument"):
         objects = doc.getEmbeddedObjects()
@@ -475,10 +640,16 @@ def _resolve_chart(doc: Any, chart_name: str) -> Any | None:
         try:
             page = doc.getDrawPage()
             for j in range(page.getCount()):
-                shape = page.getByIndex(j)
-                if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                shape = _ole2_shape_at(page, j)
+                if shape is None:
+                    continue
+                try:
                     if (shape.Name or "") == chart_name:
                         return shape
+                except Exception as exc:
+                    if is_disposed_exception(exc):
+                        continue
+                    raise
         except Exception:
             pass
     elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
@@ -486,10 +657,16 @@ def _resolve_chart(doc: Any, chart_name: str) -> Any | None:
         for i in range(doc.getDrawPages().getCount()):
             page = doc.getDrawPages().getByIndex(i)
             for j in range(page.getCount()):
-                shape = page.getByIndex(j)
-                if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                shape = _ole2_shape_at(page, j)
+                if shape is None:
+                    continue
+                try:
                     if shape.Name == chart_name:
                         return shape
+                except Exception as exc:
+                    if is_disposed_exception(exc):
+                        continue
+                    raise
     return None
 
 
@@ -516,8 +693,9 @@ class ListCharts(ToolBaseDummy):
                     for name in charts.getElementNames():
                         chart_obj = charts.getByName(name)
                         result.append(self._get_summary(chart_obj, name, sheet_name=sheet_name))
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
 
         elif supportsService(doc, "com.sun.star.text.TextDocument"):
             objects = doc.getEmbeddedObjects()
@@ -528,11 +706,17 @@ class ListCharts(ToolBaseDummy):
             try:
                 page = doc.getDrawPage()
                 for j in range(page.getCount()):
-                    shape = page.getByIndex(j)
-                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                    shape = _ole2_shape_at(page, j)
+                    if shape is None:
+                        continue
+                    try:
                         if _is_chart_clsid(getattr(shape, "CLSID", "") or ""):
                             nm = shape.Name or f"Chart_{j}"
                             result.append(self._get_summary(shape, nm))
+                    except Exception as exc:
+                        if is_disposed_exception(exc):
+                            continue
+                        raise
             except Exception:
                 pass
 
@@ -540,10 +724,16 @@ class ListCharts(ToolBaseDummy):
             for i in range(doc.getDrawPages().getCount()):
                 page = doc.getDrawPages().getByIndex(i)
                 for j in range(page.getCount()):
-                    shape = page.getByIndex(j)
-                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                    shape = _ole2_shape_at(page, j)
+                    if shape is None:
+                        continue
+                    try:
                         if _is_chart_clsid(getattr(shape, "CLSID", "") or ""):
                             result.append(self._get_summary(shape, shape.Name or f"Chart_{i}_{j}"))
+                    except Exception as exc:
+                        if is_disposed_exception(exc):
+                            continue
+                        raise
 
         return {"status": "ok", "charts": result, "count": len(result)}
 
@@ -573,7 +763,7 @@ class GetChartInfo(ToolBaseDummy):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         chart_name = kwargs["name"]
-        chart_obj = _resolve_chart(doc, chart_name)
+        chart_obj = _resolve_chart(doc, chart_name, kwargs.get("sheet"))
 
         if not chart_obj:
             return self._tool_error(f"Chart '{chart_name}' not found.")
@@ -711,7 +901,7 @@ class UpsertChart(ToolBaseDummy):
 
         elif action == "edit":
             chart_name = kwargs["name"]
-            chart_obj = _resolve_chart(doc, chart_name)
+            chart_obj = _resolve_chart(doc, chart_name, kwargs.get("sheet"))
 
             if not chart_obj:
                 return self._tool_error(f"Chart '{chart_name}' not found.")
@@ -771,7 +961,23 @@ class UpsertChart(ToolBaseDummy):
             except Exception:
                 pass
 
-        log.debug("Creating Calc chart: sheet=%s, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", sheet.getName(), rect.X, rect.Y, rect.Width, rect.Height, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        # What was wrong: this debug line read rect.X before addNewByName.
+        # How: headless pytest stubs uno.createUnoStruct with an empty
+        # SimpleNamespace, so AttributeError aborted create and a legend
+        # failure never reached removeByName.
+        # Why: the log does not place the chart. Missing fields stay None.
+        log.debug(
+            "Creating Calc chart: sheet=%s, rect=(%s,%s,%s,%s), range=(%s,%s,%s,%s)",
+            sheet.getName(),
+            getattr(rect, "X", None),
+            getattr(rect, "Y", None),
+            getattr(rect, "Width", None),
+            getattr(rect, "Height", None),
+            getattr(addr, "StartColumn", None),
+            getattr(addr, "StartRow", None),
+            getattr(addr, "EndColumn", None),
+            getattr(addr, "EndRow", None),
+        )
 
         existing_names = _get_all_calc_chart_names(ctx.doc)
         idx = len(existing_names)
@@ -784,22 +990,25 @@ class UpsertChart(ToolBaseDummy):
         charts = sheet.getCharts()
         charts.addNewByName(name, rect, (addr,), has_header, has_header)
 
-        chart_obj = charts.getByName(name)
-        chart_doc = _chart_document_from_host(chart_obj)
-        if not chart_doc:
-            return self._tool_error("Cannot access chart content.")
-        chart_doc.setDiagram(chart_doc.createInstance(service))
-
-        _apply_chart_styling(chart_doc, **kwargs)
+        try:
+            chart_obj = charts.getByName(name)
+            chart_doc = _chart_document_from_host(chart_obj)
+            if not chart_doc:
+                _drop_failed_chart_insert(lambda: charts.removeByName(name), name)
+                return self._tool_error("Cannot access chart content.")
+            chart_doc.setDiagram(chart_doc.createInstance(service))
+            _apply_chart_styling(chart_doc, **kwargs)
+        except Exception:
+            # Insert already committed. Drop it so the error return is not an orphan chart.
+            _drop_failed_chart_insert(lambda: charts.removeByName(name), name)
+            raise
         # _process_events() causes a hang in tests
         return {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
 
     def _create_writer_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
-        Using a retry loop and event pumping to ensure the embedded model is initialized.
+        Using a bounded wait and event pumping to ensure the embedded model is initialized.
         """
-        import time
-
         doc = ctx.doc
         text = doc.getText()
         log.info("Creating Writer chart. Current text length: %d", len(text.getString()))
@@ -913,16 +1122,9 @@ class UpsertChart(ToolBaseDummy):
             except Exception:
                 pass
 
-        # 5. Wait for model initialization
-        chart_doc = None
-        for i in range(10):
-            chart_doc = _chart_document_from_host(chart_obj)
-            if chart_doc:
-                log.info("Obtained chart model on attempt %d", i + 1)
-                break
-            log.debug("Model missing on attempt %d, pumping events...", i + 1)
-            _process_events(ctx.ctx)
-            time.sleep(0.05)
+        # 5. Wait for model initialization. One idle pump that never returns
+        # freezes the UI; the helper stops at a hard timeout or when idle does not arrive.
+        chart_doc = _await_writer_chart_document(chart_obj, ctx.ctx)
 
         if not chart_doc:
             # Last ditch effort: find it in the collection
@@ -949,9 +1151,14 @@ class UpsertChart(ToolBaseDummy):
             except Exception:
                 log.exception("Failed to set chart diagram")
 
-            _apply_chart_styling(chart_doc, **kwargs)
+            try:
+                _apply_chart_styling(chart_doc, **kwargs)
+            except Exception:
+                _drop_writer_chart_insert(doc, text, chart_obj, name)
+                raise
         else:
-            log.error("Could not obtain chart model after retries. Chart might be empty/invisible.")
+            _drop_writer_chart_insert(doc, text, chart_obj, name)
+            return self._tool_error("Cannot access chart content.")
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
         if chart_doc:
@@ -968,7 +1175,7 @@ class UpsertChart(ToolBaseDummy):
             except Exception as e:
                 log.debug("Failed direct chart_doc model update: %s", e)
 
-        _process_events()
+        _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
 
     def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
@@ -988,22 +1195,29 @@ class UpsertChart(ToolBaseDummy):
         # Draw/Impress: add OLE2 shape first, then CLSID (chart2 OLE GUID); chart lives on .Model
         shape = doc.createInstance("com.sun.star.drawing.OLE2Shape")
         page.add(shape)
+        name = ""
         try:
-            shape.setSize(uno.createUnoStruct("com.sun.star.awt.Size", Width=rect.Width, Height=rect.Height))
-            shape.setPosition(uno.createUnoStruct("com.sun.star.awt.Point", X=rect.X, Y=rect.Y))
-        except Exception as e:
-            log.debug("Failed to set Draw shape size/pos: %s", e)
-        shape.CLSID = CHART_CLSID_DRAW_OLE
+            try:
+                shape.setSize(uno.createUnoStruct("com.sun.star.awt.Size", Width=rect.Width, Height=rect.Height))
+                shape.setPosition(uno.createUnoStruct("com.sun.star.awt.Point", X=rect.X, Y=rect.Y))
+            except Exception as e:
+                log.debug("Failed to set Draw shape size/pos: %s", e)
+            shape.CLSID = CHART_CLSID_DRAW_OLE
 
-        name = f"Chart_{page.getCount()}"
-        shape.Name = name
+            name = f"Chart_{page.getCount()}"
+            shape.Name = name
 
-        chart_doc = _chart_document_from_host(shape)
-        if chart_doc:
+            chart_doc = _chart_document_from_host(shape)
+            if not chart_doc:
+                _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
+                return self._tool_error("Cannot access chart content.")
             chart_doc.setDiagram(chart_doc.createInstance(service))
             _apply_chart_styling(chart_doc, **kwargs)
+        except Exception:
+            _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
+            raise
 
-        _process_events()
+        _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
         return {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name}
 
 
@@ -1022,7 +1236,7 @@ class DeleteChart(ToolBaseDummy):
         chart_name = kwargs["name"]
 
         if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
-            chart_obj, sheet = _find_calc_chart_and_sheet(doc, chart_name)
+            chart_obj, sheet = _find_calc_chart_and_sheet(doc, chart_name, kwargs.get("sheet"))
             if not chart_obj or not sheet:
                 return self._tool_error(f"Chart '{chart_name}' not found.")
             sheet.getCharts().removeByName(chart_name)
@@ -1035,8 +1249,8 @@ class DeleteChart(ToolBaseDummy):
             try:
                 page = doc.getDrawPage()
                 for j in range(page.getCount()):
-                    shape = page.getByIndex(j)
-                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape" and shape.Name == chart_name:
+                    shape = _ole2_shape_at(page, j)
+                    if shape and shape.Name == chart_name:
                         page.remove(shape)
                         return {"status": "ok", "deleted": chart_name}
             except Exception:
@@ -1047,8 +1261,8 @@ class DeleteChart(ToolBaseDummy):
             for i in range(doc.getDrawPages().getCount()):
                 page = doc.getDrawPages().getByIndex(i)
                 for j in range(page.getCount()):
-                    shape = page.getByIndex(j)
-                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape" and shape.Name == chart_name:
+                    shape = _ole2_shape_at(page, j)
+                    if shape and shape.Name == chart_name:
                         page.remove(shape)
                         return {"status": "ok", "deleted": chart_name}
             return self._tool_error(f"Chart '{chart_name}' not found.")

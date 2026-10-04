@@ -76,7 +76,7 @@ class OptimizeDataTool(ToolBaseDummy):
             return self._tool_error("Provide data_range or data")
 
         from plugin.scripting.optimize import run_trusted_optimize, insert_optimize_result_into_calc
-        from plugin.calc.address_utils import parse_address
+        from plugin.calc.address_utils import parse_output_anchor
         from plugin.framework.queue_executor import execute_on_main_thread
 
         dr = str(data_range).strip() if data_range else None
@@ -85,11 +85,14 @@ class OptimizeDataTool(ToolBaseDummy):
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-
+        # What was wrong: this async tool pushed the whole optimization, including
+        # venv IPC, onto the UI thread via execute_on_main_thread and froze Calc.
+        # How: _run called run_trusted_optimize, which both reads the sheet and
+        # blocks in the optimize client.
+        # Why: call it on this worker. The helper marshals only the UNO read;
+        # the sheet write below stays on the main thread.
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "OPTIMIZE_ERROR"))
         except Exception as exc:
@@ -98,9 +101,12 @@ class OptimizeDataTool(ToolBaseDummy):
         if output_range and result.get("status") == "ok":
 
             def _write() -> None:
-                cell_part = output_range.rsplit(".", 1)[-1] if output_range else output_range
-                col, row = parse_address(cell_part)
-                insert_optimize_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
+                # What was wrong: the sheet from parse_output_anchor was discarded,
+                # so Sheet1.F1 or 'Q1.Sales'!B2 wrote on the active sheet and
+                # overwrote live cells. How: only col/row reached the inserter.
+                # Why: forward the sheet, the same way analyze_data does.
+                sheet, col, row = parse_output_anchor(output_range)
+                insert_optimize_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
             try:
                 execute_on_main_thread(_write)

@@ -137,6 +137,9 @@ class CalcBridge:
         - Sheet-qualified A1 refs (e.g. "Sheet1.A1:B2", "'Data Sheet'!B2")
         - A1:B2 Range Strings
         - A1 Cell Address Strings
+
+        An unqualified name defined both on the active sheet and in the
+        workbook resolves to the sheet-local range, matching Calc.
         """
         range_or_address = range_or_address.strip()
         prefix, bare_name = split_sheet_prefix(range_or_address)
@@ -153,15 +156,13 @@ class CalcBridge:
                         if cells is not None:
                             return cells
 
-        # 2. Check workbook global NamedRanges
-        if hasattr(self.doc, "NamedRanges") and self.doc.NamedRanges.hasByName(range_or_address):
-            named_range = self.doc.NamedRanges.getByName(range_or_address)
-            if hasattr(named_range, "getReferredCells"):
-                cells = named_range.getReferredCells()
-                if cells is not None:
-                    return cells
-
-        # 3. Check active sheet's local NamedRanges
+        # 2. Active sheet's local NamedRanges, before the workbook container.
+        # Calc formula lookup lets a sheet-local name shadow a same-spelled
+        # global name on that sheet. Checking doc.NamedRanges first returned
+        # the global referred cells for a bare name present in both scopes.
+        # Qualified names already hit the named sheet in step 1, so the same
+        # logical name resolved differently depending on whether it was written
+        # as Total or Sheet1.Total.
         try:
             active_sheet = self.get_active_sheet()
             if hasattr(active_sheet, "NamedRanges") and active_sheet.NamedRanges.hasByName(range_or_address):
@@ -172,6 +173,14 @@ class CalcBridge:
                         return cells
         except Exception:
             pass
+
+        # 3. Workbook global NamedRanges (when the active sheet has no local name).
+        if hasattr(self.doc, "NamedRanges") and self.doc.NamedRanges.hasByName(range_or_address):
+            named_range = self.doc.NamedRanges.getByName(range_or_address)
+            if hasattr(named_range, "getReferredCells"):
+                cells = named_range.getReferredCells()
+                if cells is not None:
+                    return cells
 
         sheet, address = self.resolve(range_or_address)
 

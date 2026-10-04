@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.errors import UnoObjectError
 from plugin.calc.base import ToolCalcConditionalBase
@@ -54,13 +54,13 @@ def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
             op_code = int(xc2.getConditionOperator())
             op_name = condition_operator_code_to_name(op_code)
     except Exception:
-        pass
+        log.debug("Failed querying XSheetCondition2 on conditional entry %s", idx, exc_info=True)
     if op_name is None:
         try:
             op = entry.getOperator()
             op_name = str(op.value) if hasattr(op, "value") else str(op)
         except Exception:
-            pass
+            log.debug("Failed getting operator on conditional entry %s", idx, exc_info=True)
     if op_name:
         result["operator"] = op_name
     if op_code is not None:
@@ -70,19 +70,19 @@ def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
         if f1:
             result["formula1"] = f1
     except Exception:
-        pass
+        log.debug("Failed getting formula1 on conditional entry %s", idx, exc_info=True)
     try:
         f2 = entry.getFormula2()
         if f2 and f2 != "0":
             result["formula2"] = f2
     except Exception:
-        pass
+        log.debug("Failed getting formula2 on conditional entry %s", idx, exc_info=True)
     try:
         sn = entry.getStyleName()
         if sn:
             result["style"] = sn
     except Exception:
-        pass
+        log.debug("Failed getting style name on conditional entry %s", idx, exc_info=True)
 
     return result
 
@@ -169,44 +169,29 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        range_str = kwargs["range"][0]
         operator = kwargs["operator"]
         style_name = kwargs["style"]
         formula1 = kwargs.get("formula1") or ""
         formula2 = kwargs.get("formula2") or ""
 
         try:
-            try:
-                from com.sun.star.sheet.ConditionOperator import BETWEEN, EQUAL, FORMULA, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, NONE, NOT_BETWEEN, NOT_EQUAL
+            range_str = kwargs["range"][0]
+            import uno
 
-                op_map: dict[str, Any] = {"NONE": NONE, "EQUAL": EQUAL, "NOT_EQUAL": NOT_EQUAL, "GREATER": GREATER, "GREATER_EQUAL": GREATER_EQUAL, "LESS": LESS, "LESS_EQUAL": LESS_EQUAL, "BETWEEN": BETWEEN, "NOT_BETWEEN": NOT_BETWEEN, "FORMULA": FORMULA}
-            except (ImportError, AttributeError):
-                try:
-                    import uno
-
-                    op_map = {
-                        "NONE": uno.Enum("com.sun.star.sheet.ConditionOperator", "NONE"),
-                        "EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "EQUAL"),
-                        "NOT_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "NOT_EQUAL"),
-                        "GREATER": uno.Enum("com.sun.star.sheet.ConditionOperator", "GREATER"),
-                        "GREATER_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "GREATER_EQUAL"),
-                        "LESS": uno.Enum("com.sun.star.sheet.ConditionOperator", "LESS"),
-                        "LESS_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "LESS_EQUAL"),
-                        "BETWEEN": uno.Enum("com.sun.star.sheet.ConditionOperator", "BETWEEN"),
-                        "NOT_BETWEEN": uno.Enum("com.sun.star.sheet.ConditionOperator", "NOT_BETWEEN"),
-                        "FORMULA": uno.Enum("com.sun.star.sheet.ConditionOperator", "FORMULA"),
-                    }
-                except Exception:
-                    op_map = {"NONE": 0, "EQUAL": 1, "NOT_EQUAL": 2, "GREATER": 3, "GREATER_EQUAL": 4, "LESS": 5, "LESS_EQUAL": 6, "BETWEEN": 7, "NOT_BETWEEN": 8, "FORMULA": 9}
-
-            try:
-                from com.sun.star.sheet import ConditionOperator2 as CO2
-
-                op_map["DUPLICATE"] = int(CO2.DUPLICATE)
-                op_map["NOT_DUPLICATE"] = int(CO2.NOT_DUPLICATE)
-            except Exception:
-                op_map["DUPLICATE"] = 10
-                op_map["NOT_DUPLICATE"] = 11
+            op_map: dict[str, Any] = {
+                "NONE": uno.Enum("com.sun.star.sheet.ConditionOperator", "NONE"),
+                "EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "EQUAL"),
+                "NOT_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "NOT_EQUAL"),
+                "GREATER": uno.Enum("com.sun.star.sheet.ConditionOperator", "GREATER"),
+                "GREATER_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "GREATER_EQUAL"),
+                "LESS": uno.Enum("com.sun.star.sheet.ConditionOperator", "LESS"),
+                "LESS_EQUAL": uno.Enum("com.sun.star.sheet.ConditionOperator", "LESS_EQUAL"),
+                "BETWEEN": uno.Enum("com.sun.star.sheet.ConditionOperator", "BETWEEN"),
+                "NOT_BETWEEN": uno.Enum("com.sun.star.sheet.ConditionOperator", "NOT_BETWEEN"),
+                "FORMULA": uno.Enum("com.sun.star.sheet.ConditionOperator", "FORMULA"),
+                "DUPLICATE": 10,
+                "NOT_DUPLICATE": 11,
+            }
 
             op_upper = operator.upper()
             op_val = op_map.get(op_upper)
@@ -221,23 +206,10 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             cell_range = bridge.resolve_range_or_address(range_str)
 
             def _create_pv(name: str, val: Any) -> Any:
-                try:
-                    from com.sun.star.beans import PropertyValue
-
-                    pv = PropertyValue()
-                    pv.Name = name
-                    pv.Value = val
-                    return pv
-                except (ImportError, AttributeError):
-                    pass
-                import uno
-
-                try:
-                    return uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name=name, Value=val)
-                except Exception:
-                    from types import SimpleNamespace
-
-                    return SimpleNamespace(Name=name, Value=val)
+                pv = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
+                pv.Name = name
+                pv.Value = val
+                return pv
 
             props = [_create_pv("Operator", op_val), _create_pv("Formula1", formula1)]
             if formula2:
@@ -272,10 +244,10 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        range_str = kwargs["range"][0]
         index = kwargs.get("rule_index")
 
         try:
+            range_str = kwargs["range"][0]
             cell_range = bridge.resolve_range_or_address(range_str)
             formats = cell_range.getPropertyValue("ConditionalFormat")
 

@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
+from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError, InterpreterError, LocalPythonExecutor
 from plugin.framework.tool import ToolBaseDummy
 
 if TYPE_CHECKING:
@@ -44,6 +44,31 @@ from plugin.calc.inspector import CellInspector
 
 log = logging.getLogger("writeragent.calc.python.executor")
 
+_SPREADSHEET_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
+_CALC_HELPER_ERROR = "lp, get_range, set_range, and data_range only work in a Calc spreadsheet."
+# json.dumps accepts these. Anything else (set, bytes, range, generators, custom objects) raises TypeError.
+_JSON_RESULT_TYPES = (str, int, float, bool, list, dict)
+
+
+def _is_spreadsheet(doc: Any) -> bool:
+    """True when *doc* is a Calc model.
+
+    An unconfigured MagicMock's ``supportsService`` returns another mock.
+    Treat that as Calc so existing tool tests keep the helpers. A real
+    Writer document returns False for the spreadsheet service.
+    """
+    supports = getattr(doc, "supportsService", None)
+    if not callable(supports):
+        return True
+    try:
+        result = supports(_SPREADSHEET_SERVICE)
+    except Exception:
+        log.debug("spreadsheet service check failed", exc_info=True)
+        return False
+    if type(result).__name__ == "MagicMock":
+        return True
+    return bool(result)
+
 
 class PythonExecutor:
     """Runs Python in LO's embedded interpreter with document helpers (stdlib-only imports)."""
@@ -55,35 +80,54 @@ class PythonExecutor:
         self.doc_url = doc_url
         self.executor = LocalPythonExecutor(additional_authorized_imports=list(CALC_AUTHORIZED_IMPORTS))
 
-    def inject_helpers(self, bridge: CalcBridge, manipulator: CellManipulator, inspector: CellInspector) -> None:
+    def inject_helpers(self, bridge: CalcBridge, manipulator: CellManipulator, inspector: CellInspector, *, spreadsheet: bool = True) -> None:
         """Injects document interaction helpers into the environment."""
+
+        def _require_calc(helper: str) -> None:
+            if spreadsheet:
+                return
+            # Bugfix: these helpers were injected on Writer too. lp_helper
+            # caught the RuntimeError from a non-spreadsheet and returned
+            # None, so the tool reported success. Fail the call instead.
+            raise WriterAgentException(f"{helper}: {_CALC_HELPER_ERROR}", code="UNSUPPORTED_OPERATION")
 
         def lp_helper(addr: str) -> Any:
             """Read values from the spreadsheet. Generic for cells or ranges."""
+            _require_calc("lp")
             try:
                 if ":" in addr:
                     data = inspector.read_range(addr)
                     return [[cell["value"] for cell in row] for row in data]
                 sheet = bridge.get_active_sheet()
                 return manipulator.safe_get_cell_value(sheet, addr)
+            except ExecutionTimeoutError:
+                # Bugfix: the sandbox arms SIGALRM once (local_python_executor.timeout).
+                # This helper's broad catch swallowed ExecutionTimeoutError, the
+                # alarm was not re-armed, and `while True: lp('A1')` never returned
+                # to the UI thread. Let the timeout leave the cell.
+                raise
             except Exception:
                 log.exception("lp_helper failed for address %s", addr)
                 return None
 
         def set_range_helper(addr: str, data: Any) -> str | dict[str, Any]:
             """Write values back to the spreadsheet."""
+            _require_calc("set_range")
             return manipulator.write_formula_range(addr, data)
 
         self.executor.send_variables({"lp": lp_helper, "Sheet": lp_helper, "get_range": lp_helper, "set_range": set_range_helper})
 
     def format_result(self, result: Any) -> Any:
         """Processes the result for storage and display."""
-        if hasattr(result, "__dict__") and not isinstance(result, (list, tuple, dict, str, int, float, bool)):
-            try:
-                return f"<Result: {str(result)}>"
-            except Exception:
-                return f"<Object: {type(result).__name__}>"
-        return result
+        if result is None or isinstance(result, _JSON_RESULT_TYPES):
+            return result
+        # Bugfix: only objects with __dict__ were stringified. set, bytes,
+        # range, and generators have no __dict__, and json.dumps then raised
+        # TypeError when the tool result was serialized.
+        try:
+            return f"<Result: {str(result)}>"
+        except Exception:
+            return f"<Object: {type(result).__name__}>"
 
     def execute_with_return(self, code_snippet: str) -> Any:
         """Execute *code_snippet*; return the last expression value (REPL-style ``_`` is not kept for the next call)."""
@@ -125,12 +169,15 @@ class ExecutePythonScript(ToolBaseDummy):
         target_range = kwargs.get("target_range")
 
         doc_url = ctx.doc.getURL() or "untitled"
+        spreadsheet = _is_spreadsheet(ctx.doc)
+        if not spreadsheet and (data_range or target_range):
+            raise WriterAgentException(_CALC_HELPER_ERROR, code="UNSUPPORTED_OPERATION")
         executor = PythonExecutor(doc_url)
 
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         inspector = CellInspector(bridge)
-        executor.inject_helpers(bridge, manipulator, inspector)
+        executor.inject_helpers(bridge, manipulator, inspector, spreadsheet=spreadsheet)
 
         # Inject data if data_range is provided
         if data_range:

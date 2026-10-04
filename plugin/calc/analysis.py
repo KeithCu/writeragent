@@ -23,8 +23,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBaseDummy
+from plugin.calc.address_utils import parse_output_anchor
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import resolve_cell_address
 from plugin.scripting.analysis import HELPER_NAMES
@@ -41,6 +42,15 @@ except ImportError:
     UNO_AVAILABLE = False
 
 log = logging.getLogger("writeragent.calc")
+
+
+def _output_anchor(output_range: str) -> tuple[str | None, int, int]:
+    """Sheet name (if any), column, and row where an analysis report should start.
+
+    Parsing lives in ``parse_output_anchor`` so forecast and optimize share it.
+    """
+    return parse_output_anchor(output_range)
+
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
 # NLPSolver engines that open status dialogs (see docs/calc/analysis-tools.md).
@@ -139,6 +149,12 @@ class GoalSeekTool(ToolBaseDummy):
 
             return {"status": "ok", "message": message, "result": {"value": result_val, "divergence": divergence}}
         except Exception as e:
+            # What was wrong: this catch turned DisposedException into
+            # ToolExecutionError, so execute_safe reported TOOL_EXECUTION_ERROR
+            # and the native runner kept going on a dead document.
+            # Re-raise disposal before wrapping so provenance stays intact.
+            if is_disposed_exception(e):
+                raise
             log.exception("Goal Seek failed")
             raise ToolExecutionError(str(e)) from e
 
@@ -315,6 +331,9 @@ class SolverTool(ToolBaseDummy):
                 return {"status": "error", "message": "Solver failed to find a solution.", "result": {"success": False}}
 
         except Exception as e:
+            # Same dispose guard as Goal Seek: do not wrap a dead document.
+            if is_disposed_exception(e):
+                raise
             log.exception("Solver failed")
             raise ToolExecutionError(str(e)) from e
 
@@ -391,7 +410,6 @@ class AnalyzeDataTool(ToolBaseDummy):
 
         from plugin.calc.analysis_runner import run_trusted_analysis
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
-        from plugin.calc.address_utils import parse_address
         from plugin.framework.queue_executor import execute_on_main_thread
 
         dr = str(data_range).strip() if data_range else None
@@ -400,22 +418,19 @@ class AnalyzeDataTool(ToolBaseDummy):
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))
         except Exception as exc:
             return self._tool_error(f"Failed to run analysis: {exc}")
 
         if output_range and result.get("status") == "ok":
+            anchor_ref = output_range
 
             def _write() -> None:
-                cell_part = output_range.rsplit(".", 1)[-1] if output_range else output_range
-                col, row = parse_address(cell_part)
-                insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
+                sheet, col, row = _output_anchor(anchor_ref)
+                insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
             try:
                 execute_on_main_thread(_write)
@@ -429,12 +444,8 @@ class AnalyzeDataTool(ToolBaseDummy):
 
             plot_result = None
             if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
-
-                def _auto_plot() -> dict[str, Any] | None:
-                    return run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
-
                 # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
-                plot_result = execute_on_main_thread(_auto_plot)
+                plot_result = run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
             if plot_result is not None:
                 result = dict(result)
                 result["plot"] = plot_result

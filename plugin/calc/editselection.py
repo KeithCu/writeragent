@@ -59,24 +59,49 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     edit_max = get_config_int("edit_selection_max_new_tokens")
 
     tasks: list[StreamCompletionTask] = []
-    cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
-    data_array = cell_range.getDataArray()
+
+    # Intersect selection with used area to prevent evaluating 1M empty rows
+    cursor = sheet.createCursor()
+    cursor.gotoStartOfUsedArea(False)
+    cursor.gotoEndOfUsedArea(True)
+    used_area = cursor.getRangeAddress()
+
+    start_col = max(area.StartColumn, used_area.StartColumn)
+    end_col = min(area.EndColumn, used_area.EndColumn)
+    start_row = max(area.StartRow, used_area.StartRow)
+    end_row = min(area.EndRow, used_area.EndRow)
+
+    if start_col > end_col or start_row > end_row:
+        return
+
+    col_range = range(start_col, end_col + 1)
+    row_range = range(start_row, end_row + 1)
+
+    cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
+    formula_array = cell_range.getFormulaArray()
 
     for row_idx, row in enumerate(row_range):
         for col_idx, col in enumerate(col_range):
-            raw_val = data_array[row_idx][col_idx]
-            # Convert values/empty cells to strings (similar to what getString() would do)
+            if len(tasks) >= 250:
+                break
+            raw_val = formula_array[row_idx][col_idx]
+
+            # Use the formula array, not getString(), so formulas are not
+            # replaced by their evaluated display text.
             cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
 
+            if not cell_text:
+                continue
+
             if not is_edit:
-                if not cell_text:
-                    continue
                 tasks.append(StreamCompletionTask(cell_text, extend_sys, extend_max, (col, row, None)))
             else:
                 cell_original = cell_text
                 prompt = _build_calc_edit_prompt(cell_original, user_input)
                 max_tokens = len(cell_original) + edit_max
                 tasks.append(StreamCompletionTask(prompt, edit_sys, max_tokens, (col, row, cell_original)))
+        if len(tasks) >= 250:
+            break
 
     if not tasks:
         return
@@ -93,17 +118,15 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         accumulated_text = [""]
         if not is_edit:
             accumulated_text[0] = task.prompt
-        elif original is not None:
-            cell.setString("")
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
-                cell.setString(accumulated_text[0])
+                cell.setFormula(accumulated_text[0])
 
         def on_error(e: BaseException) -> None:
             if original is not None:
-                cell.setString(original)
+                cell.setFormula(original)
             msgbox(ctx, title, format_error_message(e))
 
         return apply_chunk, on_error

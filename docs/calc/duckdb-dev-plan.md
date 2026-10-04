@@ -72,7 +72,7 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 ### Current Implementation (as of latest increment)
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads). `run_sql` is the `=PY()` entry: guarded execute (honesty dict) or, with `preloaded` / `files` / `scoped_dir`, a DataFrame over that catalog.
 - Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
-- Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the document folder on the UI thread, or from the cached `calc:file:` folder off-main (unambiguous session only).
+- Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the document folder on the UI thread, or from the cached `calc:file:` folder off-main (unambiguous session only). The helper captures that host path when it is injected; a cell assignment to `scoped_dir` or a `scoped_dir=` argument cannot point `run_sql` at another folder. That assignment is dropped at the start of the next execute, so a shared-kernel Run Python Script (which binds no folder) cannot inherit a cell-chosen path from an earlier `=PY()`. Inside a sandboxed execute, `session_duckdb(other_id)` cannot open another workbook's catalog. That guard still holds when the cell runs on the SIGALRM timeout-fallback thread (Windows, or any thread that cannot install the alarm): the sandbox copies its session context onto that thread.
 - Worker: registers preloaded via `coerce_to_dataframe`; flat files via suffix binders (`read_csv` / `read_parquet` / `read_json`, including `.jsonl` / `.ndjson`) under provided names. Unknown suffixes and missing files fail loud (`UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`) instead of falling through to CSV. Read-only guards (`COPY`/`EXPORT`/`ATTACH`/`INSTALL`/`LOAD` + path/URI escapes). In-memory `CREATE VIEW` / register stay allowed.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script (sheet egress shows truncation flags).
 - `=PY()`: prefer `run_sql` / `session_duckdb()` (same firewall + honesty fields) over raw `import duckdb`. Shared-kernel `=PY()` reuses one DuckDB connection per workbook until Reset; Isolated / chat tools stay per-request. See [Phase D](#phase-d--shared-kernel-session-cache). Default chat / `=PY` import-policy blurbs omit DuckDB (`query_folder_sql` / `session_duckdb` / allowed-package `duckdb`) until that path is product-ready (eval-2 §2.7). Helpers stay implemented.
@@ -219,6 +219,8 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
 │  • write_formula_range, charts, chat summary, =PY() cell        │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+`query_folder_sql` is an async chat tool. Sheet, named-range, and hidden sibling reads stay on the UI thread (`execute_on_main_thread` when the caller is not already there). `run_folder_sql` — the venv IPC — stays on that worker. A disposed document during the grid read propagates so the tool boundary reports `DOCUMENT_DISPOSED`. A sheet name that contains an apostrophe is quoted by doubling it (`'O''Brien'.C5:D6`); [`split_sheet_prefix`](../../plugin/calc/address_utils.py) turns that back into `O'Brien`.
 
 **Key insight from research:** The hard part is not DuckDB — it is **defining the table catalog** (which ranges, which files, column names, size limits). Calc ingress is already solved for analysis; DuckDB sits **after** `coerce_to_dataframe`.
 
@@ -425,7 +427,7 @@ Authoring: pass upstream ranges as `data` so Calc dirties the cell that re-regis
 | Huge memory | Ingress: `python_max_data_cells` fail-loud on preloaded grids (table name + cell count). Egress: `MAX_TABLE_ROWS=200` with `truncated`, `total_rows`, `row_cap`, `warning` / `flags` / `message`, and `tables[].truncated` so chat, RPS, and tools cannot mistake a partial grid for a complete result. |
 | Secrets in env | Existing `scrub_subprocess_env` in [`sandbox.py`](../../plugin/scripting/sandbox.py) |
 
-Add `duckdb` / `duckdb.*` to [`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/sandbox.py) when shipping; update [`import_policy.py`](../../plugin/scripting/import_policy.py) prompts to mention SQL helpers vs raw pandas.
+`duckdb` / `duckdb.*` are on [`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/sandbox.py). [`import_policy.py`](../../plugin/scripting/import_policy.py) still omits that name from default chat / `=PY` blurbs; prefer `run_sql` / `session_duckdb()` over raw `import duckdb`.
 
 ---
 
@@ -435,7 +437,7 @@ Add `duckdb` / `duckdb.*` to [`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/
 |------|-------------------|
 | Trusted venv module | `plugin/scripting/venv/duckdb_sql.py` (mirror [`plugin/scripting/venv/analysis.py`](../../plugin/scripting/venv/analysis.py)) — supports preloaded + flat_files |
 | Host facade / client | `plugin/scripting/client.py` (`run_folder_sql`) + `plugin/calc/duckdb_tools.py` |
-| Sibling spreadsheet open | Reuse [`open_document_for_read`](../../plugin/doc/document_research.py) + `CellInspector` (main thread); close hidden models after read — A+ |
+| Sibling spreadsheet open | Reuse [`open_document_for_read`](../../plugin/doc/document_research.py) + `CellInspector` on the UI thread only; `run_folder_sql` stays on the worker; close hidden models after read — A+ |
 | Calc tool | `plugin/calc/duckdb_tools.py` (`QueryFolderSqlTool` on `ToolCalcAnalysisBase`) — `tables`, `files` (dict), `data_range` |
 | Run Python Script templates | `plugin/scripting/duckdb_sql.py` (host) + document_scripts (SQL Helpers) |
 | Settings probe | Extend venv self-check groups in [`venv_worker.py`](../../plugin/scripting/venv_worker.py) — A0 |

@@ -29,7 +29,9 @@ def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:
     return format_tabular_helper_for_calc(result, domain_label="Analysis", default_helper="analysis", failed_message="Analysis failed.", metadata_keys=("n_rows", "n_cols", "numeric_cols", "categorical_cols", "datetime_cols"))
 
 
-def insert_analysis_result_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, start_col: int | None = None, start_row: int | None = None) -> int:
+def insert_analysis_result_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, sheet_name: str | None = None, start_col: int | None = None, start_row: int | None = None) -> int:
     """Write formatted analysis output starting at *start_col*/*start_row* (or selection). Returns row count."""
+    # Invariant: If Stop happens during a document mutation (inserting a picture, plot, or text),
+    # let that mutation finish. Do not guard right before the write.
     grid = format_analysis_for_calc(result)
-    return insert_tabular_result_into_calc(doc, uno_ctx, grid, start_col=start_col, start_row=start_row)
+    return insert_tabular_result_into_calc(doc, uno_ctx, grid, sheet_name=sheet_name, start_col=start_col, start_row=start_row)

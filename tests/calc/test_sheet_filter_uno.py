@@ -108,3 +108,24 @@ def test_calc_sheet_filter_apply_get_clear(ctx, doc):
     res_get2 = _execute_calc_tool(doc, ctx, "get_sheet_filter", {"range": ["G40:I43"]})
     assert res_get2.get("status") == "ok", f"get_sheet_filter after clear failed: {res_get2}"
     assert res_get2.get("count", -1) == 0, res_get2
+
+@native_test
+@with_native_doc("calc")
+def test_calc_sheet_filter_invalid_range(ctx, doc):
+    res_apply = _execute_calc_tool(doc, ctx, "apply_sheet_filter", {
+        "range": [],
+        "has_header": True,
+        "criteria": [
+            {"field": 1, "operator": "CONTAINS", "value": "East"},
+        ],
+    })
+    assert res_apply.get("status") == "error", f"Expected error for empty range in apply_sheet_filter, got {res_apply}"
+    assert "range parameter must be a non-empty list" in res_apply.get("message", "")
+
+    res_get = _execute_calc_tool(doc, ctx, "get_sheet_filter", {"range": []})
+    assert res_get.get("status") == "error", f"Expected error for empty range in get_sheet_filter, got {res_get}"
+    assert "range parameter must be a non-empty list" in res_get.get("message", "")
+
+    res_clear = _execute_calc_tool(doc, ctx, "clear_sheet_filter", {"range": [], "has_header": True})
+    assert res_clear.get("status") == "error", f"Expected error for empty range in clear_sheet_filter, got {res_clear}"
+    assert "range parameter must be a non-empty list" in res_clear.get("message", "")
