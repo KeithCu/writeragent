@@ -129,19 +129,23 @@ class ACPConnection:
             self._stderr_drain = None
         if proc is None:
             return
-        try:
-            if proc.stdin:
-                proc.stdin.close()
-        except Exception:
-            pass
-        try:
-            proc.terminate()
-            proc.wait(timeout=3)
-        except Exception:
+
+        def _kill_and_wait() -> None:
             try:
-                proc.kill()
+                if proc.stdin:
+                    proc.stdin.close()
             except Exception:
                 pass
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+        run_in_background(_kill_and_wait, name="acp-stop", dedicated=True)
 
     @property
     def is_alive(self) -> bool:
