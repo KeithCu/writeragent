@@ -27,6 +27,10 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             list(params.get("rows") or []),
             build_fts=bool(params.get("build_fts", False)),
             build_vectors=bool(params.get("build_vectors", True)),
+            # Omitted search_mode fell through to the sqlite default, so a
+            # configured zvec, LanceDB, or LlamaIndex backend never ran.
+            search_mode=str(params.get("search_mode") or "hybrid"),
+            heartbeat_fn=heartbeat_fn,
         )
     if helper == "delete_paragraphs":
         from plugin.embeddings.venv.embeddings_index import delete_paragraphs
@@ -38,6 +42,7 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             model_name=str(params.get("model") or ""),
             build_fts=bool(params.get("build_fts", False)),
             build_vectors=bool(params.get("build_vectors", True)),
+            search_mode=str(params.get("search_mode") or "hybrid"),
         )
     if helper == "hybrid_search":
         from plugin.embeddings.venv.embeddings_index import hybrid_search

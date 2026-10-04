@@ -44,6 +44,7 @@ class IngestState(TypedDict):
     chunks: NotRequired[list[dict[str, Any]]]
     upserted: NotRequired[int]
     dim: NotRequired[int]
+    heartbeat_fn: NotRequired[Any]
 
 
 def rows_to_chunks(state: IngestState) -> dict[str, Any]:
@@ -212,6 +213,7 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
         upserted = 0
         dim = schema_dim or 0
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+        heartbeat_fn = state.get("heartbeat_fn")
 
         for batch_index, start in enumerate(range(0, len(all_chunks), batch_size)):
             window = all_chunks[start : start + batch_size]
@@ -241,6 +243,8 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
                 upserted += 1
 
             conn.commit()
+            if heartbeat_fn is not None:
+                heartbeat_fn({"phase": "embed", "chunks": upserted})
             count = corpus_chunk_count(conn)
             _write_meta(state, chunk_count_override=count, dim=dim)
             log.debug(
@@ -351,12 +355,23 @@ def ingest_paragraphs(
     delete_keys: list[dict[str, Any]] | None = None,
     build_fts: bool = False,
     build_vectors: bool = True,
+    fill_vector_gaps: bool = False,
+    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
-    """Run the LangGraph ingest pipeline for changed paragraph rows."""
+    """Run the LangGraph ingest pipeline for changed paragraph rows.
+
+    *fill_vector_gaps* runs the graph even when *rows* and *delete_keys* are
+    empty, so ``embed_and_upsert_batches`` can embed chunks that have no
+    vector for this model.
+    """
     model = (model_name or "").strip()
     if not model and build_vectors:
         raise ValueError("embedding model name is required")
-    if not rows and not delete_keys:
+    # What was wrong: an empty row list returned here, before the graph. The
+    # same-model alignment pass sets has_missing and calls ingest with no
+    # rows, expecting the graph to embed chunks missing from vec_chunks.
+    # That return made the pass a no-op. fill_vector_gaps is that pass.
+    if not rows and not delete_keys and not fill_vector_gaps:
         return {"indexed": 0, "dim": 0, "storage_backend": "sqlite_vec"}
 
     initial: IngestState = {
@@ -368,6 +383,8 @@ def ingest_paragraphs(
         "rows": list(rows or []),
         "delete_keys": list(delete_keys or []),
     }
+    if heartbeat_fn is not None:
+        initial["heartbeat_fn"] = heartbeat_fn
     final = _get_ingest_graph().invoke(initial)
     upserted = int(final.get("upserted") or 0)
     dim = int(final.get("dim") or 0)

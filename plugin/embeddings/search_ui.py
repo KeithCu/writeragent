@@ -19,7 +19,7 @@ from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import BaseKeyListener
 from plugin.framework.worker_pool import run_in_background
-import plugin.framework.client.embeddings_service as embeddings_service
+import plugin.embeddings.embeddings_service as embeddings_service
 
 from plugin.scripting.venv_worker import warm_venv_worker
 
@@ -209,6 +209,10 @@ class SearchDialog:
                         setattr(e, "Consume", True)
                 except Exception:
                     pass
+                btn_search = dlg.getControl("BtnSearch")
+                if btn_search and not btn_search.getModel().Enabled:
+                    # Search is already in progress
+                    return
                 owner._run_search(dlg)
 
         enter_listener = _SearchEnterKeyListener()
@@ -245,7 +249,7 @@ class SearchDialog:
                         lancedb_collection_looks_populated,
                         lancedb_collection_path,
                     )
-                    from plugin.framework.client.embeddings_service import _folder_search_mode
+                    from plugin.embeddings.embeddings_service import _folder_search_mode
 
                     doc = get_active_document(ctx)
                     if not doc:
@@ -320,40 +324,44 @@ class SearchDialog:
         def _do_background_search() -> None:
             try:
                 from plugin.framework.constants import folder_search_enabled
+                from plugin.embeddings.embeddings_cache import query_blocked_for_model
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
-                from plugin.framework.client.embedding_client import get_embedding_model
-                from plugin.framework.client.embeddings_service import hybrid_search, _folder_search_mode
+                from plugin.embeddings.embedding_client import get_embedding_model
+                from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
 
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:
-                    self._update_results_ui(results_ctrl, btn_search, _("No active document found."))
+                    self._update_results_ui(_("No active document found."), enable_search_btn=True)
                     return
                 doc, (folder_key, db_path, meta_path, listing_root) = resolved
 
                 if not folder_search_enabled():
                     self._update_results_ui(
-                        results_ctrl,
-                        btn_search,
-                        _("Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings.")
+                        _("Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings."),
+                        enable_search_btn=True,
                     )
                     return
 
                 if folder_key is None or db_path is None or meta_path is None:
-                    self._update_results_ui(results_ctrl, btn_search, _("Error: ") + str(listing_root))
+                    self._update_results_ui(_("Error: ") + str(listing_root), enable_search_btn=True)
                     return
 
                 mode = _folder_search_mode()
                 search_path = _ready_search_path(mode, listing_root, meta_path, db_path)
+                model = ""
+                if search_path is not None:
+                    model = get_embedding_model()
+                    # Do not query a vec store built for a different model.
+                    if mode != "fts" and query_blocked_for_model(meta_path, model):
+                        search_path = None
                 if search_path is None:
                     execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
                     self._update_results_ui(
-                        results_ctrl,
-                        btn_search,
                         _("Folder index is building in the background. Please retry search shortly."),
+                        enable_search_btn=True,
                     )
                     return
 
-                model = get_embedding_model()
                 result = hybrid_search(
                     ctx,
                     search_path,
@@ -361,12 +369,13 @@ class SearchDialog:
                     k,
                     model=model,
                     near_slop=10,
+                    doc_url_filter=None,
                 )
                 hits = list(result.get("hits") or [])
                 execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
 
                 if not hits:
-                    self._update_results_ui(results_ctrl, btn_search, _("No matches found."))
+                    self._update_results_ui(_("No matches found."), enable_search_btn=True)
                     return
 
                 formatted_lines = []
@@ -380,11 +389,16 @@ class SearchDialog:
                     formatted_lines.append("-" * 40)
 
                 output_text = "\n".join(formatted_lines)
-                self._update_results_ui(results_ctrl, btn_search, output_text)
-                self._refresh_cache_status(dlg)
+                self._update_results_ui(output_text, enable_search_btn=True)
+
+                def _do_refresh():
+                    dlg = self._dlg
+                    if dlg:
+                        self._refresh_cache_status(dlg)
+                execute_on_main_thread(_do_refresh)
             except Exception as e:
                 log.exception("Background search failed")
-                self._update_results_ui(results_ctrl, btn_search, _("Error running search: ") + str(e))
+                self._update_results_ui(_("Error running search: ") + str(e), enable_search_btn=True)
 
         run_in_background(_do_background_search, name="search-dialog-query")
 
@@ -401,16 +415,16 @@ class SearchDialog:
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache
                 from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
-                from plugin.framework.client.embedding_client import get_embedding_model
-                from plugin.framework.client.embeddings_service import _folder_search_mode
+                from plugin.embeddings.embedding_client import get_embedding_model
+                from plugin.embeddings.embeddings_service import _folder_search_mode
 
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:
-                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active document found."))
+                    self._update_rebuild_ui(_("No active document found."), enable_rebuild_btn=True)
                     return
                 _doc, (_folder_key, _db_path, _meta_path, listing_root) = resolved
                 if not listing_root:
-                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active folder resolved."))
+                    self._update_rebuild_ui(_("No active folder resolved."), enable_rebuild_btn=True)
                     return
 
                 # Clear local cache files to force a full cold index rebuild
@@ -446,9 +460,17 @@ class SearchDialog:
                         )
 
                         def ui_update() -> None:
-                            existing = results_ctrl.getModel().Text
-                            new_text = (existing + "\n" if existing else "") + line
-                            results_ctrl.getModel().Text = new_text
+                            try:
+                                d = self._dlg
+                                if not d:
+                                    return
+                                ctrl = d.getControl("ResultsEdit")
+                                if ctrl:
+                                    existing = ctrl.getModel().Text
+                                    new_text = (existing + "\n" if existing else "") + line
+                                    ctrl.getModel().Text = new_text
+                            except Exception:
+                                pass
 
                         execute_on_main_thread(ui_update)
                         del hb_data[file]
@@ -463,40 +485,57 @@ class SearchDialog:
                         search_mode=_folder_search_mode(),
                         heartbeat_fn=heartbeat_fn,
                     )
-                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
+                    self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
                 except Exception as exc:
                     log.exception("maintain_folder_index failed during rebuild")
-                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(exc))
+                    self._update_rebuild_ui(_("Rebuild failed: ") + str(exc), enable_rebuild_btn=True)
 
-                self._refresh_cache_status(dlg)
+                def _do_refresh():
+                    d = self._dlg
+                    if d:
+                        self._refresh_cache_status(d)
+                execute_on_main_thread(_do_refresh)
             except Exception as e:
                 log.exception("Cache rebuild failed")
-                self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(e))
+                self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
 
         run_in_background(_do_rebuild, name="search-dialog-rebuild")
 
-    def _update_results_ui(self, results_ctrl: Any, btn_search: Any, text: str) -> None:
+    def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread
 
         def _update() -> None:
             try:
-                results_ctrl.getModel().Text = text
-                if btn_search:
-                    btn_search.getModel().Enabled = True
+                dlg = self._dlg
+                if not dlg:
+                    return
+                results_ctrl = dlg.getControl("ResultsEdit")
+                if results_ctrl:
+                    results_ctrl.getModel().Text = text
+                if enable_search_btn:
+                    btn_search = dlg.getControl("BtnSearch")
+                    if btn_search:
+                        btn_search.getModel().Enabled = True
             except Exception:
                 pass
 
         execute_on_main_thread(_update)
 
-    def _update_rebuild_ui(self, btn_rebuild: Any, results_ctrl: Any, text: str) -> None:
+    def _update_rebuild_ui(self, text: str, enable_rebuild_btn: bool = False) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread
 
         def _update() -> None:
             try:
+                dlg = self._dlg
+                if not dlg:
+                    return
+                results_ctrl = dlg.getControl("ResultsEdit")
                 if results_ctrl:
                     results_ctrl.getModel().Text = text
-                if btn_rebuild:
-                    btn_rebuild.getModel().Enabled = True
+                if enable_rebuild_btn:
+                    btn_rebuild = dlg.getControl("BtnRebuild")
+                    if btn_rebuild:
+                        btn_rebuild.getModel().Enabled = True
             except Exception:
                 pass
 

@@ -212,7 +212,7 @@ flowchart LR
 
 **No chat LLM in retrieval.** The sidebar model only sees the final hit list after search completes.
 
-Implementation: [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), host RPC [`embeddings_service.hybrid_search`](../plugin/framework/client/embeddings_service.py), tool [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py).
+Implementation: [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), host RPC [`embeddings_service.hybrid_search`](../plugin/embeddings/embeddings_service.py), tool [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py).
 
 ---
 
@@ -287,7 +287,7 @@ Indexing runs on a **background maintenance worker** — not inside the agent to
 |---------|--------|
 | **Periodic tick** | Every 300 s for active doc’s folder ([`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py)) |
 | **document_research start** | [`specialized_base.py`](../plugin/doc/specialized_base.py) |
-| **Empty/stale cache on search** | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) |
+| **Empty or wrong-model cache on search** | [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py), [`document_research_search_tool.py`](../plugin/embeddings/document_research_search_tool.py) |
 
 One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py)).
 
@@ -298,7 +298,7 @@ One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin
 
 Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)).
 
-`search_nearby_files` **never blocks** on embed completion — it reads whatever is on disk and enqueues maintain if needed.
+`search_nearby_files` and `search_embeddings` do not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. They do not run a vector query against that index. A matching cache is read immediately, and maintain is enqueued in the background.
 
 ### Module map
 
@@ -316,8 +316,9 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert |
 | [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py) | LangGraph: vec0 retrieve → MMR (vec-only) |
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Venv RPC facades |
-| [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py) | Host index/search/stats RPC |
-| [`embedding_client.py`](../plugin/framework/client/embedding_client.py) | Host `embed_texts()` RPC |
+| [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py) | Host index/search/stats RPC |
+| [`embedding_client.py`](../plugin/embeddings/embedding_client.py) | Host `embed_texts()` RPC (provider call used by the index service) |
+| [`folder_fts_service.py`](../plugin/embeddings/folder_fts_service.py) | Host folder FTS maintain/search RPC |
 
 ---
 
@@ -343,7 +344,7 @@ Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or
 3. **`model_metadata`** — dimension and last update per model.
 4. **Relative expiry** — models more than 7 days older than the active model are dropped + `VACUUM` during ingest.
 
-Changing **Embedding Model** in Settings triggers a **cold rebuild** for that folder.
+Changing **Embedding Model** in Settings forces a **cold rebuild** for that folder, including the zvec and LanceDB stores. Auto and explicit incremental maintain both take that path. Search does not query the previous vec table. The old incremental alignment pass is not used for a model change: it called ingest with no rows and left the vec index empty, partial, or sized for the previous dimension.
 
 ### Schema (vec0 path)
 
@@ -736,7 +737,7 @@ This option subclasses LlamaIndex core interfaces to map them directly to the ex
 | `WriterAgentFTSRetriever` | FTS5 over `passages` |
 | `build_writer_agent_hybrid_retriever` / `run_hybrid_retrieval_pipeline` | RRF fusion → optional cross-encoder rerank → tool hits |
 
-Background indexing and search both honor Settings `embeddings.folder_search_mode` (including `llama_index`) via [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) and [`embeddings_service.py`](../plugin/framework/client/embeddings_service.py).
+Background indexing and search both honor Settings `embeddings.folder_search_mode` (including `llama_index`) via [`embeddings_indexer.py`](../plugin/embeddings/embeddings_indexer.py) and [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py).
 
 ### Comparison to default `hybrid` backend
 
@@ -953,6 +954,8 @@ zvec stores data in `writeragent_embeddings/zvec/` — a first-class zvec collec
 
 **Maintain (v1):** `maintain_folder_zvec` does per-file `delete_by_filter('doc_url == "..."')`, re-extracts paragraphs, embeds, builds `Doc` objects with stable ids (`{doc_url}#{para_index}#{content_hash_prefix}`), `upsert`s, heartbeat progress. Updates `corpus_meta.json` with `storage_backend: "zvec"`. Does **not** use sqlite `indexed_files` / `indexed_paragraphs` — a folder can have a good zvec index without ever building `corpus.db`.
 
+Auto maintenance must not treat that missing `corpus.db` as an empty index. For `zvec` and `lancedb`, cold vs incremental uses `corpus_meta.json` `chunk_count` plus whether `zvec/` or `lancedb/` has files (the same signals as the Search dialog and the research tools). A false empty resolves cold, and `clear_folder_cache` deletes the collection on every tick.
+
 **Search:** `zvec_knn_search` (semantic only) and `zvec_hybrid_search` (normal tool path) embed the query, build `Query` objects, apply reranker when configured, map through `_shape_hit` to standard hits. `doc_url_filter` becomes a query filter; `near_slop` accepted for future FTS parity.
 
 Guarded by `try: import zvec` — if missing, worker raises `pip install zvec`. LibreOffice embedded Python never imports zvec.
@@ -1079,7 +1082,7 @@ Experimental: **Settings → LanceDB (experimental)** (`folder_search_mode="lanc
 
 **Implementation:** PyArrow tables via `lancedb.connect()`; `lancedb_hybrid_search` and `lancedb_knn_search` return the same hit shape as other backends. Maintain via `maintain_folder_lancedb` — per-file refresh similar to Zvec v1.
 
-**Host checks:** [`lancedb_collection_path`](plugin/embeddings/embeddings_cache.py), [`lancedb_collection_looks_populated`](plugin/embeddings/embeddings_cache.py) — no LanceDB import on the LibreOffice host.
+**Host checks:** [`lancedb_collection_path`](plugin/embeddings/embeddings_cache.py), [`lancedb_collection_looks_populated`](plugin/embeddings/embeddings_cache.py) — no LanceDB import on the LibreOffice host. Auto maintenance uses those checks with `chunk_count`, not the absence of `corpus.db` (see Zvec maintain above).
 
 **Evaluation:** same `eval_folder_search_routing.py` / Search dialog workflow; select LanceDB in Settings and rebuild.
 

@@ -81,8 +81,13 @@ def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path |
         return None
 
     with tempfile.TemporaryDirectory(prefix="writeragent-embed-out-") as out_dir:
+        profile_dir = Path(out_dir) / "profile"
+        profile_dir.mkdir()
+        profile_url = profile_dir.as_uri()
+
         cmd = [
             soffice,
+            f"-env:UserInstallation={profile_url}",
             "--headless",
             "--nologo",
             "--nodefault",

@@ -6,6 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 """Per-folder corpus cache paths and host-side index state (sqlite-vec + JSON meta)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -108,7 +109,6 @@ def corpus_meta_path(listing_root: str, *, create_parent: bool = True) -> Path:
     return folder_cache_dir(listing_root, create_parent=create_parent) / CORPUS_META_FILENAME
 
 
-
 def _remove_path(path: Path) -> bool:
     if not path.exists():
         return False
@@ -123,16 +123,39 @@ def _remove_path(path: Path) -> bool:
         return False
 
 
-def read_corpus_meta(meta_path: Path) -> dict[str, str]:
-    """Load corpus_meta.json; return empty dict when missing."""
+def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
+    """Parse corpus_meta.json as an object.
+
+    None means missing, unreadable, or a JSON value that is not an object
+    (a list, string, or number). Callers that delete the corpus must not
+    treat None as a schema mismatch: that path cold-wipes a live index.
+    Decode errors were covered by #1153; non-objects still reached ``.get``.
+    """
     if not meta_path.is_file():
-        return {}
+        return None
     try:
-        data = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw_text = meta_path.read_text(encoding="utf-8")
+    except OSError:
         log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
-        return {}
+        return None
+    # read_text is str. A non-str means the path handle did not yield a file.
+    if not isinstance(raw_text, str):
+        return None
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError:
+        log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
+        return None
     if not isinstance(data, dict):
+        log.debug("corpus_meta %s is %s, not an object", meta_path, type(data).__name__)
+        return None
+    return data
+
+
+def read_corpus_meta(meta_path: Path) -> dict[str, str]:
+    """Load corpus_meta.json; return empty dict when missing, unreadable, or not an object."""
+    data = _load_meta_object(meta_path)
+    if not data:
         return {}
     return {str(k): str(v) for k, v in data.items()}
 
@@ -142,7 +165,10 @@ def write_corpus_meta(meta_path: Path, **fields: str) -> None:
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     current = read_corpus_meta(meta_path)
     current.update({str(k): str(v) for k, v in fields.items()})
-    meta_path.write_text(json.dumps(current, indent=2, sort_keys=True), encoding="utf-8")
+
+    tmp_path = meta_path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(current, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp_path, meta_path)
 
 
 def _open_index_db(db_path: Path) -> Any:
@@ -168,7 +194,7 @@ def get_file_index_state(db_path: Path, doc_url: str) -> dict[str, float | int]:
 
 
 def file_is_stale(db_path: Path, doc_url: str, file_mtime: float) -> bool:
-    """True when filesystem mtime is newer than last indexed timestamp for *doc_url*."""
+    """True when *file_mtime* is newer than the mtime stored for *doc_url*."""
     from plugin.embeddings.venv.embeddings_sqlite import file_is_stale_in_db
 
     if not db_path.is_file():
@@ -180,36 +206,54 @@ def file_is_stale(db_path: Path, doc_url: str, file_mtime: float) -> bool:
         conn.close()
 
 
-def mark_file_indexed(
-    db_path: Path,
-    doc_url: str,
-    file_mtime: float,
-    *,
-    indexed_at: float | None = None,
-    paragraphs: dict[str, str] | None = None,
-) -> None:
+def mark_file_indexed(db_path: Path, doc_url: str, file_mtime: float, *, indexed_at: float | None = None, paragraphs: dict[str, str] | None = None) -> None:
     """Advance last_indexed_at/file_mtime for *doc_url* in corpus.db."""
     from plugin.embeddings.venv.embeddings_sqlite import mark_file_indexed_in_db
 
     ts = float(indexed_at if indexed_at is not None else time.time())
     conn = _open_index_db(db_path)
     try:
-        mark_file_indexed_in_db(
-            conn,
-            doc_url,
-            file_mtime,
-            indexed_at=ts,
-            paragraphs=paragraphs,
-        )
+        mark_file_indexed_in_db(conn, doc_url, file_mtime, indexed_at=ts, paragraphs=paragraphs)
+    finally:
+        conn.close()
+
+
+def get_all_indexed_urls(db_path: Path) -> list[str]:
+    """Return a list of all doc_url entries in corpus.db's indexed_files."""
+    from plugin.embeddings.venv.embeddings_sqlite import get_all_indexed_urls_in_db
+
+    if not db_path.is_file():
+        return []
+    conn = _open_index_db(db_path)
+    try:
+        return get_all_indexed_urls_in_db(conn)
+    finally:
+        conn.close()
+
+
+def remove_file_from_index(db_path: Path, doc_url: str) -> None:
+    """Remove a file's freshness metadata from corpus.db."""
+    from plugin.embeddings.venv.embeddings_sqlite import remove_file_from_index_in_db
+
+    if not db_path.is_file():
+        return
+    conn = _open_index_db(db_path)
+    try:
+        remove_file_from_index_in_db(conn, doc_url)
     finally:
         conn.close()
 
 
 def diff_chunk_rows(
     db_path: Path,
+    doc_url: str,
     chunks: list[Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
+    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db.
+
+    ``doc_url`` is required so an empty extract still finds that document's
+    stored rows and returns them as deletes.
+    """
     from plugin.embeddings.venv.embeddings_sqlite import diff_chunk_rows_in_db
 
     if not db_path.is_file():
@@ -219,10 +263,9 @@ def diff_chunk_rows(
         return to_index, []
     conn = _open_index_db(db_path)
     try:
-        return diff_chunk_rows_in_db(conn, chunks)
+        return diff_chunk_rows_in_db(conn, doc_url, chunks)
     finally:
         conn.close()
-
 
 
 def sync_file_paragraph_state(db_path: Path, doc_url: str, chunks: list[Any], file_mtime: float) -> None:
@@ -231,32 +274,15 @@ def sync_file_paragraph_state(db_path: Path, doc_url: str, chunks: list[Any], fi
 
     conn = _open_index_db(db_path)
     try:
-        sync_file_paragraph_state_in_db(
-            conn,
-            doc_url,
-            chunks,
-            file_mtime,
-            indexed_at=time.time(),
-        )
+        sync_file_paragraph_state_in_db(conn, doc_url, chunks, file_mtime, indexed_at=time.time())
     finally:
         conn.close()
 
 
-def ensure_corpus_meta(
-    meta_path: Path,
-    *,
-    embedding_model: str,
-    dim: int | None = None,
-    chunk_count: int | None = None,
-) -> None:
+def ensure_corpus_meta(meta_path: Path, *, embedding_model: str, dim: int | None = None, chunk_count: int | None = None) -> None:
     """Initialize or refresh corpus metadata on the host."""
     now = str(time.time())
-    fields: dict[str, str] = {
-        "schema_version": SCHEMA_VERSION,
-        "embedding_model": embedding_model,
-        "storage_backend": STORAGE_BACKEND,
-        "updated_at": now,
-    }
+    fields: dict[str, str] = {"schema_version": SCHEMA_VERSION, "embedding_model": embedding_model, "storage_backend": STORAGE_BACKEND, "updated_at": now}
     if dim is not None:
         fields["dim"] = str(dim)
     if chunk_count is not None:
@@ -273,12 +299,56 @@ def chunk_count_from_meta(meta_path: Path) -> int:
         return 0
 
 
-def index_is_empty(meta_path: Path, db_path: Path | None = None) -> bool:
-    """True when corpus has no indexed chunks."""
+def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Path) -> bool:
+    """True when a zvec or lancedb folder store has nothing to search.
+
+    A built store has a positive ``chunk_count`` in corpus_meta.json and at
+    least one file in the collection directory. Either signal missing means
+    empty. A corrupt meta beside a live collection is not empty: a cold
+    rebuild would delete that collection.
+    """
+    if not listing_root:
+        return True
+    if mode == "zvec":
+        probe = zvec_collection_path(listing_root, create_parent=False)
+        populated = zvec_collection_looks_populated(probe)
+    else:
+        probe = lancedb_collection_path(listing_root, create_parent=False)
+        populated = lancedb_collection_looks_populated(probe)
+    if not populated:
+        return True
+    if not meta_path.is_file():
+        return False
+    if _load_meta_object(meta_path) is None:
+        return False
+    return chunk_count_from_meta(meta_path) <= 0
+
+
+def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode: str | None = None, listing_root: str | None = None) -> bool:
+    """True when the active folder store has no indexed chunks.
+
+    *search_mode* ``zvec`` / ``lancedb`` ignore *db_path*. Those backends never
+    create corpus.db; pass *listing_root* so the collection directory can be
+    probed. Other modes keep the sqlite rule: a missing corpus.db is empty.
+    """
+    mode = str(search_mode or "").strip().lower()
+    if mode in ("zvec", "lancedb"):
+        # What was wrong: this returned True whenever corpus.db was missing.
+        # How: #1180 made a missing db file mean "empty", which is right for
+        # sqlite and wrong for zvec/lancedb. Auto maintain then resolved cold
+        # on every tick and clear_folder_cache deleted the real collection.
+        # Empty for those backends is chunk_count plus collection presence,
+        # the same signals search_ui and the research tools already use.
+        return _vector_backend_is_empty(mode, listing_root, meta_path)
     if db_path is not None and not db_path.is_file():
         return True
     if not meta_path.is_file():
         return True
+    # Corrupt or non-object meta with a live DB is not "empty". Treating it as
+    # empty selects a cold rebuild and deletes the corpus. #1153 covered JSON
+    # decode errors; a JSON list or string took the chunk_count-0 path.
+    if _load_meta_object(meta_path) is None and db_path is not None and db_path.is_file():
+        return False
     return chunk_count_from_meta(meta_path) <= 0
 
 
@@ -317,19 +387,35 @@ def clear_folder_cache(listing_root: str) -> None:
     _remove_path(base / "zvec")
     _remove_path(base / "lancedb")
 
+    try:
+        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+
+        zvec_clear_cache(str(base / "zvec"))
+    except ImportError:
+        pass
+
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
     """On first access after upgrade, drop stale v1/v2 stores."""
     meta = corpus_meta_path(listing_root, create_parent=False)
-    if schema_matches(meta):
+    data = _load_meta_object(meta)
+    if data is None:
+        # Missing, corrupt, or non-object JSON. Do not nuke the corpus, and
+        # do not call .get on a list.
+        return
+    if str(data.get("schema_version", "")) == SCHEMA_VERSION:
         remove_stale_corpus_stores(listing_root)
         return
     clear_folder_cache(listing_root)
 
 
-def resolve_index_context(ctx: Any, model: Any) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
+_USE_DEFAULT = object()
+
+
+def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: Any = _USE_DEFAULT) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
     """Return (folder_key, corpus_db_path, corpus_meta_path, listing_root) or error tuple."""
-    listing_root = resolve_folder_for_active_doc(ctx, model)
+    if listing_root is _USE_DEFAULT:
+        listing_root = resolve_folder_for_active_doc(ctx, model)
     if not listing_root:
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
@@ -342,10 +428,28 @@ def resolve_index_context(ctx: Any, model: Any) -> tuple[str, Path, Path, str] |
 def needs_cold_rebuild(meta_path: Path, embedding_model: str) -> bool:
     if not meta_path.is_file():
         return True
+    if _load_meta_object(meta_path) is None:
+        # Corrupt or non-object meta should not trigger a cold rebuild (which wipes the DB).
+        return False
     if not schema_matches(meta_path):
         return True
     if chunk_count_from_meta(meta_path) == 0:
         return True
-    # Model mismatch does not require a cold rebuild of the DB anymore;
-    # missing vectors will be aligned incrementally.
-    return False
+    # A different embedding model must cold-rebuild. The same-model alignment
+    # pass fills vec gaps for the current model only. It is not a dimension
+    # migration: staying incremental would point meta at a vec table that is
+    # empty, partial, or still the previous dimension.
+    return not model_matches_index(meta_path, embedding_model)
+
+
+def query_blocked_for_model(meta_path: Path, embedding_model: str) -> bool:
+    """True when a vector query would hit a stale or wrong-dimension index.
+
+    Missing meta is not blocked here (``index_is_empty`` covers that and
+    enqueues a first build). A different embedding model must cold-rebuild
+    before search: querying now reads an empty, partial, or wrong-dim vec
+    table and reports it as a normal result.
+    """
+    if not meta_path.is_file():
+        return False
+    return needs_cold_rebuild(meta_path, embedding_model)

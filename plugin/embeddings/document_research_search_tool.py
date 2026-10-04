@@ -50,6 +50,9 @@ class SearchEmbeddings(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        checker = getattr(ctx, "stop_checker", None)
+        if callable(checker) and checker() is True:
+            return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
 
@@ -69,27 +72,31 @@ class SearchEmbeddings(ToolBase):
         except (TypeError, ValueError):
             k = _DEFAULT_SEARCH_K
 
-        def _run() -> dict[str, Any]:
-            from plugin.embeddings.embeddings_cache import (
-                index_is_empty,
-                resolve_index_context,
-                zvec_collection_looks_populated,
-                zvec_collection_path,
-                lancedb_collection_looks_populated,
-                lancedb_collection_path,
+        from plugin.embeddings.embeddings_cache import (
+            index_is_empty,
+            query_blocked_for_model,
+            resolve_index_context,
+            zvec_collection_looks_populated,
+            zvec_collection_path,
+            lancedb_collection_looks_populated,
+            lancedb_collection_path,
+        )
+        from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
+        from plugin.embeddings.embedding_client import get_embedding_model
+        from plugin.embeddings.embeddings_service import knn_search
+        from plugin.framework.config import get_config
+
+        def _resolve_uno_context() -> str | None:
+            from plugin.doc.document_research import resolve_listing_directory
+            return resolve_listing_directory(ctx.ctx, ctx.doc)
+
+        def _resolve_context(resolved_listing_root: str | None) -> dict[str, Any]:
+            folder_key, db_path, meta_path, listing_root = resolve_index_context(
+                ctx.ctx, ctx.doc, listing_root=resolved_listing_root
             )
-            from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
-            from plugin.framework.client.embedding_client import get_embedding_model
-            from plugin.framework.client.embeddings_service import knn_search
-            from plugin.framework.config import get_config
-
-            folder_key, db_path, meta_path, listing_root = resolve_index_context(ctx.ctx, ctx.doc)
             if folder_key is None or db_path is None or meta_path is None:
-                # When resolve fails it returns error string in 4th
-                resolve_err = listing_root or "No folder context"
-                return {"status": "error", "message": resolve_err}
+                return {"error": listing_root or "No folder context"}
 
-            # Mode-aware empty check so zvec/lancedb work side-by-side without sqlite corpus
             mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
             looks_empty = False
             if mode == "zvec":
@@ -101,49 +108,76 @@ class SearchEmbeddings(ToolBase):
             else:
                 looks_empty = index_is_empty(meta_path, db_path)
 
+            # A model change must not knn-search the previous vec table. That
+            # table is empty, partial, or the wrong dimension until cold rebuild.
+            if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
+                looks_empty = True
+
             if looks_empty:
                 ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
-                return {
-                    "status": "indexing",
-                    "hits": [],
-                    "folder_key": folder_key,
-                    "stale": True,
-                    "message": "Folder index is building in the background. Retry search_embeddings shortly.",
-                }
+                return {"empty": True, "folder_key": folder_key}
 
-            model = get_embedding_model()
-            # For zvec/lancedb mode, pass the corresponding collection path string in the 'db_path' slot;
-            # the backend in the venv treats the path as its collection root.
-            search_path: str
             if mode == "zvec":
                 search_path = str(zvec_collection_path(listing_root, create_parent=True))
             elif mode == "lancedb":
                 search_path = str(lancedb_collection_path(listing_root, create_parent=True))
             else:
                 search_path = str(db_path)
-            try:
-                result = knn_search(
-                    ctx.ctx,
-                    search_path,
-                    str(query),
-                    k,
-                    model=model,
-                )
-            except Exception as exc:
-                log.exception("search_embeddings failed")
-                return self._tool_error(str(exc), code="EMBEDDING_SEARCH_ERROR")
 
-            hits = result.get("hits") or []
-            ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
-            return {
-                "status": "ok",
-                "hits": hits,
-                "folder_key": folder_key,
-                "stale": False,
-            }
+            return {"search_path": search_path, "folder_key": folder_key}
 
         from plugin.framework.thread_guard import on_main_thread
 
         if on_main_thread():
-            return _run()
-        return execute_on_main_thread(_run)
+            resolved_listing_root = _resolve_uno_context()
+        else:
+            resolved_listing_root = execute_on_main_thread(_resolve_uno_context)
+
+        context_result = _resolve_context(resolved_listing_root)
+
+        if "error" in context_result:
+            return {"status": "error", "message": context_result["error"]}
+
+        if context_result.get("empty"):
+            return {
+                "status": "indexing",
+                "hits": [],
+                "folder_key": context_result["folder_key"],
+                "stale": True,
+                "message": "Folder index is building in the background. Retry search_embeddings shortly.",
+            }
+
+        search_path = context_result["search_path"]
+        model = get_embedding_model()
+
+        try:
+            result = knn_search(
+                ctx.ctx,
+                search_path,
+                str(query),
+                k,
+                model=model,
+                stop_checker=ctx.stop_checker,
+                cancellation_scope=ctx.send_cancellation,
+            )
+            if result.get("error"):
+                return self._tool_error(result["error"], code="EMBEDDING_SEARCH_ERROR")
+        except Exception as exc:
+            log.exception("search_embeddings failed")
+            return self._tool_error(str(exc), code="EMBEDDING_SEARCH_ERROR")
+
+        def _wakeup() -> None:
+            ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
+
+        if on_main_thread():
+            _wakeup()
+        else:
+            execute_on_main_thread(_wakeup)
+
+        hits = result.get("hits") or []
+        return {
+            "status": "ok",
+            "hits": hits,
+            "folder_key": context_result["folder_key"],
+            "stale": False,
+        }

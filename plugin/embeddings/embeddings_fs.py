@@ -74,7 +74,7 @@ def _normalize_path(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
 
 
-def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]]:
+def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]] | None:
     """Read locale-tagged runs per paragraph from Writer ODF on disk."""
     from plugin.embeddings.embeddings_locale import extract_odf_paragraph_runs
 
@@ -84,12 +84,15 @@ def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextR
     return extract_odf_paragraph_runs(path)
 
 
-def extract_writer_paragraphs(path: str) -> list[str]:
+def extract_writer_paragraphs(path: str) -> list[str] | None:
     """Read body paragraph text from a Writer .odt/.ott (zip) or .fodt (flat XML)."""
-    return [passage for passage, _runs in extract_writer_paragraph_runs(path) if passage.strip()]
+    runs = extract_writer_paragraph_runs(path)
+    if runs is None:
+        return None
+    return [passage for passage, _runs in runs if passage.strip()]
 
 
-def _extract_foreign_passages(path: str, ext: str) -> list[str]:
+def _extract_foreign_passages(path: str, ext: str) -> list[str] | None:
     from plugin.embeddings.venv import embeddings_ooxml_extract as ooxml
 
     if ext == ".docx":
@@ -107,7 +110,7 @@ def _extract_foreign_passages(path: str, ext: str) -> list[str]:
     return []
 
 
-def _extract_legacy_via_soffice(path: str, ext: str) -> list[str]:
+def _extract_legacy_via_soffice(path: str, ext: str) -> list[str] | None:
     from plugin.embeddings.embeddings_soffice_convert import LEGACY_BINARY_EXTENSIONS, temporary_converted_odf
 
     if ext not in LEGACY_BINARY_EXTENSIONS:
@@ -118,7 +121,7 @@ def _extract_legacy_via_soffice(path: str, ext: str) -> list[str]:
         return extract_indexable_passages(str(converted))
 
 
-def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]]:
+def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]] | None:
     """Extract indexable passages with locale runs for prose chunking."""
     from plugin.embeddings.embeddings_locale import extract_docx_paragraph_runs, locale_runs_for_plain_passage, resolve_document_locale_bcp47
 
@@ -129,6 +132,8 @@ def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleText
         return extract_docx_paragraph_runs(path)
     if ext in {".txt", ".rtf", ".md"}:
         passages = extract_indexable_passages(path)
+        if passages is None:
+            return None
         doc_default = resolve_document_locale_bcp47(path, body_sample="\n".join(passages[:20]))
         return [(passage, locale_runs_for_plain_passage(passage, doc_default)) for passage in passages if passage.strip()]
     if ext == ".doc":
@@ -137,12 +142,12 @@ def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleText
 
         with temporary_converted_odf(path) as converted:
             if converted is None:
-                return []
+                return None
             return extract_odf_paragraph_runs(str(converted))
     return []
 
 
-def extract_indexable_passages(path: str) -> list[str]:
+def extract_indexable_passages(path: str) -> list[str] | None:
     """Extract indexable passage text from ODF, Microsoft Office, or plain-text files on disk."""
     ext = os.path.splitext(path)[1].lower()
     if ext in WRITER_EXTENSIONS:
@@ -157,6 +162,10 @@ def extract_indexable_passages(path: str) -> list[str]:
         return extract_draw_pages(path)
     if ext in FOREIGN_EXTENSIONS:
         passages = _extract_foreign_passages(path, ext)
+        # None is a failed extract (missing pandas/engine). An empty list is a
+        # real empty workbook and may fall through to legacy conversion.
+        if passages is None:
+            return None
         if passages:
             return passages
         return _extract_legacy_via_soffice(path, ext)
@@ -207,7 +216,7 @@ def indexable_chunks_from_path(
     *,
     doc_url: str | None = None,
     file_mtime: float | None = None,
-) -> tuple[int, list[ParagraphChunk]]:
+) -> tuple[int, list[ParagraphChunk] | None]:
     """Extract native passages, split to embed chunks; return (passage_count, chunk_rows)."""
     from plugin.embeddings.embeddings_locale import resolve_document_locale_bcp47
     from plugin.embeddings.embeddings_split import split_passage_locale_runs_to_chunk_meta, split_passage_to_chunk_meta
@@ -223,11 +232,15 @@ def indexable_chunks_from_path(
     doc_default: str | None = None
     if prose:
         sample_passages = extract_indexable_passages(norm)
+        if sample_passages is None:
+            return 0, None
         doc_default = resolve_document_locale_bcp47(norm, body_sample="\n".join(sample_passages[:20]))
 
     chunks: list[ParagraphChunk] = []
     if prose:
         passage_runs = extract_indexable_passage_runs(norm)
+        if passage_runs is None:
+            return 0, None
         for para_index, (passage, runs) in enumerate(passage_runs):
             if not passage.strip():
                 continue
@@ -261,7 +274,10 @@ def indexable_chunks_from_path(
                 )
         return len(passage_runs), chunks
 
-    passages = [text.strip() for text in extract_indexable_passages(norm) if text.strip()]
+    extracted = extract_indexable_passages(norm)
+    if extracted is None:
+        return 0, None
+    passages = [text.strip() for text in extracted if text.strip()]
     for para_index, passage in enumerate(passages):
         base_meta = {
             "doc_url": url,
@@ -287,8 +303,12 @@ def indexable_chunks_from_path(
     return len(passages), chunks
 
 
-def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mtime: float | None = None) -> list[ParagraphChunk]:
-    """Build embed-sized chunk rows from one supported document on disk."""
+def paragraph_chunks_from_path(path: str, *, doc_url: str | None = None, file_mtime: float | None = None) -> list[ParagraphChunk] | None:
+    """Build embed-sized chunk rows from one supported document on disk.
+
+    Returns None when extraction fails. An empty list is a successful extract
+    with nothing to index.
+    """
     _passage_count, chunks = indexable_chunks_from_path(path, doc_url=doc_url, file_mtime=file_mtime)
     del _passage_count
     return chunks

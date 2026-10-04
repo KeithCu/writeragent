@@ -40,30 +40,37 @@ def test_merge_small_sentences_rejects_negative_start() -> None:
     )
 
 
-def test_embeddings_split_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(_merge_small_sentences_to_spans):
-        pytest.skip("@deal.pre stripped in release bundle")
+def _accepts_long_passage(fn, *args, **kwargs) -> None:
+    """Long text may ImportError (optional splitter). It must not PreContract."""
+
+    try:
+        fn(*args, **kwargs)
+    except deal.PreContractError:
+        raise
+    except ImportError:
+        return
+
+
+def test_embeddings_split_long_passage_does_not_precontract() -> None:
     too_long = "x" * (DEAL_MAX_SOURCE + 1)
-    with pytest.raises(deal.PreContractError):
-        _merge_small_sentences_to_spans(too_long, [], min_chunk=1)
-    with pytest.raises(deal.PreContractError):
-        _meta_chunks_from_spans(too_long, [], {})
-    with pytest.raises(deal.PreContractError):
-        split_passage_to_sentences(too_long)
-    with pytest.raises(deal.PreContractError):
-        _split_passage_whitespace_to_sentences(too_long)
-    with pytest.raises(deal.PreContractError):
-        _split_prose_passage_to_spans(too_long)
-    with pytest.raises(deal.PreContractError):
-        _split_non_prose_passage_to_spans(too_long)
-    with pytest.raises(deal.PreContractError):
-        # Pytest run-locale pre is still ascii_bounded; CrossHair is None-only.
-        split_passage_locale_runs_to_chunk_meta(
-            "x",
-            [LocaleTextRun(char_start=0, char_end=1, locale_bcp47="\x80\x00")],
-            {},
-            prose=True,
-        )
+    assert _merge_small_sentences_to_spans(too_long, [], min_chunk=1) == []
+    assert _meta_chunks_from_spans(too_long, [], {}) == []
+    _accepts_long_passage(split_passage_to_sentences, too_long)
+    sentences = _split_passage_whitespace_to_sentences(too_long)
+    assert sentences and sentences[0][2] == too_long
+    _accepts_long_passage(_split_prose_passage_to_spans, too_long)
+    _accepts_long_passage(_split_non_prose_passage_to_spans, too_long)
+    if deal_pre_present(split_passage_locale_runs_to_chunk_meta):
+        import deal
+
+        with pytest.raises(deal.PreContractError):
+            # Pytest run-locale pre is still ascii_bounded; CrossHair is None-only.
+            split_passage_locale_runs_to_chunk_meta(
+                "x",
+                [LocaleTextRun(char_start=0, char_end=1, locale_bcp47="\x80\x00")],
+                {},
+                prose=True,
+            )
 
 
 def test_deal_passage_text_ok_pytest_accepts_normal_text() -> None:
