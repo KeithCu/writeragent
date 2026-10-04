@@ -203,7 +203,11 @@ def insert_image_payload_for_doc(
     if is_calc(doc):
         from plugin.calc.python.image_egress import insert_image_result_on_sheet
 
-        insert_image_result_on_sheet(ctx, payload)
+        # What was wrong: the chart was written to desktop.getCurrentComponent()
+        # while the script had read *doc*. How: this call omitted doc=, so
+        # image egress fell back to the front window (MCP document_url, or a
+        # second open workbook). Why: pass the same document =PY() already passes.
+        insert_image_result_on_sheet(ctx, payload, doc=doc)
         return
     if is_writer(doc):
         from plugin.writer.images.image_tools import insert_image_at_locator

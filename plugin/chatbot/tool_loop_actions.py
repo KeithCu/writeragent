@@ -34,11 +34,14 @@ from plugin.framework.html_stripper import StreamingHTMLStripper
 from plugin.framework.config import get_config_bool, get_current_endpoint
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, is_tool_document_disposed
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import capture_send_stop, execute_on_main_thread
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
+
+# Direct execute_fn callers omit the spawn capture. Workers always pass the scope.
+_SEND_SCOPE_UNSET = object()
 
 
 # Stop writes this as an ordinary assistant row. It is not matched by text
@@ -455,6 +458,7 @@ def build_tool_execute_fn(
         captured_turn: Any = None,
         captured_q: Any = None,
         captured_call_id: str | None = None,
+        send_cancellation: Any = _SEND_SCOPE_UNSET,
     ) -> str:
         from plugin.main import get_tools as _get_tools
 
@@ -526,6 +530,8 @@ def build_tool_execute_fn(
 
                         if not put_for_turn(host, emit_turn, q, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
                             return (False, None)
+                        # Workers pass the checker captured at spawn. Direct
+                        # callers (tests) omit it and still run on that thread.
                         checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
                         # event.wait() ignored Stop. Sidebar close latches the
                         # checker and never sets the event, so this worker parked.
@@ -562,7 +568,12 @@ def build_tool_execute_fn(
             except Exception:
                 log.debug("execute_fn: failed to get active page index for %s", doc_type_str)
 
-        cancel_scope = getattr(host, "_send_cancellation", None)
+        # What was wrong: this read host._send_cancellation when the tool
+        # ran. Stop had cleared the field and the next send had stored a
+        # new scope, so this call registered on the next send.
+        # Why: the spawn passes the scope it captured. Omitted means a
+        # direct caller, not a delayed worker, and there is no scope.
+        cancel_scope = None if send_cancellation is _SEND_SCOPE_UNSET else send_cancellation
 
         tctx = ToolContext(
             doc=doc,
@@ -582,8 +593,20 @@ def build_tool_execute_fn(
             send_cancellation=cancel_scope,
             uno_services_supported=getattr(host, "cached_uno_services", None),
         )
+        # What was wrong: safe_args is the model/peer JSON object, and
+        # ToolRegistry.execute binds keyword-only bypass_thread_guard from
+        # **safe_args before without_unknown_kwargs runs. A true value
+        # skipped execute_safe (no main-thread assert, no disposed-document
+        # probe) and ran the tool on the tool-sync worker.
+        # How: this spread the raw dict. MCP already pops the key and passes
+        # bypass_thread_guard=False. Why: copy so the stored tool-call dict
+        # stays intact, drop the key, and pass False. A chat argument must
+        # not set the eval-harness switch.
+        call_args = safe_args
+        if "bypass_thread_guard" in call_args:
+            call_args = {key: value for key, value in call_args.items() if key != "bypass_thread_guard"}
         try:
-            res = _get_tools().execute(name, tctx, **safe_args)
+            res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
             # What was wrong: execute_safe turns a disposed document into a
             # DOCUMENT_DISPOSED dict. This returned JSON, the worker queued
             # TOOL_DONE, and the loop kept going on a dead document. The
@@ -771,7 +794,9 @@ class ToolLoopEffectInterpreter:
         # disposed-document check.
         spawn_doc = model
         supports_status = host._active_supports_status
-        bound_stop = host.resolve_stop_checker()
+        # Scope and checker from this send. execute_fn must not read the
+        # panel field when the tool later runs.
+        bound_scope, bound_stop = capture_send_stop(host)
 
         image_model_override = host.image_model_selector.getText() if host.image_model_selector else None
         if image_model_override and func_name == "image_generate":
@@ -794,6 +819,7 @@ class ToolLoopEffectInterpreter:
 
                 call_kwargs: dict[str, Any] = {
                     "stop_checker": bound_stop,
+                    "send_cancellation": bound_scope,
                     "captured_turn": turn,
                     "captured_q": worker_q,
                     "captured_call_id": call_id,

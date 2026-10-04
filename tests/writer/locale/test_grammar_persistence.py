@@ -446,6 +446,94 @@ class TestGrammarPersistence:
         # The struct creation returns a mock, so we can verify properties weren't None.
         assert args[1] is not None
 
+    def test_apply_language_change_zero_offset_is_paragraph_start(self) -> None:
+        """start_pos 0 is the first sentence, not findNext from the caret."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        ctrl = MagicMock()
+        view_cursor = MagicMock()
+        view_start = MagicMock()
+        text_obj = MagicMock()
+        doc_cursor = MagicMock()
+
+        gp.grammar_registry.doc_persistence_instances["test-doc-zero"] = gp.DocumentPersistence(ctx, "test-doc-zero", model=model)
+        try:
+            model.getCurrentController.return_value = ctrl
+            ctrl.getViewCursor.return_value = view_cursor
+            view_cursor.getStart.return_value = view_start
+            model.getText.return_value = text_obj
+            text_obj.createTextCursorByRange.return_value = doc_cursor
+            doc_cursor.gotoStartOfParagraph = MagicMock(return_value=True)
+            doc_cursor.goRight = MagicMock(return_value=True)
+            doc_cursor.getString.return_value = "Hola."
+
+            gp.apply_language_change(ctx, "test-doc-zero", "Hola.", "es-ES", start_pos=0)
+
+            text_obj.createTextCursorByRange.assert_called_once_with(view_start)
+            doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
+            doc_cursor.goRight.assert_called_once_with(5, True)
+            doc_cursor.setPropertyValue.assert_called_once()
+            assert doc_cursor.setPropertyValue.call_args.args[0] == "CharLocale"
+            model.findNext.assert_not_called()
+        finally:
+            gp.grammar_registry.doc_persistence_instances.pop("test-doc-zero", None)
+
+    def test_apply_language_change_zero_offset_skips_caret_search_on_mismatch(self) -> None:
+        """A miss at paragraph start must not retag whatever follows the caret."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        model = MagicMock()
+        ctrl = MagicMock()
+        view_cursor = MagicMock()
+        view_start = MagicMock(name="view_start")
+        doc_start = MagicMock(name="doc_start")
+        text_obj = MagicMock()
+        doc_cursor = MagicMock()
+
+        gp.grammar_registry.doc_persistence_instances["test-doc-miss"] = gp.DocumentPersistence(ctx, "test-doc-miss", model=model)
+        try:
+            model.getCurrentController.return_value = ctrl
+            ctrl.getViewCursor.return_value = view_cursor
+            view_cursor.getStart.return_value = view_start
+            model.getText.return_value = text_obj
+            text_obj.getStart.return_value = doc_start
+            text_obj.createTextCursorByRange.return_value = doc_cursor
+            doc_cursor.gotoStartOfParagraph = MagicMock(return_value=True)
+            doc_cursor.goRight = MagicMock(return_value=True)
+            doc_cursor.getString.return_value = "Other."
+
+            gp.apply_language_change(ctx, "test-doc-miss", "Hola.", "es-ES", start_pos=0)
+
+            searched_from = [call.args[0] for call in model.findNext.call_args_list if call.args]
+            assert view_start not in searched_from
+            doc_cursor.setPropertyValue.assert_not_called()
+        finally:
+            gp.grammar_registry.doc_persistence_instances.pop("test-doc-miss", None)
+
+    def test_second_bind_does_not_replace_model_or_reload(self) -> None:
+        """A later model= must not swap the Writer or read udprops over live edits."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        first = MagicMock()
+        second = MagicMock()
+        gp.grammar_registry.clear_all(ctx)
+        try:
+            with patch("plugin.doc.udprops.get_document_property", return_value=None) as mock_get:
+                dp = gp.get_persistence(ctx, "2", model=first)
+                assert dp is not None
+                assert dp._model is first
+                loads = mock_get.call_count
+                again = gp.get_persistence(ctx, "2", model=second)
+                assert again is dp
+                assert dp._model is first
+                assert mock_get.call_count == loads
+        finally:
+            gp.clear_all_document_persistence(ctx)
+
     def test_unknown_cache_version_clears(self) -> None:
         from plugin.writer.locale import grammar_persistence as gp
 

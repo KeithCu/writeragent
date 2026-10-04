@@ -1590,3 +1590,164 @@ def test_agent_backend_drops_output_after_abort():
     assert panel.status_history == []
     assert not any("late-agent" in text for text in panel.responses)
     assert panel.session.stored == []
+
+
+def _arm_spawn_scope(panel):
+    """Bind resolve_stop_checker to the scope object, and record each call."""
+    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+
+    old = SendCancellation()
+    panel._send_cancellation = old
+    calls = []
+
+    def resolve():
+        scope = panel._send_cancellation
+        calls.append(scope)
+        return bind_send_stop_checker(scope, lambda: False)
+
+    panel.resolve_stop_checker = resolve
+    return old, calls
+
+
+def _swap_scope_and_run(panel, old, calls, worker_fn):
+    """Cancel the spawn scope, point the panel at the next send, then run the body."""
+    from plugin.framework.queue_executor import SendCancellation
+
+    new = SendCancellation()
+    old.cancel()
+    panel._send_cancellation = new
+
+    def boom():
+        calls.append(panel._send_cancellation)
+        raise AssertionError("resolve_stop_checker inside worker")
+
+    panel.resolve_stop_checker = boom
+    worker_fn()
+    return new
+
+
+def test_run_search_keeps_spawn_scope_after_next_send():
+    """A late run_search body must not bind the send that replaced the panel field."""
+    from plugin.framework.queue_executor import bind_send_stop_checker
+
+    panel = DummyChatbotPanel()
+    panel.session.messages = []
+    old, calls = _arm_spawn_scope(panel)
+    state = SendHandlerState(handler_type="web", status="starting")
+    interpreter = EffectInterpreter(panel)
+    seen = {}
+    captured = {}
+
+    def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
+        seen["scope"] = tctx.send_cancellation
+        seen["checker"] = tctx.stop_checker
+        return {"status": "error", "message": "stop-here"}
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry.execute.side_effect = execute
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+
+    def run_worker(_q, worker_fn, *_args, **_kwargs):
+        captured["fn"] = worker_fn
+
+    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+        with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
+            with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
+                panel._execute_web_research_effect("query", MagicMock(), state, interpreter)
+                assert calls == [old]
+                new = _swap_scope_and_run(panel, old, calls, captured["fn"])
+
+    assert calls == [old]
+    assert seen["scope"] is old
+    assert seen["checker"]() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False
+
+
+def test_direct_image_keeps_spawn_scope_after_next_send():
+    from plugin.framework.queue_executor import bind_send_stop_checker
+
+    panel = DummyChatbotPanel()
+    old, calls = _arm_spawn_scope(panel)
+    state = SendHandlerState(handler_type="image", status="starting")
+    interpreter = EffectInterpreter(panel)
+    seen = {}
+    captured = {}
+
+    def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
+        seen["scope"] = tctx.send_cancellation
+        seen["checker"] = tctx.stop_checker
+        return {"status": "done", "message": "ok"}
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry.execute.side_effect = execute
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+
+    def run_worker(_q, worker_fn, *_args, **_kwargs):
+        captured["fn"] = worker_fn
+
+    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+        with patch("plugin.chatbot.send_handlers.update_lru_history"):
+            with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
+                panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)
+                assert calls == [old]
+                new = _swap_scope_and_run(panel, old, calls, captured["fn"])
+
+    assert calls == [old]
+    assert seen["scope"] is old
+    assert seen["checker"]() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False
+
+
+def test_agent_worker_keeps_spawn_checker_after_next_send():
+    from plugin.framework.queue_executor import bind_send_stop_checker
+
+    panel = DummyChatbotPanel()
+    panel.session.messages = []
+    panel.session.document_context = "doc"
+    panel._get_mcp_url = MagicMock(return_value=None)
+    old, calls = _arm_spawn_scope(panel)
+    state = SendHandlerState(handler_type="agent", status="starting")
+    interpreter = EffectInterpreter(panel)
+    model = MagicMock()
+    model.getURL.return_value = "file:///tmp/doc.odt"
+    seen = {}
+    captured = {}
+
+    adapter = MagicMock()
+    adapter.is_available.return_value = True
+
+    def send(**kwargs):
+        seen["checker"] = kwargs["stop_checker"]
+
+    adapter.send.side_effect = send
+
+    def cfg(key, *_args, **_kwargs):
+        if key == "agent_backend.backend_id":
+            return "hermes"
+        if key == "additional_instructions":
+            return ""
+        if key == "mcp.mcp_enabled":
+            return False
+        return None
+
+    def run_worker(_q, worker_fn, *_args, **_kwargs):
+        captured["fn"] = worker_fn
+
+    with (
+        patch("plugin.chatbot.send_handlers.get_config", side_effect=cfg),
+        patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
+        patch("plugin.chatbot.send_handlers.get_core_directives_for_type", return_value=""),
+        patch("plugin.chatbot.send_handlers.full_manual", return_value=""),
+        patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker),
+    ):
+        panel._execute_agent_backend_effect("hi", model, "writer", state, interpreter)
+        assert calls == [old]
+        new = _swap_scope_and_run(panel, old, calls, captured["fn"])
+
+    assert calls == [old]
+    assert seen["checker"]() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False

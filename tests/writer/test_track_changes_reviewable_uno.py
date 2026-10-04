@@ -21,7 +21,12 @@ from plugin.tests.testing_utils import (
     skip_windows_leftover_hidden_load,
     with_native_doc,
 )
-from plugin.writer.edit_review import WriterStreamedRewriteSession, WriterStreamedAppendSession
+from plugin.writer.edit_review import (
+    TRACKED_SELECTION_MESSAGE,
+    TrackedChangesInSelection,
+    WriterStreamedAppendSession,
+    WriterStreamedRewriteSession,
+)
 from plugin.writer.content import ApplyDocumentContent
 import plugin.writer.edit_review as _content
 from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_mode
@@ -727,40 +732,61 @@ def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
         set_config("doc.edit_review_timeout", prev_timeout)
         _reject_all(doc, ctx)
 
+
 @native_test
 @with_native_doc("writer")
-def test_streamed_rewrite_preserves_tracked_deletions_uno(ctx, doc):
-    """A streamed rewrite over a range containing an existing tracked deletion must NOT permanently wipe it out if aborted.
-    Selection edits destroy tracked deletions inside the range so abort loses user data."""
+def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
+    """A streamed rewrite over a tracked deletion raises and leaves that redline alone.
+
+    What was wrong: the session used to turn RecordChanges off and setString the
+    range before the model returned. That write accepts a tracked deletion, so
+    abort_and_restore could not put the redline back. WriterStreamedRewriteSession
+    now raises TrackedChangesInSelection in __init__, before the undo context,
+    before RecordChanges changes, and before setString.
+    """
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+
     _reset(doc, ctx, "Original text with some words to delete.")
 
-    # Create an initial tracked deletion
+    # "Original text " is 14 characters; the next 10 are the tracked deletion "with some ".
     doc.setPropertyValue("RecordChanges", True)
     rng = doc.getText().createTextCursor()
     rng.gotoStart(False)
     rng.goRight(14, False)
-    rng.goRight(10, True) # Select "with some "
+    rng.goRight(10, True)
     rng.setString("")
     doc.setPropertyValue("RecordChanges", False)
 
-    # Verify we have a redline
-    assert len(_redlines(doc)) == 1
+    # getString() keeps the deleted characters. The accept-view used by Edit Selection does not.
+    raw = _para_text(doc)
+    assert raw == "Original text with some words to delete.", raw
+    before_redlines = _redlines(doc)
+    assert len(before_redlines) == 1, before_redlines
+    assert before_redlines[0]["type"] == "Delete", before_redlines
+    before_recording = bool(doc.getPropertyValue("RecordChanges"))
+    assert before_recording is False
 
-    # Select the whole paragraph
     rng.gotoStart(False)
     rng.gotoEndOfParagraph(True)
+    visible = get_string_without_tracked_deletions(rng)
+    assert visible == "Original text words to delete.", visible
 
-    # The original_text should be passed without the deleted text to mimic how editselection.py uses get_string_without_tracked_deletions
-    from plugin.doc.text_helpers import get_string_without_tracked_deletions
-    original_text = get_string_without_tracked_deletions(rng)
+    undo = doc.getUndoManager()
+    try:
+        before_in_context = bool(undo.isInContext())
+    except Exception:
+        before_in_context = None
 
-    # Simulate a stream rewrite that is aborted
-    session = WriterStreamedRewriteSession(doc, rng, original_text, track_reviewable=True)
-    session.append_chunk("Trying to ")
-    session.append_chunk("overwrite.")
+    try:
+        WriterStreamedRewriteSession(doc, rng, visible, track_reviewable=True)
+    except TrackedChangesInSelection as exc:
+        assert str(exc) == TRACKED_SELECTION_MESSAGE
+    else:
+        raise AssertionError("rewrite over a tracked deletion must refuse before writing")
 
-    # Abort it
-    session.abort_and_restore()
-
-    # The original redline must still exist!
-    assert len(_redlines(doc)) == 1, "The tracked deletion must be preserved after abort!"
+    assert _para_text(doc) == raw, "the refused rewrite must not accept or clear the deletion"
+    assert _redlines(doc) == before_redlines, "the existing Delete redline must be untouched"
+    assert bool(doc.getPropertyValue("RecordChanges")) is before_recording
+    assert get_string_without_tracked_deletions(rng) == visible
+    if before_in_context is not None:
+        assert bool(undo.isInContext()) is before_in_context, "refuse must not open an undo context"

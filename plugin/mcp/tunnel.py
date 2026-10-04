@@ -224,6 +224,70 @@ def _tailscale_reset() -> None:
             log.debug("Tailscale reset failed: %s", " ".join(cmd), exc_info=True)
 
 
+# Written next to writeragent.json when we spawn `tailscale funnel`. Survives
+# a process kill so the next STOPPED stop() can reset tailscaled. Not written
+# under pytest (that would touch a real LibreOffice profile).
+_TAILSCALE_ARM_FILENAME = "writeragent-tailscale-funnel-armed"
+
+
+def _tailscale_arm_path() -> str | None:
+    """Marker path, or None when the marker must not be read or written.
+
+    init_config() is not called here. It needs a UNO context. Only a path
+    already resolved at bootstrap is used. PYTEST_CURRENT_TEST forces None
+    so a test that initialized config cannot create the marker in the user's
+    profile; tests that need the file monkeypatch this function.
+    """
+    import os
+
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return None
+    try:
+        from plugin.framework import config as config_mod
+
+        config_path = getattr(config_mod, "_resolved_config_path", None)
+    except Exception:
+        return None
+    if not config_path:
+        return None
+    return os.path.join(os.path.dirname(str(config_path)), _TAILSCALE_ARM_FILENAME)
+
+
+def _tailscale_arm_file_exists() -> bool:
+    import os
+
+    path = _tailscale_arm_path()
+    # bool(path) does not narrow str | None for mypy, so isfile saw str | None.
+    if not path:
+        return False
+    return os.path.isfile(path)
+
+
+def _write_tailscale_arm() -> None:
+    path = _tailscale_arm_path()
+    if not path:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("armed\n")
+    except OSError:
+        log.exception("Could not record Tailscale Funnel arm marker")
+
+
+def _clear_tailscale_arm() -> None:
+    import os
+
+    path = _tailscale_arm_path()
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        log.exception("Could not clear Tailscale Funnel arm marker")
+
+
 # label used in status toasts; version_args / install_url for binary check.
 PROVIDERS: dict[str, dict[str, Any]] = {
     "cloudflare": {
@@ -297,6 +361,9 @@ class TunnelManager:
     """Owns a single tunnel subprocess for the selected provider with pure FSM state."""
 
     _lock: threading.RLock
+    # Serializes Tailscale reset (pre_start and post_stop) against each other.
+    # Not the manager lock: holding that across the ~10s CLI froze stop().
+    _provider_cfg_lock: threading.Lock
     # Bumped by start() and stop(). A binary probe captured the value it
     # began with; if it differs when the probe finishes, that result is stale.
     _start_epoch: int
@@ -306,15 +373,29 @@ class TunnelManager:
     # Identity of the start _sync_tunnel armed. stop() clears it so a
     # start that was only queued cannot run after a disable.
     _pending_start: object | None
+    # Bumped when a provider whose post_stop would wipe its own public
+    # config is about to start. A background reset captured the old value.
+    _tunnel_generation: int
+    # True after this process has scheduled a Tailscale reset. An idle
+    # stop() in the same process must not reset again. A new process starts
+    # false, so a crash marker is still honored.
+    _tailscale_reset_issued: bool
+    # Set by StartProcessEffect when pre_start must run off _lock. Cleared
+    # when _dispatch_unlocked returns it to the caller.
+    _pending_launch: tuple[StartProcessEffect, int, int, Callable[[], None]] | None
 
     def __init__(self) -> None:
         self._state: TunnelState = TunnelState()
         self._process: Optional[AsyncProcess] = None
         self._reconnect_timer: Optional[threading.Timer] = None
         self._lock = threading.RLock()
+        self._provider_cfg_lock = threading.Lock()
         self._start_epoch = 0
         self._binary_probe_epoch = None
         self._pending_start = None
+        self._tunnel_generation = 0
+        self._tailscale_reset_issued = False
+        self._pending_launch = None
 
     @property
     def public_url(self) -> Optional[str]:
@@ -401,14 +482,18 @@ class TunnelManager:
             return None
         return "%s/mcp" % normalize_public_base(base)
 
-    def _dispatch_unlocked(self, event: TunnelEvent) -> None:
+    def _dispatch_unlocked(self, event: TunnelEvent) -> tuple[StartProcessEffect, int, int, Callable[[], None]] | None:
         previous_provider = self._state.provider
         previous_url = self._state.public_url
         previous_status = self._state.status
+        self._pending_launch = None
         transition = next_state(self._state, event)
         self._state = transition.state
         self._apply_effects_unlocked(transition.effects, previous_status)
         self._retire_snippet_url_if_not_live(previous_provider, previous_url, previous_status)
+        pending = self._pending_launch
+        self._pending_launch = None
+        return pending
 
     def _retire_snippet_provider(self, provider: str) -> None:
         """Drop the settings snippet cache for *provider* (no tunnel lock needed)."""
@@ -447,6 +532,155 @@ class TunnelManager:
         if provider:
             self._retire_snippet_provider(provider)
 
+    def _schedule_post_stop_unlocked(self, provider: str) -> None:
+        """Run provider post_stop off the manager lock, unless a newer session started.
+
+        The generation is captured now (default arg, not a closure over the
+        loop variable). StartProcessEffect bumps it before spawning a provider
+        whose reset would destroy that new session. The background thread
+        re-checks under _provider_cfg_lock so a reset that already passed the
+        check cannot overlap the next pre_start/spawn: that start waits for
+        the same lock.
+        """
+        info = PROVIDERS.get(provider)
+        post_stop: Optional[Callable[[], None]] = info.get("post_stop") if info else None
+        if not post_stop:
+            return
+        if provider == "tailscale":
+            self._tailscale_reset_issued = True
+        generation = self._tunnel_generation
+        cfg_lock = self._provider_cfg_lock
+
+        def _safe_post_stop(expected: int = generation, fn: Callable[[], None] = post_stop, prov: str = provider) -> None:
+            with cfg_lock:
+                # A newer Tailscale session bumped the generation after this
+                # reset was scheduled. Running it now would clear the Funnel
+                # that session's pre_start is about to (or already did) create.
+                if expected != self._tunnel_generation:
+                    log.info("Ignoring stale MCP tunnel post_stop for %s", prov)
+                    return
+                try:
+                    assert fn is not None
+                    fn()
+                except Exception:
+                    log.exception("Tunnel post_stop failed for %s", prov)
+                    return
+                # Do not clear the crash marker if a newer session started
+                # while the CLI was running. That session owns the marker.
+                if prov == "tailscale" and expected == self._tunnel_generation:
+                    _clear_tailscale_arm()
+
+        from plugin.framework.worker_pool import run_in_background
+
+        run_in_background(_safe_post_stop, name="tunnel-post-stop", dedicated=True)
+
+    def _finish_pending_launch(self, pending: tuple[StartProcessEffect, int, int, Callable[[], None]]) -> None:
+        """Run pre_start without _lock, then spawn if this start is still current.
+
+        Caller must not hold _lock. pre_start takes _provider_cfg_lock so an
+        in-flight post_stop finishes before the reset that precedes spawn.
+        """
+        effect, epoch, generation, pre_start = pending
+        failed = False
+        with self._provider_cfg_lock:
+            if generation != self._tunnel_generation:
+                log.info("Ignoring stale MCP tunnel pre_start for %s", effect.provider)
+                return
+            try:
+                pre_start()
+            except Exception:
+                log.exception("Tunnel pre_start failed for %s", effect.provider)
+                failed = True
+        with self._lock:
+            if self._start_epoch != epoch or self._tunnel_generation != generation:
+                log.info("Ignoring stale MCP tunnel start after pre_start (%s)", effect.provider)
+                return
+            if not self._state.desired_running:
+                return
+            if failed:
+                self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s pre_start failed" % effect.provider, desired_running=False)
+                return
+            self._spawn_process_unlocked(effect)
+
+    def _spawn_process_unlocked(self, effect: StartProcessEffect) -> None:
+        """Start the provider CLI. Caller holds _lock. pre_start has already finished."""
+        provider = effect.provider
+        info = PROVIDERS.get(provider)
+        if not info:
+            self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
+            return
+        parse_line: Callable[[str], Optional[str]] = info["parse_line"]
+        cmd = _build_provider_command(provider, effect.port, effect.provider_token)
+        log.info("Starting MCP tunnel (%s): %s", provider, _redact_cmd_for_log(cmd))
+        # Identity of the process this pair of callbacks belongs to.
+        # Filled in after construction, before start(), so a line or
+        # exit that arrives during start() still sees the owner.
+        spawned: dict[str, Any] = {}
+
+        def _is_current_process() -> bool:
+            proc = spawned.get("proc")
+            return proc is not None and self._process is proc
+
+        def _on_line(line: str) -> None:
+            with self._lock:
+                # A replaced process can still emit a late line. Applying
+                # it would publish the old URL or fail the new tunnel.
+                if not _is_current_process():
+                    return
+                if self._state.public_url:
+                    return
+                auth_err = detect_tunnel_auth_error(provider, line)
+                if auth_err:
+                    log.error("MCP tunnel auth error (%s): %s", provider, auth_err)
+                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": auth_err}))
+                    return
+                url = parse_line(line)
+                if url:
+                    log.info("MCP tunnel URL (%s): %s", provider, url)
+                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.URL_ACQUIRED, {"url": url}))
+
+        def _on_exit(rc: int) -> None:
+            log.info("MCP tunnel process (%s) exited with code %s", provider, rc)
+            with self._lock:
+                # What was wrong: provider/token restart does Terminate
+                # then Start. The old wait thread's _on_exit then ran
+                # unconditionally, set _process = None, and dispatched
+                # PROCESS_EXITED. That forced RECONNECTING and orphaned
+                # the replacement subprocess (and a retry could spawn a
+                # third binary). Why: ignore the exit unless this
+                # callback still owns the process TunnelManager tracks.
+                if not _is_current_process():
+                    log.info("Ignoring stale MCP tunnel exit (%s, code %s)", provider, rc)
+                    return
+                self._process = None
+                self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": rc}))
+
+        # Record the arm before start() returns. A kill in that window still
+        # leaves the marker. If the CLI never starts, clear it in the handlers
+        # below so a failed spawn does not look like a live Funnel.
+        if provider == "tailscale":
+            _write_tailscale_arm()
+        try:
+            from plugin.framework.worker_pool import AsyncProcess
+
+            # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
+            proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS)
+            spawned["proc"] = proc
+            self._process = proc
+            proc.start()
+        except FileNotFoundError:
+            log.exception("%s binary not found", info["version_args"][0])
+            self._process = None
+            if provider == "tailscale":
+                _clear_tailscale_arm()
+            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "%s binary not found on PATH" % info["version_args"][0]}))
+        except Exception:
+            log.exception("Failed to start MCP tunnel (%s)", provider)
+            self._process = None
+            if provider == "tailscale":
+                _clear_tailscale_arm()
+            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "failed to start %s tunnel" % provider}))
+
     def _apply_effects_unlocked(self, effects: list[Any], previous_status: TunnelStatus) -> None:
         for effect in effects:
             if isinstance(effect, CancelRetryTimerEffect):
@@ -471,30 +705,21 @@ class TunnelManager:
                 # provider (no post_stop) and left the Funnel/serve rule up.
                 # Why: the effect carries the provider that owned this process.
                 provider = effect.provider or self._state.provider
-                info = PROVIDERS.get(provider)
-                post_stop = info.get("post_stop") if info else None
                 # What was wrong: post_stop also required a live process.
                 # RECONNECTING and FAILED already cleared _process in
                 # _on_exit, so switching provider or disabling the tunnel
                 # skipped Tailscale funnel/serve reset. That config lives
                 # on tailscaled and kept the public URL pointed at the
-                # local MCP port.
+                # local MCP port. Retry exhaustion now emits this effect
+                # too, with the process already cleared.
                 # Why: reset whenever we leave that provider, including
                 # when the subprocess is already gone. An idle stop that
                 # was already STOPPED must not reset — settings sync calls
                 # stop() again and would wipe Funnel on every save.
+                # A crash marker is the exception, handled in stop().
                 leaving_live_session = proc is not None or previous_status != TunnelStatus.STOPPED
-                if post_stop and leaving_live_session:
-                    from plugin.framework.worker_pool import run_in_background
-
-                    def _safe_post_stop() -> None:
-                        try:
-                            assert post_stop is not None
-                            post_stop()
-                        except Exception:
-                            log.exception("Tunnel post_stop failed for %s", provider)
-
-                    run_in_background(_safe_post_stop, name="tunnel-post-stop", dedicated=True)
+                if leaving_live_session:
+                    self._schedule_post_stop_unlocked(provider)
 
             elif isinstance(effect, StartProcessEffect):
                 provider = effect.provider
@@ -505,75 +730,24 @@ class TunnelManager:
 
                 pre_start: Optional[Callable[[], None]] = info.get("pre_start")
                 if pre_start:
-                    try:
-                        pre_start()
-                    except Exception:
-                        log.exception("Tunnel pre_start failed for %s", provider)
-                        self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s pre_start failed" % provider, desired_running=False)
-                        continue
+                    # What was wrong: _tailscale_reset ran on this thread while
+                    # _lock was held (two CLIs, 5s each). stop() and the UI
+                    # sync path blocked for that whole wait. post_stop was
+                    # already moved off the lock for the same reason.
+                    # Why it is not fired and forgotten: the reset must finish
+                    # before `tailscale funnel <port>` or it tears down the
+                    # Funnel this start just configured. The caller releases
+                    # _lock, runs pre_start, then spawns only if this epoch
+                    # and generation are still current.
+                    # Bump only when this provider's own post_stop would wipe
+                    # the config it is about to create. A cloudflare start
+                    # must still let a pending Tailscale reset run.
+                    if info.get("post_stop"):
+                        self._tunnel_generation += 1
+                    self._pending_launch = (effect, self._start_epoch, self._tunnel_generation, pre_start)
+                    continue
 
-                parse_line: Callable[[str], Optional[str]] = info["parse_line"]
-                cmd = _build_provider_command(provider, effect.port, effect.provider_token)
-                log.info("Starting MCP tunnel (%s): %s", provider, _redact_cmd_for_log(cmd))
-                # Identity of the process this pair of callbacks belongs to.
-                # Filled in after construction, before start(), so a line or
-                # exit that arrives during start() still sees the owner.
-                spawned: dict[str, Any] = {}
-
-                def _is_current_process() -> bool:
-                    proc = spawned.get("proc")
-                    return proc is not None and self._process is proc
-
-                def _on_line(line: str) -> None:
-                    with self._lock:
-                        # A replaced process can still emit a late line. Applying
-                        # it would publish the old URL or fail the new tunnel.
-                        if not _is_current_process():
-                            return
-                        if self._state.public_url:
-                            return
-                        auth_err = detect_tunnel_auth_error(provider, line)
-                        if auth_err:
-                            log.error("MCP tunnel auth error (%s): %s", provider, auth_err)
-                            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": auth_err}))
-                            return
-                        url = parse_line(line)
-                        if url:
-                            log.info("MCP tunnel URL (%s): %s", provider, url)
-                            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.URL_ACQUIRED, {"url": url}))
-
-                def _on_exit(rc: int) -> None:
-                    log.info("MCP tunnel process (%s) exited with code %s", provider, rc)
-                    with self._lock:
-                        # What was wrong: provider/token restart does Terminate
-                        # then Start. The old wait thread's _on_exit then ran
-                        # unconditionally, set _process = None, and dispatched
-                        # PROCESS_EXITED. That forced RECONNECTING and orphaned
-                        # the replacement subprocess (and a retry could spawn a
-                        # third binary). Why: ignore the exit unless this
-                        # callback still owns the process TunnelManager tracks.
-                        if not _is_current_process():
-                            log.info("Ignoring stale MCP tunnel exit (%s, code %s)", provider, rc)
-                            return
-                        self._process = None
-                        self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": rc}))
-
-                try:
-                    from plugin.framework.worker_pool import AsyncProcess
-
-                    # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
-                    proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS)
-                    spawned["proc"] = proc
-                    self._process = proc
-                    proc.start()
-                except FileNotFoundError:
-                    log.exception("%s binary not found", info["version_args"][0])
-                    self._process = None
-                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "%s binary not found on PATH" % info["version_args"][0]}))
-                except Exception:
-                    log.exception("Failed to start MCP tunnel (%s)", provider)
-                    self._process = None
-                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "failed to start %s tunnel" % provider}))
+                self._spawn_process_unlocked(effect)
 
             elif isinstance(effect, ScheduleRetryTimerEffect):
                 if self._reconnect_timer is not None:
@@ -625,7 +799,11 @@ class TunnelManager:
                 self._reconnect_timer = None
                 return
             self._reconnect_timer = None
-            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.RETRY_TIMER_EXPIRED))
+            pending = self._dispatch_unlocked(TunnelEvent(TunnelEventKind.RETRY_TIMER_EXPIRED))
+        # pre_start (Tailscale reset) must not run while this thread holds
+        # _lock. stop() has to be able to take the lock during that CLI.
+        if pending is not None:
+            self._finish_pending_launch(pending)
 
     def note_pending_start(self, token: object) -> None:
         """Arm *token* as the only start that may proceed until stop() or a newer arm."""
@@ -697,7 +875,16 @@ class TunnelManager:
                 self._retire_snippet_provider(provider)
                 return False
 
-            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.START_REQUESTED, {"port": int(port), "provider": provider, "provider_token": token, "max_retries": max_retries}))
+            pending = self._dispatch_unlocked(TunnelEvent(TunnelEventKind.START_REQUESTED, {"port": int(port), "provider": provider, "provider_token": token, "max_retries": max_retries}))
+        # Tailscale pre_start is the same reset as post_stop (~10s). Run it
+        # outside _lock so stop() is not stuck behind it, then spawn only if
+        # that stop (or a newer start) did not win.
+        if pending is not None:
+            self._finish_pending_launch(pending)
+        with self._lock:
+            if epoch != self._start_epoch:
+                log.info("Ignoring stale MCP tunnel start (%s)", provider)
+                return False
             if self._state.last_error and ("not found on PATH" in self._state.last_error or "failed to start" in self._state.last_error or "pre_start failed" in self._state.last_error):
                 return False
             return True
@@ -709,7 +896,22 @@ class TunnelManager:
             self._start_epoch += 1
             self._binary_probe_epoch = None
             self._pending_start = None
+            # Captured before STOP_REQUESTED moves every state to STOPPED.
+            idle = self._state.status == TunnelStatus.STOPPED and self._process is None
             self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
+            # What was wrong: LibreOffice killed while Funnel was armed
+            # leaves tailscaled forwarding the MCP port. The new process is
+            # STOPPED and its provider defaults to cloudflare, so the
+            # terminate effect does not look up Tailscale post_stop. The
+            # idle-stop guard skips reset on purpose: settings sync calls
+            # stop() on every save and must not wipe a Funnel this process
+            # did not arm.
+            # Why: spawn writes a marker next to writeragent.json. The first
+            # stop() in a later process resets Tailscale and clears it.
+            # _tailscale_reset_issued blocks a second stop in this process
+            # from resetting again before the background clear finishes.
+            if idle and not self._tailscale_reset_issued and _tailscale_arm_file_exists():
+                self._schedule_post_stop_unlocked("tailscale")
 
 
 def _redact_cmd_for_log(cmd: list[str]) -> str:

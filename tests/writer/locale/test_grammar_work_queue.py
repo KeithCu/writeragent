@@ -351,6 +351,18 @@ def test_inflight_superseded() -> None:
     assert inflight_superseded(latest, "other", 1) is False
 
 
+def test_note_inflight_generation_publishes_key_and_keeps_newer() -> None:
+    """A retarget records its key. An older seq does not erase a newer one."""
+    q = GrammarWorkQueue()
+    assert q.note_inflight_generation("doc|fr-FR|abc", 4) is False
+    assert q.inflight_superseded("doc|fr-FR|abc", 4) is False
+    assert q.inflight_superseded("doc|fr-FR|abc", 3) is True
+    assert q.note_inflight_generation("doc|fr-FR|abc", 2) is True
+    assert q._latest_seq["doc|fr-FR|abc"] == 4
+    assert q.note_inflight_generation("doc|fr-FR|abc", 8) is False
+    assert q.inflight_superseded("doc|fr-FR|abc", 4) is True
+
+
 def test_done_status_deferred_until_last_parallel_batch() -> None:
     q = GrammarWorkQueue()
     emitted: list[str] = []

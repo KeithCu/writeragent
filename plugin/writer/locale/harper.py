@@ -282,10 +282,23 @@ class HarperLSClient:
         self._write(_lsp_notification("workspace/didChangeConfiguration", {"settings": self._lsp_settings}))
 
     def _collect_diagnostics(self, version: int, deadline: float) -> list[Any]:
+        """Wait for ``publishDiagnostics`` for this document version.
+
+        What was wrong: ``_read_loop`` enqueues ``None`` on stdout EOF and on
+        a reader crash. This loop treated that falsy result as the end of
+        diagnostics and returned ``[]``. ``lint`` looked successful, and the
+        fast path cached the sentence with no errors so Writer did not walk
+        it again. A real publish with ``diagnostics: []`` is still a clean
+        sentence. The sentinel, a dead process, and a timeout are not.
+        """
         while _deadline_remaining(deadline) > 0:
+            # Death with nothing queued will not produce a publish. Waiting
+            # out the lint budget used to fall through to ``return []``.
+            if not self.is_alive() and self.stdout_queue.empty():
+                raise RuntimeError("harper-ls process died before publishDiagnostics")
             msg = self._read_and_handle(deadline)
-            if not msg:
-                break
+            if msg is None:
+                raise RuntimeError("harper-ls closed before publishDiagnostics")
 
             if msg.get("method") == "textDocument/publishDiagnostics":
                 params = msg.get("params", {})
@@ -293,8 +306,11 @@ class HarperLSClient:
                     msg_version = params.get("version")
                     if msg_version is not None and msg_version < version:
                         continue
-                    return params.get("diagnostics", [])
-        return []
+                    diagnostics = params.get("diagnostics", [])
+                    if not isinstance(diagnostics, list):
+                        raise RuntimeError("harper-ls publishDiagnostics payload was not a list")
+                    return diagnostics
+        raise TimeoutError("Harper LSP operation timed out")
 
     def _suggestions_for_diagnostic(self, diag: dict[str, Any], deadline: float) -> list[str]:
         suggestions: list[str] = []
@@ -539,6 +555,20 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
         harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=_on_progress)
         with _HARPER_LOCK:
             client = _get_or_create_client(harper_bin, user_config_dir, bcp47)
+            if not client.is_alive():
+                # What was wrong: ``_get_or_create_client`` returned the cached
+                # client after harper-ls had exited. Raising here set FAILED
+                # for 30s, and the ensure after the cooldown got that same
+                # dead object, so Harper stayed silent until LibreOffice
+                # restarted. Close and drop it, then build a replacement
+                # (lock released during Popen, same as a lint restart). A
+                # missing binary still raises into the handler below and
+                # keeps the cooldown.
+                try:
+                    client.close()
+                except Exception:
+                    log.debug("[harper] closing dead cached client failed", exc_info=True)
+                client = _replace_harper_client(client, bcp47, _on_progress)
             if not client.is_alive():
                 raise RuntimeError("harper-ls process not running after start")
             _set_state(HarperRuntimeState.READY)

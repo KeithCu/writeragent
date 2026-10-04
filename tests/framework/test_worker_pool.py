@@ -894,3 +894,40 @@ def test_join_handles_future_from_pool_thread_still_raises() -> None:
     assert errors and isinstance(errors[0], RuntimeError)
     assert "deadlock" in str(errors[0])
 
+
+def test_run_in_background_keeps_submit_time_send_cancellation():
+    """A dedicated job keeps the contextvar copied at submit.
+
+    Setting a new scope on the caller after the job has started must not
+    change what get_current_send_cancellation returns inside that job.
+    """
+    from plugin.framework.queue_executor import (
+        SendCancellation,
+        _current_send_cancellation,
+        get_current_send_cancellation,
+    )
+
+    old = SendCancellation()
+    new = SendCancellation()
+    previous = get_current_send_cancellation()
+    started = threading.Event()
+    release = threading.Event()
+    seen = {}
+
+    def job():
+        started.set()
+        assert release.wait(timeout=2)
+        seen["scope"] = get_current_send_cancellation()
+
+    _current_send_cancellation.set(old)
+    try:
+        handle = run_in_background(job, name="ctx-scope", dedicated=True)
+        assert started.wait(timeout=2)
+        _current_send_cancellation.set(new)
+        release.set()
+        handle.join(timeout=2)
+    finally:
+        _current_send_cancellation.set(previous)
+
+    assert seen["scope"] is old
+

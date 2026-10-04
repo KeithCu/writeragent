@@ -103,7 +103,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 |--------|---------|
 | `get_full_document_text` | Dispatch: Writer → `text_helpers`; Calc → lazy `plugin.calc.analyzer`; Draw/Impress → `plugin.draw.bridge`. |
 | `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Selection markers. |
-| `resolve_locator` | `paragraph:` / `heading:` / `chapter_number:` / `bookmark:` → paragraph index. `heading:` is sibling-ordinal; `chapter_number:` matches the paint label. |
+| `resolve_locator` | `paragraph:` / `heading:` / `chapter_number:` and a live `bookmark:` → paragraph index. `heading_text:`, `section:`, `page:`, and a missing or stale `bookmark:` go to `TreeService.resolve_writer_locator`. A locator that cannot be resolved raises `ToolExecutionError` (it does not become paragraph 0). `heading:` is sibling-ordinal; `chapter_number:` matches the paint label. |
 | `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, type flags, full text, length, chat context, page helpers, paragraph ranges. |
 
 `DocumentService` methods that are **wrappers**, not new logic:

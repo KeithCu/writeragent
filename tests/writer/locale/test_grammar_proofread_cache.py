@@ -93,6 +93,52 @@ def test_sentence_cache_trailing_punctuation_clipping() -> None:
     assert len(got3) == 1
     assert got3[0]["n_error_length"] == 3
 
+def test_sentence_cache_keeps_zero_width_insert() -> None:
+    """An in-window Harper insert must not be stored as a clean sentence."""
+    errors = [
+        {
+            "n_error_start": 5,
+            "n_error_length": 0,
+            "suggestions": [" "],
+            "rule_identifier": "harper||MissingSpace",
+            "wrong": "",
+            "correct": " ",
+        }
+    ]
+    gc.cache_put_sentence("en-US", "Hello.world", errors)
+    got = gc.cache_get_sentence("en-US", "Hello.world")
+    assert got is not None
+    assert len(got) == 1
+    assert got[0]["n_error_start"] == 5
+    assert got[0]["n_error_length"] == 0
+    assert got[0]["suggestions"] == [" "]
+    assert got[0]["rule_identifier"] == "harper||MissingSpace"
+
+    at_end = [{"n_error_start": 6, "n_error_length": 0, "suggestions": ["!"], "rule_identifier": "harper||Punctuation"}]
+    gc.cache_put_sentence("en-US", "Hello.", at_end)
+    got_end = gc.cache_get_sentence("en-US", "Hello.")
+    assert got_end is not None
+    assert len(got_end) == 1
+    assert got_end[0]["n_error_start"] == 6
+    assert got_end[0]["n_error_length"] == 0
+    assert got_end[0]["suggestions"] == ["!"]
+    assert got_end[0]["rule_identifier"] == "harper||Punctuation"
+
+
+def test_sentence_cache_drops_invalid_zero_width() -> None:
+    """Negative, non-int, bool, and past-the-end points are not inserts."""
+    gc.cache_put_sentence("en-US", "Hello.", [{"n_error_start": 7, "n_error_length": 0, "rule_identifier": "x"}])
+    assert gc.cache_get_sentence("en-US", "Hello.") == []
+    gc.cache_put_sentence("en-US", "Hello.", [{"n_error_start": -1, "n_error_length": 0, "rule_identifier": "x"}])
+    assert gc.cache_get_sentence("en-US", "Hello.") == []
+    gc.cache_put_sentence("en-US", "Hello.", [{"n_error_start": True, "n_error_length": 0, "rule_identifier": "x"}])
+    assert gc.cache_get_sentence("en-US", "Hello.") == []
+    gc.cache_put_sentence("en-US", "Hello.", [{"n_error_start": "5", "n_error_length": 0, "rule_identifier": "x"}])
+    assert gc.cache_get_sentence("en-US", "Hello.") == []
+    gc.cache_put_sentence("en-US", "Hello.", [{"n_error_start": 1, "n_error_length": False, "rule_identifier": "x"}])
+    assert gc.cache_get_sentence("en-US", "Hello.") == []
+
+
 def test_sentence_cache_different_first_terminator_no_cross_hit() -> None:
     """Sentences with different first terminators must not share cache."""
     gc.cache_put_sentence("en-US", "Done.", [{"n_error_start": 0, "n_error_length": 4}])

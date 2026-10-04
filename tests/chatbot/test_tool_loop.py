@@ -1013,3 +1013,87 @@ def test_delegate_requires_document_lock_read_only_domains():
     assert gw.requires_document_lock('{"domain": "web_research"}') is False
     assert gw.requires_document_lock({"domain": "footnotes"}) is True
     assert gw.requires_document_lock({}) is True
+
+
+def _run_captured_llm_worker(spawn):
+    """Spawn on the send thread, then run the body after the panel field moves."""
+    import queue
+
+    from plugin.chatbot.tool_loop_actions import current_turn
+    from plugin.framework.queue_executor import SendCancellation, bind_send_stop_checker
+
+    panel, _session = setup_mock_panel()
+    turn = current_turn(panel)
+    q = queue.Queue()
+    turn.queue = q
+    old = SendCancellation()
+    new = SendCancellation()
+    panel._send_cancellation = old
+    panel._stop_requested_fallback = False
+    calls = []
+    bound = {}
+
+    def resolve():
+        scope = panel._send_cancellation
+        calls.append(scope)
+        checker = bind_send_stop_checker(scope, lambda: panel._stop_requested_fallback)
+        bound["checker"] = checker
+        return checker
+
+    panel.resolve_stop_checker = resolve
+    client = MagicMock()
+    client._stopped = False
+    seen = {}
+
+    def during_stream(*_args, **kwargs):
+        seen["checker"] = kwargs["stop_checker"]
+        old.cancel()
+        panel._send_cancellation = new
+        panel._stop_requested_fallback = False
+        client._stopped = False
+
+        def boom():
+            calls.append(panel._send_cancellation)
+            raise AssertionError("resolve_stop_checker inside worker")
+
+        panel.resolve_stop_checker = boom
+        return {"content": "should-not-finish", "tool_calls": []}
+
+    client.stream_request_with_tools.side_effect = during_stream
+    client.stream_chat_response.side_effect = during_stream
+    started = []
+
+    def capture(func, *_args, **_kwargs):
+        started.append(func)
+        return MagicMock()
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture),
+        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+    ):
+        spawn(panel, q, client)
+        assert calls == [old]
+        assert len(started) == 1
+        started[0]()
+
+    assert calls == [old]
+    assert seen["checker"] is bound["checker"]
+    assert seen["checker"]() is True
+    assert bind_send_stop_checker(new, lambda: False)() is False
+    item = q.get(timeout=1)
+    assert item[0] == StreamQueueKind.STOPPED
+    assert q.empty()
+
+
+def test_llm_worker_keeps_spawn_scope_after_next_send():
+    def spawn(panel, q, client):
+        ToolCallingMixin._spawn_llm_worker(panel, q, client, 100, [], 0)
+
+    _run_captured_llm_worker(spawn)
+
+
+def test_final_stream_keeps_spawn_scope_after_next_send():
+    def spawn(panel, q, client):
+        ToolCallingMixin._spawn_final_stream(panel, q, client, 100)
+
+    _run_captured_llm_worker(spawn)

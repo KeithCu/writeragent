@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -40,6 +41,9 @@ from plugin.framework.json_utils import safe_json_loads
 log = logging.getLogger("writeragent.web_research_deep")
 
 MAX_CONTEXT_WORDS = 25000
+# Stop joins the pool. A worker that sees the captured checker returns and
+# the join finishes. One stuck in HTTP must not hold the send forever.
+_STOP_POOL_JOIN_SEC = 30.0
 
 JSON_BLOCK_PATTERNS = [
     re.compile(r"```(?:json)?\s*(?P<payload>[\s\S]*?)```", re.IGNORECASE),
@@ -594,6 +598,12 @@ def _process_one_sub_query(
         acc.last_branch_error = payload
         return None
 
+    # The agent returned. Stop during that call must not start extraction,
+    # or the pool join waits on another HTTP request.
+    stopped = _check_stopped(stop_checker)
+    if stopped is not None:
+        return {"error": stopped}
+
     results = process_research_results(llm_chat, sub_query, sub_context)
     sources = _extract_urls_from_text(sub_context)
     # parse_research_results_response stores {learning sentence: source url}.
@@ -635,6 +645,11 @@ def _run_sub_queries_parallel(
     error_payload: dict[str, Any] | None = None
 
     def _task(sq: dict[str, str]) -> dict[str, Any] | None:
+        # Stop can land after submit and before this body. Return without
+        # building a client so the pool join is not stuck in HTTP.
+        stopped = _check_stopped(stop_checker)
+        if stopped is not None:
+            return {"error": stopped}
         # worker_factory builds a fresh LlmClient + extraction chat on this
         # thread. Falling back to the shared callables is for unit tests that
         # do not open HTTP; production always passes a factory.
@@ -660,10 +675,9 @@ def _run_sub_queries_parallel(
             if worker_cleanup is not None:
                 worker_cleanup()
 
-    # The `with ThreadPoolExecutor` form always shutdown(wait=True). A user
-    # stop during extraction was therefore waited out, and the except below
-    # used to record USER_STOPPED as a branch error and keep going, so the
-    # orchestrator synthesized a partial report and execute() cached it.
+    # The `with ThreadPoolExecutor` form always shutdown(wait=True) with
+    # cancel_futures left false, so Stop could not cancel unstarted work
+    # before the join. Own the pool and shut it down in finally.
     pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="deep-research")
     user_stopped = False
     try:
@@ -673,7 +687,6 @@ def _run_sub_queries_parallel(
             if stopped is not None:
                 error_payload = stopped
                 user_stopped = True
-                pool.shutdown(wait=False, cancel_futures=True)
                 return error_payload
             try:
                 branch = future.result()
@@ -682,7 +695,6 @@ def _run_sub_queries_parallel(
                     # process_research_results raises USER_STOPPED. Do not
                     # store it on the accumulator and continue sibling queries.
                     user_stopped = True
-                    pool.shutdown(wait=False, cancel_futures=True)
                     raise
                 sq = futures[future]
                 log.warning("deep_research: parallel sub-query error (%s): %s", sq.get("query"), exc)
@@ -692,15 +704,45 @@ def _run_sub_queries_parallel(
                 error_payload = branch["error"]
                 if isinstance(error_payload, dict) and error_payload.get("code") == "USER_STOPPED":
                     user_stopped = True
-                    pool.shutdown(wait=False, cancel_futures=True)
                     return error_payload
                 break
             if branch:
                 _merge_branch_results(acc, branch)
         return error_payload
     finally:
-        if not user_stopped:
-            pool.shutdown(wait=True)
+        _shutdown_research_pool(pool, user_stopped=user_stopped)
+
+
+def _shutdown_research_pool(pool: ThreadPoolExecutor, *, user_stopped: bool) -> None:
+    """Cancel unstarted work on Stop, then join the pool.
+
+    What was wrong: Stop called ``shutdown(wait=False, cancel_futures=True)``
+    and returned. ``finally`` skipped ``shutdown(wait=True)`` when
+    ``user_stopped``, so the non-daemon pool threads kept running.
+    ``cancel_futures`` does not stop a future that already started.
+
+    Why: cancel the queue first, then join. Tasks check the stop checker
+    captured with the send and return, so the join finishes. A worker stuck
+    in HTTP is joined only up to ``_STOP_POOL_JOIN_SEC``. Do not use
+    ``with ThreadPoolExecutor``: that joins before this path can cancel.
+    """
+    if not user_stopped:
+        pool.shutdown(wait=True)
+        return
+    pool.shutdown(wait=False, cancel_futures=True)
+    # No public join timeout. The worker set is what shutdown(wait=True) joins.
+    threads = list(getattr(pool, "_threads", ()))
+    deadline = time.monotonic() + _STOP_POOL_JOIN_SEC
+    for thread in threads:
+        remaining = deadline - time.monotonic()
+        thread.join(timeout=0 if remaining <= 0 else remaining)
+    stuck = [thread for thread in threads if thread.is_alive()]
+    if stuck:
+        log.warning(
+            "deep_research: %d pool worker(s) still in HTTP after %.0fs Stop join",
+            len(stuck),
+            _STOP_POOL_JOIN_SEC,
+        )
 
 
 def _serp_from_suggested_queries(queries: list[str]) -> list[dict[str, str]]:

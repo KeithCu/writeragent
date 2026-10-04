@@ -1422,7 +1422,7 @@ class _RangeProxy:
 
         Args:
             name (required): Name of the range to delete.
-            scope (optional): Scope of the named range: 'global' (default) or specific sheet name.
+            scope (optional): Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container.
         """
         return _rpc_call("named_range_delete", name=name, scope=scope)
 
@@ -1431,9 +1431,9 @@ class _RangeProxy:
 
         Args:
             name (required): Current name of the range to edit.
-            new_name (optional): New name for the range if renaming.
+            new_name (optional): New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces.
             content (optional): New formula or range address content.
-            scope (optional): Scope where the named range exists: 'global' (default) or specific sheet name.
+            scope (optional): Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container.
             base_cell (optional): New base cell reference for relative coordinates.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
         """
@@ -1444,7 +1444,7 @@ class _RangeProxy:
 
         Args:
             name (required): The name of the defined range to inspect.
-            scope (optional): Scope where the name is defined: 'global' (default) or sheet name. Omit to search global then active sheet.
+            scope (optional): Omit to prefer the active sheet's local name over a same-spelled global name, then the workbook, then other visible sheets. 'global' or a sheet name forces that container, including a _-prefixed sheet.
         """
         return _rpc_call("named_range_get_info", name=name, scope=scope)
 
@@ -1452,7 +1452,7 @@ class _RangeProxy:
         """Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name).
 
         Args:
-            scope (optional): Scope to list: 'global' (default), 'all' (global + all sheets), or specific sheet name.
+            scope (optional): Scope to list: 'global' (default), 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name.
         """
         return _rpc_call("named_range_list", scope=scope)
 

@@ -176,7 +176,9 @@ def test_provider_span_rejects_out_of_bounds() -> None:
     assert gt._provider_error_span("hello", {"n_error_start": -1, "n_error_length": 1}, "h") is None
     assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": 6}, "hello!") is None
     assert gt._provider_error_span("hello", {"n_error_start": 4, "n_error_length": 2}, "oX") is None
-    assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": 0}, "") is None
+    assert gt._provider_error_span("hello", {"n_error_start": -1, "n_error_length": 0}, "") is None
+    assert gt._provider_error_span("hello", {"n_error_start": 6, "n_error_length": 0}, "") is None
+    assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": -1}, "") is None
 
 
 def test_provider_span_respects_slice_start() -> None:
@@ -239,8 +241,8 @@ def test_provider_span_overlapping_second_dropped() -> None:
     assert norms[0].suggestions == ("Hello",)
 
 
-def test_provider_span_zero_length_rejected() -> None:
-    """Characterization: zero-width Harper inserts are still dropped (not enabled yet)."""
+def test_provider_span_zero_width_kept() -> None:
+    """A Harper insert (start == end) survives normalize with its suggestion and rule id."""
     text = "Hello.world"
     items = [
         {
@@ -256,9 +258,75 @@ def test_provider_span_zero_length_rejected() -> None:
             "suggestions": [" "],
         }
     ]
-    assert gt._provider_error_span(text, items[0], "") is None
+    assert gt._provider_error_span(text, items[0], "") == (5, 0)
+    assert gt._provider_error_span(text, {"n_error_start": 0, "n_error_length": 0}, "") == (0, 0)
+    assert gt._provider_error_span("hello", {"n_error_start": 5, "n_error_length": 0}, "") == (5, 0)
     norms = gt.normalize_errors_for_text(text, 0, len(text), items)
-    assert norms == []
+    assert len(norms) == 1
+    assert norms[0].n_error_start == 5
+    assert norms[0].n_error_length == 0
+    assert norms[0].suggestions == (" ",)
+    assert norms[0].rule_identifier == "harper||MissingSpace"
+
+    end_insert = {
+        "wrong": "",
+        "correct": "!",
+        "n_error_start": 5,
+        "n_error_length": 0,
+        "type": "Punctuation",
+        "reason": "Insert bang",
+        "short_comment": "Insert bang",
+        "full_comment": "Insert bang",
+        "rule_identifier": "harper||Punctuation",
+        "suggestions": ["!"],
+    }
+    at_end = gt.normalize_errors_for_text("Hello", 0, 5, [end_insert])
+    assert len(at_end) == 1
+    assert at_end[0].n_error_start == 5
+    assert at_end[0].n_error_length == 0
+    assert at_end[0].suggestions == ("!",)
+    assert at_end[0].rule_identifier == "harper||Punctuation"
+
+    # No native offsets: empty ``wrong`` still cannot be anchored.
+    assert gt.normalize_errors_for_text("Hello", 0, 5, [{"wrong": "", "correct": " "}]) == []
+    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_start": -1}]) == []
+    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_start": len(text) + 1}]) == []
+    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_start": True}]) == []
+    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_length": "0"}]) == []
+
+
+def test_zero_width_point_does_not_drop_positive_span() -> None:
+    """Positive-length overlap dropping stays as it was; a point is not in that set."""
+    text = "Hello.world"
+    point = {
+        "wrong": "",
+        "correct": " ",
+        "n_error_start": 2,
+        "n_error_length": 0,
+        "type": "MissingSpace",
+        "reason": "Insert space",
+        "short_comment": "Insert space",
+        "full_comment": "Insert space",
+        "rule_identifier": "harper||MissingSpace",
+        "suggestions": [" "],
+    }
+    word = {
+        "wrong": "Hello",
+        "correct": "hello",
+        "n_error_start": 0,
+        "n_error_length": 5,
+        "type": "Capitalization",
+        "reason": "case",
+        "short_comment": "case",
+        "full_comment": "case",
+        "rule_identifier": "harper||Capitalization",
+        "suggestions": ["hello"],
+    }
+    norms = gt.normalize_errors_for_text(text, 0, len(text), [point, word])
+    assert [(item.n_error_start, item.n_error_length) for item in norms] == [(2, 0), (0, 5)]
+    assert norms[0].suggestions == (" ",)
+    assert norms[0].rule_identifier == "harper||MissingSpace"
+    assert norms[1].rule_identifier == "harper||Capitalization"
 
 
 def test_normalize_errors_respects_slice() -> None:

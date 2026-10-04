@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import clone_text_range, get_string_without_tracked_deletions
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 
@@ -151,11 +152,19 @@ class GetPageObjects(ToolBase):
             locator = kwargs.get("locator")
             para_idx = kwargs.get("paragraph")
             if locator:
+                # What was wrong: resolve_locator turned heading_text/section/page
+                # and a missing bookmark into paragraph 0, and this .get defaulted
+                # a missing index to 0 as well. The scan then ran on that page and
+                # returned status ok.
+                # Why: an unresolved locator is a tool error. Paragraph 0 is still
+                # valid when the resolver actually returns it.
                 try:
                     resolved = doc_svc.resolve_locator(doc, locator)
-                    para_idx = resolved.get("para_index", 0)
-                except ValueError as e:
+                    para_idx = resolved.get("para_index")
+                except (ValueError, ToolExecutionError) as e:
                     return self._tool_error(str(e))
+                if para_idx is None:
+                    return self._tool_error("Cannot resolve locator: %s" % locator)
             if para_idx is not None:
                 page = doc_svc.get_page_for_paragraph(doc, para_idx)
             else:
@@ -326,6 +335,8 @@ def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int | None:
         doc_svc = ctx.services.document
         resolved = doc_svc.resolve_locator(ctx.doc, locator)
         para_index = resolved.get("para_index")
+        if para_index is None:
+            raise ToolExecutionError("Cannot resolve locator: %s" % locator)
 
     return para_index
 
@@ -368,11 +379,14 @@ class CloneHeadingBlock(ToolBaseDummy):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
-
-        para_index = _resolve_para_index(ctx, kwargs)
+        try:
+            para_index = _resolve_para_index(ctx, kwargs)
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc))
         if para_index is None:
             return self._tool_error("Provide locator or paragraph_index.")
+
+        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
         # Use writer_tree service to find the heading node and block size.
         # Load it onto this context when the caller did not bootstrap the writer module.

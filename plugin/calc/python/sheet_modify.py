@@ -215,10 +215,13 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
     name = sheet_name or _sheet_name_of(sheet)
     _DISPATCHING = True
     try:
-        from plugin.calc.python.function import CalcSpillModifyListener
+        from plugin.calc.python.function import CalcSpillModifyListener, _spill_registry_doc_key
 
         # Job 1 — spill orphan cleanup. Walks SPILL_REGISTRY only.
-        CalcSpillModifyListener(ctx, url, name).modified(SimpleNamespace(Source=sheet))
+        # Bugfix: url is "" for every unsaved book, and the listener matched
+        # on that. Pass the lifecycle id the spill registry uses instead.
+        registry_id = _spill_registry_doc_key(doc) if doc is not None else url
+        CalcSpillModifyListener(ctx, registry_id, name).modified(SimpleNamespace(Source=sheet))
 
         # Job 2 — geometric list-diff. Own discovery; skip when flag is off.
         from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet

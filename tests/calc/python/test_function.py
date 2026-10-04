@@ -477,6 +477,105 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert data["Sheet1:1,1"] == [[2, 1], [3, 1], [4, 1]]
 
 
+def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two unsaved books must not share spill rows or LOADED_DOCUMENTS.
+
+    getURL() is "" for both. Registry identity is each book's RuntimeUID.
+    """
+    import json
+
+    from plugin.calc.python.formula_locator_cache import FORMULA_LOCATION_CACHE
+
+    stored: dict[int, str] = {}
+
+    def mock_get_prop(model, name, default=None):
+        if name == "WriterAgentSpillRegistry":
+            return stored.get(id(model), default)
+        return default
+
+    def mock_set_prop(model, name, value):
+        if name == "WriterAgentSpillRegistry":
+            stored[id(model)] = value
+
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+
+    doc1 = CalcDocStub(url="", props={"RuntimeUID": "uid-spill-1"}, selection="B2")
+    doc2 = CalcDocStub(url="", props={"RuntimeUID": "uid-spill-2"}, selection="B2")
+    sheet1 = doc1.getSheets().getByName("Sheet1")
+    sheet2 = doc2.getSheets().getByName("Sheet1")
+    sheet1.getCellByPosition(1, 1).setFormula('=PYTHON("untitled_spill_a")')
+    sheet2.getCellByPosition(1, 1).setFormula('=PYTHON("untitled_spill_b")')
+    stored[id(doc1)] = json.dumps({"Sheet1:1,1": [[2, 1]]})
+    stored[id(doc2)] = json.dumps({"Sheet1:1,1": [[9, 9]]})
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    python_function.SHEET_MODIFY_LISTENERS.clear()
+    FORMULA_LOCATION_CACHE.clear_document("uid-spill-1")
+    FORMULA_LOCATION_CACHE.clear_document("uid-spill-2")
+    ctx1 = _ctx_with_doc(doc1)
+    ctx2 = _ctx_with_doc(doc2)
+    key1 = ("uid-spill-1", "Sheet1", 1, 1)
+    key2 = ("uid-spill-2", "Sheet1", 1, 1)
+    try:
+        prepared1 = python_function._prepare_auto_spill(ctx1, "untitled_spill_a", [[1], [2]], doc1)
+        prepared2 = python_function._prepare_auto_spill(ctx2, "untitled_spill_b", [[3], [4]], doc2)
+        assert prepared1 == ("uid-spill-1", "Sheet1", 1, 1)
+        assert prepared2 == ("uid-spill-2", "Sheet1", 1, 1)
+        assert python_function.SPILL_REGISTRY[key1] == [(2, 1)]
+        assert python_function.SPILL_REGISTRY[key2] == [(9, 9)]
+        assert ("", "Sheet1", 1, 1) not in python_function.SPILL_REGISTRY
+        assert python_function.LOADED_DOCUMENTS == {"uid-spill-1", "uid-spill-2"}
+        assert "" not in python_function.LOADED_DOCUMENTS
+
+        python_function.SPILL_REGISTRY[key1] = [(2, 1), (3, 1)]
+        python_function.save_spill_registry_for_doc(doc1)
+        assert json.loads(stored[id(doc1)]) == {"Sheet1:1,1": [[2, 1], [3, 1]]}
+        assert json.loads(stored[id(doc2)]) == {"Sheet1:1,1": [[9, 9]]}
+
+        # Blank listener identity must not clear either untitled book.
+        blank = python_function.CalcSpillModifyListener(ctx1, "", "Sheet1")
+        blank.modified(SimpleNamespace(Source=sheet1))
+        assert key1 in python_function.SPILL_REGISTRY
+        assert key2 in python_function.SPILL_REGISTRY
+
+        # Book 1's modify clears only book 1, even though both sheets are Sheet1.
+        sheet1.getCellByPosition(1, 1).setFormula("")
+        python_function.CalcSpillModifyListener(ctx1, "uid-spill-1", "Sheet1").modified(SimpleNamespace(Source=sheet1))
+        assert key1 not in python_function.SPILL_REGISTRY
+        assert python_function.SPILL_REGISTRY[key2] == [(9, 9)]
+
+        python_function.SPILL_REGISTRY[key1] = [(2, 1)]
+        python_function.LOADED_DOCUMENTS.add("uid-spill-1")
+        python_function.clear_in_memory_spill_state(doc_url="", lifecycle_key="uid-spill-1")
+        assert key1 not in python_function.SPILL_REGISTRY
+        assert "uid-spill-1" not in python_function.LOADED_DOCUMENTS
+        assert python_function.SPILL_REGISTRY[key2] == [(9, 9)]
+        assert "uid-spill-2" in python_function.LOADED_DOCUMENTS
+
+        # A scheduled identity from book 1 must not write book 2.
+        python_function.perform_deferred_spill(
+            ctx2, "uid-spill-1", "Sheet1", 1, 1, [[8], [9]], doc=doc2, code="untitled_spill_b"
+        )
+        assert sheet2.getCellByPosition(1, 2).getValue() in (0, 0.0)
+        assert ("", "Sheet1", 1, 1) not in python_function.SPILL_REGISTRY
+
+        # Legacy blank URL still spills this book under its lifecycle id.
+        python_function.perform_deferred_spill(
+            ctx2, "", "Sheet1", 1, 1, [[3], [4]], doc=doc2, code="untitled_spill_b"
+        )
+        assert sheet2.getCellByPosition(1, 2).getValue() == 4.0
+        assert ("", "Sheet1", 1, 1) not in python_function.SPILL_REGISTRY
+        assert ("uid-spill-2", "Sheet1", 1, 1) in python_function.SPILL_REGISTRY
+    finally:
+        python_function.SPILL_REGISTRY.clear()
+        python_function.LOADED_DOCUMENTS.clear()
+        python_function.SHEET_MODIFY_LISTENERS.clear()
+        FORMULA_LOCATION_CACHE.clear_document("uid-spill-1")
+        FORMULA_LOCATION_CACHE.clear_document("uid-spill-2")
+
+
 def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     # Set WRITERAGENT_TESTING to 1 to force inline execution in queue_executor
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")

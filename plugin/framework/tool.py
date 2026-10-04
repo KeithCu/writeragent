@@ -34,8 +34,10 @@ cancel is ``SendCancellation`` (Stop sets a flag / closes HTTP), not
 
 from __future__ import annotations
 
+import dis
 import logging
 import queue
+import sys
 from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar, cast
 
@@ -347,7 +349,8 @@ class ToolBase(ABC):
         try:
             # Defense in depth: ToolRegistry.execute marshals sync tools to the main thread;
             # this assert still catches direct execute_safe calls from background workers.
-            # bypass_thread_guard is honored at the call site in ToolRegistry.execute (it calls .execute directly).
+            # An explicit bypass_thread_guard=True keyword skips this method. A model
+            # dict spread into execute cannot: that True is ignored.
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
                 if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
@@ -470,6 +473,114 @@ _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"}
 # Sync tools that declare timeout= cannot enforce it. Warn once per name.
 _sync_timeout_warned: set[str] = set()
 _UNSET_EXCLUDE_TIERS = object()
+_BYPASS_THREAD_GUARD_KW = "bypass_thread_guard"
+# A **params operand is one of these loads. A dict literal is BUILD_MAP /
+# BUILD_CONST_KEY_MAP and must not count as an explicit keyword.
+_SPREAD_LOADS = frozenset({"LOAD_FAST", "LOAD_FAST_BORROW", "LOAD_DEREF", "LOAD_NAME", "LOAD_GLOBAL"})
+
+
+def _const_tuple(ins: Any, code: Any) -> tuple[Any, ...] | None:
+    """Keyword-name tuple carried by KW_NAMES or the LOAD_CONST before CALL_KW."""
+    # crosshair: off
+    val = ins.argval
+    if isinstance(val, tuple):
+        return val
+    arg = ins.arg
+    consts = getattr(code, "co_consts", ())
+    if isinstance(arg, int) and 0 <= arg < len(consts) and isinstance(consts[arg], tuple):
+        return consts[arg]
+    return None
+
+
+def _instruction_index_at(instrs: list[Any], lasti: int) -> int | None:
+    """Instruction that contains ``lasti``.
+
+    3.11 ``f_lasti`` can sit inside CALL, past that instruction's start
+    offset. The greatest start offset that is still ``<= lasti`` is the
+    call that entered ``execute``.
+    """
+    # crosshair: off
+    found: int | None = None
+    for index, ins in enumerate(instrs):
+        if ins.offset <= lasti:
+            found = index
+            continue
+        break
+    return found
+
+
+def _call_function_ex_has_explicit_bypass(instrs: list[Any], index: int) -> bool:
+    """True when CALL_FUNCTION_EX's base map contains the bypass keyword.
+
+    ``execute(name, ctx, bypass_thread_guard=True, **params)`` builds that
+    map, then DICT_MERGEs the spread. ``execute(**model_args)`` and
+    ``execute(**{"bypass_thread_guard": True})`` leave the base map empty
+    and put the key only in the merged dict.
+    """
+    # crosshair: off
+    if index < 3 or instrs[index - 1].opname != "DICT_MERGE":
+        return False
+    spread = instrs[index - 2]
+    if spread.opname not in _SPREAD_LOADS:
+        return False
+    build = instrs[index - 3]
+    if build.opname != "BUILD_MAP" or not isinstance(build.arg, int) or build.arg < 1:
+        return False
+    start = index - 3 - 2 * build.arg
+    if start < 0:
+        return False
+    pairs = instrs[start : index - 3]
+    for key_ins in pairs[0::2]:
+        if key_ins.opname == "LOAD_CONST" and key_ins.argval == _BYPASS_THREAD_GUARD_KW:
+            return True
+    return False
+
+
+def _call_has_explicit_bypass_keyword(instrs: list[Any], index: int, code: Any) -> bool:
+    """True when this call instruction passes bypass_thread_guard as a keyword."""
+    # crosshair: off
+    ins = instrs[index]
+    if ins.opname == "CALL_KW":
+        # 3.13+ stores the name tuple in the LOAD_CONST immediately before
+        # CALL_KW. CALL_KW's own arg is the argument count, not the names.
+        names = ins.argval if isinstance(ins.argval, tuple) else None
+        if names is None and index > 0:
+            names = _const_tuple(instrs[index - 1], code)
+        return names is not None and _BYPASS_THREAD_GUARD_KW in names
+    if ins.opname == "CALL":
+        # 3.11/3.12: KW_NAMES, then optional PRECALL, then CALL.
+        cursor = index - 1
+        if cursor >= 0 and instrs[cursor].opname == "PRECALL":
+            cursor -= 1
+        if cursor >= 0 and instrs[cursor].opname == "KW_NAMES":
+            names = _const_tuple(instrs[cursor], code)
+            return names is not None and _BYPASS_THREAD_GUARD_KW in names
+        return False
+    if ins.opname == "CALL_FUNCTION_EX":
+        return _call_function_ex_has_explicit_bypass(instrs, index)
+    return False
+
+
+def _explicit_thread_guard_bypass(requested: bool) -> bool:
+    """Return True only for an explicit ``bypass_thread_guard=True`` keyword.
+
+    Frame 0 is this helper, frame 1 is ``ToolRegistry.execute``, frame 2 is
+    the caller of ``execute``. Unknown bytecode fails closed (the guard
+    stays on). ``requested is not True`` rejects ``1`` and ``"yes"``.
+    """
+    # crosshair: off
+    if requested is not True:
+        return False
+    try:
+        caller = sys._getframe(2)
+    except ValueError:
+        return False
+    code = caller.f_code
+    instrs = list(dis.get_instructions(code))
+    index = _instruction_index_at(instrs, caller.f_lasti)
+    if index is None:
+        return False
+    return _call_has_explicit_bypass_keyword(instrs, index, code)
 
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
@@ -848,6 +959,8 @@ class ToolRegistry:
             bypass_thread_guard: If True, call ``tool.execute`` directly (no main-thread check).
                 Used only by ``scripts/prompt_optimization/tools_lo`` where UNO runs on a dedicated
                 LibreOffice worker thread (not Python's ``main_thread()``).
+                ``True`` counts only when the caller writes the keyword.
+                ``execute(name, ctx, **model_args)`` cannot set it.
             **kwargs:  Tool arguments.
 
         Returns:
@@ -855,6 +968,16 @@ class ToolRegistry:
         """
         # crosshair: off
         try:
+            # What was wrong: this parameter is keyword-only, so
+            # ``execute(name, ctx, **model_args)`` bound a JSON true before
+            # ``without_unknown_kwargs`` could drop it. The registry then
+            # called ``tool.execute`` on the worker and skipped
+            # ``execute_safe`` (no main-thread assert, no disposed-document
+            # probe). How: chat ``execute_fn`` and the venv host RPC spread
+            # the raw argument dict. Why: honor ``True`` only when the
+            # call itself passes the keyword (the eval harness). A spread
+            # dict is forced back to False. ``1`` and ``"yes"`` are not True.
+            bypass_thread_guard = _explicit_thread_guard_bypass(bypass_thread_guard)
             tool = self._tools.get(tool_name)
             if tool is None:
                 # Return a structured error instead of raising KeyError so the model
