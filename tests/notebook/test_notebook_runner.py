@@ -1460,7 +1460,7 @@ def test_run_cells_does_not_pump_idle_during_execute():
         patch("plugin.notebook.notebook_runner.save_registry"),
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
         patch("plugin.notebook.writer_importer.flush_ui_idle") as flush_idle,
-        patch("plugin.framework.queue_executor.pump_ui_idle") as pump_idle,
+        patch("plugin.framework.queue_executor.pump_ui_idle"),
     ):
         run_cells(ctx, doc, start_index=0)
 
