@@ -269,8 +269,8 @@ class CellManipulator:
             import uno
             line = uno.createUnoStruct("com.sun.star.table.BorderLine2")
             setattr(line, "Color", color)
-            line.OuterLineWidth = 50
-            line.LineStyle = BorderLineStyle.SOLID
+            setattr(line, "OuterLineWidth", 50)
+            setattr(line, "LineStyle", BorderLineStyle.SOLID)
 
             obj.setPropertyValue("TopBorder2", line)
             obj.setPropertyValue("BottomBorder2", line)
