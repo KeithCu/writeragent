@@ -188,6 +188,7 @@ class TestTreeServiceSearch:
         vc.getStart = MagicMock()
         vc.gotoRange = MagicMock(side_effect=RuntimeError("Cannot jump to nested range"))
 
+        from plugin.doc.text_helpers import clone_text_range
         # we can't easily patch clone_text_range since it's used inside resolve_writer_locator,
         # but resolve_writer_locator uses the `vc` we just mocked.
         # Actually clone_text_range creates a mock clone if it's mock
