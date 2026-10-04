@@ -407,3 +407,36 @@ def test_http_server_stop_ends_sse_keepalive():
             client.close()
         if srv is not None:
             srv.stop()
+
+def test_mcp_execute_with_backpressure_captures_send_cancellation() -> None:
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
+    from plugin.framework.queue_executor import SendCancellation, QueueExecutor
+
+    executor = MagicMock(spec=QueueExecutor)
+    # mock _PreparedMcpCall so it bypasses isinstance check and we don't need real docs
+    prepared = MagicMock(spec=_PreparedMcpCall)
+    prepared.doc_key = "test_key"
+    prepared.needs_gate = False
+
+    # execute returns prepared then something else
+    executor.execute.side_effect = [prepared, "final_result"]
+
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+    handler.queue_executor = executor
+    handler.tool_registry = MagicMock()
+    handler.event_bus = MagicMock()
+
+    scope = SendCancellation()
+
+    with patch("plugin.framework.queue_executor.get_current_send_cancellation", return_value=scope):
+        res = handler._execute_with_backpressure("my_tool", {})
+
+    assert res == "final_result"
+    assert executor.execute.call_count == 2
+
+    # first call should be _prepare_mcp_execution with bound_scope=scope and send_cancellation=scope
+    prepare_call = executor.execute.call_args_list[0]
+    assert prepare_call.args[0] == handler._prepare_mcp_execution
+    assert prepare_call.kwargs.get("bound_scope") is scope
+    assert prepare_call.kwargs.get("send_cancellation") is scope

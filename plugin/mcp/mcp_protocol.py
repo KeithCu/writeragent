@@ -938,7 +938,9 @@ class MCPProtocolHandler:
         if not acquired:
             raise BusyError("LibreOffice is busy processing another tool call. Please wait a moment and retry.")
         try:
-            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0)
+            from plugin.framework.queue_executor import get_current_send_cancellation
+            send_cancellation = get_current_send_cancellation()
+            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
             if not isinstance(prepared, _PreparedMcpCall):
                 return prepared
             with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
@@ -981,7 +983,7 @@ class MCPProtocolHandler:
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
         return schemas, others
 
-    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None) -> Any:
+    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, send_cancellation: Any = None) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
         Returns ``_PreparedMcpCall`` or a structured error dict.
@@ -1052,10 +1054,6 @@ class MCPProtocolHandler:
             except Exception:
                 pass
 
-        from plugin.framework.queue_executor import get_current_send_cancellation
-
-        send_cancellation = get_current_send_cancellation()
-
         def stop_checker() -> bool:
             if req_id is not None and req_id in self._cancelled_requests:
                 return True
@@ -1099,7 +1097,9 @@ class MCPProtocolHandler:
         tools uses execute_on_main_thread. Client arguments cannot set
         bypass_thread_guard (see _arguments_without_thread_guard_bypass).
         """
-        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0)
+        from plugin.framework.queue_executor import get_current_send_cancellation
+        send_cancellation = get_current_send_cancellation()
+        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared
         return self._run_prepared_mcp_execute(prepared, tool_name, arguments)

@@ -798,8 +798,9 @@ def test_apply_style_all_matches_obeys_stop_checker():
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
         res = ApplyStyle().execute(_style_ctx(stop_checker=_stop), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
-    assert res["status"] == "error"
-    assert "Tool stopped by user" in res["message"]
+    assert res["status"] == "ok"
+    assert res["applied_count"] == 1
+    assert "Tool stopped early by user" in res["message"]
     assert ap.call_count == 1  # Only the first match was applied
 
 
@@ -827,3 +828,47 @@ def test_apply_style_unknown_style_lists_names_and_suggests():
     assert res["status"] == "error"
     assert "Did you mean 'Heading 1'" in res["message"]
     assert "Text body" in res["message"]
+
+def test_apply_style_all_matches_stops_early() -> None:
+    from plugin.writer.styles import ApplyStyle
+
+    from plugin.framework.tool import ToolContext
+    doc = WriterDocStub()
+    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test")
+    ctx.services.get = MagicMock(return_value=None)
+
+    # We will trigger the stop checker after 2 successful applications.
+    applied_count = 0
+    def stop_checker():
+        return applied_count >= 2
+    ctx.stop_checker = stop_checker
+
+    # Fake 4 find results
+    ranges = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]
+    for i, r in enumerate(ranges):
+        text_mock = MagicMock()
+        text_mock.createTextCursorByRange.return_value = MagicMock()
+        r.getText.return_value = text_mock
+        r.getStart.return_value = "start"
+        r.getEnd.return_value = "end"
+
+    # We need to mock find_all_ranges
+    with patch("plugin.writer.search.find_all_ranges", return_value=ranges):
+        # We also need to mock _apply_one to just return a dict and update applied_count
+        tool = ApplyStyle()
+        tool._tool_error = lambda m: {"status": "error", "message": m}
+
+        def mock_apply_one(*args, **kwargs):
+            nonlocal applied_count
+            applied_count += 1
+            return {"applied_direct": 1}
+
+        tool._apply_one = mock_apply_one
+        tool._merge_reports = lambda rep: {}
+
+        with patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
+            res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
+
+            assert res["status"] == "ok"
+            assert res["applied_count"] == 2
+            assert "Tool stopped early by user" in res["message"]
