@@ -272,11 +272,20 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         if blocked:
             return self._tool_error(blocked)
         try:
+            if not hasattr(ctx.doc, "getRedlines"):
+                return self._tool_error("Document does not expose redlines API.")
+            redlines = ctx.doc.getRedlines()
+            initial_count = redlines.getCount()
+
             smgr = ctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
             frame = ctx.doc.getCurrentController().getFrame()
             cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
             dispatcher.executeDispatch(frame, cmd, "", 0, ())
+
+            if initial_count > 0 and redlines.getCount() == initial_count:
+                return self._tool_error("Failed to resolve tracked changes: operation silently failed.")
+
             msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
             return {"status": "ok", "message": msg}
         except Exception as e:
@@ -322,36 +331,64 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
             # getAnchor() call meant every real change died here with "Failed to select".
             try:
+                try:
+                    target_id = target_redline.getPropertyValue("RedlineIdentifier")
+                except Exception:
+                    target_id = None
+
                 start = target_redline.getPropertyValue("RedlineStart")
                 cur = start.getText().createTextCursorByRange(start)
-                end = start
-                try:
-                    end_val = target_redline.getPropertyValue("RedlineEnd")
-                    if end_val is not None:
-                        end = end_val
-                        cur.gotoRange(end, True)
-                except Exception:
-                    pass  # collapsed span (e.g. a deletion) — selecting the start point suffices
 
-                # Guard: Overlapping or sibling changes clobber check.
+                # Expand cursor to cover the entire logical change (all siblings)
+                for r in redline_objs:
+                    try:
+                        r_id = r.getPropertyValue("RedlineIdentifier")
+                    except Exception:
+                        r_id = None
+                    if target_id is not None and r_id == target_id:
+                        try:
+                            s = r.getPropertyValue("RedlineStart")
+                            e = r.getPropertyValue("RedlineEnd") or s
+                            cur.gotoRange(s, True)
+                            cur.gotoRange(e, True)
+                        except Exception:
+                            pass
+
+                # Target cursor now represents the union of the logical change
+                end = cur.getEnd()
+                start = cur.getStart()
+
+                # Guard: Overlapping changes clobber check.
                 # If there's another tracked change that intersects with the one we're resolving,
                 # the dispatcher resolve will break the UNO text model or clobber the other change.
                 text = start.getText()
                 for i, r in enumerate(redline_objs):
                     if i == index:
                         continue
+
+                    try:
+                        r_id = r.getPropertyValue("RedlineIdentifier")
+                    except Exception:
+                        r_id = None
+
+                    if target_id is not None and r_id == target_id:
+                        continue  # Skip logical siblings
+
                     try:
                         r_start = r.getPropertyValue("RedlineStart")
                         r_end = r.getPropertyValue("RedlineEnd") or r_start
 
-                        # Overlap logic: Two ranges [start, end] and [r_start, r_end] overlap if
-                        # start <= r_end AND r_start <= end.
+                        r_cur = text.createTextCursorByRange(r_start)
+                        r_cur.gotoRange(r_end, True)
+                        r_cur_start = r_cur.getStart()
+                        r_cur_end = r_cur.getEnd()
+
+                        # Overlap logic: Two ranges [start, end] and [r_cur_start, r_cur_end] overlap if
+                        # start <= r_cur_end AND r_cur_start <= end.
                         # For compareRegionStarts: 1 means left < right.
-                        # For compareRegionEnds: -1 means left > right.
                         # They do NOT overlap if:
-                        # end < r_start (i.e. compareRegionStarts(end, r_start) == 1) OR
-                        # start > r_end (i.e. compareRegionStarts(r_end, start) == 1)
-                        if text.compareRegionStarts(end, r_start) == 1 or text.compareRegionStarts(r_end, start) == 1:
+                        # end < r_cur_start OR start > r_cur_end
+                        if text.compareRegionStarts(end, r_cur_start) == 1 or text.compareRegionStarts(r_cur_end, start) == 1:
                             pass # No overlap
                         else:
                             return self._tool_error(
