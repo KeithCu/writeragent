@@ -485,7 +485,6 @@ def compare_periods(
     ``agg`` defaults to ``sum`` (revenue). A price or a rate needs ``mean`` or
     ``last`` — summing those was a silent wrong answer.
     """
-    import pandas as pd
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint, date_origin=date_origin)
     df = coerced.df.copy()
     if date_col not in df.columns or value_col not in df.columns:
