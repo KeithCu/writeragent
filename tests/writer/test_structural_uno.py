@@ -121,3 +121,62 @@ def test_clone_heading_block_without_tracked_deletions_uno(ctx, doc):
     assert count == 4, f"Expected 4 paragraphs, got {count}"
     assert last_para is not None
     assert last_para.getString() == "This is text.", f"Tracked deletions were cloned! Got: '{last_para.getString()}'"
+
+
+@native_test
+@with_native_doc("writer")
+def test_clone_heading_block_inserts_before_next_heading_uno(ctx, doc):
+    """Clone lands between the source block and the next heading.
+
+    insertControlCharacter at the end of the block retargets that paragraph's
+    UNO range onto the new paragraph. Re-reading it cloned the heading twice.
+    gotoNextParagraph from this cursor skips the new paragraph and writes into
+    the following heading. Source getString() keeps the tracked deletion;
+    the cloned body does not.
+    """
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertString(cursor, "My Heading", False)
+    text.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+    cursor.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cursor, "This is good text.", False)
+    text.insertControlCharacter(cursor, 0, False)
+    cursor.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertString(cursor, "Next", False)
+    text.insertControlCharacter(cursor, 0, False)
+    cursor.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cursor, "AFTER", False)
+
+    doc.RecordChanges = True
+    enum = text.createEnumeration()
+    body = None
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if el.getString() == "This is good text.":
+            body = el
+    assert body is not None
+    body_cursor = text.createTextCursorByRange(body)
+    body_cursor.gotoStartOfParagraph(False)
+    body_cursor.goRight(7, False)  # "This is"
+    body_cursor.goRight(5, True)  # " good"
+    body_cursor.setString("")
+    doc.RecordChanges = False
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    clone_res = CloneHeadingBlock().execute(tool_ctx, paragraph_index=0)
+    assert clone_res.get("status") == "ok", clone_res
+
+    rows = []
+    enum = text.createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        rows.append((el.getString(), el.getPropertyValue("ParaStyleName")))
+    assert rows == [
+        ("My Heading", "Heading 1"),
+        ("This is good text.", "Standard"),
+        ("My Heading", "Heading 1"),
+        ("This is text.", "Standard"),
+        ("Next", "Heading 1"),
+        ("AFTER", "Standard"),
+    ], rows

@@ -404,15 +404,34 @@ class CloneHeadingBlock(ToolBaseDummy):
         if not elements:
             return self._tool_error("Could not collect heading block paragraphs.")
 
-        # Insert duplicates after the last element of the block
+        # Insert duplicates after the last element of the block.
+        # Snapshot text and style first. The cursor is created from the last
+        # block paragraph, and insertControlCharacter(PARAGRAPH_BREAK) at that
+        # paragraph's end retargets its UNO range onto the new paragraph.
+        # Re-reading the live range on the next iteration therefore clones the
+        # paragraph just inserted (the heading) instead of the source body, so
+        # the last paragraph is "My Heading" and the tracked-deletion-stripped
+        # body never gets written. get_string_without_tracked_deletions has to
+        # run before that split so the body clone is the visible text.
+        clones: list[tuple[str, Any]] = []
+        for el in elements:
+            clones.append((
+                get_string_without_tracked_deletions(el),
+                el.getPropertyValue("ParaStyleName"),
+            ))
+
         last = elements[-1]
         cursor = doc_text.createTextCursorByRange(last)
         cursor.gotoEndOfParagraph(False)
 
-        for el in elements:
-            txt = get_string_without_tracked_deletions(el)
-            sty = el.getPropertyValue("ParaStyleName")
+        for txt, sty in clones:
             doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+            # This cursor is already in the new paragraph after the break
+            # (insertString fills it). gotoNextParagraph would skip that empty
+            # paragraph and write into whatever follows the block. html_export's
+            # temp-doc cursor stays before the break and must step forward;
+            # this one must not. Collapse to the end after styling so the next
+            # break is after the clone, not inside it.
             doc_text.insertString(cursor, txt, False)
             cursor.gotoStartOfParagraph(False)
             cursor.gotoEndOfParagraph(True)
