@@ -388,6 +388,8 @@ class NativePythonScriptDialog:
                     return _("No document is open to save scripts.")
                 err = save_document_script(self._doc, real_name, t)
                 if err:
+                    if real_name in get_user_scripts():
+                        return _("Cannot save to My Scripts: a script named '%s' already exists.") % real_name
                     save_user_script(real_name, t)
                     return _("%s Saved to My Scripts instead.") % err
                 return _("Script '%s' saved to this document.") % real_name
