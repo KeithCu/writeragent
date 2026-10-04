@@ -1,7 +1,6 @@
 with open('plugin/calc/charts.py', 'r') as f:
     content = f.read()
 
-import re
 
 search = """
         if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):

@@ -86,6 +86,9 @@ class PlotDataTool(ToolBaseDummy):
         if ctx.doc_type == "calc":
 
             def _insert() -> None:
+                stop_checker = getattr(ctx, "stop_checker", None)
+                if callable(stop_checker) and stop_checker() is True:
+                    return
                 insert_viz_result_into_doc(ctx.ctx, ctx.doc, result)
 
             try:

@@ -219,6 +219,9 @@ _WAIT_TIMEOUT = 5.0
 _PROCESS_TIMEOUT = 60.0
 
 _ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
+# Omitted means "read the caller's ambient send". An explicit None means the
+# worker had no scope; do not substitute the main thread's contextvar after marshal.
+_SEND_CANCELLATION_UNSET = object()
 
 _doc_gates: dict[str, threading.Lock] = {}
 _doc_gates_guard = threading.Lock()
@@ -804,14 +807,15 @@ class MCPProtocolHandler:
             return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
 
         tool = self.tool_registry.get(tool_name)
-        # One off-thread path: a long-running tool is is_async (positive timeout,
-        # checked in _prepare_mcp_execution) and runs through execute_safe.
-        # The long_running attribute alone must not select a second path.
-        # MagicMock is_async() is not exactly True, so it stays on backpressure.
+        # One off-thread path: a long-running tool is is_async() exactly True
+        # (positive timeout checked in _prepare_mcp_execution) and runs through
+        # execute_safe. The long_running attribute alone must not select a second
+        # path. MagicMock is_async() is not exactly True, so it stays on backpressure.
         is_async_attr = getattr(tool, "is_async", None) if tool is not None else None
-        is_long_running = is_async_attr() is True if callable(is_async_attr) else False
+        is_async = is_async_attr() is True if callable(is_async_attr) else False
+        is_long_running = is_async
 
-        initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
+        initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running, "is_async": is_async})
 
         # State machine runner
         events_to_process = [initial_event]
@@ -828,11 +832,11 @@ class MCPProtocolHandler:
                     log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
                     event_bus = getattr(self, "event_bus", None)
                     if event_bus is not None:
-                        event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call")
+                        event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
 
                 elif isinstance(effect, ExecuteToolEffect):
                     try:
-                        if effect.is_long_running:
+                        if effect.is_long_running is True or effect.is_async is True:
                             res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
                         else:
                             res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
@@ -861,7 +865,7 @@ class MCPProtocolHandler:
                     event_bus = getattr(self, "event_bus", None)
                     if event_bus is not None:
                         snippet = str(effect.result)[:100] if effect.result else ""
-                        event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
+                        event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
 
                     # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
                     # emit a native MCP image content block (get_image) instead of base64-as-text.
@@ -957,7 +961,9 @@ class MCPProtocolHandler:
         if not acquired:
             raise BusyError("LibreOffice is busy processing another tool call. Please wait a moment and retry.")
         try:
-            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0)
+            from plugin.framework.queue_executor import get_current_send_cancellation
+            send_cancellation = get_current_send_cancellation()
+            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
             if not isinstance(prepared, _PreparedMcpCall):
                 return prepared
             with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
@@ -1000,11 +1006,20 @@ class MCPProtocolHandler:
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
         return schemas, others
 
-    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None) -> Any:
+    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, send_cancellation: Any = _SEND_CANCELLATION_UNSET) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
         Returns ``_PreparedMcpCall`` or a structured error dict.
+
+        Marshalled callers pass the scope captured on the worker, including
+        None, so this does not inherit the main thread's ambient send.
+        Direct callers omit the argument and use the scope on this thread.
         """
+        if send_cancellation is _SEND_CANCELLATION_UNSET:
+            from plugin.framework.queue_executor import get_current_send_cancellation
+
+            send_cancellation = get_current_send_cancellation()
+
         tool = self.tool_registry.get(tool_name)
         if tool is None:
             return {"status": "error", "code": "UNKNOWN_TOOL", "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
@@ -1071,10 +1086,6 @@ class MCPProtocolHandler:
             except Exception:
                 pass
 
-        from plugin.framework.queue_executor import get_current_send_cancellation
-
-        send_cancellation = get_current_send_cancellation()
-
         def stop_checker() -> bool:
             if req_id is not None and req_id in self._cancelled_requests:
                 return True
@@ -1120,6 +1131,8 @@ class MCPProtocolHandler:
         registry is marshalled to the main thread from there.
         """
         with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+            if callable(prepared.context.stop_checker) and prepared.context.stop_checker() is True:
+                return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None) -> Any:
@@ -1133,7 +1146,9 @@ class MCPProtocolHandler:
         this method does not pass that keyword (see
         _arguments_without_thread_guard_bypass).
         """
-        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0)
+        from plugin.framework.queue_executor import get_current_send_cancellation
+        send_cancellation = get_current_send_cancellation()
+        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared
         return self._run_prepared_mcp_execute(prepared, tool_name, arguments)

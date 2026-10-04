@@ -312,7 +312,7 @@ class TestSendDispose:
 
         mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
         mock_turn._alive = True
-        listener._last_mcp_turn = mock_turn
+        listener._last_mcp_turn = {"": mock_turn}
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
@@ -334,7 +334,7 @@ class TestSendDispose:
 
         mock_turn = TurnController(MagicMock(), MagicMock(), MagicMock())
         mock_turn._alive = True
-        listener._last_mcp_turn = mock_turn
+        listener._last_mcp_turn = {"": mock_turn}
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),

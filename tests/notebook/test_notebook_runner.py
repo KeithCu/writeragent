@@ -141,12 +141,13 @@ def test_execute_code_stop_returns_interrupted_without_venv():
             side_effect=BlockingWaitStopped("stopped"),
         ) as pump,
         patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
+        patch("plugin.notebook.notebook_runner.run_in_background") as bg,
         patch("plugin.notebook.notebook_runner.reset_python_session") as reset,
         patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
         patch("plugin.notebook.notebook_runner.release_script_document"),
     ):
         out = execute_code(ctx, doc, "x = 1")
-        reset.assert_called_once_with(ctx, "notebook:test")
+        bg.assert_called_once_with(reset, ctx, "notebook:test", name="notebook_reset_on_stop")
     assert out["status"] == "stopped"
     assert pump.call_args.kwargs.get("pump_idle") is False
     run_venv.assert_not_called()
@@ -1457,16 +1458,54 @@ def test_run_cells_does_not_pump_idle_during_execute():
         patch("plugin.notebook.notebook_runner.apply_run_result"),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
-        patch("plugin.framework.uno_context.process_events_to_idle") as idle,
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
+        patch("plugin.notebook.writer_importer.flush_ui_idle") as flush_idle,
+        patch("plugin.framework.queue_executor.pump_ui_idle"),
     ):
         run_cells(ctx, doc, start_index=0)
 
     assert pumps == ["execute", "flush", "execute"]
-    idle.assert_not_called()
+    assert flush_idle.call_count == 1
     src = inspect.getsource(execute_code)
     assert "pump_idle=False" in src
     assert "processEventsToIdle" not in src or "never" in src.lower() or "not" in src.lower()
+
+
+def test_run_cells_between_cell_pump_under_drain_owner():
+    from plugin.notebook.notebook_runner import _pump_between_notebook_cells
+
+    ctx = MagicMock()
+    pumps: list[str] = []
+
+    def _flush(*_a, **_k):
+        pumps.append("flush")
+
+    def _pump_idle(*_a, **_k):
+        pumps.append("pump_ui_idle")
+
+    def _pump_work(*_a, **_k):
+        pumps.append("pump_main_thread_work_queue")
+
+    with (
+        patch("plugin.framework.async_drain_guard.get_drain_owner", return_value=None),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
+        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+    ):
+        _pump_between_notebook_cells(ctx)
+    assert pumps == ["pump_main_thread_work_queue", "flush"]
+
+    pumps.clear()
+    with (
+        patch("plugin.framework.async_drain_guard.get_drain_owner", return_value="owner"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
+        patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
+        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+    ):
+        _pump_between_notebook_cells(ctx)
+    assert pumps == ["pump_main_thread_work_queue", "pump_ui_idle"]
 
 
 def test_run_cells_between_cell_pump_disposal_stops_execution():
