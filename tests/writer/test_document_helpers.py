@@ -884,14 +884,15 @@ def test_do_extend_selection_observes_stop_checker(monkeypatch):
         streams.append(args)
         assert "stop_checker" not in kwargs
         apply_chunk = args[5]
-        with pytest.raises(editselection.BlockingWaitStopped):
-            apply_chunk("more")
+        # Stop does not drop a chunk already in hand (#1273).
+        apply_chunk("more")
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
     editselection.do_extend_selection(_Ctx(), doc, object())
 
     assert len(streams) == 1
+    assert text_range.getString() == "Hellomore"
 
 
 def test_do_edit_selection_observes_stop_checker(monkeypatch):
@@ -916,14 +917,15 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
         streams.append(args)
         assert "stop_checker" not in kwargs
         apply_chunk = args[5]
-        with pytest.raises(editselection.BlockingWaitStopped):
-            apply_chunk("more")
+        # Stop does not drop a chunk already in hand (#1273).
+        apply_chunk("more")
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
     editselection.do_edit_selection(_Ctx(), doc, object())
 
     assert len(streams) == 1
+    assert text_range.getString() == "more"
 
 
 def test_stop_checker_exception_fails_closed():
