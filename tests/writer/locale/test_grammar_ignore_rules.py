@@ -176,13 +176,14 @@ class TestGrammarIgnoreRules:
     def test_proofreader_ignore_and_reset_apis(self) -> None:
         ctx = MagicMock()
         pr = WriterAgentAiGrammarProofreader(ctx)
-        pr._last_doc_id = "2"
+        pr._doc_id_for_ignore = {"test-uid": "2"}
 
         dp = MagicMock()
         dp._ignored_rules = set()
 
         with (
             patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+            patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
             patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
         ):
             pr.ignoreRule("wa_g_rule||Avoid passive voice.", None)
@@ -281,13 +282,14 @@ def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ign
 def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_code: str) -> None:
     ctx = MagicMock()
     pr = WriterAgentAiGrammarProofreader(ctx)
-    pr._last_doc_id = "2"
+    pr._doc_id_for_ignore = {"test-uid": "2"}
 
     dp = MagicMock()
     dp._ignored_rules = set()
 
     with (
         patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
+        patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
         patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
     ):
         pr.ignoreRule(make_rule_identifier(prefix, ignored_code), None)

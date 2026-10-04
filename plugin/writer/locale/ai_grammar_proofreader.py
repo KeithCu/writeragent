@@ -213,19 +213,11 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     if desktop is None:
         return None
     try:
-        current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
-    except Exception:
-        log.debug("[grammar] persistence bind: current component unavailable", exc_info=True)
-        current = None
-    if _is_text_document(current):
-        return current
-    try:
         writers = _open_writer_models(desktop)
     except Exception:
         log.debug("[grammar] persistence bind: open Writer scan failed", exc_info=True)
-        return None
-    if not writers:
-        return None
+        writers = []
+
     for model in writers:
         try:
             uid = get_runtime_uid(model)
@@ -233,6 +225,15 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
             uid = ""
         if uid and uid == doc_id:
             return model
+
+    try:
+        current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+    except Exception:
+        log.debug("[grammar] persistence bind: current component unavailable", exc_info=True)
+        current = None
+    if _is_text_document(current):
+        return current
+
     if len(writers) == 1:
         return writers[0]
     return None
@@ -585,7 +586,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del args
         super().__init__()
         self.ctx = ctx
-        self._last_doc_id: str | None = None
+        self._doc_id_for_ignore: dict[str, str] = {}
         self._lingu_listeners: list[Any] = []
         # First-session Harper: ensure-ready can broadcast before Writer hooks
         # XLinguServiceEventListener. Remember the miss and recover once.
@@ -799,11 +800,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         return False
 
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
-        self._last_doc_id = aDocumentIdentifier
-        from plugin.writer.locale.grammar_persistence import get_document_model_for_id
-
-        if get_document_model_for_id(self.ctx, aDocumentIdentifier) is None:
-            _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
         if uno_mod is None:
             log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
             raise RuntimeError("uno not available")
@@ -815,11 +811,32 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         # unhandled exception and could crash or hang Writer.
         a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
         try:
+            from plugin.writer.locale.grammar_persistence import get_document_model_for_id
+
+            if get_document_model_for_id(self.ctx, aDocumentIdentifier) is None:
+                _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
+
             loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             if not loc_key:
                 return a_res
 
-            ident = getattr(self, "_checker_identity", "harper")
+            # In Writer, grammar ignore receives the doc_id and stores rules per doc.
+            # In Draw, ignoreRule only gets the locale, and no aDocumentIdentifier.
+            # Thus, we store the known doc_id by a resolved model UID, avoiding
+            # the focused desktop guess.
+            model = get_document_model_for_id(self.ctx, aDocumentIdentifier)
+            if model is not None:
+                from plugin.framework.uno_context import get_runtime_uid
+                try:
+                    uid = get_runtime_uid(model)
+                    if uid:
+                        if not hasattr(self, "_doc_id_for_ignore"):
+                            self._doc_id_for_ignore = {}
+                        self._doc_id_for_ignore[uid] = aDocumentIdentifier
+                except Exception:
+                    pass
+
+            ident = getattr(self, "_checker_identity", self._active_grammar_provider())
 
             # 1. One BreakIterator + dialogue-merge pass for the whole paragraph.
             paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
@@ -927,20 +944,51 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             log.exception("[grammar] doProofreading failed: %s", e)
             return a_res
 
+    def _resolve_doc_id_for_ignore(self) -> str | None:
+        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.uno_context import get_desktop, get_runtime_uid
+
+        if not on_main_thread():
+            return None
+
+        try:
+            desktop = get_desktop(self.ctx)
+            if desktop is None:
+                return None
+            current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+            if current is not None:
+                uid = get_runtime_uid(current)
+                if uid and hasattr(self, "_doc_id_for_ignore") and uid in self._doc_id_for_ignore:
+                    return self._doc_id_for_ignore[uid]
+
+                # If current UID matches a known persistence job, we map to its doc ID.
+                # In Writer, uid and aDocumentIdentifier might be different.
+        except Exception:
+            pass
+        return None
+
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
             del aLocale
-            doc_id = getattr(self, "_last_doc_id", None)
+            doc_id = _run_on_main_thread(self._resolve_doc_id_for_ignore)
+            if not doc_id:
+                log.warning("[grammar] ignoreRule: failed to resolve doc_id; cannot ignore rule")
+                raise RuntimeError("ignoreRule failed: no active document found")
             _run_on_main_thread(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier)
         except Exception as e:
             log.warning("[grammar] ignoreRule: %s", e, exc_info=True)
+            raise
 
     def resetIgnoreRules(self) -> None:
         try:
-            doc_id = getattr(self, "_last_doc_id", None)
+            doc_id = _run_on_main_thread(self._resolve_doc_id_for_ignore)
+            if not doc_id:
+                log.warning("[grammar] resetIgnoreRules: failed to resolve doc_id; cannot reset")
+                raise RuntimeError("resetIgnoreRules failed: no active document found")
             _run_on_main_thread(_reset_ignore_rules_on_main, self.ctx, doc_id)
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
+            raise
 
     def addLinguServiceEventListener(self, xLstnr: Any) -> bool:
         if xLstnr is None:
