@@ -502,7 +502,6 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
 def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
     """prune_dead_listeners off-main thread (e.g., File Open filter) must not drop listeners just because get_active_document raises RuntimeError."""
     from plugin.framework import thread_guard
-    from plugin.framework.errors import DocumentDisposedError
 
     # Simulate off main thread
     monkeypatch.setattr(thread_guard, "on_main_thread", lambda: False)
