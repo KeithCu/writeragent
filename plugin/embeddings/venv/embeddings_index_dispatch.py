@@ -30,7 +30,6 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             # Omitted search_mode fell through to the sqlite default, so a
             # configured zvec, LanceDB, or LlamaIndex backend never ran.
             search_mode=str(params.get("search_mode") or "hybrid"),
-            heartbeat_fn=heartbeat_fn,
         )
     if helper == "delete_paragraphs":
         from plugin.embeddings.venv.embeddings_index import delete_paragraphs

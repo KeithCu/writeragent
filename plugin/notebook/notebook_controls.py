@@ -594,16 +594,10 @@ class NotebookRunButtonListener(BaseActionListener):
     def _resolve_doc(self) -> Any | None:
         from plugin.framework.uno_context import resolve_document_by_url
 
-        from plugin.framework.thread_guard import on_main_thread
-
-        is_main = on_main_thread()
-        if is_main and self._doc_url:
-            try:
-                doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
-                if doc is not None:
-                    return doc
-            except Exception:
-                pass
+        if self._doc_url:
+            doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
+            if doc is not None:
+                return doc
         # Prefer a live wrapper before enumerating the desktop (unit tests and
         # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
         weak = getattr(self, "_doc_weak", None)
@@ -611,24 +605,16 @@ class NotebookRunButtonListener(BaseActionListener):
             ref_doc = weak()
             if ref_doc is not None:
                 return ref_doc
-        if is_main and self._runtime_uid:
-            try:
-                doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
-                if doc is not None:
-                    return doc
-            except Exception:
-                pass
-        if is_main:
-            from plugin.framework.uno_context import get_active_document
-            try:
-                active = get_active_document(self._ctx)
-                if active is not None and _doc_key(active) == self._doc_key_val:
-                    return active
-            except Exception:
-                pass
-            return None
+        if self._runtime_uid:
+            doc, _doc_type = resolve_document_by_url(self._ctx, self._runtime_uid)
+            if doc is not None:
+                return doc
+        from plugin.framework.uno_context import get_active_document
 
-        return True
+        active = get_active_document(self._ctx)
+        if active is not None and _doc_key(active) == self._doc_key_val:
+            return active
+        return None
 
     def on_action_performed(self, rEvent: Any) -> None:
         doc = self._resolve_doc()
@@ -669,13 +655,11 @@ class NotebookFormContainerListener(BaseContainerListener):
     _form_listener: NotebookFormRunListener
     _doc_key_val: str
     _form_level: bool
-    _container: Any
 
-    def __init__(self, form_listener: NotebookFormRunListener, container: Any) -> None:
+    def __init__(self, form_listener: NotebookFormRunListener) -> None:
         self._form_listener = form_listener
         self._doc_key_val = form_listener._doc_key_val
         self._form_level = False
-        self._container = container
         # Not a per-button listener. prune_dead_listeners used to treat the
         # missing attribute as a button key and raise AttributeError.
         self._hex_id: str | None = None
@@ -728,25 +712,20 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
                 forms = doc.getDrawPage().getForms()
             except Exception:
                 forms = None
-        if forms is None:
+        if forms is None or getattr(forms, "getCount", lambda: 0)() < 1:
             return None, None
-        count = getattr(forms, "getCount", lambda: 0)()
-        if count < 1:
+        form = forms.getByIndex(0)
+        fc = None
+        if hasattr(controller, "getFormController"):
+            fc = controller.getFormController(form)
+        if fc is None:
+            access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
+            if access is not None:
+                fc = access.getFormController(form)
+        if fc is None:
             return None, None
-        for i in range(count):
-            form = forms.getByIndex(i)
-            fc = None
-            if hasattr(controller, "getFormController"):
-                fc = controller.getFormController(form)
-            if fc is None:
-                access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
-                if access is not None:
-                    fc = access.getFormController(form)
-            if fc is not None:
-                container = fc.getContainer() if hasattr(fc, "getContainer") else None
-                if container is not None:
-                    return fc, container
-        return None, None
+        container = fc.getContainer() if hasattr(fc, "getContainer") else None
+        return fc, container
     except Exception:
         log.debug("notebook controls: form controller lookup failed", exc_info=True)
         return None, None
@@ -807,24 +786,19 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     prune_dead_listeners()
     doc_key = _doc_key(doc)
     ensure_form_design_mode_off(doc)
+    with _lock:
+        if doc_key in _wired_form_docs:
+            log.debug("notebook controls: form listener already attached doc=%s", doc_key)
+            return 1
+        _wired_form_docs.add(doc_key)
+
     t0 = time.monotonic()
     _fc, container = _form_and_container(doc)
     if container is None:
+        with _lock:
+            _wired_form_docs.discard(doc_key)
         log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
-
-    from plugin.framework.uno_context import uno_same
-    with _lock:
-        # Check if this specific container view is already wired
-        for lis in _listener_refs:
-            if isinstance(lis, NotebookFormContainerListener):
-                try:
-                    if uno_same(lis._container, container):
-                        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
-                        return 1
-                except Exception:
-                    pass
-        _wired_form_docs.add(doc_key)
 
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
@@ -836,7 +810,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     except Exception:
         log.debug("notebook controls: getControls attach failed", exc_info=True)
 
-    container_lis: NotebookFormContainerListener | None = NotebookFormContainerListener(listener, container)
+    container_lis: NotebookFormContainerListener | None = NotebookFormContainerListener(listener)
     try:
         container.addContainerListener(container_lis)
     except Exception:

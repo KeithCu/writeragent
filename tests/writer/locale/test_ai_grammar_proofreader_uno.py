@@ -88,15 +88,10 @@ def test_ignore_rule_filters_cached_error(ctx: Any) -> None:
         gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-99")
         res1 = pr.doProofreading("doc-99", text, loc, 0, len(text), ())
         assert len(tuple(res1.aErrors)) == 1
-
-        # Test runs headless without an active UI component. Mock the doc ID lookup.
-        import unittest.mock
-        with unittest.mock.patch.object(pr, "_resolve_doc_id_for_ignore", return_value="doc-99"):
-            pr.ignoreRule(rid, loc)
+        pr.ignoreRule(rid, loc)
         res2 = pr.doProofreading("doc-99", text, loc, 0, len(text), ())
         assert len(tuple(res2.aErrors)) == 0
-        with unittest.mock.patch.object(pr, "_resolve_doc_id_for_ignore", return_value="doc-99"):
-            pr.resetIgnoreRules()
+        pr.resetIgnoreRules()
     finally:
         teardown_grammar_proof_tests(saved_enabled)
 

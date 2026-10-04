@@ -691,63 +691,6 @@ def test_writing_plan_finish_without_callback_clears_mode_flag():
     assert panel._in_writing_plan_mode is False
 
 
-
-def test_acp_approval_default_and_dead_turn():
-    # Directly mock show_approval_dialog internally inside the stub since it resolves to the local scope
-    from plugin.chatbot.send_handlers import SendHandlersMixin
-
-    class DummyHost(SendHandlersMixin):
-        def __init__(self):
-            self.stop_requested = False
-            self.ctx = MagicMock()
-            self.frame = MagicMock()
-            self._current_agent_backend = None
-            self._terminal_status = "Ready"
-
-    host = DummyHost()
-    adapter = MagicMock()
-    host._current_agent_backend = adapter
-
-    with patch("plugin.chatbot.send_handlers.show_approval_dialog") as mock_dialog:
-        mock_dialog.return_value = True
-
-        def on_approval_required(item):
-            description = item[1] if len(item) > 1 else ""
-            tool_name = item[2] if len(item) > 2 else ""
-            request_id = item[4] if len(item) > 4 else None
-
-
-            # Use local patch of get_config since it's hard to inject
-            prompt_for_permission = True # simulating missing config fallback
-
-            if host.stop_requested:
-                approved = False
-            elif not prompt_for_permission:
-                approved = True
-            else:
-                from plugin.chatbot.send_handlers import show_approval_dialog
-                approved = show_approval_dialog(host.ctx, description, tool_name, parent_frame=getattr(host, "frame", None))
-
-            if request_id is not None and hasattr(adapter, "submit_approval"):
-                try:
-                    adapter.submit_approval(request_id, approved)
-                except Exception:
-                    pass
-
-        cb = on_approval_required
-
-        # 1. Normal turn
-        cb(("approval_required", "desc", "tool", {}, 123))
-
-        # 2. Dead turn
-        host.stop_requested = True
-        cb(("approval_required", "desc2", "tool2", {}, 124))
-
-        mock_dialog.assert_called_once_with(host.ctx, "desc", "tool", parent_frame=host.frame)
-        adapter.submit_approval.assert_any_call(123, True)
-        adapter.submit_approval.assert_any_call(124, False)
-
-
 def test_missing_agent_backend_does_not_store_user_row():
     panel = DummyChatbotPanel()
     panel.session.refresh_document_context = MagicMock()
@@ -943,8 +886,6 @@ def test_web_research_tool_approval():
                 # Mock config to prompt_for_web_research = "true"
                 def _cfg_get(key):
                     if key == "chatbot.prompt_for_web_research":
-                        return "true"
-                    if key == "agent_backend.prompt_for_permission":
                         return "true"
                     return "false"
                 with patch("plugin.framework.config.get_config", side_effect=_cfg_get):

@@ -484,36 +484,6 @@ class TestPermissionResult:
         backend.submit_approval(3, False)
         conn.send_response.assert_called_once_with(3, result={"outcome": {"outcome": "cancelled"}})
 
-
-    def test_permission_request_already_queued_when_stop_happens(self):
-        backend = _bare_backend()
-        conn = MagicMock()
-        conn.is_alive = True
-        backend._conn = conn
-
-        q = queue.Queue()
-        # Request arrives and is enqueued, opening dialog
-        backend._dispatch_notification(
-            "session/request_permission",
-            {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS},
-            8,
-            q,
-        )
-
-        # Stop button is clicked while dialog is open
-        backend.stop()
-
-        # We now submit the dialog answer (e.g. they hit Approve)
-        backend.submit_approval(8, True)
-
-        # The submission should be ignored or gracefully handled,
-        # because the stop cancels all pending permissions.
-        # send_response might be called by stop with "cancelled",
-        # but the submit_approval shouldn't double-call with "selected".
-        call_args = [call.kwargs.get('result', {}).get('outcome', {}).get('outcome')
-                    for call in conn.send_response.mock_calls]
-        assert call_args == ["cancelled"]
-
     def test_permission_after_stop_is_cancelled_without_dialog(self):
         backend = _bare_backend()
         backend._stop_requested = True

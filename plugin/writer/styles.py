@@ -1076,12 +1076,7 @@ class StyleCreate(ToolWriterStyleBase):
                 except Exception as cond_err:
                     log.warning("Failed to set ParaStyleConditions on new style", exc_info=True)
                     # We must not silently drop conditional rules; if the property isn't writable or fails,
-                    # we must fail loudly. We roll back the style creation so we don't leave a half-created style.
-                    try:
-                        if style_family.hasByName(style_name):
-                            style_family.removeByName(style_name)
-                    except Exception as rb_err:
-                        log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
+                    # we must fail loudly.
                     return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
 
         except Exception as e:

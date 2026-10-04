@@ -121,6 +121,7 @@ def test_handle_llm_request_uses_host_cancellation_scope():
 
     scope = object()
     client = MagicMock()
+    client._stopped = False
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
     with (
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),

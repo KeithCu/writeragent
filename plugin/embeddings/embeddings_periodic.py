@@ -61,7 +61,4 @@ def run_periodic_embeddings_indexer(ctx: Any) -> None:
         time.sleep(EMBEDDINGS_INDEX_INTERVAL_S)
         if not folder_search_enabled():
             continue
-        try:
-            execute_on_main_thread(lambda: _embeddings_periodic_tick(ctx))
-        except Exception:
-            log.exception("embeddings periodic indexer failed to execute on main thread")
+        execute_on_main_thread(lambda: _embeddings_periodic_tick(ctx))

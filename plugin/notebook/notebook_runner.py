@@ -15,7 +15,6 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import is_document_disposed
 from plugin.framework.async_stream import BlockingWaitStopped, run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
@@ -24,8 +23,8 @@ from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _I
 from plugin.notebook.notebook_controls import _doc_key, _resolve_para_style
 from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_NOTEBOOK_OUT, _insert_image_in_flow, _strip_ansi, output_para_style
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
-from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
-from plugin.scripting.venv_worker import run_code_in_user_venv, reset_python_session
+from plugin.scripting.session_manager import notebook_session_id
+from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -136,13 +135,8 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
 
     ensure_python_session_cleared_on_unload(ctx, doc, session_id)
 
-    script_session_id = pin_script_document(doc)
-
     def _run() -> dict[str, Any]:
-        try:
-            return run_code_in_user_venv(ctx, code, session_id=session_id, script_session_id=script_session_id, python_tool_domain="")
-        finally:
-            release_script_document(script_session_id)
+        return run_code_in_user_venv(ctx, code, session_id=session_id)
 
     busy_key = _doc_key(doc)
 
@@ -152,10 +146,7 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     try:
         return run_blocking_in_thread(ctx, _run, pump_idle=False, stop_checker=_stopped)
     except BlockingWaitStopped:
-        # Teardown child so it drops the IO lock and next cell isn't busy.
-        reset_python_session(ctx, session_id)
-        # Returning status 'stopped' ensures run_cells recognizes the interruption.
-        return {"status": "stopped", "message": "Stopped."}
+        return {"status": "interrupted", "message": "Stopped."}
 
 
 # ---------------------------------------------------------------------------
@@ -1082,7 +1073,7 @@ def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: Notebo
     result = execute_code(ctx, doc, code)
     # After execute so live smoke can tell ok from a sandbox dunder deny.
     log.info("notebook run cell index=%d field=%s status=%s", cell.index, cell.code_field_name, result.get("status"))
-    if result.get("status") == "stopped" or result.get("status") == "interrupted":
+    if result.get("status") == "interrupted":
         # In [n] / outputs only for cells that actually finished.
         return RunResult("stopped", None, "Stopped.", cells_run=0)
 
@@ -1156,10 +1147,7 @@ def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
     # Execution errors (sandbox, syntax, traceback) already land under the cell
     # via apply_run_result. A modal here blocked the document and would make
     # Run All unusable. Keep msgbox only for the setup failures above.
-    result = run_cell(ctx, doc, cell.cell_id)
-    if result.status == "error" and not result.cells_run:
-        msgbox(ctx, "WriterAgent", result.message)
-
+    run_cell(ctx, doc, cell.cell_id)
 
 
 def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
@@ -1210,9 +1198,18 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
     depth 1. With no owner, keep ``flush_ui_idle`` (hamburger Stop, and the
     tests that patch it). Do not pump inside ``execute_code`` (LayoutIdle).
     """
+    from plugin.framework.async_drain_guard import get_drain_owner
+
     try:
-        from plugin.framework.queue_executor import pump_main_thread_work_queue
-        pump_main_thread_work_queue(max_items=1)
+        if get_drain_owner() is not None:
+            from plugin.framework.queue_executor import pump_ui_idle
+            from plugin.framework.uno_context import get_toolkit
+
+            pump_ui_idle(get_toolkit(ctx))
+            return
+        from plugin.notebook.writer_importer import flush_ui_idle
+
+        flush_ui_idle(ctx)
     except Exception:
         log.debug("notebook run: between-cell pump failed", exc_info=True)
 
@@ -1258,9 +1255,6 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 # LayoutIdle livelock is during execute, not this between-cell pump.
                 # Stop clicks are delivered here; check the flag before the next cell.
                 _pump_between_notebook_cells(ctx)
-            if is_document_disposed(doc):
-                stopped = True
-                break
             if _is_stop_requested(busy_key):
                 stopped = True
                 break

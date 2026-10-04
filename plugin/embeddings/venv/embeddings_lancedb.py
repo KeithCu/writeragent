@@ -65,14 +65,14 @@ def _get_or_create_table(db_path: str, dim: int) -> Any:
     try:
         tbl = db.open_table(table_name)
         # Check if schema dimensions match. If not, recreate.
-        tbl_dim = tbl.schema.field("vector").type.list_size
+        tbl_dim = len(tbl.schema.field("vector").type.value_type)
         if tbl_dim != int(dim):
             log.info("LanceDB table dimension mismatch (%d vs %d), recreating table", tbl_dim, dim)
             tbl = db.create_table(table_name, schema=schema, mode="overwrite")
         return tbl
     except Exception:
         # Create fresh table
-        tbl = db.create_table(table_name, schema=schema)
+        tbl = db.create_table(table_name, schema=schema, mode="overwrite")
         return tbl
 
 
@@ -91,7 +91,6 @@ def lancedb_ingest_rows(
     *,
     build_fts: bool = True,
     build_vectors: bool = True,
-    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Ingest paragraph rows into a LanceDB table."""
     if not rows:
@@ -104,15 +103,7 @@ def lancedb_ingest_rows(
     vectors: list[list[float]] = []
     dim = 0
     if build_vectors:
-        from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE
-
-        for i in range(0, len(bodies), EMBEDDINGS_INGEST_BATCH_SIZE):
-            chunk_bodies = bodies[i : i + EMBEDDINGS_INGEST_BATCH_SIZE]
-            v = _embed_texts(model_name, chunk_bodies, normalize=True)
-            vectors.extend(v)
-            if heartbeat_fn:
-                heartbeat_fn({"phase": "embed", "progress": len(vectors), "total": len(bodies)})
-
+        vectors = _embed_texts(model_name, bodies, normalize=True)
         if vectors:
             dim = len(vectors[0])
 

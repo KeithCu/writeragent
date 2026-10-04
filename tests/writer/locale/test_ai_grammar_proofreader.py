@@ -878,6 +878,7 @@ def test_ensure_persistence_bound_passes_current_text_component() -> None:
         assert bound is not None
         assert bound._model is writer
         assert mock_load.call_count == again_loads
+        desktop.getComponents.assert_not_called()
     finally:
         gp.clear_all_document_persistence(ctx)
 
@@ -1147,70 +1148,3 @@ def test_try_harper_fast_path_emits_starting_when_ensure() -> None:
     assert phases == ["start", "request"]
     assert mock_status.call_args_list[-1].kwargs.get("result") == "Starting Harper…"
     assert not any(c.args[0] == "done" for c in mock_status.call_args_list)
-
-def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component() -> None:
-    """It must bind the correct Writer job doc even if Draw/Impress is focused."""
-    from plugin.writer.locale import grammar_persistence as gp
-
-    ctx = MagicMock()
-    draw_comp = MagicMock()
-    draw_comp.supportsService.return_value = False
-
-    writer_match = _writer_model()
-    writer_other = _writer_model()
-
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [writer_other, writer_match]
-
-    comps = MagicMock()
-    comps.createEnumeration.return_value = enum
-
-    desktop = MagicMock()
-    desktop.getCurrentComponent.return_value = draw_comp
-    desktop.getComponents.return_value = comps
-
-    gp.grammar_registry.clear_all(ctx)
-    try:
-        with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-            patch("plugin.doc.udprops.get_document_property", return_value=None),
-            patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["other-id", "match-id"]),
-        ):
-            proofreader._ensure_persistence_bound(ctx, "match-id")
-        bound = gp.get_persistence(ctx, "match-id")
-        assert bound is not None
-        assert bound._model is writer_match
-    finally:
-        gp.clear_all_document_persistence(ctx)
-
-def test_ignore_rule_fails_loudly_when_doc_id_unresolved(mock_config_fixture, mock_locale_fixture) -> None:
-    pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore, \
-         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
-         patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found"):
-            pr.ignoreRule("test-rule", mock_locale_fixture)
-    mock_ignore.assert_not_called()
-    mock_log.warning.assert_any_call("[grammar] ignoreRule: failed to resolve doc_id; cannot ignore rule")
-
-def test_reset_ignore_rules_fails_loudly_when_doc_id_unresolved(mock_config_fixture) -> None:
-    pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main") as mock_reset, \
-         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
-         patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found"):
-            pr.resetIgnoreRules()
-    mock_reset.assert_not_called()
-    mock_log.warning.assert_any_call("[grammar] resetIgnoreRules: failed to resolve doc_id; cannot reset")
-
-def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
-    pr = _make_proofreader()
-
-    with patch.object(pr, "_active_grammar_provider", return_value="languagetool"):
-        pr.doProofreading("test-doc", "Some text.", mock_locale_fixture, 0, 10, ())
-
-    mock_queue_fixture.enqueue.assert_called_once()
-    item = mock_queue_fixture.enqueue.call_args[0][0]
-    assert item.provider == "languagetool"

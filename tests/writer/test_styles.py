@@ -513,47 +513,6 @@ def test_create_style_rejects_para_adjust_integer():
 
 
 @patch("plugin.writer.styles.NamedValue")
-def test_create_style_conditional_failure_rolls_back(mock_nv):
-    family = _style_family({"Standard": MagicMock(), "Heading 1": MagicMock()})
-
-    mock_ctx = _ctx_with_families(ParagraphStyles=family)
-    new_style = MagicMock()
-    mock_ctx.doc._created["com.sun.star.style.ConditionalParagraphStyle"] = new_style
-
-    # Track inserted styles so hasByName returns True during the rollback check,
-    # but False during the initial check.
-    inserted_styles = set()
-    original_has_by_name = family.hasByName.side_effect
-
-    def _has_by_name(n):
-        if n in inserted_styles:
-            return True
-        return original_has_by_name(n)
-
-    family.hasByName.side_effect = _has_by_name
-
-    def _insert_by_name(n, s):
-        inserted_styles.add(n)
-
-    family.insertByName.side_effect = _insert_by_name
-
-    # Make setting conditions fail
-    new_style.setPropertyValue.side_effect = RuntimeError("Boom")
-
-    nv_instance = MagicMock()
-    mock_nv.return_value = nv_instance
-
-    tool = StyleCreate()
-    rules = [{"context": "Table", "target_style": "Heading 1"}]
-    res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
-
-    assert res["status"] == "error"
-    assert "Boom" in res["message"]
-    family.insertByName.assert_called_once_with("CondStyle", new_style)
-    family.removeByName.assert_called_once_with("CondStyle")
-
-
-@patch("plugin.writer.styles.NamedValue")
 def test_create_style_conditional(mock_nv):
     family = _style_family({"Standard": MagicMock(), "Heading 1": MagicMock()})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)

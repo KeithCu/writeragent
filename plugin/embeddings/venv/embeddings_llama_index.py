@@ -626,12 +626,7 @@ def llama_index_ingest(
     )
 
     index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
-
-    for i in range(0, len(nodes), EMBEDDINGS_INGEST_BATCH_SIZE):
-        chunk = nodes[i : i + EMBEDDINGS_INGEST_BATCH_SIZE]
-        index.insert_nodes(chunk)
-        if heartbeat_fn:
-            heartbeat_fn({"phase": "embed", "progress": min(i + EMBEDDINGS_INGEST_BATCH_SIZE, len(nodes)), "total": len(nodes)})
+    index.insert_nodes(nodes)
 
     conn = connect_corpus_db(db_path)
     try:

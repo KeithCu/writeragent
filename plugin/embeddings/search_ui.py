@@ -327,19 +327,20 @@ class SearchDialog:
 
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:
-                    self._update_results_ui(_("No active document found."), enable_search_btn=True)
+                    self._update_results_ui(results_ctrl, btn_search, _("No active document found."))
                     return
                 doc, (folder_key, db_path, meta_path, listing_root) = resolved
 
                 if not folder_search_enabled():
                     self._update_results_ui(
-                        _("Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings."),
-                        enable_search_btn=True,
+                        results_ctrl,
+                        btn_search,
+                        _("Cross-file search is disabled. Enable Embeddings + FTS in Settings → Embeddings.")
                     )
                     return
 
                 if folder_key is None or db_path is None or meta_path is None:
-                    self._update_results_ui(_("Error: ") + str(listing_root), enable_search_btn=True)
+                    self._update_results_ui(results_ctrl, btn_search, _("Error: ") + str(listing_root))
                     return
 
                 mode = _folder_search_mode()
@@ -353,8 +354,9 @@ class SearchDialog:
                 if search_path is None:
                     execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
                     self._update_results_ui(
+                        results_ctrl,
+                        btn_search,
                         _("Folder index is building in the background. Please retry search shortly."),
-                        enable_search_btn=True,
                     )
                     return
 
@@ -370,7 +372,7 @@ class SearchDialog:
                 execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
 
                 if not hits:
-                    self._update_results_ui(_("No matches found."), enable_search_btn=True)
+                    self._update_results_ui(results_ctrl, btn_search, _("No matches found."))
                     return
 
                 formatted_lines = []
@@ -384,16 +386,11 @@ class SearchDialog:
                     formatted_lines.append("-" * 40)
 
                 output_text = "\n".join(formatted_lines)
-                self._update_results_ui(output_text, enable_search_btn=True)
-
-                def _do_refresh():
-                    dlg = self._dlg
-                    if dlg:
-                        self._refresh_cache_status(dlg)
-                execute_on_main_thread(_do_refresh)
+                self._update_results_ui(results_ctrl, btn_search, output_text)
+                self._refresh_cache_status(dlg)
             except Exception as e:
                 log.exception("Background search failed")
-                self._update_results_ui(_("Error running search: ") + str(e), enable_search_btn=True)
+                self._update_results_ui(results_ctrl, btn_search, _("Error running search: ") + str(e))
 
         run_in_background(_do_background_search, name="search-dialog-query")
 
@@ -415,11 +412,11 @@ class SearchDialog:
 
                 resolved = execute_on_main_thread(self._resolve_doc_index_context)
                 if resolved is None:
-                    self._update_rebuild_ui(_("No active document found."), enable_rebuild_btn=True)
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active document found."))
                     return
                 _doc, (_folder_key, _db_path, _meta_path, listing_root) = resolved
                 if not listing_root:
-                    self._update_rebuild_ui(_("No active folder resolved."), enable_rebuild_btn=True)
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("No active folder resolved."))
                     return
 
                 # Clear local cache files to force a full cold index rebuild
@@ -455,17 +452,9 @@ class SearchDialog:
                         )
 
                         def ui_update() -> None:
-                            try:
-                                d = self._dlg
-                                if not d:
-                                    return
-                                ctrl = d.getControl("ResultsEdit")
-                                if ctrl:
-                                    existing = ctrl.getModel().Text
-                                    new_text = (existing + "\n" if existing else "") + line
-                                    ctrl.getModel().Text = new_text
-                            except Exception:
-                                pass
+                            existing = results_ctrl.getModel().Text
+                            new_text = (existing + "\n" if existing else "") + line
+                            results_ctrl.getModel().Text = new_text
 
                         execute_on_main_thread(ui_update)
                         del hb_data[file]
@@ -480,57 +469,40 @@ class SearchDialog:
                         search_mode=_folder_search_mode(),
                         heartbeat_fn=heartbeat_fn,
                     )
-                    self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Cache rebuild completed successfully."))
                 except Exception as exc:
                     log.exception("maintain_folder_index failed during rebuild")
-                    self._update_rebuild_ui(_("Rebuild failed: ") + str(exc), enable_rebuild_btn=True)
+                    self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(exc))
 
-                def _do_refresh():
-                    d = self._dlg
-                    if d:
-                        self._refresh_cache_status(d)
-                execute_on_main_thread(_do_refresh)
+                self._refresh_cache_status(dlg)
             except Exception as e:
                 log.exception("Cache rebuild failed")
-                self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
+                self._update_rebuild_ui(btn_rebuild, results_ctrl, _("Rebuild failed: ") + str(e))
 
         run_in_background(_do_rebuild, name="search-dialog-rebuild")
 
-    def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
+    def _update_results_ui(self, results_ctrl: Any, btn_search: Any, text: str) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread
 
         def _update() -> None:
             try:
-                dlg = self._dlg
-                if not dlg:
-                    return
-                results_ctrl = dlg.getControl("ResultsEdit")
-                if results_ctrl:
-                    results_ctrl.getModel().Text = text
-                if enable_search_btn:
-                    btn_search = dlg.getControl("BtnSearch")
-                    if btn_search:
-                        btn_search.getModel().Enabled = True
+                results_ctrl.getModel().Text = text
+                if btn_search:
+                    btn_search.getModel().Enabled = True
             except Exception:
                 pass
 
         execute_on_main_thread(_update)
 
-    def _update_rebuild_ui(self, text: str, enable_rebuild_btn: bool = False) -> None:
+    def _update_rebuild_ui(self, btn_rebuild: Any, results_ctrl: Any, text: str) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread
 
         def _update() -> None:
             try:
-                dlg = self._dlg
-                if not dlg:
-                    return
-                results_ctrl = dlg.getControl("ResultsEdit")
                 if results_ctrl:
                     results_ctrl.getModel().Text = text
-                if enable_rebuild_btn:
-                    btn_rebuild = dlg.getControl("BtnRebuild")
-                    if btn_rebuild:
-                        btn_rebuild.getModel().Enabled = True
+                if btn_rebuild:
+                    btn_rebuild.getModel().Enabled = True
             except Exception:
                 pass
 

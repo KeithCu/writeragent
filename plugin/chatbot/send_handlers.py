@@ -680,15 +680,13 @@ class SendHandlersMixin:
             tool_name = item[2] if len(item) > 2 else ""
             request_id = item[4] if len(item) > 4 else None
 
-            # Option to auto-approve tools from external agents
+            # Option to auto-approve web research or other tools from external agents
             try:
-                prompt_for_permission = as_bool(get_config("agent_backend.prompt_for_permission"))
+                prompt_for_research = as_bool(get_config("chatbot.prompt_for_web_research"))
             except Exception:
-                prompt_for_permission = True
+                prompt_for_research = True
 
-            if self.stop_requested:
-                approved = False
-            elif not prompt_for_permission:
+            if not prompt_for_research:
                 approved = True
             else:
                 approved = show_approval_dialog(self.ctx, description, tool_name, parent_frame=getattr(self, "frame", None))

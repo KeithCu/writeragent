@@ -47,7 +47,6 @@ class TestSearchDialog:
 
         show_search_dialog(mock_ctx)
 
-    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
     @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
     @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
@@ -56,14 +55,7 @@ class TestSearchDialog:
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
     @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
-    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg, mock_get_model):
-
-        # Capture the heartbeat_fn to test the exception guard
-        hb_capture = []
-        def _mock_maintain(*args, **kwargs):
-            if "heartbeat_fn" in kwargs:
-                hb_capture.append(kwargs["heartbeat_fn"])
-        mock_maintain.side_effect = _mock_maintain
+    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg):
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
         
@@ -88,24 +80,6 @@ class TestSearchDialog:
 
         assert mock_clear.called
         assert mock_maintain.called
-
-        # Test heartbeat callback exception handling
-        if hb_capture:
-            hb = hb_capture[0]
-            # Emit extract phase
-            hb({"file": "test.txt", "phase": "extract", "paragraphs": 5, "chunks": 10})
-
-            # Make the results control throw when accessed
-            mock_results_ctrl = MagicMock()
-            mock_dlg.getControl.side_effect = lambda name: mock_results_ctrl if name == "ResultsEdit" else MagicMock()
-            mock_results_ctrl.getModel.side_effect = Exception("UI Disposed")
-
-            # Emit index phase which should trigger UI update that throws
-            try:
-                hb({"file": "test.txt", "phase": "index", "paragraphs": 5, "chunks": 10})
-            except Exception as e:
-                import pytest
-                pytest.fail(f"Heartbeat callback raised exception: {e}")
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 
     def test_query_edit_enter_triggers_search(self):
@@ -139,7 +113,6 @@ class TestSearchDialog:
         dialog._run_search.assert_called_with(mock_dlg)
         assert dialog._run_search.call_count == 2
 
-    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
     @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
     @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
@@ -156,7 +129,6 @@ class TestSearchDialog:
         mock_get_desktop,
         _mock_execute,
         _mock_bg,
-        mock_get_model,
         tmp_path,
     ):
         mock_ctx = MagicMock()

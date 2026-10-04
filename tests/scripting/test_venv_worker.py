@@ -129,23 +129,6 @@ def test_execute_request_does_not_inject_inputs():
     assert "inputs" in r.get("message", "").lower() and "not defined" in r.get("message", "").lower()
 
 
-def test_run_code_in_user_venv_passes_stop_checker():
-    """run_code_in_user_venv must pass stop_checker to the manager's execute method."""
-    with patch("plugin.scripting.venv_worker._worker_manager_for_ctx") as mock_mgr_ctx:
-        mock_mgr = MagicMock()
-        mock_mgr.execute.return_value = {"status": "ok"}
-        mock_mgr_ctx.return_value = (mock_mgr, None)
-
-        ctx = MagicMock()
-
-        def stop_fn() -> bool:
-            return True
-
-        run_code_in_user_venv(ctx, code="result = 1", stop_checker=stop_fn)
-
-        mock_mgr.execute.assert_called_once()
-        kwargs = mock_mgr.execute.call_args.kwargs
-        assert kwargs.get("stop_checker") is stop_fn
 
 
 def test_blocked_import_os():
@@ -479,7 +462,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
     dispatch_calls = []
 
-    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, cancellation_scope=None):
+    def dispatch(response, *, stdin_write, on_worker_event=None,  stop_checker=None, cancellation_scope=None):
         del response, on_worker_event, stop_checker, cancellation_scope
         dispatch_calls.append(True)
         stdin_write(b"host response")
@@ -515,7 +498,7 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     )
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, cancellation_scope=None):
+    def dispatch(response, *, stdin_write, on_worker_event=None,  stop_checker=None, cancellation_scope=None):
         del response, stdin_write, on_worker_event, stop_checker, cancellation_scope
         return True
 
@@ -808,8 +791,8 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch):
 
     dispatched = {"n": 0}
 
-    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, **kwargs):
-        del response, stdin_write, on_worker_event, stop_checker, kwargs
+    def dispatch(response, *, stdin_write, on_worker_event=None,  **kwargs):
+        del response, stdin_write, on_worker_event, kwargs
         dispatched["n"] += 1
         # The first frame is the tool call. The next frame is the finished result.
         return dispatched["n"] == 1
@@ -943,23 +926,21 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     # Call with no timeout and verify it gets default timeout of 10s
     run_code_in_user_venv(ctx, "result = 1")
     mock_execute.assert_called_once_with(
-        "result = 1",
-        data=None,
-        bindings=None,
-        timeout_sec=10,
-        session_id=None,
-        init_script=None,
-        init_session_id=None,
-        init_script_hash=None,
-        allow_heartbeat=False,
-        heartbeat_grace_sec=None,
-        on_heartbeat=None,
-        action=None,
-        python_tool_domain=None,
-        script_session_id=None,
-        stop_checker=None,
-        cancellation_scope=None,
-    )
+            "result = 1",
+            data=None,
+            bindings=None,
+            timeout_sec=10,
+            session_id=None,
+            init_script=None,
+            init_session_id=None,
+            init_script_hash=None,
+            allow_heartbeat=False,
+            heartbeat_grace_sec=None,
+            on_heartbeat=None,
+            action=None,
+            python_tool_domain=None,
+            script_session_id=None,
+        )
 
     mock_execute.reset_mock()
 
@@ -980,8 +961,6 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
-        stop_checker=None,
-        cancellation_scope=None,
     )
 
     mock_execute.reset_mock()
@@ -1003,8 +982,6 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
-        stop_checker=None,
-        cancellation_scope=None,
     )
 
     mock_execute.reset_mock()
@@ -1026,8 +1003,6 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         action=None,
         python_tool_domain=None,
         script_session_id=None,
-        stop_checker=None,
-        cancellation_scope=None,
     )
 
 
@@ -2157,6 +2132,7 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
 def test_venv_worker_honor_stop():
     from unittest.mock import Mock
     import io
+    import subprocess
     from plugin.scripting.venv_worker import PythonWorkerManager
     manager = PythonWorkerManager(exe="python", env={})
 
@@ -2171,41 +2147,3 @@ def test_venv_worker_honor_stop():
             on_heartbeat=None,
             stop_checker=stop_checker,
         )
-
-def test_read_response_with_heartbeats_swallows_callback_exceptions():
-    from plugin.scripting.venv_worker import PythonWorkerManager
-    from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT
-    import io
-
-    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-
-    # Mock parse_frame to first return a heartbeat, then a result frame
-    call_count = 0
-    def mock_parse_frame(frame_bytes):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return {"frame_type": FRAME_HEARTBEAT, "payload": {"phase": "test"}}
-        return {"frame_type": FRAME_RESULT, "status": "ok"}
-
-    import plugin.scripting.venv_worker as vw
-
-    # Track calls to on_heartbeat
-    heartbeat_calls = []
-    def on_heartbeat(payload):
-        heartbeat_calls.append(payload)
-        raise RuntimeError("simulated ui callback error")
-
-    with patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"), \
-         patch("plugin.scripting.venv.worker_heartbeat.parse_frame", side_effect=mock_parse_frame):
-
-        # It shouldn't crash, it should return the b"dummy" frame ultimately
-        result = mgr._read_response_with_heartbeats(
-            stdout=io.BytesIO(),
-            timeout_sec=10.0,
-            grace_sec=5,
-            on_heartbeat=on_heartbeat
-        )
-
-    assert result == b"dummy"
-    assert heartbeat_calls == [{"phase": "test"}]

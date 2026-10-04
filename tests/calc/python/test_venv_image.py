@@ -31,7 +31,6 @@ def test_calc_image_result_inserts_on_sheet():
     ctx.ctx = MagicMock()
     target = MagicMock(name="target_doc")
     ctx.doc = target
-    ctx.stop_checker = None
 
     with (
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
@@ -46,7 +45,7 @@ def test_calc_image_result_inserts_on_sheet():
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
     assert out["status"] == "ok"
-    assert out.get("image_inserted") is True
+    assert out["image_inserted"] is True
     assert out["image_path"] == "/tmp/plot.svg"
     assert "active sheet" in out["message"]
     assert main_thread.call_count == 1
@@ -60,7 +59,6 @@ def test_calc_image_insert_failure_is_not_success():
     ctx.doc_type = "calc"
     ctx.ctx = MagicMock()
     ctx.doc = MagicMock(name="target_doc")
-    ctx.stop_checker = None
 
     with (
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
@@ -92,7 +90,7 @@ def test_writer_image_result_returns_path_only():
     with (
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet"),
+        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
         patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
@@ -100,34 +98,6 @@ def test_writer_image_result_returns_path_only():
     assert out["status"] == "ok"
     assert out.get("image_inserted") is None
     assert out["image_path"] == "/tmp/plot.svg"
-
-
-def test_calc_image_result_aborts_insert_if_stopped():
-    tool = RunVenvPythonScript()
-    ctx = MagicMock()
-    ctx.doc_type = "calc"
-    ctx.ctx = MagicMock()
-    target = MagicMock(name="target_doc")
-    ctx.doc = target
-    ctx.stop_checker = lambda: True
-
-    with (
-        patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
-        patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
-        patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
-            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-        ) as main_thread,
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
-    ):
-        out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
-
-    assert out["status"] == "ok"
-    assert out["image_inserted"] is False
-    assert out["image_path"] == "/tmp/plot.svg"
-    assert "stopped by user" in out["message"]
-    assert main_thread.call_count == 0
     insert.assert_not_called()
 
 

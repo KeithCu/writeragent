@@ -43,7 +43,7 @@ def test_run_periodic_embeddings_indexer_marshals_uno_on_tick():
 
     ctx = MagicMock()
 
-    class StopLoop(BaseException):
+    class StopLoop(Exception):
         pass
 
     doc_calls_during_marshal: list[bool] = []

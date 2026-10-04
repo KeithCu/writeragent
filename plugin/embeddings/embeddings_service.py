@@ -46,13 +46,9 @@ def _folder_search_rerank_options(search_mode: str) -> dict[str, Any]:
 
 def _run_embeddings_action(ctx: Any, helper: str, params: dict[str, Any], *, model: str, allow_heartbeat: bool = False, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     timeout_sec = embeddings_worker_timeout_sec(ctx)
-    res = run_trusted_worker_action(
+    return run_trusted_worker_action(
         ctx, domain="embeddings_index", helper=helper, params=params, session_id=_embedding_session_id(model), timeout_sec=timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, allow_heartbeat=allow_heartbeat, heartbeat_fn=heartbeat_fn, error_code="EMBEDDING_INDEX_ERROR", error_label="Embeddings"
     )
-    if isinstance(res, dict) and res.get("error"):
-        from plugin.framework.errors import ToolExecutionError
-        raise ToolExecutionError(str(res["error"]), code="EMBEDDING_INDEX_ERROR")
-    return res
 
 
 def maintain_folder_index(ctx: Any, listing_root: str, *, model: str, mode: str = "auto", search_mode: str | None = None, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:

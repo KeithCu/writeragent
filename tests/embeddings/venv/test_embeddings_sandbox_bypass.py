@@ -78,7 +78,6 @@ def test_trusted_embeddings_payload_calls_index_paragraphs():
         build_fts=False,
         build_vectors=True,
         search_mode="hybrid",
-        heartbeat_fn=None,
     )
 
 
