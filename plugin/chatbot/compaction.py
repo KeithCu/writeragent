@@ -732,7 +732,8 @@ def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_befo
     if compact_reason in ("nothing_to_compact", "no_window", "failed", "aborted", "disabled"):
         return False
     if (
-        tokens_before is not None
+        compact_reason != "below_threshold"
+        and tokens_before is not None
         and tokens_after is not None
         and tokens_before > 0
         and tokens_after >= tokens_before * MIN_SHRINK_RATIO

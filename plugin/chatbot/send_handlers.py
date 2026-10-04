@@ -412,7 +412,9 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
-
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is not None:
+            turn_session.add_user_message(query_text)
 
         drain_q, q = _send_worker_queues(self)
         # Probe on the UI thread. The tool re-reads the selection when it
