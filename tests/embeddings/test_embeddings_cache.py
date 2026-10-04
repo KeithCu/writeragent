@@ -40,6 +40,45 @@ def test_ensure_corpus_meta_writes_json(tmp_path):
     assert meta["storage_backend"] == embeddings_cache.STORAGE_BACKEND
 
 
+def test_write_corpus_meta_atomic_behavior(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+
+    # Write once
+    embeddings_cache.write_corpus_meta(meta_path, foo="bar")
+    assert meta_path.is_file()
+    assert not meta_path.with_suffix(".tmp").exists()
+
+    # Overwrite
+    embeddings_cache.write_corpus_meta(meta_path, baz="qux")
+    meta = embeddings_cache.read_corpus_meta(meta_path)
+    assert meta["foo"] == "bar"
+    assert meta["baz"] == "qux"
+
+
+def test_maybe_upgrade_legacy_index_does_not_wipe_on_corrupt_json(tmp_path):
+    listing = str(tmp_path / "project")
+    Path(listing).mkdir()
+    base = embeddings_cache.folder_cache_dir(listing)
+    meta_path = base / "corpus_meta.json"
+    db_path = base / "corpus.db"
+
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text("{ corrupt json", encoding="utf-8")
+
+    # Call upgrade
+    embeddings_cache.maybe_upgrade_legacy_index(listing)
+
+    # It should NOT have cleared the folder cache
+    assert db_path.is_file()
+    assert meta_path.is_file()
+
+    # Correct format with wrong version WILL wipe
+    meta_path.write_text('{"schema_version": "0.1"}', encoding="utf-8")
+    embeddings_cache.maybe_upgrade_legacy_index(listing)
+    assert not db_path.is_file()
+    assert not meta_path.is_file()
+
+
 def test_index_is_empty_missing_and_populated(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     db_path = tmp_path / "corpus.db"
@@ -51,6 +90,26 @@ def test_index_is_empty_missing_and_populated(tmp_path):
     embeddings_cache.write_corpus_meta(meta_path, chunk_count="3")
     db_path.write_text("", encoding="utf-8")
     assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+
+
+def test_index_is_empty_with_corrupt_meta_and_db(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+
+    # Even though read_corpus_meta would return {} and chunk_count=0,
+    # index_is_empty must explicitly return False because DB exists
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+
+
+def test_needs_cold_rebuild_with_corrupt_meta(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+
+    # Should not trigger a wipe
+    assert embeddings_cache.needs_cold_rebuild(meta_path, "all-MiniLM-L6-v2") is False
 
 
 def test_resolve_index_context_no_listing_root():
