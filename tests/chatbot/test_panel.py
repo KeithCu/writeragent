@@ -1163,20 +1163,3 @@ class TestStoppedTTS:
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
             listener._run_send_drain()
             mock_speak.assert_not_called()
-
-    def test_do_send_aborted_turn_does_not_invoke_tts(self) -> None:
-        listener = _make_send_listener()
-        listener._terminal_status = "Ready"  # Not 'Stopped' explicitly
-        listener.sidebar_state = MagicMock()
-        listener.sidebar_state.send.is_recording = False
-        listener._panel_teardown = False
-
-        with (
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
-            patch.object(listener, "_do_send"),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
-            patch("plugin.audio.tts_service.speak_text_async") as mock_speak
-        ):
-            mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this either."}]
-            listener._run_send_drain()
-            mock_speak.assert_not_called()

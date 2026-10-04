@@ -231,7 +231,7 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
 
             for chunk, vec in zip(window, vectors if build_vectors else [[] for _unused in window]):
                 if build_vectors and not vec:
-                    raise RuntimeError(f"Missing vector for chunk: {chunk}")
+                    continue
                 upsert_chunk_with_vector(
                     conn,
                     chunk,

@@ -791,10 +791,7 @@ class MCPProtocolHandler:
 
         tool = self.tool_registry.get(tool_name)
         is_long_running = getattr(tool, "long_running", False) if tool else False
-        # Only an actual True counts. MagicMock.is_async() is truthy and would
-        # otherwise send every mocked tool down the long-running worker path.
-        _is_async_attr = getattr(tool, "is_async", None) if tool else None
-        is_async = _is_async_attr() is True if callable(_is_async_attr) else False
+        is_async = getattr(tool, "is_async", lambda: False)() if tool else False
 
         initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running, "is_async": is_async})
 

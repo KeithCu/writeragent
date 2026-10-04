@@ -224,11 +224,7 @@ def _cold_build(
 
     for index, entry in enumerate(files):
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"})
-        try:
-            paragraph_count, chunks = _extract_file_chunks(entry)
-        except Exception:
-            log.warning("Extraction failed for %s", entry.name, exc_info=True)
-            continue
+        paragraph_count, chunks = _extract_file_chunks(entry)
         rows = [chunk_to_index_row(chunk) for chunk in chunks]
         hb.force(
             {
@@ -331,11 +327,7 @@ def _incremental_refresh(
         if not file_is_stale(db_path, entry.url, entry.modified):
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
-        try:
-            paragraph_count, chunks = _extract_file_chunks(entry)
-        except Exception:
-            log.warning("Extraction failed for %s", entry.name, exc_info=True)
-            continue
+        paragraph_count, chunks = _extract_file_chunks(entry)
         to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
         hb.force(
             {
