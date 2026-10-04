@@ -118,7 +118,7 @@ def _ingest_rows(
         conn.close()
 
 
-def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any]]:
+def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any] | None]:
     """Return native passage count and embed chunk rows for one file."""
     return indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
 
@@ -145,6 +145,8 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
             paragraph_count, chunks = _extract_file_chunks(entry)
         except Exception:
             log.warning("Extraction failed for %s", entry.name, exc_info=True)
+            continue
+        if chunks is None:
             continue
         rows = [chunk_to_index_row(chunk) for chunk in chunks]
         hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "cold"})
@@ -204,6 +206,8 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
             paragraph_count, chunks = _extract_file_chunks(entry)
         except Exception:
             log.warning("Extraction failed for %s", entry.name, exc_info=True)
+            continue
+        if chunks is None:
             continue
         to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
         hb.force(
