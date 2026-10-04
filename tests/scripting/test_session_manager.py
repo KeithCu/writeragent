@@ -356,6 +356,106 @@ def test_record_active_calc_session_drops_ephemeral_unsaved_when_durable() -> No
         session_manager.clear_active_calc_session()
 
 
+def test_record_durable_id_for_other_doc_keeps_unsaved_session() -> None:
+    """A different book's durable id must not delete a live calc:unsaved: id."""
+    from plugin.tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    unsaved = CalcDocStub(url="", props={"RuntimeUID": "uid-unsaved-live"})
+    saved = CalcDocStub(url="file:///other-book.ods", props={"RuntimeUID": "uid-saved-other"})
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:live-book", doc=unsaved)
+        session_manager.record_active_calc_session("calc:file:///other-book.ods", doc=saved)
+        assert session_manager.recorded_calc_session_count() == 2
+        assert session_manager.off_main_calc_session_is_unambiguous() is False
+        assert "calc:unsaved:live-book" in session_manager.recorded_calc_session_ids()
+        assert "calc:file:///other-book.ods" in session_manager.recorded_calc_session_ids()
+
+        # A second unsaved book is also a real id, not a replacement.
+        other_unsaved = CalcDocStub(url="", props={"RuntimeUID": "uid-unsaved-other"})
+        session_manager.record_active_calc_session("calc:unsaved:other-book", doc=other_unsaved)
+        assert session_manager.recorded_calc_session_count() == 3
+        assert "calc:unsaved:live-book" in session_manager.recorded_calc_session_ids()
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_same_doc_durable_id_drops_its_unsaved_id() -> None:
+    """Promoting one document from calc:unsaved:{uuid} to its file URL drops that id only."""
+    from plugin.tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    doc = CalcDocStub(url="file:///promoted.ods", props={"RuntimeUID": "uid-promote"})
+    neighbor = CalcDocStub(url="", props={"RuntimeUID": "uid-neighbor"})
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:promote-me", doc=doc)
+        session_manager.record_active_calc_session("calc:unsaved:neighbor", doc=neighbor)
+        session_manager.record_active_calc_session("calc:file:///promoted.ods", doc=doc)
+        assert session_manager.recorded_calc_session_count() == 2
+        assert "calc:unsaved:promote-me" not in session_manager.recorded_calc_session_ids()
+        assert "calc:unsaved:neighbor" in session_manager.recorded_calc_session_ids()
+        assert "calc:file:///promoted.ods" in session_manager.recorded_calc_session_ids()
+        assert session_manager.off_main_calc_session_is_unambiguous() is False
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_same_nonweakref_doc_drops_only_its_unsaved_id() -> None:
+    """PyUNO models often reject weakref. Promotion still uses object identity."""
+
+    class _NoWeakDoc:
+        __slots__ = ("url",)
+
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        def getURL(self) -> str:
+            return self.url
+
+    session_manager.clear_active_calc_session()
+    doc = _NoWeakDoc("file:///nw.ods")
+    other = _NoWeakDoc("")
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:nw-book", doc=doc)
+        session_manager.record_active_calc_session("calc:unsaved:nw-other", doc=other)
+        session_manager.record_active_calc_session("calc:file:///nw.ods", doc=doc)
+        ids = session_manager.recorded_calc_session_ids()
+        assert "calc:unsaved:nw-book" not in ids
+        assert "calc:unsaved:nw-other" in ids
+        assert "calc:file:///nw.ods" in ids
+        assert session_manager.off_main_calc_session_is_unambiguous() is False
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_geometric_record_passes_doc_so_other_unsaved_stays() -> None:
+    """record_geometric_calc_session must pass doc into the session GC."""
+    from unittest.mock import patch
+
+    from plugin.calc.python.geometric_recalc import record_geometric_calc_session
+    from plugin.tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    unsaved = CalcDocStub(url="", props={"RuntimeUID": "uid-geo-unsaved"})
+    other = CalcDocStub(url="file:///geo-other.ods", props={"RuntimeUID": "uid-geo-other"})
+
+    def _key(doc):
+        if doc is unsaved:
+            return "unsaved:geo-book"
+        return "file:///geo-other.ods"
+
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:geo-book", doc=unsaved)
+        with patch("plugin.scripting.session_manager._workbook_session_key", side_effect=_key):
+            sid = record_geometric_calc_session(other)
+        assert sid == "calc:file:///geo-other.ods"
+        assert session_manager.recorded_calc_session_count() == 2
+        assert session_manager.off_main_calc_session_is_unambiguous() is False
+        assert "calc:unsaved:geo-book" in session_manager.recorded_calc_session_ids()
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_scoped_dir_from_calc_session_id_uses_file_url(tmp_path: Path) -> None:
     workbook = tmp_path / "python_showcase_demo.xlsx"
     workbook.write_bytes(b"pk")
