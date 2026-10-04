@@ -280,11 +280,17 @@ def test_page_insert_break_no_anchor(ctx, doc):
 
     assert res["status"] == "ok"
 
-    # Check that the text wasn't deleted and the selection is intact
-    view_cursor.gotoStart(False)
-    view_cursor.gotoEndOfParagraph(True)
-    assert view_cursor.getString() == "This is a paragraph with some text."
+    # SwXTextViewCursor implements XTextViewCursor, not XParagraphCursor.
+    # gotoEndOfParagraph exists only on a model TextCursor and always raises
+    # AttributeError here, so the paragraph checks never ran. gotoStart would
+    # also drop the selection this path must leave on the original ten characters.
+    assert view_cursor.getString() == "This is a "
 
-    # Verify PAGE_BEFORE was set on the paragraph
+    para = text.createTextCursorByRange(view_cursor.getStart())
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    assert para.getString() == "This is a paragraph with some text."
+
     from com.sun.star.style.BreakType import PAGE_BEFORE
-    assert view_cursor.getPropertyValue("BreakType") == PAGE_BEFORE
+    assert para.getPropertyValue("BreakType") == PAGE_BEFORE
+    assert view_cursor.getString() == "This is a "
