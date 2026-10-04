@@ -23,17 +23,21 @@ the ``_tools`` dict — do not register from a worker. Synchronous tools
 that touch the document are marshaled onto the LibreOffice UI thread
 before they run. If a tool declares a timeout, ``execute`` starts a
 **dedicated** background thread and ``join``s it; when the timer fires
-that thread is **abandoned** (it may still finish, but the result is
-dropped). Python cannot kill a thread cleanly. Cooperative cancel is
-``SendCancellation`` (Stop sets a flag / closes HTTP), not
+that thread is **abandoned** if it has not queued a result (it may
+still finish, and that late result is dropped). A result already on
+the queue is returned — the thread can still be alive while it
+unwinds. A worker that dies without queuing a result returns an error
+instead of blocking. Python cannot kill a thread cleanly. Cooperative
+cancel is ``SendCancellation`` (Stop sets a flag / closes HTTP), not
 ``thread.kill``.
 """
 
 from __future__ import annotations
 
-import json
+import dis
 import logging
 import queue
+import sys
 from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar, cast
 
@@ -43,7 +47,7 @@ from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
-from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema
+from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, call_properties as call_properties, coerce_call_args as coerce_call_args, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema, without_unknown_kwargs as without_unknown_kwargs
 
 _log = logging.getLogger(__name__)
 log = logging.getLogger("writeragent.tools")
@@ -191,7 +195,8 @@ class ToolContext:
 def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
     """True when *value* fits a JSON Schema ``type`` (string or union list).
 
-    Unknown or missing types are accepted. Unions accept any listed member.
+    A missing type is accepted. An unknown name such as ``"str"`` matches
+    nothing. Unions accept any listed JSON Schema member.
     """
     if schema_type is None:
         return True
@@ -211,8 +216,7 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
             return True
         if one == "null" and value is None:
             return True
-        if one not in ("string", "integer", "number", "boolean", "array", "object", "null"):
-            return True
+        # Unknown names (``"str"``) used to accept any value. They match nothing.
     return False
 
 
@@ -236,7 +240,9 @@ class ToolBase(ABC):
         intent:      Optional group label (e.g. "navigate", "edit", "review",
                      "media") for ``get_tools(intent=...)`` filtering.
         is_mutation:  Whether the tool mutates the document.  ``None``
-                     means auto-detect from name prefix.
+                     means auto-detect from a read prefix (``get_``,
+                     ``list_``, …) or a later domain-verb token
+                     (``image_list``, ``style_get_info``).
         long_running: Hint that the tool may take a while (e.g. image gen).
     """
 
@@ -302,13 +308,15 @@ class ToolBase(ABC):
         for key in required:
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
-        props = schema.get("properties", {})
         extra_ok = getattr(self, "scripting_only_parameters", None) or frozenset()
+        # Same allow-list as execute and the pre-shim check. Empty
+        # properties {} is a closed schema, not "accept any kwargs".
+        props_dict = call_properties(schema)
         for key in kwargs:
-            if props and key not in props and key not in extra_ok:
+            if props_dict is not None and key not in props_dict and key not in extra_ok:
                 return False, f"Unknown parameter: {key}"
         for key, value in kwargs.items():
-            prop = props.get(key) if isinstance(props, dict) else None
+            prop = props_dict.get(key) if props_dict is not None else None
             if not isinstance(prop, dict) or key in extra_ok:
                 continue
             enum = prop.get("enum")
@@ -341,7 +349,8 @@ class ToolBase(ABC):
         try:
             # Defense in depth: ToolRegistry.execute marshals sync tools to the main thread;
             # this assert still catches direct execute_safe calls from background workers.
-            # bypass_thread_guard is honored at the call site in ToolRegistry.execute (it calls .execute directly).
+            # An explicit bypass_thread_guard=True keyword skips this method. A model
+            # dict spread into execute cannot: that True is ignored.
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
                 if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
@@ -461,7 +470,117 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
 
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
+# Sync tools that declare timeout= cannot enforce it. Warn once per name.
+_sync_timeout_warned: set[str] = set()
 _UNSET_EXCLUDE_TIERS = object()
+_BYPASS_THREAD_GUARD_KW = "bypass_thread_guard"
+# A **params operand is one of these loads. A dict literal is BUILD_MAP /
+# BUILD_CONST_KEY_MAP and must not count as an explicit keyword.
+_SPREAD_LOADS = frozenset({"LOAD_FAST", "LOAD_FAST_BORROW", "LOAD_DEREF", "LOAD_NAME", "LOAD_GLOBAL"})
+
+
+def _const_tuple(ins: Any, code: Any) -> tuple[Any, ...] | None:
+    """Keyword-name tuple carried by KW_NAMES or the LOAD_CONST before CALL_KW."""
+    # crosshair: off
+    val = ins.argval
+    if isinstance(val, tuple):
+        return val
+    arg = ins.arg
+    consts = getattr(code, "co_consts", ())
+    if isinstance(arg, int) and 0 <= arg < len(consts) and isinstance(consts[arg], tuple):
+        return consts[arg]
+    return None
+
+
+def _instruction_index_at(instrs: list[Any], lasti: int) -> int | None:
+    """Instruction that contains ``lasti``.
+
+    3.11 ``f_lasti`` can sit inside CALL, past that instruction's start
+    offset. The greatest start offset that is still ``<= lasti`` is the
+    call that entered ``execute``.
+    """
+    # crosshair: off
+    found: int | None = None
+    for index, ins in enumerate(instrs):
+        if ins.offset <= lasti:
+            found = index
+            continue
+        break
+    return found
+
+
+def _call_function_ex_has_explicit_bypass(instrs: list[Any], index: int) -> bool:
+    """True when CALL_FUNCTION_EX's base map contains the bypass keyword.
+
+    ``execute(name, ctx, bypass_thread_guard=True, **params)`` builds that
+    map, then DICT_MERGEs the spread. ``execute(**model_args)`` and
+    ``execute(**{"bypass_thread_guard": True})`` leave the base map empty
+    and put the key only in the merged dict.
+    """
+    # crosshair: off
+    if index < 3 or instrs[index - 1].opname != "DICT_MERGE":
+        return False
+    spread = instrs[index - 2]
+    if spread.opname not in _SPREAD_LOADS:
+        return False
+    build = instrs[index - 3]
+    if build.opname != "BUILD_MAP" or not isinstance(build.arg, int) or build.arg < 1:
+        return False
+    start = index - 3 - 2 * build.arg
+    if start < 0:
+        return False
+    pairs = instrs[start : index - 3]
+    for key_ins in pairs[0::2]:
+        if key_ins.opname == "LOAD_CONST" and key_ins.argval == _BYPASS_THREAD_GUARD_KW:
+            return True
+    return False
+
+
+def _call_has_explicit_bypass_keyword(instrs: list[Any], index: int, code: Any) -> bool:
+    """True when this call instruction passes bypass_thread_guard as a keyword."""
+    # crosshair: off
+    ins = instrs[index]
+    if ins.opname == "CALL_KW":
+        # 3.13+ stores the name tuple in the LOAD_CONST immediately before
+        # CALL_KW. CALL_KW's own arg is the argument count, not the names.
+        names = ins.argval if isinstance(ins.argval, tuple) else None
+        if names is None and index > 0:
+            names = _const_tuple(instrs[index - 1], code)
+        return names is not None and _BYPASS_THREAD_GUARD_KW in names
+    if ins.opname == "CALL":
+        # 3.11/3.12: KW_NAMES, then optional PRECALL, then CALL.
+        cursor = index - 1
+        if cursor >= 0 and instrs[cursor].opname == "PRECALL":
+            cursor -= 1
+        if cursor >= 0 and instrs[cursor].opname == "KW_NAMES":
+            names = _const_tuple(instrs[cursor], code)
+            return names is not None and _BYPASS_THREAD_GUARD_KW in names
+        return False
+    if ins.opname == "CALL_FUNCTION_EX":
+        return _call_function_ex_has_explicit_bypass(instrs, index)
+    return False
+
+
+def _explicit_thread_guard_bypass(requested: bool) -> bool:
+    """Return True only for an explicit ``bypass_thread_guard=True`` keyword.
+
+    Frame 0 is this helper, frame 1 is ``ToolRegistry.execute``, frame 2 is
+    the caller of ``execute``. Unknown bytecode fails closed (the guard
+    stays on). ``requested is not True`` rejects ``1`` and ``"yes"``.
+    """
+    # crosshair: off
+    if requested is not True:
+        return False
+    try:
+        caller = sys._getframe(2)
+    except ValueError:
+        return False
+    code = caller.f_code
+    instrs = list(dis.get_instructions(code))
+    index = _instruction_index_at(instrs, caller.f_lasti)
+    if index is None:
+        return False
+    return _call_has_explicit_bypass_keyword(instrs, index, code)
 
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
@@ -488,13 +607,6 @@ def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services
     return False
 
 
-def _schema_type_includes_array(type_value: Any) -> bool:
-    """True when a JSON-schema ``type`` is ``array`` or a list that includes it."""
-    if type_value == "array":
-        return True
-    return isinstance(type_value, list) and "array" in type_value
-
-
 class ToolRegistry:
     """Registers and dispatches tools.
 
@@ -507,6 +619,10 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
+        # Shared names (shape_upsert / manage_charts) last-wins the instance but
+        # must keep the union of required_core_tools. ClassVar cannot be set on
+        # the instance, so store the merge here.
+        self._required_core_union: dict[str, frozenset[str]] = {}
         self.batch_mode = False  # suppress per-tool cache invalidation
 
     # ── Registration ──────────────────────────────────────────────────
@@ -535,6 +651,15 @@ class ToolRegistry:
             # wrappers for shape_upsert / manage_charts) — log so registration order is visible.
             if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
                 log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
+            # What was wrong: last-wins kept only the survivor's required_core_tools
+            # (Writer loads last), so Calc shapes/charts domains never requested
+            # get_sheet_summary / read_cell_range. How: shared names replace the
+            # instance. Why: union both sets (plus any prior merge); get_tools
+            # still drops cores that fail tool_supports_document for the active doc.
+            prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
+            nxt = getattr(tool, "required_core_tools", None)
+            if prev or nxt:
+                self._required_core_union[tool.name] = frozenset(prev or ()) | frozenset(nxt or ())
         self._tools[tool.name] = tool
 
     def auto_discover_package(self, package_name: str) -> None:
@@ -583,11 +708,14 @@ class ToolRegistry:
             uno_services_supported: Cached UNO service names from sidebar/MCP (no live doc probe).
             tier: Optional string; main chat tools use ``"core"``.
             intent: Optional string filtering by tool intent.
-            names: Optional list of specific tool names to include.
+            names: Optional collection of exact tool names. ``None`` applies
+                no name filter. An empty collection matches nothing. A bare
+                string is that one name, not a substring.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
             exclude_tiers: Tiers to omit from the result. If omitted, excludes
-                ``specialized`` and ``specialized_control`` so nested Writer tools
-                stay off the main tool list. Pass ``()`` or ``frozenset()`` to include all tiers.
+                ``specialized``, ``specialized_control``, and ``mcp`` so nested
+                Writer tools and MCP-only helpers stay off the main tool list.
+                Pass ``()`` or ``frozenset()`` to include all tiers.
             active_domain: If provided, dynamically includes specialized tools for this domain
                 and the specialized_workflow_finished tool.
         """
@@ -627,10 +755,10 @@ class ToolRegistry:
             # However, we also include any core tools explicitly requested by the domain.
 
             # First, find which core tools are required by any tool in this domain
-            required_core = set()
+            required_core: set[str] = set()
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
-                    req = getattr(t, "required_core_tools", None)
+                    req = (self._required_core_union.get(t.name) if t.name else None) or getattr(t, "required_core_tools", None)
                     if req:
                         required_core.update(req)
 
@@ -660,8 +788,18 @@ class ToolRegistry:
             tools = [t for t in tools if t.tier == tier]
         if intent:
             tools = [t for t in tools if t.intent == intent]
-        if names:
-            tools = [t for t in tools if t.name in names]
+        # What was wrong: ``if names`` treated ``[]`` and ``""`` as no filter
+        # and returned every tool. A bare string is iterable, so
+        # ``t.name in "target"`` matched the tool named ``get``.
+        # How: only ``None`` skips the filter. A str is one exact name;
+        # any other collection becomes a set, and an empty set matches nothing.
+        # Why: callers pass tool names, not a substring to search.
+        if names is not None:
+            if isinstance(names, str):
+                name_set = frozenset((names,))
+            else:
+                name_set = frozenset(names)
+            tools = [t for t in tools if t.name in name_set]
         ctx = kwargs.get("ctx")
         if ctx is not None:
             from plugin.vision.vision_availability import filter_vision_specialized_tools
@@ -721,16 +859,23 @@ class ToolRegistry:
         Sync tools are marshaled to the main thread by ``ToolRegistry.execute`` before this runs.
 
         Timeout **abandons** the worker; it does not kill the dedicated thread.
-        The thread may run to completion with its result dropped. If *kwargs*
-        include a ``ToolContext`` with ``send_cancellation``, that flag is set
-        so cooperative tools can stop at the next ``stop_checker`` poll.
+        The thread may run to completion with its result dropped when nothing
+        was queued yet. A result already queued is kept. This method does not
+        cancel the send: the caller still has to deliver the ``TOOL_TIMEOUT``
+        dict (the drain turns that into ``TOOL_DONE``).
         """
         # crosshair: off
         if timeout <= 0:
             return func(**kwargs)
 
         if not run_threaded:
-            log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
+            # What was wrong: this warning ran on every call, so a sync tool
+            # with timeout= flooded the log. How: the timeout needs a thread,
+            # and execute hits this path on each run. Why: one line per tool
+            # name is enough to see the misconfiguration.
+            if tool_name not in _sync_timeout_warned:
+                _sync_timeout_warned.add(tool_name)
+                log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
             return func(**kwargs)
 
         result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -740,22 +885,67 @@ class ToolRegistry:
                 result_queue.put(("success", func(**kwargs)))
             except Exception as e:
                 result_queue.put(("error", e))
+            except BaseException as exc:
+                # What was wrong: ``except Exception`` left KeyboardInterrupt,
+                # SystemExit, and GeneratorExit off the queue.
+                # How: the dedicated thread died (``run_in_background`` lets
+                # BaseException unwind), ``join`` returned, ``is_alive()`` was
+                # false, and ``result_queue.get()`` blocked the send forever.
+                # Why: queue the error before unwinding so the joiner returns
+                # a tool error instead of waiting on an empty queue.
+                result_queue.put(("error", exc))
+                log.exception("Tool '%s' worker exited", tool_name)
+                raise
 
         worker_thread = run_in_background(worker, name=f"tool-timeout-{tool_name}", dedicated=True)
         worker_thread.join(timeout=timeout)
 
-        if worker_thread.is_alive():
-            ctx = kwargs.get("ctx")
-            cancel = getattr(ctx, "send_cancellation", None) if ctx is not None else None
-            if cancel is not None and hasattr(cancel, "cancel"):
-                try:
-                    cancel.cancel()
-                except Exception:
-                    log.debug("tool timeout: send_cancellation.cancel failed", exc_info=True)
-            return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
+        def _queued() -> tuple[str, Any] | None:
+            try:
+                return result_queue.get_nowait()
+            except queue.Empty:
+                return None
 
-        result_type, result = result_queue.get()
+        # What was wrong: timeout was only ``is_alive()`` after ``join``.
+        # How: the worker can ``put`` a success and still be alive while
+        # ``run_in_background`` logs and clears the thread-guard tag, so a
+        # finished mutation was reported as TOOL_TIMEOUT and a retry could
+        # apply it again.
+        # Why: a queued result wins. A live thread with an empty queue is
+        # still a timeout — the wait is not extended.
+        if worker_thread.is_alive():
+            queued = _queued()
+            if queued is None:
+                # What was wrong: this called ``send_cancellation.cancel()``
+                # and also returned ``TOOL_TIMEOUT``. How: the drain stop
+                # checker is that same flag, so it treated the send as Stop
+                # and discarded the error dict before ``TOOL_DONE`` was
+                # applied. The tool loop then waited forever for that event.
+                # Why: the worker is already abandoned. Return the timeout
+                # dict and let the caller decide whether the send should stop.
+                return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
+        else:
+            queued = _queued()
+            if queued is None:
+                # Dead with nothing queued (the put itself failed, or the
+                # thread exited before the handler ran). Do not block on get().
+                return make_tool_error(
+                    f"Tool '{tool_name}' worker exited without a result",
+                    code="TOOL_WORKER_EXIT",
+                    tool_name=tool_name,
+                )
+
+        result_type, result = queued
         if result_type == "error":
+            if not isinstance(result, Exception):
+                # Re-raising BaseException would skip the send worker's
+                # ``except Exception`` and leave the turn waiting for TOOL_DONE.
+                return make_tool_error(
+                    f"Tool '{tool_name}' worker exited: {type(result).__name__}: {result}",
+                    code="TOOL_WORKER_EXIT",
+                    tool_name=tool_name,
+                    error_type=type(result).__name__,
+                )
             raise result  # Will be caught by outer try/except
 
         return result
@@ -769,13 +959,25 @@ class ToolRegistry:
             bypass_thread_guard: If True, call ``tool.execute`` directly (no main-thread check).
                 Used only by ``scripts/prompt_optimization/tools_lo`` where UNO runs on a dedicated
                 LibreOffice worker thread (not Python's ``main_thread()``).
+                ``True`` counts only when the caller writes the keyword.
+                ``execute(name, ctx, **model_args)`` cannot set it.
             **kwargs:  Tool arguments.
 
         Returns:
-            dict: Result from the tool execution (typically a ToolResult).
+            dict: Result from the tool execution (status ``ok`` or ``error``).
         """
         # crosshair: off
         try:
+            # What was wrong: this parameter is keyword-only, so
+            # ``execute(name, ctx, **model_args)`` bound a JSON true before
+            # ``without_unknown_kwargs`` could drop it. The registry then
+            # called ``tool.execute`` on the worker and skipped
+            # ``execute_safe`` (no main-thread assert, no disposed-document
+            # probe). How: chat ``execute_fn`` and the venv host RPC spread
+            # the raw argument dict. Why: honor ``True`` only when the
+            # call itself passes the keyword (the eval harness). A spread
+            # dict is forced back to False. ``1`` and ``"yes"`` are not True.
+            bypass_thread_guard = _explicit_thread_guard_bypass(bypass_thread_guard)
             tool = self._tools.get(tool_name)
             if tool is None:
                 # Return a structured error instead of raising KeyError so the model
@@ -804,10 +1006,11 @@ class ToolRegistry:
             # from training memory when the property was removed from the schema
             # (see docs/calc/date-time-handling.md S26).
             schema = tool.get_parameters(ctx.doc_type) or {}
-            props = (schema or {}).get("properties", {})
+            props = call_properties(schema) or {}
             extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
-            if props:
-                kwargs = {k: v for k, v in kwargs.items() if k in props or k in extra_ok}
+            # One allow-list (including properties {}). The outbound check
+            # uses the same helper before any provider shim.
+            kwargs = without_unknown_kwargs(schema, kwargs, extra_ok)
 
             required = schema.get("required") or []
             required_names = set(required) if isinstance(required, list) else set()
@@ -819,35 +1022,7 @@ class ToolRegistry:
                 # still fails validation.
                 kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required_names}
 
-            # MCP widens array ``range`` to string|array. Several Calc tools index
-            # ``[0]``, so a bare string would become its first character.
-            # Wrapping every top-level string did that to non-array ``range`` too
-            # (a string schema became a one-element list before validation).
-            # Only wrap when this property's type is array, or a list of types
-            # that includes array. Nested ``range`` fields are not walked.
-            range_schema = props.get("range") if isinstance(props, dict) else None
-            range_type = range_schema.get("type") if isinstance(range_schema, dict) else None
-            if isinstance(kwargs.get("range"), str) and _schema_type_includes_array(range_type):
-                kwargs = dict(kwargs)
-                kwargs["range"] = [kwargs["range"]]
-
-            # What was wrong: MCP hosts send write_formula_range values as a
-            # native JSON array (to_mcp_schema widens that one field to
-            # string|array). How: validate() uses the source schema, which
-            # stays type string so Gemini/Groq never see a union, so the array
-            # failed with "Invalid type for values" before execute could
-            # json.dumps it. Why: coerce list/number here, same place range
-            # strings are wrapped. OpenAI schemas stay string-only.
-            if tool.name == "write_formula_range":
-                fov = kwargs.get("values")
-                coerced: str | None = None
-                if isinstance(fov, list):
-                    coerced = json.dumps(fov) if fov else ""
-                elif isinstance(fov, (int, float)) and not isinstance(fov, bool):
-                    coerced = str(fov)
-                if coerced is not None:
-                    kwargs = dict(kwargs)
-                    kwargs["values"] = coerced
+            kwargs = coerce_call_args(tool.name, props, kwargs)
 
             # Common context for all error details
             common_details = {"tool_name": tool_name}

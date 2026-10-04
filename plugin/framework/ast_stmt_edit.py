@@ -186,7 +186,15 @@ def remove_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool
 
         if needs_pass:
             comment = f"  # {pass_comment}" if pass_comment else ""
-            replacements[first_idx] = f"{indent}pass{comment}\n"
+            start_col = getattr(node, "col_offset", None)
+            # ``if cond: debug()`` shares the header line. Replacing the
+            # whole line with ``pass`` drops the suite header and is invalid
+            # or changes the program. Splice ``pass`` after the colon.
+            if start_line == end_line and start_col is not None and start_col > len(indent):
+                prefix = lines[first_idx][:start_col].rstrip()
+                replacements[first_idx] = f"{prefix} pass{comment}\n"
+            else:
+                replacements[first_idx] = f"{indent}pass{comment}\n"
             for idx in range(first_idx + 1, last_idx + 1):
                 to_delete.add(idx)
         else:

@@ -20,13 +20,15 @@ Experiments: docs/chat/sidebar-hscroll-experiments.md
 from __future__ import annotations
 
 _XDL_APPFONT_LEAK_PX = 180
+# (180, 312) is a real column parent. (180, 1115) is a stuck ChildFrame.
+_XDL_LEAK_PARENT_MAX = _XDL_APPFONT_LEAK_PX * 2
 _FRAME_VS_COLUMN = 1.5
 
 
 def sidebar_column_width(n_width: int, parent_w: int, min_w: int = 180) -> int:
     """Pixel width the panel window and ChildFrame must fill."""
     # XDL dlg:width="180" is AppFont, not pixels.
-    if n_width == _XDL_APPFONT_LEAK_PX and parent_w > _XDL_APPFONT_LEAK_PX:
+    if n_width == _XDL_APPFONT_LEAK_PX and _XDL_APPFONT_LEAK_PX < parent_w <= _XDL_LEAK_PARENT_MAX:
         return parent_w
     # Document frame is several times the column. A grow with a lagging
     # ChildFrame request is only a little larger (Keith 900 vs 806).

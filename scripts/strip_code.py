@@ -428,7 +428,11 @@ def _wrap_uno(obj: Any) -> Any:
     return obj
 
 class _UnoThreadGuardProxy:
-    """Stub proxy for release bundles."""
+    """Stub proxy for release bundles.
+
+    Never constructed: ``_wrap_uno`` and ``guard_uno`` return the raw object,
+    so missing protocol dunders on this class do not change release behavior.
+    """
     def __init__(self, target: Any) -> None:
         object.__setattr__(self, "_target", target)
 

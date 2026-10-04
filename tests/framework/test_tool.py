@@ -153,6 +153,34 @@ def test_validate():
     assert ok is False
     assert "Unknown parameter: extra" in err
 
+
+def test_validate_empty_properties_rejects_unknown_kwargs():
+    """Gemini/Groq can invent kwargs; empty properties must still reject them."""
+    tool = AllDocTool()
+    ok, err = tool.validate(hallucinated="yes")
+    assert ok is False
+    assert err is not None
+    assert "Unknown parameter: hallucinated" in err
+
+
+def test_execute_strips_unknown_kwargs_when_properties_empty():
+    """Registry strip must treat properties {} as authoritative (same as validate)."""
+
+    class CaptureTool(ToolBase):
+        name = "capture_no_arg"
+        description = "capture kwargs"
+        parameters = {"type": "object", "properties": {}}
+        uno_services = None
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok", "kwargs": dict(kwargs)}
+
+    reg = _make_registry(CaptureTool())
+    ctx = _make_ctx("writer")
+    result = reg.execute("capture_no_arg", ctx, hallucinated="yes")
+    assert result["status"] == "ok"
+    assert result["kwargs"] == {}
+
 def test_get_collection():
     tool = ValidTool()
 
@@ -398,6 +426,21 @@ class TestExecute:
         assert result["status"] == "ok"
         assert result["range"] == "A1:D20"
 
+    def test_unknown_schema_type_name_is_rejected(self):
+        class WeirdType(ToolBase):
+            name = "weird_type"
+            description = "type str is not JSON Schema"
+            parameters = {"type": "object", "properties": {"arg1": {"type": "str"}}, "required": ["arg1"]}
+            uno_services = None
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok"}
+
+        reg = _make_registry(WeirdType())
+        result = reg.execute("weird_type", _make_ctx(), arg1="x")
+        assert result["status"] == "error"
+        assert result["code"] == "VALIDATION_ERROR"
+
     def test_string_range_wraps_when_schema_type_lists_array(self):
         class ListedRangeTool(ToolBase):
             name = "listed_range_tool"
@@ -592,6 +635,43 @@ class TestManageChartsSpecializedTier:
         assert "get_document_tree" in names
         assert "read_cell_range" not in names
         assert "get_sheet_summary" not in names
+
+    def test_shared_shape_upsert_unions_required_core_tools_on_replace(self):
+        """Last-wins registration must keep Calc and Writer core tool sets."""
+        from plugin.calc.shapes import UpsertShape as CalcUpsertShape
+        from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
+
+        reg = _make_registry()
+        reg.register(CalcUpsertShape())
+        reg.register(WriterUpsertShape())
+        tool = reg.get("shape_upsert")
+        assert tool is not None
+        cores = reg._required_core_union.get("shape_upsert") or frozenset()
+        assert "get_document_content" in cores
+        assert "get_document_tree" in cores
+        assert "get_sheet_summary" in cores
+        assert "read_cell_range" in cores
+
+        def _exec(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def core(name: str) -> ToolBase:
+            cls = type(
+                "Core_" + name,
+                (ToolBase,),
+                {"name": name, "description": name, "tier": "core", "requires_document": False, "execute": _exec},
+            )
+            return cls()
+
+        for name in ("get_document_content", "get_document_tree", "get_sheet_summary", "read_cell_range"):
+            reg.register(core(name))
+        # Last-wins would keep only Writer's readers. The shapes domain must
+        # still request Calc's sheet readers from the replaced registration.
+        names = {t.name for t in reg.get_tools(active_domain="shapes", filter_doc_type=False)}
+        assert "get_document_content" in names
+        assert "get_document_tree" in names
+        assert "get_sheet_summary" in names
+        assert "read_cell_range" in names
 
     def test_manage_charts_still_dispatches_to_dummy_backends(self):
         from plugin.calc.charts import ManageCharts
@@ -863,6 +943,169 @@ class TestToolIsolation:
         assert result["code"] == "TOOL_TIMEOUT"
         assert result.get("details", {}).get("tool_name") == "test_slow"
 
+    def test_tool_timeout_does_not_cancel_the_send(self):
+        """A tool timeout must return TOOL_TIMEOUT without cancelling the send.
+
+        What was wrong: the timeout path called send_cancellation.cancel()
+        and also returned the error dict. How: the drain stop checker is
+        that flag, so it discarded the dict and the turn waited for
+        TOOL_DONE. Why: the worker is already abandoned; the caller delivers
+        the timeout.
+        """
+        from plugin.framework.queue_executor import SendCancellation
+
+        release = threading.Event()
+        scope = SendCancellation()
+
+        class SlowTool(ToolBase):
+            name = "test_slow_cancel"
+            description = "x"
+            timeout = 0.05
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                release.wait(timeout=5)
+                return {"status": "ok"}
+
+        registry = ToolRegistry(services={})
+        registry.register(SlowTool())
+        ctx = ToolContext(doc=None, ctx=None, doc_type="writer", services={}, send_cancellation=scope)
+        try:
+            result = registry.execute("test_slow_cancel", ctx)
+        finally:
+            release.set()
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_TIMEOUT"
+        assert scope.is_cancelled() is False
+
+    def test_queued_result_not_timeout_while_worker_unwinds(self):
+        """A finished tool must not be TOOL_TIMEOUT while its thread unwinds."""
+        applied: list[str] = []
+
+        class Mutate(ToolBase):
+            name = "mutate_then_unwind"
+            description = "x"
+            timeout = 0.4
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                applied.append("applied")
+                return {"status": "ok", "applied": True}
+
+        import plugin.framework.worker_pool as worker_pool
+
+        original = worker_pool.thread_guard.set_background_task
+        entered = threading.Event()
+        release = threading.Event()
+
+        def block_unwind(name):
+            # Block the dedicated thread after the result is queued, which is
+            # the run_in_background finally that clears the task tag.
+            if name is None and threading.current_thread().name.startswith("tool-timeout-"):
+                entered.set()
+                release.wait(timeout=5)
+            original(name)
+
+        registry = ToolRegistry(services={})
+        registry.register(Mutate())
+
+        class DummyContext:
+            doc = None
+            doc_type = None
+            caller = None
+
+        try:
+            with patch.object(worker_pool.thread_guard, "set_background_task", block_unwind):
+                result = registry.execute("mutate_then_unwind", DummyContext())
+            assert entered.is_set()
+            assert result["status"] == "ok"
+            assert result["applied"] is True
+            assert applied == ["applied"]
+        finally:
+            release.set()
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    @pytest.mark.parametrize("exc_type", [SystemExit, KeyboardInterrupt, GeneratorExit])
+    def test_timeout_worker_baseexception_unblocks(self, exc_type):
+        class Boom(ToolBase):
+            name = "boom_base"
+            description = "x"
+            timeout = 2
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                raise exc_type("stopped")
+
+        registry = ToolRegistry(services={})
+        registry.register(Boom())
+
+        class DummyContext:
+            doc = None
+            doc_type = None
+            caller = None
+
+        box: dict = {}
+
+        def run():
+            try:
+                box["result"] = registry.execute("boom_base", DummyContext())
+            except BaseException as exc:
+                box["raised"] = type(exc).__name__
+
+        # Daemon so a regression that blocks on result_queue.get() cannot
+        # hang the suite; join is the assertion that the caller returned.
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        worker.join(2)
+        assert not worker.is_alive()
+        assert "raised" not in box
+        result = box["result"]
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_WORKER_EXIT"
+        assert exc_type.__name__ in result["message"]
+        assert result["details"]["error_type"] == exc_type.__name__
+
+    def test_dead_timeout_worker_without_result_does_not_block(self):
+        class _Dead:
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return False
+
+        registry = ToolRegistry(services={})
+        box: dict = {}
+
+        def run():
+            box["result"] = registry._execute_with_timeout(lambda **kwargs: {"status": "ok"}, timeout=1, tool_name="dead_worker")
+
+        with patch("plugin.framework.tool.run_in_background", return_value=_Dead()):
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            worker.join(2)
+        assert not worker.is_alive()
+        result = box["result"]
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_WORKER_EXIT"
+
+    def test_timeout_worker_reraises_exception(self):
+        registry = ToolRegistry(services={})
+
+        def boom(**kwargs):
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            registry._execute_with_timeout(boom, timeout=2, tool_name="raises")
+
 
 class TestToolRegistryMainThreadMarshal:
     """Sync tools invoked via ToolRegistry.execute run on the logical main thread."""
@@ -1046,6 +1289,64 @@ def test_get_tools_off_main_thread_without_doc_probe():
     doc.supportsService.assert_not_called()
 
 
+def test_get_tools_names_empty_and_bare_string():
+    """None is no filter. [] and "" match nothing. A string is one exact name."""
+
+    class GetTool(ToolBase):
+        name = "get"
+        description = "x"
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    class TargetTool(ToolBase):
+        name = "target"
+        description = "x"
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(GetTool())
+    reg.register(TargetTool())
+    listed = {"filter_doc_type": False}
+    assert {t.name for t in reg.get_tools(**listed)} == {"get", "target"}
+    assert {t.name for t in reg.get_tools(names=None, **listed)} == {"get", "target"}
+    assert reg.get_tools(names=[], **listed) == []
+    assert reg.get_tools(names="", **listed) == []
+    assert reg.get_tools(names=(), **listed) == []
+    # "get" in "target" is true; the filter must not substring-match.
+    assert [t.name for t in reg.get_tools(names="target", **listed)] == ["target"]
+    assert [t.name for t in reg.get_tools(names="get", **listed)] == ["get"]
+    assert [t.name for t in reg.get_tools(names=["get"], **listed)] == ["get"]
+
+
+def test_sync_timeout_warning_logs_once():
+    from plugin.framework.tool import _sync_timeout_warned
+
+    class SyncTimeout(ToolBase):
+        name = "sync_timeout_once_tool"
+        description = "x"
+        timeout = 5
+        parameters = {"type": "object", "properties": {}}
+        uno_services = None
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    _sync_timeout_warned.discard("sync_timeout_once_tool")
+    reg = ToolRegistry(MagicMock())
+    reg.register(SyncTimeout())
+    ctx = ToolContext(doc=None, ctx=None, doc_type="writer", services={}, caller="test")
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()), patch("plugin.framework.tool.log") as tool_log:
+        reg.execute("sync_timeout_once_tool", ctx)
+        reg.execute("sync_timeout_once_tool", ctx)
+    warnings = [call for call in tool_log.warning.call_args_list if "synchronous" in str(call)]
+    assert len(warnings) == 1
+
+
 def test_execute_with_timeout_parameterizes_result_queue() -> None:
     """Local result_queue must be Queue[tuple[str, Any]] for reportMissingTypeArgument."""
     import inspect
@@ -1100,4 +1401,114 @@ def test_execute_bypass_thread_guard_allows_background_thread() -> None:
 
     assert out == {"status": "ok"}
     assert calls == ["execute"]
+
+
+def _guard_probe_registry():
+    """Sync tool whose execute/execute_safe record which runner ran."""
+    calls: list[str] = []
+    seen: list[dict] = []
+
+    class DummyTool:
+        name = "dummy_sync"
+        description = "x"
+        parameters = {"type": "object", "properties": {"note": {"type": "string"}}}
+        uno_services = None
+        doc_types = None
+
+        def get_parameters(self, doc_type=None):
+            return self.parameters
+
+        def get_description(self, doc_type=None):
+            return self.description
+
+        def validate(self, *, doc_type=None, **kwargs):
+            return True, None
+
+        def is_async(self):
+            return False
+
+        def execute(self, ctx, **kwargs):
+            calls.append("execute")
+            seen.append(dict(kwargs))
+            return {"status": "ok", "note": kwargs.get("note")}
+
+        def execute_safe(self, ctx, **kwargs):
+            calls.append("execute_safe")
+            seen.append(dict(kwargs))
+            return {"status": "ok", "note": kwargs.get("note")}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(DummyTool())  # type: ignore[arg-type]
+    ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
+    return reg, ctx, calls, seen
+
+
+def test_execute_explicit_bypass_with_spread_params_still_skips_guard() -> None:
+    """tools_lo passes the keyword and then **params. That must still bypass."""
+    reg, ctx, calls, seen = _guard_probe_registry()
+    marshalled: list[str] = []
+
+    def fake_marshal(fn):
+        marshalled.append("marshal")
+        return fn()
+
+    params = {"note": "keep"}
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        # Same shape as tools_lo: keyword, then **params. A dict literal
+        # spread is a different bytecode path and is not this contract.
+        out = reg.execute("dummy_sync", ctx, bypass_thread_guard=True, **params)
+
+    assert out == {"status": "ok", "note": "keep"}
+    assert calls == ["execute"]
+    assert seen == [{"note": "keep"}]
+    assert marshalled == []
+
+
+@pytest.mark.parametrize("bypass", [True, 1, "yes"])
+def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
+    """A **dict must not skip execute_safe, even when the value is truthy.
+
+    What was wrong: the keyword-only parameter bound JSON true before
+    without_unknown_kwargs ran, so the sync tool ran on the worker.
+    """
+    reg, ctx, calls, seen = _guard_probe_registry()
+    marshalled: list[str] = []
+    box: dict = {}
+
+    def fake_marshal(fn):
+        marshalled.append("marshal")
+        return fn()
+
+    args = {"bypass_thread_guard": bypass, "note": "keep"}
+
+    def bg():
+        box["out"] = reg.execute("dummy_sync", ctx, **args)
+
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        worker = threading.Thread(target=bg, name="tool-sync-probe")
+        worker.start()
+        worker.join()
+
+    assert marshalled == ["marshal"]
+    assert calls == ["execute_safe"]
+    assert seen == [{"note": "keep"}]
+    assert box["out"] == {"status": "ok", "note": "keep"}
+
+
+def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
+    """A dict literal spread is not an explicit bypass_thread_guard keyword."""
+    reg, ctx, calls, seen = _guard_probe_registry()
+    marshalled: list[str] = []
+
+    def fake_marshal(fn):
+        marshalled.append("marshal")
+        return fn()
+
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        out = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": True, "note": "keep"})
+
+    assert marshalled == ["marshal"]
+    assert calls == ["execute_safe"]
+    assert seen == [{"note": "keep"}]
+    assert out == {"status": "ok", "note": "keep"}
 

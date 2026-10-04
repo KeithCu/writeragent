@@ -24,6 +24,13 @@ Manifest tables (``MODULES``, ``CONFIG_DEFAULTS``, ``CONFIG_SCHEMAS``,
 ``DOTTED_FALLBACKS``) live here because they are in-memory schema, not
 ``writeragent.json`` I/O. ``MODULES`` from ``plugin._manifest`` is the source
 of truth; ``set_manifest_modules`` rebuilds the derived tables at import.
+
+Dataclass fields may declare ``min``, ``max``, and ``min_exclusive`` in
+``field.metadata``. ``get_config_schema`` copies those onto the schema so
+``coerce_config_value(..., strict=True)`` rejects the same out-of-range
+numbers ``WriterAgentConfig.validate`` rejects. Validate still runs that
+check itself, before coercion: a load repair uses the field fallback
+(``chat_max_tokens`` -1 becomes 16384, not the inclusive minimum 0).
 """
 
 # crosshair: off
@@ -210,19 +217,36 @@ def parse_int_robust(val: Any) -> int:
         raise ValueError(f"Could not robustly parse integer from {val!r}") from e
 
 
+def _float_or_value_error(val: Any) -> float:
+    """``float(val)``, mapping overflow to ``ValueError``.
+
+    What was wrong: JSON accepts an integer of 309+ digits. ``float(val)``
+    then raises ``OverflowError``. ``clamp_schema_value`` and
+    ``_is_equal_to_default`` caught only ``ValueError``, so loading
+    ``writeragent.json`` crashed instead of degrading.
+    How: CPython's ``float()`` overflows past the IEEE range rather than
+    raising ``ValueError``.
+    Why: callers already treat ``ValueError`` as "not a usable number".
+    """
+    try:
+        return float(val)
+    except OverflowError as exc:
+        raise ValueError(f"Could not robustly parse float from {val!r}") from exc
+
+
 @deal.post(lambda result: isinstance(result, float))
 @deal.raises(ValueError)
 def parse_float_robust(val: Any) -> float:
     """Robustly parse a float value from a string, int, or other type,
     handling locale-specific decimal commas (like "1,5" in German)."""
     if isinstance(val, (int, float)):
-        return float(val)
+        return _float_or_value_error(val)
     if val is None:
         raise ValueError("Cannot parse None as float")
 
     if UNDER_CROSSHAIR:
         if isinstance(val, (int, float)):
-            return float(val)
+            return _float_or_value_error(val)
         raise ValueError("Cannot parse symbolic type as float under CrossHair")
 
     s = str(val).strip()
@@ -230,7 +254,7 @@ def parse_float_robust(val: Any) -> float:
         raise ValueError("Cannot parse empty string as float")
 
     try:
-        return float(s)
+        return _float_or_value_error(s)
     except (ValueError, TypeError):
         pass
 
@@ -240,7 +264,7 @@ def parse_float_robust(val: Any) -> float:
     normalized = _normalize_comma_number(s)
     if normalized is not None:
         try:
-            return float(normalized)
+            return _float_or_value_error(normalized)
         except (ValueError, TypeError) as e:
             raise ValueError(f"Could not robustly parse float from {val!r}") from e
 
@@ -332,14 +356,14 @@ class WriterAgentConfig:
     endpoint: str = "http://localhost:11434"
     text_model: str = ""
     model: str = ""
-    temperature: float = -1.0
+    # max 1.0; parse failures stay the unset sentinel -1.0. See validate().
+    temperature: float = dataclasses.field(default=-1.0, metadata={"kind": "float", "max": 1.0, "fallback": 1.0, "parse_fallback": -1.0, "code": "INVALID_TEMPERATURE", "message": "Temperature must be <= 1.0"})
     additional_instructions: str = ""
-    chat_max_tokens: int = 16384
-    # Sidebar history auto-compact (plugin/chatbot/compaction.py). Unused by the
-    # tool loop until PR2; default ON matches the v2 plan. False disables both
-    # proactive compact and overflow retry once wired.
+    chat_max_tokens: int = dataclasses.field(default=16384, metadata={"kind": "int", "min": 0, "fallback": 16384, "parse_fallback": 16384, "code": "INVALID_CHAT_MAX_TOKENS", "message": "Chat max tokens must be >= 0"})
+    # Sidebar history auto-compact (plugin/chatbot/compaction.py). False disables
+    # both proactive compact and overflow retry.
     chat_compaction_enabled: bool = True
-    request_timeout: int = 120
+    request_timeout: int = dataclasses.field(default=120, metadata={"kind": "int", "min_exclusive": 0, "fallback": 120, "parse_fallback": 120, "code": "INVALID_REQUEST_TIMEOUT", "message": "Request timeout must be > 0"})
     stt_model: str = ""
     api_keys_by_endpoint: Dict[str, str] = dataclasses.field(default_factory=dict)
     image_base_size: int = DEFAULT_IMAGE_BASE_SIZE
@@ -369,8 +393,9 @@ class WriterAgentConfig:
     calc_prompt_max_tokens: int = 4096
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False
-    # When True, the Chat Completions request includes parallel_tool_calls: True to allow multiple tool calls.
-    parallel_tool_calls: bool = True
+    # Wire always sends parallel_tool_calls: false until the tool loop can apply
+    # parallel calls. Default matches the wire so Options/file do not lie.
+    parallel_tool_calls: bool = False
     # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
     last_python_script_name_writer: str = "Universal Sample"
@@ -389,6 +414,9 @@ class WriterAgentConfig:
 
     # Persists multiple user-saved Python scripts (name -> code)
     saved_python_scripts: Dict[str, str] = dataclasses.field(default_factory=lambda: dict(_DEFAULT_PYTHON_SCRIPTS))
+
+    # Track changes review mode ("off", "record", "wait")
+    doc_agent_edit_review_mode: str = "off"
 
     # Store arbitrary module.yaml config entries
     _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -412,6 +440,45 @@ class WriterAgentConfig:
                     setattr(self, f.name, "-1")
                 else:
                     setattr(self, f.name, "")
+
+        # Bounds live on the field metadata. Check them before coercion.
+        # What was wrong: those bounds were missing from the schema, so
+        # strict coerce accepted temperature 5.0 and chat_max_tokens -1.
+        # The schema now includes them, and non-strict coerce clamps to
+        # inclusive min/max. Running that clamp first would turn
+        # chat_max_tokens -1 into 0, and this check would neither raise
+        # nor apply the fallback 16384. calc_prompt_max_tokens < 100 is a
+        # separate one-time migration below, not a generic minimum.
+        for f in dataclasses.fields(self):
+            meta = f.metadata
+            if "kind" not in meta:
+                continue
+            value = getattr(self, f.name)
+            if meta["kind"] == "int" and not isinstance(value, int):
+                try:
+                    value = parse_int_robust(value)
+                except (ValueError, OverflowError):
+                    value = meta["parse_fallback"]
+            elif meta["kind"] == "float" and not isinstance(value, (int, float)):
+                try:
+                    value = parse_float_robust(value)
+                except (ValueError, OverflowError):
+                    value = meta["parse_fallback"]
+            out_of_range = False
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if "min" in meta and value < meta["min"]:
+                    out_of_range = True
+                if "min_exclusive" in meta and value <= meta["min_exclusive"]:
+                    out_of_range = True
+                if "max" in meta and value > meta["max"]:
+                    out_of_range = True
+            if out_of_range:
+                if coerce_out_of_range:
+                    log.warning("%s %s out of range; using %s", f.name, value, meta["fallback"])
+                    value = meta["fallback"]
+                else:
+                    raise ConfigValidationError(_(meta["message"]), code=meta["code"])
+            setattr(self, f.name, value)
 
         # Cast standard fields through the central schema validator so dialog
         # controllers do not need to duplicate config type rules.
@@ -437,18 +504,6 @@ class WriterAgentConfig:
         else:
             self.endpoint = ""
 
-        if not isinstance(self.chat_max_tokens, int):
-            try:
-                self.chat_max_tokens = parse_int_robust(self.chat_max_tokens)
-            except ValueError:
-                self.chat_max_tokens = 16384
-        if self.chat_max_tokens < 0:
-            if coerce_out_of_range:
-                log.warning("chat_max_tokens %s out of range; using 16384", self.chat_max_tokens)
-                self.chat_max_tokens = 16384
-            else:
-                raise ConfigValidationError(_("Chat max tokens must be >= 0"), code="INVALID_CHAT_MAX_TOKENS")
-
         # Old shipped default was 70; values below 100 are treated as stale and upgraded.
         if not isinstance(self.calc_prompt_max_tokens, int):
             try:
@@ -459,33 +514,15 @@ class WriterAgentConfig:
             log.info("Upgrading calc_prompt_max_tokens from %s to 4096", self.calc_prompt_max_tokens)
             self.calc_prompt_max_tokens = 4096
 
-        if not isinstance(self.request_timeout, int):
-            try:
-                self.request_timeout = parse_int_robust(self.request_timeout)
-            except ValueError:
-                self.request_timeout = 120
-        if self.request_timeout <= 0:
-            if coerce_out_of_range:
-                log.warning("request_timeout %s out of range; using 120", self.request_timeout)
-                self.request_timeout = 120
-            else:
-                raise ConfigValidationError(_("Request timeout must be > 0"), code="INVALID_REQUEST_TIMEOUT")
-
-        if not isinstance(self.temperature, (int, float)):
-            try:
-                self.temperature = parse_float_robust(self.temperature)
-            except ValueError:
-                self.temperature = -1.0
-        if self.temperature > 1.0:
-            if coerce_out_of_range:
-                log.warning("temperature %s out of range; using 1.0", self.temperature)
-                self.temperature = 1.0
-            else:
-                raise ConfigValidationError(_("Temperature must be <= 1.0"), code="INVALID_TEMPERATURE")
-
         if not isinstance(self.openrouter_chat_extra, dict):
             log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")
             self.openrouter_chat_extra = {}
+
+        # Legacy ``model`` key: migrate once into text_model, then clear so
+        # to_dict does not keep writing the dead field.
+        if not str(self.text_model or "").strip() and str(self.model or "").strip():
+            self.text_model = str(self.model).strip()
+        self.model = ""
 
         if isinstance(self.saved_python_scripts, dict) and "Sample" in self.saved_python_scripts:
             del self.saved_python_scripts["Sample"]
@@ -631,6 +668,12 @@ def _dataclass_schema_for_key(key: str) -> dict[str, Any] | None:
         field_type = _dataclass_field_type(field)
         if field_type:
             schema["type"] = field_type
+        # validate() reads these from field metadata. Callers of
+        # get_config_schema / strict coerce (settings compare, set_config)
+        # never saw them, so temperature 5.0 and chat_max_tokens -1 passed.
+        for bound in ("min", "max", "min_exclusive"):
+            if bound in field.metadata:
+                schema[bound] = field.metadata[bound]
         return schema
     return None
 
@@ -641,7 +684,13 @@ def get_config_schema(key: str) -> dict[str, Any] | None:
     Module schemas come from ``module.yaml`` via the manifest and take
     precedence over dataclass defaults, matching ``_resolve_default``.
     """
-    return _module_schema_for_key(key) or _dataclass_schema_for_key(key)
+    schema = _module_schema_for_key(key) or _dataclass_schema_for_key(key)
+    # log_level's runtime default is the plugin/tests probe, not the yaml
+    # literal. Overlay so get_config_schema["default"] matches get_config.
+    if schema is not None and key == "log_level":
+        schema = dict(schema)
+        schema["default"] = _resolve_default("log_level")
+    return schema
 
 
 def _schema_default_from_schema(schema: dict[str, Any] | None) -> Any:
@@ -676,6 +725,27 @@ def _canonicalize_schema_option_value(schema: dict[str, Any] | None, value: Any)
     return value
 
 
+def _numeric_outside_schema_bounds(schema: dict[str, Any], value: Any) -> bool:
+    """True when a number violates schema min, max, or min_exclusive.
+
+    ``clamp_schema_value`` only rewrites inclusive min/max. ``min_exclusive``
+    has no clamp target (request_timeout 0 must not become 1); strict coerce
+    still has to reject it.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        if "min" in schema and value < parse_float_robust(schema["min"]):
+            return True
+        if "min_exclusive" in schema and value <= parse_float_robust(schema["min_exclusive"]):
+            return True
+        if "max" in schema and value > parse_float_robust(schema["max"]):
+            return True
+    except (ValueError, OverflowError):
+        return False
+    return False
+
+
 def clamp_schema_value(key: str, value: Any) -> Any:
     """Apply module/dataclass schema min/max bounds to an already coerced value."""
     schema = get_config_schema(key)
@@ -690,11 +760,13 @@ def clamp_schema_value(key: str, value: Any) -> Any:
             numeric_value = max(parse_float_robust(schema["min"]), numeric_value)
         if "max" in schema:
             numeric_value = min(parse_float_robust(schema["max"]), numeric_value)
-    except ValueError:
+        # int(inf) is OverflowError. A number that cannot be clamped degrades
+        # to the original value, same as a ValueError from parse_float_robust.
+        if schema_type == "int":
+            return int(numeric_value)
+        return numeric_value
+    except (ValueError, OverflowError):
         return value
-    if schema_type == "int":
-        return int(numeric_value)
-    return numeric_value
 
 
 def _strict_bool_ok(value: Any) -> bool:
@@ -729,13 +801,13 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
     if schema_type == "int":
         try:
             value = parse_int_robust(value)
-        except ValueError:
+        except (ValueError, OverflowError):
             fallback = _invalid("not an integer")
             return fallback if fallback is not _MISSING_VALUE else value
     elif schema_type == "float":
         try:
             value = parse_float_robust(value)
-        except ValueError:
+        except (ValueError, OverflowError):
             fallback = _invalid("not a number")
             return fallback if fallback is not _MISSING_VALUE else value
     elif schema_type == "boolean":
@@ -763,8 +835,10 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
     clamped = clamp_schema_value(key, value)
     # set_config uses strict=True so a bad type raises. Out-of-range numbers
     # were still saved as min/max with no error (module.yaml keys never hit
-    # WriterAgentConfig.validate).
-    if strict and schema_type in {"int", "float"} and clamped != value:
+    # WriterAgentConfig.validate). Dataclass min/max/min_exclusive are on the
+    # schema too. min_exclusive does not change `clamped`, so compare bounds
+    # as well as the clamped number.
+    if strict and schema_type in {"int", "float"} and (clamped != value or _numeric_outside_schema_bounds(schema, value)):
         raise ConfigValidationError(
             f"Invalid configuration value for {key}: out of range",
             code="CONFIG_INVALID_VALUE",
@@ -860,7 +934,7 @@ def _is_equal_to_default(key: str, value: Any, default_val: Any) -> bool:
             return False
         try:
             return parse_float_robust(value) == parse_float_robust(default_val)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             return False
 
     if isinstance(default_val, (dict, list)):

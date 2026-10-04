@@ -62,6 +62,13 @@ class AliasImporter:
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
         if fullname != "writeragent" and not fullname.startswith("writeragent."):
             return None
+        # The venv checker treats writeragent.* as "any submodule" when that
+        # pattern is on the list. This hook then loaded the matching plugin
+        # module, including framework.config and LlmClient. Refuse unless the
+        # same allowlist accepts the plugin target or an explicit alias entry.
+        from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+        if not import_authorized(fullname, VENV_AUTHORIZED_IMPORTS):
+            return None
         if fullname == "writeragent":
             real_name = _WRITERAGENT_API
         else:

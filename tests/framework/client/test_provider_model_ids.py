@@ -97,9 +97,38 @@ def test_is_openrouter_endpoint_matches_host_not_substring():
 
 def test_is_openwebui_endpoint_matches_host_not_path():
     assert is_openwebui_endpoint("https://chat.openwebui.example/api")
+    assert is_openwebui_endpoint("https://open-webui.local/api")
     assert is_openwebui_endpoint("http://127.0.0.1:8080/api", explicit_is_openwebui=True)
     assert not is_openwebui_endpoint("http://127.0.0.1:8080/api")
     assert not is_openwebui_endpoint("https://example.com/openwebui/v1")
+    assert not is_openwebui_endpoint("https://notopenwebui.example/api")
+
+
+def test_malformed_port_is_config_error_not_value_error():
+    """``:1a34``, an out-of-range port, and an unmatched bracket must not escape as ValueError."""
+    from plugin.framework.errors import ConfigError
+
+    for url in (
+        "http://localhost:1a34",
+        "http://localhost:99999/v1",
+        "http://[::1]:70000",
+        "http://[::1",
+        "http://[::1]extra",
+        "http://[]/v1",
+    ):
+        with pytest.raises(ConfigError) as raised:
+            get_provider_from_endpoint(url)
+        assert raised.value.code == "CONFIG_INVALID_URL"
+        assert not isinstance(raised.value, ValueError)
+
+
+def test_local_ollama_and_lmstudio_ports_cover_lan_hosts():
+    assert get_provider_from_endpoint("http://192.168.1.20:11434") == "ollama"
+    assert get_provider_from_endpoint("http://[::1]:11434") == "ollama"
+    assert get_provider_from_endpoint("http://10.0.0.5:1234/v1") == "lmstudio"
+    assert get_provider_from_endpoint("http://127.0.0.1:11434") == "ollama"
+    assert get_provider_from_endpoint("https://example.com:11434") is None
+    assert get_provider_from_endpoint("http://192.168.1.20:8080") is None
 
 
 def test_provider_config_has_no_host_matches_and_grok_alias_is_gone():

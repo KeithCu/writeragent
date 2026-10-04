@@ -190,7 +190,7 @@ This document evaluates Odysseus's architectural components, details 9 high-impa
 
 #### Technical Specification (Senior Devs)
 - **Source Pattern:** `odysseus/src/markitdown_runtime.py`
-- **Target Integration:** [`plugin/embeddings/venv/`](file:///home/keithcu/Desktop/Python/writeragent/plugin/embeddings/venv/) & [`plugin/framework/client/folder_fts_service.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/framework/client/folder_fts_service.py)
+- **Target Integration:** [`plugin/embeddings/venv/`](file:///home/keithcu/Desktop/Python/writeragent/plugin/embeddings/venv/) & [`plugin/embeddings/folder_fts_service.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/embeddings/folder_fts_service.py)
 
 - **Execution Safety:**
   - `markitdown` executes inside the isolated Python venv worker (matching the architecture in [`embeddings.md`](file:embeddings.md)).
@@ -225,7 +225,7 @@ This document evaluates Odysseus's architectural components, details 9 high-impa
 
 #### Technical Specification (Senior Devs)
 - **Source Pattern:** `odysseus/services/search/ranking.py`
-- **Target Integration:** [`plugin/doc/document_research_tools.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/doc/document_research_tools.py) & [`plugin/framework/client/embeddings_service.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/framework/client/embeddings_service.py)
+- **Target Integration:** [`plugin/doc/document_research_tools.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/doc/document_research_tools.py) & [`plugin/embeddings/embeddings_service.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/embeddings/embeddings_service.py)
 
 - **Recency Decay Formula:**
   $$\text{Score}_{\text{recency}} = \begin{cases} 1.0 & \text{age} \le 7\text{ days} \\ \frac{30 - \text{age}}{23} & 7 < \text{age} < 30\text{ days} \\ 0.0 & \text{age} \ge 30\text{ days} \end{cases}$$

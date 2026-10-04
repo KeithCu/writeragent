@@ -21,7 +21,10 @@ Concurrency: ``ServiceRegistry`` (``services.document``, ``services.events``,
 …) is populated while the extension bootstraps on the UI thread, then
 read for the rest of the session. There is no lock. Do not call
 ``register`` from a background worker — you can race the dict and you
-will confuse shutdown order.
+will confuse shutdown order. ``initialize_all`` and ``shutdown_all``
+iterate a snapshot: a callback may ``register`` another service, and a
+live ``dict.items()`` walk raises ``RuntimeError`` outside the
+per-service try.
 """
 
 from __future__ import annotations
@@ -167,8 +170,16 @@ class ServiceRegistry:
 
         ``register()`` accepts arbitrary objects, not only ServiceBase, so
         getattr+callable is required (ServiceBase already defines no-op methods).
+
+        The walk is a snapshot. ``initialize`` may ``register`` another
+        service; mutating ``_services`` during ``.items()`` used to raise
+        ``RuntimeError`` outside the per-service try and skip the rest.
         """
-        for name, svc in self._services.items():
+        # What was wrong: the for-loop iterated ``_services`` live. A service
+        # that registers another service changes the dict size, Python raises
+        # RuntimeError outside the try, and later services never initialize.
+        # Why: snapshot the items first so that registration cannot abort the walk.
+        for name, svc in list(self._services.items()):
             init = getattr(svc, "initialize", None)
             if callable(init):
                 try:
@@ -181,8 +192,10 @@ class ServiceRegistry:
         """Call ``shutdown()`` on every service that supports it.
 
         Same getattr guard as initialize_all: non-ServiceBase registrations.
+        Same snapshot as initialize_all: ``shutdown`` may register another
+        service, and a live dict walk would skip the rest.
         """
-        for name, svc in self._services.items():
+        for name, svc in list(self._services.items()):
             shutdown = getattr(svc, "shutdown", None)
             if callable(shutdown):
                 try:

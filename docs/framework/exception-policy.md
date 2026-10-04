@@ -6,7 +6,7 @@ Use the helpers in `plugin/framework/errors.py`: `is_disposed_exception`, `suppr
 
 | Layer | On disposal / bridge teardown | On expected UNO/Python errors | Silent `except Exception: pass` |
 |--------|-------------------------------|-------------------------------|----------------------------------|
-| UI lifecycle (sidebar, rich text, panel) | `with suppress_disposed(...)` | Keep fallbacks; unexpected errors are logged (`suppress_all=True`) | Replace with `suppress_disposed` |
+| UI lifecycle (sidebar, rich text, panel) | `with suppress_disposed(...)` | Keep fallbacks; unexpected `Exception`s are logged (`suppress_all=True`). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate | Replace with `suppress_disposed` |
 | Document tools (`visual_helpers`, edit review, charts, shapes, notebook) | Re-raise or wrap `DocumentDisposedError` | Leaf types only: `UnknownPropertyException`, `NoSuchElementException`, `IndexOutOfBoundsException`, `IllegalArgumentException`, `AttributeError`, `ValueError` | `log.exception` / `log.debug(..., exc_info=True)` or drop the catch |
 | Draw/Impress slide tools (`notes`, `transitions`, `placeholders`, `masters`) | Re-raise via `DrawBridge.get_slide_for_tool` (`is_disposed_exception`) | `IndexError` → `ToolExecutionError` (page out of range); other errors wrapped | n/a |
 
@@ -14,12 +14,26 @@ Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose
 
 `is_document_disposed` probes `getImplementationName()` and returns true only for `DisposedException` / `DocumentDisposedError`. Any other exception from that probe means the document is still live.
 
-`format_error_message` treats `ConnectionError` and `URLError` as network failures. `FileNotFoundError` and `PermissionError` stay filesystem errors. A message that merely contains "timed out" is a request-timeout hint only when it is not a Python execution timeout or a formula timeout. `socket.timeout` / `VenvTimeoutError` keep their own branches.
+`WriterAgentException` translates short catalog msgids through `i18n._`. A runtime message longer than the gettext msgid bound (`DEAL_MAX_MSGID`) is stored as-is. Passing that string through `_()` raised `deal.PreContractError` in deal-enabled builds, so `NetworkError` and `make_tool_error` never constructed.
+
+`format_error_message` treats `ConnectionError` and `URLError` as network failures. `FileNotFoundError` and `PermissionError` stay filesystem errors. A message that merely contains "timed out" is a request-timeout hint only when it is not a Python execution timeout or a formula timeout. `socket.timeout` / `VenvTimeoutError` keep their own branches. Only `urllib.error.HTTPError` is formatted from an HTTP status. Other `http.client.HTTPException` values (for example `RemoteDisconnected`) keep their text on the connection path or via `str(e)`.
 
 `safe_call` and `handle_errors` re-raise `DocumentDisposedError` only for `DisposedException` (and an already-wrapped `DocumentDisposedError`). A bare `RuntimeException` becomes `UnoObjectError` or `ToolExecutionError`, so it does not short-circuit `is_tool_document_disposed`. `safe_uno_call` still returns its default for that name and re-raises only real disposal.
 
 `execute_safe` maps dispose via `is_tool_document_disposed`, not the raw `is_disposed_exception` heuristic. A bare `RuntimeException` from a still-live document (`is_document_disposed` is false) is a real UNO error — e.g. `createTextCursorByRange(ViewCursor)` on a Writer body — and must surface as `TOOL_EXECUTION_ERROR`, not the lying “Document was closed or disposed by LibreOffice” chat string. `DisposedException` / `DocumentDisposedError` still map to `DOCUMENT_DISPOSED`. Do **not** narrow `is_disposed_exception` itself; UI lifecycle (`suppress_disposed`) still needs the RuntimeException name match. The isinstance set is `DisposedException` only. `RuntimeException` matches by type name, because `IllegalArgumentException` subclasses `RuntimeException` and must not be reported as disposal.
 
 Best-effort probes (missing properties, optional controllers, “is this a graphic?”) may still catch `Exception` and return empty. That is not the hang class of bug. Re-raise disposal where a UI callback or tool loop would otherwise keep running on a dead object; do not sprinkle re-raises through every helper.
+
+UNO listener callbacks (`_catch_and_log` in `plugin/framework/uno_listeners.py`) are the one place that classifies a callback failure. `ListenerBoundary` subclasses `BaseException`, not `Exception`, so a generic `except Exception` cannot turn it into an empty document or a swallowed main-thread check. Kinds:
+
+| Kind | What it is | What leaves the callback |
+|------|------------|--------------------------|
+| `thread` | `assert_main_thread` `RuntimeError` (`UNO thread violation`) | `ListenerBoundary` |
+| `disposed` | `DisposedException` / `DocumentDisposedError` only | `ListenerBoundary`, except `disposing` |
+| `veto` | `CloseVetoException` / `TerminationVetoException` | the original UNO exception, so the bridge can still veto |
+
+A bare `RuntimeException` is not disposal: the callback logs it and returns `None` or `False`. `disposing` logs real disposal and returns, because a throw there stops the broadcaster from notifying the remaining listeners. Any other callback is a query: a dead desktop must not look like a successful empty result. `get_open_documents` calls `reraise_listener_boundary`, so a disposed enumeration is not `[]` and an empty desktop is not disposal.
+
+`TypeError` and `ValueError` go through that same boundary before the typed log. A disposal or veto that subclasses either one is not a soft callback failure. An ordinary `TypeError` or `ValueError` is still logged under its type name and does not enter the bridge. A veto is re-raised as the original UNO exception.
 
 Related: [chat sidebar lifecycle](../chat/sidebar-implementation.md#ui-lifecycle-exception-handling-suppress_disposed), [UNO thread safety](uno-thread-safety.md).

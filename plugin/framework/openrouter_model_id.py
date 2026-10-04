@@ -14,7 +14,34 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
+
+
+def _deal_model_id_ok_pytest(model_id: object) -> bool:
+    # Catalog ids are longer than DEAL_MAX_TOKEN. The cap raised
+    # PreContractError on a real OpenRouter id. The body splits on ':'.
+    return isinstance(model_id, str)
+
+
+def _deal_model_id_ok_crosshair(model_id: object) -> bool:
+    return str_bounded(model_id, DEAL_MAX_TOKEN)
+
+
+_deal_model_id_ok = _deal_model_id_ok_crosshair if UNDER_CROSSHAIR else _deal_model_id_ok_pytest
+
+
+def _deal_catalog_ids_ok_pytest(catalog_ids: object) -> bool:
+    # The live catalog has more than DEAL_MAX_SHAPE_DIM models.
+    return catalog_ids is None or isinstance(catalog_ids, (list, tuple, set, frozenset))
+
+
+def _deal_catalog_ids_ok_crosshair(catalog_ids: object) -> bool:
+    return catalog_ids is None or (
+        isinstance(catalog_ids, (list, tuple, set, frozenset)) and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM
+    )
+
+
+_deal_catalog_ids_ok = _deal_catalog_ids_ok_crosshair if UNDER_CROSSHAIR else _deal_catalog_ids_ok_pytest
 
 # Dynamic: routing/behavior shortcuts (any model; strip for catalog lookup).
 OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
@@ -23,7 +50,7 @@ OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
 OPENROUTER_STATIC_SUFFIXES = frozenset({"free", "extended", "thinking"})
 
 
-@deal.pre(lambda model_id: str_bounded(model_id, DEAL_MAX_TOKEN))
+@deal.pre(lambda model_id: _deal_model_id_ok(model_id))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2)
 def _split_suffix(model_id: str) -> tuple[str, str | None]:
     if ":" not in model_id:
@@ -34,7 +61,7 @@ def _split_suffix(model_id: str) -> tuple[str, str | None]:
     return base, suffix
 
 
-@deal.pre(lambda model_id, catalog_ids=None: str_bounded(model_id, DEAL_MAX_TOKEN) and (catalog_ids is None or (isinstance(catalog_ids, (list, tuple, set, frozenset)) and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM)))
+@deal.pre(lambda model_id, catalog_ids=None: _deal_model_id_ok(model_id) and _deal_catalog_ids_ok(catalog_ids))
 @deal.post(lambda result: isinstance(result, str))
 def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | None = None) -> str:
     """Return the catalog key to use for capabilities/metadata lookup.
@@ -55,7 +82,9 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
     return mid
 
 
-@deal.pre(lambda a, b, catalog_ids=None: str_bounded(a, DEAL_MAX_TOKEN) and str_bounded(b, DEAL_MAX_TOKEN) and (catalog_ids is None or (isinstance(catalog_ids, (list, tuple, set, frozenset)) and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM)))
+@deal.pre(
+    lambda a, b, catalog_ids=None: _deal_model_id_ok(a) and _deal_model_id_ok(b) and _deal_catalog_ids_ok(catalog_ids)
+)
 @deal.post(lambda result: isinstance(result, bool))
 def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] | None = None) -> bool:
     """True if two OpenRouter ids refer to the same underlying catalog model."""

@@ -220,7 +220,7 @@ Keep complexity low by mirroring embeddings storage layout:
 
 **Injection:** Extend `get_chat_system_prompt_for_document` with `[LORE CONTEXT]` snippets (top-k entries matching current selection/scene), same pattern as `[DOCUMENT CONTENT]`.
 
-**Indexing:** On `upsert_lore_entry`, enqueue embedding maintain job — reuse [embeddings_service.py](../plugin/framework/client/embeddings_service.py).
+**Indexing:** On `upsert_lore_entry`, enqueue embedding maintain job — reuse [embeddings_service.py](../plugin/embeddings/embeddings_service.py).
 
 **UI (later):** Settings-adjacent “World” dialog: list/card views; graph view is Phase 2 (export GraphML or simple UNO Draw diagram via [shapes.py](../plugin/writer/shapes.py)).
 

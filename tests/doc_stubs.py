@@ -485,6 +485,20 @@ class CalcRangeStub:
             rows.append(tuple(row_vals))
         return tuple(rows)
 
+    def getFormulaArray(self):
+        rows = []
+        for r in range(self._start_row, self._end_row + 1):
+            row_vals = []
+            for c in range(self._start_col, self._end_col + 1):
+                cell = self._sheet.getCellByPosition(c, r)
+                # UNO getFormulaArray returns strings for everything, but specifically original text if not a formula.
+                if cell.getType() == _CELL_FORMULA:
+                    row_vals.append(cell.getFormula())
+                else:
+                    row_vals.append(cell.getString())
+            rows.append(tuple(row_vals))
+        return tuple(rows)
+
     def setDataArray(self, data):
         for r_off, row in enumerate(data or ()):
             for c_off, value in enumerate(row):
