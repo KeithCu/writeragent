@@ -242,7 +242,16 @@ def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         return
     try:
         pgid = os.getpgid(pid)
-        os.killpg(pgid, signal.SIGKILL)
+        fallback = False
+    except ProcessLookupError:
+        pgid = pid
+        fallback = True
+
+    try:
+        if fallback and proc.poll() is None:
+            proc.kill()
+        else:
+            os.killpg(pgid, signal.SIGKILL)
     except ProcessLookupError:
         if proc.poll() is None:
             proc.kill()
@@ -278,6 +287,7 @@ class PythonWorkerManager:
     _io_lock: threading.Lock
     _primed: bool
     _retired: bool
+    _proc_lock: threading.Lock
 
     def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe

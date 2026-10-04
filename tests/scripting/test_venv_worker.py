@@ -1731,8 +1731,35 @@ def test_kill_process_tree_signals_group_after_leader_exits(monkeypatch):
 
     monkeypatch.setattr(os, "getpgid", _getpgid)
     monkeypatch.setattr(os, "killpg", _killpg)
-    # With the Bug 3 fix, if getpgid raises ProcessLookupError, we fallback to proc.kill()
-    proc.poll.return_value = None  # simulate process still running for the fallback check
+
+    # Leader already exited, proc.poll() returns 0.
+    proc.poll.return_value = 0
+    venv_worker_module._kill_process_tree(proc)
+    assert killed == {"pgid": 4242, "sig": signal.SIGKILL}
+    proc.kill.assert_not_called()
+
+def test_kill_process_tree_no_pgid_but_alive(monkeypatch):
+    """If getpgid fails and the leader is still alive, we fallback to proc.kill()."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.poll.return_value = None
+    if sys.platform == "win32":
+        return
+
+    killed: dict[str, int] = {}
+
+    def _getpgid(pid: int) -> int:
+        raise ProcessLookupError(pid)
+
+    def _killpg(pgid: int, sig: int) -> None:
+        killed["pgid"] = pgid
+        killed["sig"] = sig
+
+    monkeypatch.setattr(os, "getpgid", _getpgid)
+    monkeypatch.setattr(os, "killpg", _killpg)
+
     venv_worker_module._kill_process_tree(proc)
     assert not killed  # os.killpg not called
     proc.kill.assert_called_once()
@@ -1771,8 +1798,10 @@ def test_kill_process_tree_reaps_grandchild_after_leader_exits():
         assert proc.poll() is not None
         assert pid_is_alive(gpid)
         venv_worker_module._kill_process_tree(proc)
-        # Bug 3 fix explicitly disables killpg fallback when getpgid fails (e.g. after leader is reaped).
-        # We accept that the grandchild will survive in this edge case rather than risk signaling a reused PID group.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and pid_is_alive(gpid):
+            time.sleep(0.05)
+        assert not pid_is_alive(gpid), f"grandchild pid {gpid} survived group kill"
     finally:
         if gpid is not None and pid_is_alive(gpid):
             try:
