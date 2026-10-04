@@ -16,7 +16,6 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from plugin.contrib.smolagents.local_python_executor import (
-    check_import_authorized,
     is_forbidden_dunder_attribute,
 )
 from plugin.framework.deal_shim import (
@@ -28,6 +27,7 @@ from plugin.framework.deal_shim import (
     deal,
     str_bounded,
 )
+from plugin.scripting.sandbox import import_authorized
 
 
 def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
@@ -94,14 +94,17 @@ def validate_sandbox_ast(module: ast.Module, authorized_imports: list[str]) -> s
             return f"{node.__class__.__name__} is not supported."
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if not check_import_authorized(alias.name, authorized_imports):
+                # writeragent.X is checked as plugin.X. A blanket writeragent.*
+                # on the list used to pass here, then AliasImporter loaded
+                # framework.config and LlmClient.
+                if not import_authorized(alias.name, authorized_imports):
                     return (
                         f"Import of {alias.name} is not allowed. "
                         f"Authorized imports are: {str(authorized_imports)}"
                     )
         elif isinstance(node, ast.ImportFrom):
             module_name = node.module or ""
-            if not check_import_authorized(module_name, authorized_imports):
+            if not import_authorized(module_name, authorized_imports):
                 return (
                     f"Import from {module_name} is not allowed. "
                     f"Authorized imports are: {str(authorized_imports)}"
