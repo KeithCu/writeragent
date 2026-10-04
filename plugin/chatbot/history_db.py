@@ -16,10 +16,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+import hashlib
 import logging
 import json
 import os
 import tempfile
+from contextlib import closing
 from typing import Any
 
 try:
@@ -59,7 +61,11 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
         for item in content:
             if isinstance(item, dict):
                 if item.get("type") == "text":
-                    text_parts.append(item.get("text", ""))
+                    # A present "text" of None, or any non-str, used to reach
+                    # " ".join and raise TypeError here. add_message calls
+                    # this before its try, so the turn never saved. str(... or
+                    # "") is always a str (None and missing become "").
+                    text_parts.append(str(item.get("text") or ""))
                 elif item.get("type") == "input_audio":
                     has_audio = True
                 elif item.get("type") == "image_url":
@@ -94,7 +100,11 @@ class SQLite3History:
 
     def _init_db(self) -> None:
         assert sqlite3 is not None
-        with sqlite3.connect(self.db_path) as conn:
+        # sqlite3.Connection's context manager commits or rolls back and does
+        # not close. Each history call left a connection until GC. closing()
+        # calls close() on the way out, including when execute raises. Every
+        # connect in this file uses the same wrap.
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS message_store (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,14 +118,14 @@ class SQLite3History:
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         assert sqlite3 is not None
         msg_dict = message_to_dict(role, content, tool_calls)
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg_dict)))
             conn.commit()
             log.info(f"SQLite3: Added message for session {self.session_id}")
 
     def get_messages(self) -> list[dict[str, Any]]:
         assert sqlite3 is not None
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn:
             cursor = conn.execute("SELECT id, message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
             msgs: list[dict[str, Any]] = []
             for row_id, raw in cursor.fetchall():
@@ -135,9 +145,61 @@ class SQLite3History:
 
     def clear(self) -> None:
         assert sqlite3 is not None
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
             conn.commit()
+
+    def replace_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Replace this session's rows in one transaction.
+
+        A delete that commits before the inserts leaves an empty session if a
+        later insert fails. Other session ids in the same file are untouched.
+        """
+        assert sqlite3 is not None
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            try:
+                conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
+                for msg in messages:
+                    conn.execute(
+                        "INSERT INTO message_store (session_id, message) VALUES (?, ?)",
+                        (self.session_id, json.dumps(msg)),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+
+def _json_history_filename(session_id: str, history_dir: str) -> str:
+    """One path segment under the history directory.
+
+    Regenerated ids are SHA-256 hex or UUID. Unsafe ids are hashed for the filename only.
+    To stop case-alias collisions on case-insensitive filesystems, any id that contains
+    an uppercase letter is also hashed, unless an older unhashed file already exists.
+    """
+    name = session_id or ""
+    is_unsafe = (
+        not name
+        or name in (".", "..")
+        or "/" in name
+        or "\\" in name
+        or os.path.basename(name) != name
+    )
+    if is_unsafe:
+        name = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    elif name != name.lower():
+        hashed_name = hashlib.sha256(name.encode("utf-8")).hexdigest()
+        exact_match_found = False
+        if history_dir:
+            try:
+                exact_match_found = f"{name}.json" in os.listdir(history_dir)
+            except OSError:
+                pass
+        if exact_match_found:
+            pass
+        else:
+            name = hashed_name
+    return f"{name}.json"
 
 
 # ---------------------------------------------------------------------------
@@ -159,13 +221,13 @@ class JSONHistory:
         except OSError:
             log.exception("JSONHistory: Error creating directory")
 
-        self.file_path = os.path.join(self.history_dir, f"{session_id}.json")
+        self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id, self.history_dir))
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
         try:
             messages = self.get_messages()
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # open(..., "w") truncated the file before json.dump. A crash or a
             # bad read then looked like an empty session and the next add
             # replaced history with one row. Leave an unreadable file alone.
@@ -175,8 +237,11 @@ class JSONHistory:
         try:
             self._replace_messages(messages)
             log.info(f"JSONHistory: Added message for session {self.session_id}")
-        except (OSError, IOError, TypeError):
+        except (OSError, TypeError):
+            # The turn is already in ChatSession.messages. Swallowing the save
+            # left the next open without that row. get_messages already re-raises.
             log.exception("JSONHistory: Error saving message")
+            raise
 
     def _replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Atomic replace in the session directory (same pattern as MemoryStore.write)."""
@@ -206,7 +271,7 @@ class JSONHistory:
                 raise json.JSONDecodeError("session is not a list of objects", "", 0)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # Callers (ChatSession open, add_message) must not treat a corrupt
             # file as an empty history and write a fresh system row over it.
             log.exception("JSONHistory: Error reading messages")
@@ -224,6 +289,14 @@ class JSONHistory:
             except OSError:
                 log.exception("JSONHistory: Error clearing history")
 
+    def replace_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Replace this session file in one ``os.replace``.
+
+        ``clear`` swallows ``OSError`` and leaves the old rows. A later append
+        then duplicates them. This write replaces the file or raises.
+        """
+        self._replace_messages(list(messages))
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -240,5 +313,12 @@ def get_chat_history(session_id: str, db_path: str | None = None) -> SQLite3Hist
         log.info(f"Using SQLite for chat history at {db_path}")
         return SQLite3History(session_id, db_path)
     except sqlite3.Error:
+        # What was wrong: any sqlite error, including a lock on an existing
+        # writeragent_history.db, opened a JSON file under *.db.d/ and later
+        # turns never returned to SQLite. connect() already waits on a lock.
+        # Why this change: fall back only when there is no database file yet.
+        if os.path.isfile(db_path):
+            log.exception("SQLite failed for existing history database %s", db_path)
+            raise
         log.exception("SQLite failed, falling back to JSON")
         return JSONHistory(session_id, db_path)

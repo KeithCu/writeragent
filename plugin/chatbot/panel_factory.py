@@ -132,10 +132,10 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
             listener.disposing(None)
     except Exception as exc:
         log.info("send_listener.disposing raised from sidebar release: %s", exc)
-    with suppress_disposed("set_default_focus_restore on dispose", logger=log):
-        from plugin.framework.uno_context import clear_default_focus_restore_if
-
-        clear_default_focus_restore_if(query_control)
+    with suppress_disposed("frame session release on dispose", logger=log):
+        session = getattr(panel, "frame_session", None)
+        if session is not None:
+            session.release_panel(panel, query_control)
 
 
 def iter_debug_live_chat_panels() -> list[Any]:
@@ -346,6 +346,41 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return 320
 
 
+def _is_sha256_hex(value: Any) -> bool:
+    """True for a lowercase SHA-256 hex digest (url-derived chat session id)."""
+    if not isinstance(value, str) or len(value) != 64 or value != value.lower():
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
+    """Copy document-chat rows onto *new_session_id*.
+
+    What was wrong: ``clear()`` then ``get_messages()`` wiped the only store
+    when the regenerated id was the stored id, and a JSON ``clear`` that
+    swallowed ``OSError`` then appended onto the rows it failed to remove.
+    How: Save As re-entered setup after a partial property write, or
+    ``os.remove`` failed and the copy still ran.
+    Why: snapshot the source first and replace the destination in one write.
+    The caller skips this when the two ids are equal.
+    """
+    from plugin.chatbot.history_db import get_chat_history
+
+    # If the destination already has chat history, leave it intact.
+    # We do not overwrite the destination's chat when "Save As" targets
+    # an existing file that already has its own conversation.
+    dest_history = get_chat_history(new_session_id)
+    if list(dest_history.get_messages()):
+        return
+
+    messages = list(get_chat_history(old_session_id).get_messages())
+    dest_history.replace_messages(messages)
+
+
 def header_third_button_kind(model: Any) -> str:
     """Shared btn_latex slot: ``python_cell``, ``latex``, or ``""`` (hide).
 
@@ -380,8 +415,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     librarian_session: Any
     send_listener: Any
     _live_panel_uid: str
+    frame_session: Any
 
-    def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
+    def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str, frame_session: Any = None) -> None:
         self.ctx = ctx
         self.xFrame = frame
         self.xParentWindow = parent_window
@@ -391,7 +427,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.toolpanel = None
         self.m_panelRootWindow = None
         self.session: Any = None  # Created in _wireControls
+        # Document id from the frame session, not from whichever component is current.
+        self.frame_session = frame_session
         self._live_panel_uid = ""
+        if frame_session is not None:
+            frame_session.bind_panel(self)
+            self._live_panel_uid = str(getattr(frame_session, "doc_uid", "") or "")
         self.rich_text_widget = None
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
                   resource_url, id(parent_window) if parent_window else None)
@@ -423,7 +464,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 _run_on_main_thread(_create_panel)
             except Exception as e:
+                # What was wrong: toolpanel was assigned before wiring. A later
+                # getControl failure left the half-built panel latched, so the
+                # next getRealInterface returned it and never retried.
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
+                self.toolpanel = None
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
         return cast("XInterface", cast("object", self.toolpanel))
@@ -522,22 +567,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 return
 
             if response_ctrl and response_ctrl.getModel():
-                text = greeting + "\n" if greeting else ""
+                from plugin.chatbot.rich_text_paste import plain_transcript_text
 
-                # Append loaded history (skipping system context)
-                for msg in session.messages:
-                    role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if role == "user":
-                        text += "\nUser: %s\n" % content
-                    elif role == "assistant":
-                        # Plain-text fallback when the rich widget is absent.
-                        # Literal inside _() so the role prefix is extractable.
-                        if content:
-                            text += "\n%s %s" % (_("Assistant:"), content)
-                        elif msg.get("tool_calls"):
-                            text += "\n%s [Thinking...]" % _("Assistant:")
-                        text += "\n"
+                text = plain_transcript_text(session, greeting)
 
                 set_control_text(response_ctrl, text)
                 # Scroll to bottom
@@ -545,7 +577,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     length = len(text)
                     response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception:
-            log.exception("_render_session_history failed [greeting=%s]")
+            # What was wrong: the format named greeting but passed no argument,
+            # so the log kept a literal %s. How: Logger.exception only
+            # interpolates when args are supplied. Why: pass greeting so a
+            # failed history render records which greeting was in use.
+            log.exception("_render_session_history failed [greeting=%s]", greeting)
 
     def _refresh_controls_from_config(self) -> None:
         """Reload sidebar controls from config (e.g. after user changes Settings).
@@ -583,8 +619,17 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             current_endpoint = get_current_endpoint()
 
+            # What was wrong: config:changed refreshed these combos with a
+            # synchronous /v1/models fetch on the main thread. A dead endpoint
+            # hung the editor on every settings apply, and failures are not
+            # memoized. How: populate_combobox_with_lru defaults to fetching
+            # unless skip_remote_fetch is set. Why: match Settings/eval — LRU
+            # plus provider defaults only, no catalog HTTP on this thread.
             if model_selector:
-                set_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
+                set_val = populate_combobox_with_lru(
+                    self.ctx, model_selector, current_model, "model_lru", current_endpoint,
+                    skip_remote_fetch=True,
+                )
                 if set_val != current_model:
                     set_text_model(set_val, update_lru=False)
             if prompt_selector:
@@ -593,7 +638,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # Refresh visual (image) model via shared helper; persist correction if strict replaced value
             if image_model_selector:
                 current_image = get_image_model()
-                set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
+                set_image_val = populate_image_model_selector(
+                    self.ctx, image_model_selector, skip_remote_fetch=True,
+                )
                 if set_image_val != current_image:
                     set_image_model(set_image_val, update_lru=False)
             chat_mode_selector = get_optional("chat_mode_selector")
@@ -695,14 +742,23 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         current_model = get_text_model()
         current_endpoint = get_current_endpoint()
 
+        # What was wrong: creating the sidebar fetched the model catalog on
+        # the UI thread. An unreachable endpoint froze LibreOffice for the
+        # fetch timeout. How: the same populate path as config:changed, without
+        # skip_remote_fetch. Why: keep catalog refresh off the main thread.
         if model_selector:
-            set_model_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
+            set_model_val = populate_combobox_with_lru(
+                self.ctx, model_selector, current_model, "model_lru", current_endpoint,
+                skip_remote_fetch=True,
+            )
             if set_model_val != current_model:
                 set_text_model(set_model_val, update_lru=False)
 
         if image_model_selector:
             current_image = get_image_model()
-            set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
+            set_image_val = populate_image_model_selector(
+                self.ctx, image_model_selector, skip_remote_fetch=True,
+            )
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
 
@@ -743,7 +799,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if hasattr(model_selector, "addTextListener"):
                 model_selector.addTextListener(ModelTextSyncListener(self, self.ctx))
 
-        if image_model_selector and hasattr(image_model_selector, "addItemListener"):
+        if image_model_selector:
 
             class ImageModelSyncListener(BaseItemListener):
                 panel: Any
@@ -763,7 +819,31 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         return
                     set_image_model(txt, update_lru=False)
 
-            image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
+            class ImageModelTextSyncListener(BaseTextListener):
+                panel: Any
+                ctx: Any
+
+                def __init__(self, panel: Any, ctx: Any) -> None:
+                    self.panel = panel
+                    self.ctx = ctx
+
+                def on_text_changed(self, rEvent: Any) -> None:
+                    # List selection and typing do not share one event. Without
+                    # this, a typed image id never reached set_image_model, and
+                    # the next config refresh painted the old id back.
+                    if getattr(self.panel, "_in_refresh_controls", False):
+                        return
+                    txt = image_model_selector.getText()
+                    if not txt:
+                        return
+                    if txt == str(get_config("image_model") or "").strip():
+                        return
+                    set_image_model(txt, update_lru=False)
+
+            if hasattr(image_model_selector, "addItemListener"):
+                image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
+            if hasattr(image_model_selector, "addTextListener"):
+                image_model_selector.addTextListener(ImageModelTextSyncListener(self, self.ctx))
 
     def _sidebar_include_brainstorming(self, model: Any, *, cached_doc_type: str | None = None) -> bool:
         if cached_doc_type is not None:
@@ -903,6 +983,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             is_image_mode,
         )
 
+        if send_listener is not None:
+            from plugin.chatbot.tool_loop_actions import abort_turn
+
+            # The in-flight turn keeps the session it started with. Later
+            # chunks must not paint onto the transcript this switch shows.
+            abort_turn(send_listener)
         if mode != CHAT_MODE_BRAINSTORMING and send_listener:
             clear_brainstorming_session(send_listener)
         if mode != CHAT_MODE_PPT_MASTER and send_listener:
@@ -968,6 +1054,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # applies Chat and render_session_history clears the transcript.
                 if getattr(self.panel, "_in_refresh_controls", False):
                     return
+                # A click during processEventsToIdle used to swap host.session
+                # and write [DOCUMENT CONTENT] onto the other chat. Librarian
+                # handoff calls apply_mode directly while the send is busy;
+                # only this combo listener is ignored.
+                send_state = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
+                if send_state is not None and send_state.is_busy:
+                    return
                 mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
                 self.apply_target(mode)
 
@@ -979,34 +1072,52 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # Deferred: importing panel.py at module load breaks unopkg (writeRegistryInfo) — heavy stack.
         from plugin.chatbot.panel import ChatSession
 
-        # This resolves model logic internally
-        system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")
+        # What was wrong: the seeded prompt skipped vision, peer, and memory/humanizer.
+        # How: this call omitted ctx while refresh_document_context passes the panel ctx.
+        # Why: ChatPanelElement already holds that context; pass it so the seed matches.
+        system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "", ctx=self.ctx)
 
         session_id = get_document_property(model, "WriterAgentSessionID")
-        url = model.getURL() if (model and hasattr(model, "getURL")) else ""
+        url = ""
+        if model is not None and hasattr(model, "getURL"):
+            try:
+                raw_url = model.getURL()
+            except Exception:
+                raw_url = ""
+            url = raw_url if isinstance(raw_url, str) else ""
         if session_id:
             session_url = get_document_property(model, "WriterAgentSessionURL")
+            url_id = hashlib.sha256(url.encode("utf-8")).hexdigest() if url else ""
+            # What was wrong: Save As could clear the only chat history, or
+            # keep the original id so the new file shared that chat.
+            # How: a regenerated sha256 equal to the stored id called clear()
+            # before the copy read the rows. A copied file whose stored id is
+            # a 64-hex digest but has no WriterAgentSessionURL skipped the
+            # URL-change branch, then stamped the new URL onto that old id.
+            # A UUID from the first save of an untitled document is not a
+            # url-hash and must keep its history.
+            # Why: fork only when the id has to change. Snapshot and replace
+            # the destination. When the id already names this file, update
+            # the stored URL and leave the rows alone.
+            fork_to = ""
             if session_url and url and session_url != url:
-                log.info(f"Document URL changed from {session_url} to {url}. Regenerating session ID for copy isolation.")
+                fork_to = url_id
+            elif (not session_url) and url_id and _is_sha256_hex(session_id) and session_id != url_id:
+                fork_to = url_id
+            if fork_to and fork_to != session_id:
+                log.info("Document URL changed from %s to %s. Regenerating session ID for copy isolation.", session_url, url)
                 old_session_id = session_id
-                if url:
-                    session_id = hashlib.sha256(url.encode("utf-8")).hexdigest()
-                else:
-                    session_id = str(uuid.uuid4())
-                
                 try:
-                    from plugin.chatbot.history_db import get_chat_history
-                    old_db = get_chat_history(old_session_id)
-                    new_db = get_chat_history(session_id)
-                    for msg in old_db.get_messages():
-                        new_db.add_message(msg["role"], msg["content"], msg.get("tool_calls"))
+                    _fork_doc_chat_history(str(old_session_id), fork_to)
                 except Exception:
-                    log.exception("Failed to copy chat history from %s to %s", old_session_id, session_id)
-
+                    log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
+                session_id = fork_to
                 if model:
                     set_document_property(model, "WriterAgentSessionID", session_id)
                     if url:
                         set_document_property(model, "WriterAgentSessionURL", url)
+            elif fork_to == session_id and model and url:
+                set_document_property(model, "WriterAgentSessionURL", url)
 
         if not session_id:
             if url:
@@ -1025,16 +1136,25 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
-        from plugin.chatbot.chat_sidebar_mode import LIBRARIAN_HISTORY_SESSION_ID
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, LIBRARIAN_HISTORY_SESSION_ID
 
         self.librarian_session = ChatSession(
-            _("AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document."),
+            self._greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, model),
             session_id=LIBRARIAN_HISTORY_SESSION_ID,
         )
         self.session = self.doc_session
 
     def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
         """Wires up the Send, Stop, Clear, Settings, Python, LaTeX, Search, and chat mode selector."""
+        if mode_flags is None:
+            from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+            # What was wrong: a failed mode-UI wire left mode_flags as None.
+            # How: include_brainstorming raised AttributeError inside the
+            # Send/Stop try, and the broad except skipped addActionListener.
+            # Why: default flags keep Send/Stop and the mode listener wired.
+            log.warning("mode_flags missing; wiring Send/Stop with default sidebar mode flags")
+            mode_flags = SidebarModeFlags()
         from plugin.chatbot.panel import (
             ClearButtonListener,
             HamburgerButtonListener,
@@ -1128,11 +1248,22 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             self.send_listener = send_listener
             register_debug_live_panel(self)
             from plugin.doc.live_panels import register_live_panel
-            from plugin.framework.uno_context import get_runtime_uid
 
-            # Remember the uid here. Dispose must not ask the frame again:
-            # the model can already be gone, and a newer window may own the slot.
-            self._live_panel_uid = get_runtime_uid(model)
+            # The id was stored when the frame session opened. Fill it from
+            # this frame's model only when construction could not read it
+            # (off the main thread). Do not ask Desktop which component is current.
+            session = getattr(self, "frame_session", None)
+            uid = self._live_panel_uid
+            if not uid and model is not None:
+                from plugin.framework.uno_context import get_runtime_uid
+
+                uid = get_runtime_uid(model)
+            self._live_panel_uid = uid
+            if session is not None:
+                if uid and not session.doc_uid:
+                    session.doc_uid = uid
+                session.bind_panel(self)
+                send_listener.frame_session = session
             register_live_panel(self._live_panel_uid, self)
 
 
@@ -1243,7 +1374,11 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         if not parent_window:
             raise IllegalArgumentException("ParentWindow is required")
 
-        return ChatPanelElement(self.ctx, frame, parent_window, resource_url)
+        from plugin.framework.frame_session import document_id_for_frame, open_frame_session
+
+        # One session per frame, opened with the document id of that frame.
+        session = open_frame_session(frame, document_id_for_frame(frame))
+        return ChatPanelElement(self.ctx, frame, parent_window, resource_url, session)
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()

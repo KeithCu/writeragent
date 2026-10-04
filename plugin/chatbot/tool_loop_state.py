@@ -109,10 +109,11 @@ def is_delegate_gateway(func_name: str) -> bool:
 
 
 def _deal_func_args_ok_pytest(func_args: object) -> bool:
-    return type(func_args) is dict and len(func_args) <= DEAL_MAX_CMD_ARGS and all(
-        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) and (v is None or (isinstance(v, str) and str_bounded(v, DEAL_MAX_SOURCE)))
-        for k, v in func_args.items()
-    )
+    # Delegate tool arguments are LLM JSON. A task longer than
+    # DEAL_MAX_SOURCE, or a non-string value, raised PreContractError
+    # before the chat line could truncate. The body reads .get.
+    # CrossHair keeps the short string-only dict.
+    return isinstance(func_args, dict)
 
 
 def _deal_func_args_ok_crosshair(func_args: object) -> bool:
@@ -140,11 +141,26 @@ def delegate_status_label(func_args: Mapping[str, Any]) -> str:
     return f"delegate ({domain_from_delegate_args(func_args)})"
 
 
-@deal.pre(
-    lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: str_bounded(task, _DEAL_TRUNCATE_TASK_LEN)
-    and type(max_len) is int
-    and 1 <= max_len <= _DEAL_TRUNCATE_MAX_LEN
+def _deal_truncate_task_ok_pytest(task: object, max_len: object = DELEGATE_TASK_CHAT_MAX) -> bool:
+    # The preview truncates. Capping the input at DEAL_MAX_SOURCE raised
+    # PreContractError on a long specialize task before that truncate.
+    return isinstance(task, str) and type(max_len) is int and max_len >= 1
+
+
+def _deal_truncate_task_ok_crosshair(task: object, max_len: object = DELEGATE_TASK_CHAT_MAX) -> bool:
+    return (
+        str_bounded(task, _DEAL_TRUNCATE_TASK_LEN)
+        and type(max_len) is int
+        and 1 <= max_len <= _DEAL_TRUNCATE_MAX_LEN
+    )
+
+
+_deal_truncate_task_ok = (
+    _deal_truncate_task_ok_crosshair if UNDER_CROSSHAIR else _deal_truncate_task_ok_pytest
 )
+
+
+@deal.pre(lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: _deal_truncate_task_ok(task, max_len))
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
     # crosshair: off
     # cover-all 35526755391: ~31m / 433 examples / 36k lines despite dual-profile len=1. Engine-hostile display helper. Doable later: closed task alphabet.
@@ -158,12 +174,7 @@ def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) ->
     return one_line[: max_len - 3] + "..."
 
 
-@deal.pre(
-    lambda func_args: isinstance(func_args, dict)
-    and len(func_args) <= DEAL_MAX_CMD_ARGS
-    and all(not isinstance(k, str) or str_bounded(k, DEAL_MAX_TOKEN) for k in func_args)
-    and all(not isinstance(v, str) or str_bounded(v, DEAL_MAX_SOURCE) for v in func_args.values())
-)
+@deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("[Running delegate") and result.endswith("\n"))
 def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when a delegate gateway tool starts."""
@@ -388,19 +399,19 @@ class CleanupAudioEffect:
 
 @deal.post(lambda result: type(result) is bool)
 def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
-    """True unless *state* is stopped and *effects* contain a tool-worker spawn.
+    """True unless *state* is stopped and *effects* start more loop work.
 
-    Named legality: stopped-latched pending tools never spawn. NEXT_TOOL while
-    ``is_stopped`` must not emit ``SpawnToolWorkerEffect`` (the
-    ``or state.is_stopped`` guard). STREAM_DONE after stop may still append
-    pending and emit ``TriggerNextToolEffect`` — the interpreter queues
-    NEXT_TOOL; the FSM must still not spawn a tool worker.
+    NEXT_TOOL while ``is_stopped`` must not emit ``SpawnToolWorkerEffect``,
+    ``SpawnLLMWorkerEffect``, or ``SpawnFinalStreamEffect``. STREAM_DONE after
+    stop may still append pending and emit ``TriggerNextToolEffect`` — the
+    interpreter queues NEXT_TOOL; that NEXT_TOOL exits instead of spawning.
     """
     if not getattr(state, "is_stopped", False):
         return True
     if type(effects) is not list and type(effects) is not tuple:
         return True
-    return not any(isinstance(e, SpawnToolWorkerEffect) for e in effects)
+    banned = (SpawnToolWorkerEffect, SpawnLLMWorkerEffect, SpawnFinalStreamEffect)
+    return not any(isinstance(e, banned) for e in effects)
 
 
 # --- State Machine Transition ---
@@ -414,6 +425,11 @@ def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
 @deal.ensure(lambda state, event, result: not state.is_stopped or result.state.is_stopped)
 @deal.ensure(lambda state, event, result: not state.is_stopped or len(result.state.pending_tools) >= len(state.pending_tools))
 @deal.ensure(lambda state, event, result: stopped_effects_exclude_tool_spawns(result.state, result.effects))
+@deal.ensure(
+    lambda state, event, result: event.kind != EventKind.NEXT_TOOL
+    or not state.is_stopped
+    or any(isinstance(e, ExitLoopEffect) for e in result.effects)
+)
 @deal.ensure(lambda state, event, result: result.state.round_num <= max(state.round_num + 1, state.max_rounds))
 def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[ToolLoopState]:
     """Pure transition function for the tool-calling loop."""
@@ -422,10 +438,11 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
     match event.kind:
         case EventKind.STOP_REQUESTED:
-            # Stop mid-stream or stop clicked
-            effects.append(AddMessageEffect(role="assistant", content="No response."))
+            # Stop mid-stream. The turn commits the open row, closes tool
+            # calls that have no result, and writes the stop line. This
+            # transition only latches the loop. Partial tool_calls never
+            # reach this event: the worker does not enqueue them.
             effects.append(ToolLoopUIEffect(kind="status", text="Stopped"))
-            effects.append(ToolLoopUIEffect(kind="append", text="\n[Stopped by user]\n"))
             effects.append(ExitLoopEffect())
             return FsmTransition(dataclasses.replace(state, is_stopped=True, status="Stopped"), effects)
 
@@ -511,9 +528,19 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 return FsmTransition(dataclasses.replace(state, pending_tools=new_pending_tools), effects)
 
         case EventKind.NEXT_TOOL:
-            if not state.pending_tools or state.is_stopped:
-                if not state.is_stopped:
-                    effects.append(ToolLoopUIEffect(kind="status", text="Sending results to AI..."))
+            if state.is_stopped:
+                # What was wrong: empty pending and is_stopped shared the
+                # advance-round branch. The status line was skipped, then
+                # the FSM still emitted SpawnLLMWorkerEffect or
+                # SpawnFinalStreamEffect. How: NEXT_TOOL after Stop (the
+                # drain latches is_stopped, or a later NEXT_TOOL sees the
+                # flag) took that branch and started another HTTP round.
+                # Why: leave. Do not bump the round or touch pending tools.
+                effects.append(ExitLoopEffect())
+                return FsmTransition(state, effects)
+
+            if not state.pending_tools:
+                effects.append(ToolLoopUIEffect(kind="status", text="Sending results to AI..."))
 
                 new_round_num = state.round_num + 1
                 if new_round_num >= state.max_rounds:
