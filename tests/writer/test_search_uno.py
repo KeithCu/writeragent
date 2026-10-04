@@ -28,9 +28,6 @@ class MockContext:
         self.ctx = ctx
         self.services = MockServices(doc)
 
-    def __getattr__(self, name):
-        return None
-
 
 class MockWriterIndexService:
     def search_boolean(self, doc, query, max_results=20, context_paragraphs=1):
@@ -112,7 +109,7 @@ def test_find_chained_range_bounds(ctx, doc):
     cursor = text.createTextCursor()
 
     # Setup document with surrounding text
-    cursor.setString("Prefix text Line 1 match Suffix text")
+    cursor.setString("Prefix text Line 1 match")
     cursor.gotoEnd(False)
     text.insertControlCharacter(cursor, 0, False)
     cursor.gotoEnd(False)
