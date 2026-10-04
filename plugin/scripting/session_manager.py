@@ -42,6 +42,7 @@ def _has_notebook_registry(doc: Any) -> bool:
         return False
     return has_notebook_registry(doc)
 
+
 PYTHON_WORKBOOK_SESSION_PROP = "WriterAgentPythonSessionId"
 _SESSION_MODE_KEY = "scripting.python_session_mode"
 # Headless soffice opens this probe workbook. Recording it next to leftover
@@ -89,11 +90,7 @@ def _cached_calc_session_matches(doc: Any, cached_sid: str | None) -> bool:
     return cached_sid == f"calc:{key}"
 
 
-def _remember_session_snapshot_locked(
-    session_id: str,
-    doc: Any | None,
-    init_kwargs: dict[str, Any] | None,
-) -> None:
+def _remember_session_snapshot_locked(session_id: str, doc: Any | None, init_kwargs: dict[str, Any] | None) -> None:
     if init_kwargs:
         _SESSION_INIT[session_id] = dict(init_kwargs)
     if doc is None:
@@ -262,11 +259,9 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                             pass
                 return guard_uno(matches[-1])
 
-
     except Exception:
         log.debug("session_manager: document resolution failed", exc_info=True)
     return None
-
 
 
 _ACTIVE_CALC_SESSION_LOCK = threading.Lock()
@@ -405,11 +400,7 @@ def _existing_calc_session_id(doc: Any) -> str | None:
     return f"calc:{key}"
 
 
-def record_active_calc_session(
-    session_id: str | None,
-    init_kwargs: dict[str, Any] | None = None,
-    doc: Any | None = None,
-) -> None:
+def record_active_calc_session(session_id: str | None, init_kwargs: dict[str, Any] | None = None, doc: Any | None = None) -> None:
     """Cache the active Calc session id and init kwargs on the main thread for off-main formula lookups."""
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_SCOPED_DIR
     probe = is_opencl_probe_session_id(session_id)
@@ -460,19 +451,11 @@ def record_active_calc_session(
                 # Callers that omit doc model one workbook replacing its own id.
                 sid_text = str(session_id)
                 if sid_text.startswith("calc:unsaved:"):
-                    for stale in [
-                        other
-                        for other in _RECORDED_CALC_SESSION_IDS
-                        if other != session_id and isinstance(other, str) and other.startswith("calc:unsaved:")
-                    ]:
+                    for stale in [other for other in _RECORDED_CALC_SESSION_IDS if other != session_id and isinstance(other, str) and other.startswith("calc:unsaved:")]:
                         _RECORDED_CALC_SESSION_IDS.discard(stale)
                         _drop_session_snapshot_locked(stale)
                 else:
-                    for stale in [
-                        other
-                        for other in _RECORDED_CALC_SESSION_IDS
-                        if isinstance(other, str) and other.startswith("calc:unsaved:")
-                    ]:
+                    for stale in [other for other in _RECORDED_CALC_SESSION_IDS if isinstance(other, str) and other.startswith("calc:unsaved:")]:
                         _RECORDED_CALC_SESSION_IDS.discard(stale)
                         _drop_session_snapshot_locked(stale)
             else:
@@ -483,11 +466,7 @@ def record_active_calc_session(
                 # id belonged to the document being recorded. Why: drop an
                 # unsaved id only when its _SESSION_DOCS snapshot is this
                 # document (that book's own id promotion).
-                for stale in [
-                    other
-                    for other in _RECORDED_CALC_SESSION_IDS
-                    if other != session_id and isinstance(other, str) and other.startswith("calc:unsaved:")
-                ]:
+                for stale in [other for other in _RECORDED_CALC_SESSION_IDS if other != session_id and isinstance(other, str) and other.startswith("calc:unsaved:")]:
                     if _recorded_session_doc_is_locked(stale, doc):
                         _RECORDED_CALC_SESSION_IDS.discard(stale)
                         _drop_session_snapshot_locked(stale)
@@ -627,7 +606,6 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
         log.debug("session_manager: clear_python_addin_cache failed", exc_info=True)
 
 
-
 def _calc_document(ctx: Any) -> Any | None:
     return _find_document_by_predicate(ctx, is_calc)
 
@@ -679,6 +657,7 @@ def _workbook_session_key(doc: Any) -> str:
             try:
                 # Remove the property so next Save As continues to follow URL
                 from plugin.doc.udprops import remove_document_property
+
                 remove_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
             except Exception:
                 pass
@@ -826,8 +805,6 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
         return None
     if prefix == "calc" and key.endswith(":init"):
         key = key[: -len(":init")]
-    if prefix == "ppt_master" and key == "active":
-        return None
     if not key:
         return None
     try:
@@ -883,22 +860,10 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
     """Menubar path: reset shared Python namespace for the active Writer notebook document."""
     target = doc if doc is not None else _writer_document(ctx)
     if target is None:
-        _msgbox(
-            ctx,
-            _(
-                "Reset Python Session for notebooks applies to LibreOffice Writer. "
-                "Open a Writer document with an imported Jupyter notebook and try again."
-            ),
-        )
+        _msgbox(ctx, _("Reset Python Session for notebooks applies to LibreOffice Writer. Open a Writer document with an imported Jupyter notebook and try again."))
         return
     if not _has_notebook_registry(target):
-        _msgbox(
-            ctx,
-            _(
-                "This Writer document has no imported notebook registry. "
-                "File → Open a Jupyter notebook (.ipynb) first."
-            ),
-        )
+        _msgbox(ctx, _("This Writer document has no imported notebook registry. File → Open a Jupyter notebook (.ipynb) first."))
         return
 
     session_id = notebook_session_id(ctx, target)
@@ -928,13 +893,7 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
 def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     target = doc if doc is not None else _calc_document(ctx)
     if target is None:
-        _msgbox(
-            ctx,
-            _(
-                "Reset Python Session applies to Calc spreadsheets. "
-                "Open a Calc workbook and try again."
-            ),
-        )
+        _msgbox(ctx, _("Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and try again."))
         return
 
     from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_init_script
@@ -949,7 +908,6 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
         # A failed clear used to leave cached =PY() scalars with no traceback.
         log.debug("session_manager: clear_python_addin_cache failed", exc_info=True)
     if res.get("status") != "ok":
-
         msg = res.get("message") or _("Could not reset Python session.")
         _msgbox(ctx, _("Error: {0}").format(msg))
         return
@@ -969,12 +927,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     if init_kwargs:
         from plugin.scripting.venv_worker import run_code_in_user_venv
 
-        seed = run_code_in_user_venv(
-            ctx,
-            "None",
-            session_id=session_id if python_session_mode(ctx) == "shared" else None,
-            **init_kwargs,
-        )
+        seed = run_code_in_user_venv(ctx, "None", session_id=session_id if python_session_mode(ctx) == "shared" else None, **init_kwargs)
         if seed.get("status") != "ok":
             msg = seed.get("message") or _("Could not restore the initialization script.")
             _msgbox(ctx, _("Error: {0}").format(msg))
@@ -984,22 +937,9 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     if python_session_mode(ctx) == "shared":
         _msgbox(ctx, _("Python session reset for this workbook."))
     elif has_init:
-        _msgbox(
-            ctx,
-            _(
-                "Initialization script and any in-memory init state were reset for this workbook. "
-                "Cell variables were already isolated per cell."
-            ),
-        )
+        _msgbox(ctx, _("Initialization script and any in-memory init state were reset for this workbook. Cell variables were already isolated per cell."))
     else:
-        _msgbox(
-            ctx,
-            _(
-                "Python session mode is Isolated (each =PY() cell uses its own variables). "
-                "There is no shared cell session to reset. Add an initialization script if you "
-                "need to clear expensive one-time workbook setup."
-            ),
-        )
+        _msgbox(ctx, _("Python session mode is Isolated (each =PY() cell uses its own variables). There is no shared cell session to reset. Add an initialization script if you need to clear expensive one-time workbook setup."))
 
 
 def _reset_rps_python_session(ctx: Any, doc: Any, *, notify: bool = True) -> None:
@@ -1016,19 +956,14 @@ def _reset_rps_python_session(ctx: Any, doc: Any, *, notify: bool = True) -> Non
 
 
 def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
-    """Menubar handler: reset notebook kernel (Writer) or shared Calc workbook session.
+    """Menubar handler: reset notebook kernel (Writer) or shared Calc workbook session."""
+    from plugin.framework.thread_guard import on_main_thread
 
-    The menu action runs this off the UI thread so it does not re-enter the
-    worker. Document lookup and message boxes are UNO, so the body hops back
-    to the main thread.
-    """
-    from plugin.framework.queue_executor import execute_on_main_thread
+    if not on_main_thread():
+        from plugin.framework.queue_executor import execute_on_main_thread
 
-    execute_on_main_thread(_reset_workbook_python_session_on_main, ctx, doc)
+        return execute_on_main_thread(reset_workbook_python_session, ctx, doc)
 
-
-def _reset_workbook_python_session_on_main(ctx: Any, doc: Any | None = None) -> None:
-    """UNO body of :func:`reset_workbook_python_session`."""
     if doc is not None:
         if is_writer(doc):
             if _has_notebook_registry(doc):
@@ -1051,7 +986,7 @@ def _reset_workbook_python_session_on_main(ctx: Any, doc: Any | None = None) -> 
     except Exception:
         current = None
     if is_writer(current) or is_draw(current) or is_calc(current):
-        _reset_workbook_python_session_on_main(ctx, current)
+        reset_workbook_python_session(ctx, current)
         return
 
     # No current component (headless): keep the open-document search.

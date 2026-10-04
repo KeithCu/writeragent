@@ -50,9 +50,6 @@ class SearchEmbeddings(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        checker = getattr(ctx, "stop_checker", None)
-        if callable(checker) and checker() is True:
-            return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import execute_on_main_thread
 
@@ -157,8 +154,6 @@ class SearchEmbeddings(ToolBase):
                 str(query),
                 k,
                 model=model,
-                stop_checker=ctx.stop_checker,
-                cancellation_scope=ctx.send_cancellation,
             )
             if result.get("error"):
                 return self._tool_error(result["error"], code="EMBEDDING_SEARCH_ERROR")

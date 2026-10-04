@@ -114,7 +114,7 @@ def _extract_legacy_via_soffice(path: str, ext: str) -> list[str]:
         return []
     with temporary_converted_odf(path) as converted:
         if converted is None:
-            raise RuntimeError(f"Legacy soffice conversion failed for {path}")
+            return []
         return extract_indexable_passages(str(converted))
 
 
@@ -137,7 +137,7 @@ def extract_indexable_passage_runs(path: str) -> list[tuple[str, list[LocaleText
 
         with temporary_converted_odf(path) as converted:
             if converted is None:
-                raise RuntimeError(f"Legacy soffice conversion failed for {path}")
+                return []
             return extract_odf_paragraph_runs(str(converted))
     return []
 

@@ -14,7 +14,6 @@ def test_tls_listen_socket_leaks():
 
     # At this point, if it leaked, server._server.socket is still open
     if server._server:
-        import socket
         sock = server._server.socket
         assert sock.fileno() == -1, "Socket leaked!"
 

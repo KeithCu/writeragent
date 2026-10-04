@@ -96,7 +96,7 @@ def register_common_handlers() -> None:
         from plugin.scripting.session_manager import reset_workbook_python_session
         from plugin.framework.worker_pool import run_in_background
 
-        run_in_background(reset_workbook_python_session, get_ctx(), name="reset-python-session")
+        run_in_background(lambda: reset_workbook_python_session(get_ctx()), name="reset-python-session")
 
     register_action_handler("scripting", "reset_python_session", _reset_python_session)
 
