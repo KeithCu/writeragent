@@ -651,6 +651,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         # that type checkers cannot see; our multi-socket ``serve_forever`` must pair with ``shutdown``.
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
+        self._accept_times: dict[int, float] = {}
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
 
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
@@ -774,10 +775,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                             if not self.verify_request(conn, client_address):
                                 self.shutdown_request(conn)
                                 continue
-                            try:
-                                setattr(conn, "_accept_time", time.monotonic())
-                            except Exception:
-                                pass
+                            self._accept_times[id(conn)] = time.monotonic()
                             self.process_request(conn, client_address)
                     self.service_actions()
         finally:
@@ -796,6 +794,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         shedding excess load with fast 503 instead of blocking listener threads.
         """
         self.executor.submit(self.process_request_thread, request, client_address)
+
+    def shutdown_request(self, request: Any) -> None:
+        self._accept_times.pop(id(request), None)
+        super().shutdown_request(request)
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         """Process incoming request inside a pooled worker thread."""
@@ -846,7 +848,8 @@ class WSGIDualStackServer:
             def get_environ(self) -> dict[str, Any]:
                 environ = super().get_environ()
                 environ["compute.connection"] = self.connection
-                environ["compute.accept_time"] = getattr(self.connection, "_accept_time", None)
+                server: Any = self.server
+                environ["compute.accept_time"] = server._accept_times.get(id(self.connection), None)
                 return environ
 
         class _WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
