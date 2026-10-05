@@ -105,6 +105,31 @@ def test_generate_module_output_is_valid_python():
     assert "DOMAIN_TOOLS =" in code
 
 
+def test_generate_module_domain_with_slash_is_a_valid_identifier():
+    """plugin/calc/base.py registers the domain "python/sql": the slash went into the class name."""
+    tools = [
+        _as_tool(MockTool("query_folder_sql", "Run SQL.", {"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]}, specialized_domain="python/sql")),
+    ]
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    assert "class _PythonSqlProxy:" in code
+    assert "python_sql = _PythonSqlProxy()" in code
+    assert "'python/sql': ['query_folder_sql']" in code  # the registry key itself is unchanged
+
+
+def test_generator_script_runs_without_libreoffice(tmp_path):
+    """Outside LibreOffice bootstrap got a mock UNO context, init_config rejected its path and the
+    script died; `make proxy-stubs` then left writeragent_api.py empty."""
+    import subprocess
+
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    script = os.path.join(repo, "scripts", "generate_tool_proxies.py")
+    result = subprocess.run([sys.executable, script], capture_output=True, text=True, timeout=240, cwd=repo)
+    assert result.returncode == 0, result.stderr[-2000:]
+    compile(result.stdout, "<generated>", "exec")
+    assert "DOMAIN_TOOLS =" in result.stdout
+
+
 def test_generate_module_escapes_python_keyword_method_names():
     tools = [
         _as_tool(

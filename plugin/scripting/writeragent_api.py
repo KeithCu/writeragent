@@ -63,7 +63,6 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'insert_cell_html',
                 'list_calc_functions',
                 'merge_cells',
-                'query_folder_sql',
                 'read_cell_range',
                 'set_style',
                 'write_formula_range'],
@@ -152,6 +151,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'page_set_style_properties'],
     'pivot_table': ['create_pivot_table', 'list_pivot_tables', 'refresh_pivot_table'],
     'python': ['symbolic_math'],
+    'python/sql': ['query_folder_sql'],
     'range': [   'named_range_add',
                  'named_range_create_from_titles',
                  'named_range_delete',
@@ -313,19 +313,6 @@ class _CalcProxy:
             center (optional): Center content (default: true).
         """
         return _rpc_call("merge_cells", range=range_name, center=center)
-
-    def query_folder_sql(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool | None = None, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> dict[str, Any]:
-        """Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) or {named_range: "SalesData"} (Calc named/database range). Absolute range: {range: "Sales.A1:F500"} stays frozen A1. Sibling sheet used-range: files={name: "budget.xlsx#Sales"} (dict key is the SQL table). Flat files: CSV/TSV, Parquet, JSON/JSONL/NDJSON (DuckDB read_*). Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. Optional tables file="budget.xlsx" reads that sibling instead of the active doc. Host prepares all UNO data + validates. Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION.
-
-        Args:
-            sql (required): Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than 200 rows are truncated and flagged.
-            files (optional): Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table). A list of basenames is still accepted.
-            data_range (optional): Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity.
-            headers (optional): First row of data_range (or preloaded) contains column headers (default true).
-            tables (optional): Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. e.g. {"sales": {"sheet": "Sales_Analytics"}, "costs": {"named_range": "CostData"}}. Mix with files.
-            task_hint (optional): Optional hint for logging/context.
-        """
-        return _rpc_call("query_folder_sql", sql=sql, files=files, data_range=data_range, headers=headers, tables=tables, task_hint=task_hint)
 
     def read_cell_range(self, range_name: list[str]) -> dict[str, Any]:
         """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Date/time-formatted numeric cells return an ISO 8601 string in `value` with `type` and `format_category` of date, time, or datetime, plus `format_code` (Calc FormatString, observability only). Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with type/format_category duration. Supports lists for non-contiguous areas.
@@ -659,7 +646,7 @@ class _DrawProxy:
         return _rpc_call("list_pages")
 
     def list_placeholders(self, *, page: int | None = None) -> dict[str, Any]:
-        """List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before set_placeholder_text. If count=0, set layout 'text' (set_slide_layout or delegate domain=slide_layouts) then retry.
+        """List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before set_placeholder_text. If count=0, delegate domain=slide_layouts with layout='text', then retry.
 
         Args:
             page (optional): 0-based slide index (active slide if omitted).
@@ -754,7 +741,7 @@ class _ErrorProxy:
 
         Args:
             formula (required): The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'.
-            cell (optional): Optional cell coordinate/address context to evaluate relative references from, e.g. 'C5' (defaults to 'A1').
+            cell (optional): Optional bare cell on the copied active sheet whose coordinate is the formula context, e.g. 'C5' (defaults to 'A1'). A sheet prefix is ignored. A defined name is rejected.
         """
         return _rpc_call("evaluate_formula", formula=formula, cell=cell)
 
@@ -1414,6 +1401,25 @@ class _PythonProxy:
 python = _PythonProxy()
 
 
+class _PythonSqlProxy:
+    """Proxy for python/sql tools."""
+
+    def query_folder_sql(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool | None = None, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> dict[str, Any]:
+        """Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) or {named_range: "SalesData"} (Calc named/database range). Absolute range: {range: "Sales.A1:F500"} stays frozen A1. Sibling sheet used-range: files={name: "budget.xlsx#Sales"} (dict key is the SQL table). Flat files: CSV/TSV, Parquet, JSON/JSONL/NDJSON (DuckDB read_*). Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. Optional tables file="budget.xlsx" reads that sibling instead of the active doc. Host prepares all UNO data + validates. Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION.
+
+        Args:
+            sql (required): Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than 200 rows are truncated and flagged.
+            files (optional): Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table). A list of basenames is still accepted.
+            data_range (optional): Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity.
+            headers (optional): First row of data_range (or preloaded) contains column headers (default true).
+            tables (optional): Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. e.g. {"sales": {"sheet": "Sales_Analytics"}, "costs": {"named_range": "CostData"}}. Mix with files.
+            task_hint (optional): Optional hint for logging/context.
+        """
+        return _rpc_call("query_folder_sql", sql=sql, files=files, data_range=data_range, headers=headers, tables=tables, task_hint=task_hint)
+
+python_sql = _PythonSqlProxy()
+
+
 class _RangeProxy:
     """Proxy for range tools."""
 
@@ -1424,7 +1430,7 @@ class _RangeProxy:
             name (required): Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces.
             content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)').
             scope (optional): Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1').
-            base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0.
+            base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
         """
         return _rpc_call("named_range_add", name=name, content=content, scope=scope, base_cell=base_cell, flags=flags)
@@ -1456,7 +1462,7 @@ class _RangeProxy:
             new_name (optional): New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces.
             content (optional): New formula or range address content.
             scope (optional): Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container.
-            base_cell (optional): New base cell reference for relative coordinates.
+            base_cell (optional): New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
         """
         return _rpc_call("named_range_edit", name=name, new_name=new_name, content=content, scope=scope, base_cell=base_cell, flags=flags)

@@ -431,8 +431,10 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
     for namespace in sorted(groups.keys()):
         tool_list = groups[namespace]
-        # Emit a class that acts as a namespace (hyphens in domain names are invalid in Python identifiers).
-        safe_ns = namespace.replace("-", "_")
+        # Emit a class that acts as a namespace. Domain names may hold characters that are invalid
+        # in Python identifiers: hyphens, and the slash in "python/sql" (plugin/calc/base.py),
+        # which produced "class _Python/sqlProxy:" and a module that does not import.
+        safe_ns = re.sub(r"\W", "_", namespace)
         class_name = "".join(part.capitalize() for part in safe_ns.split("_")) + "Proxy"
         lines.append(f"class _{class_name}:")
         lines.append(f'    """Proxy for {namespace} tools."""')
@@ -482,22 +484,40 @@ def generate_module(tools: list["ToolBase"]) -> str:
     return "\n".join(lines)
 
 
+def _config_in_scratch_dir(tmp_dir: str) -> None:
+    """Point writeragent.json at *tmp_dir* before bootstrap runs.
+
+    get_tools() bootstraps the plugin, and init_config() resolves the config path from the UNO
+    context. Outside LibreOffice that context is a MagicMock, and since config.py started
+    rejecting mock paths (CONFIG_PATH_ERROR) the generator crashed. ``make proxy-stubs`` then
+    redirected nothing into writeragent_api.py and left it empty. A path already set makes
+    init_config() return early; tests/conftest.py sets it the same way.
+    """
+    from plugin.framework import config as config_mod
+
+    config_mod._resolved_config_path = os.path.join(tmp_dir, "writeragent.json")
+
+
 def main():
+    import tempfile
+
     # Bootstrap the registry
     from plugin.main import get_tools
-    
+
     # We need a mock environment because get_tools() might trigger bootstrap()
     # which expects a UNO context. But ToolRegistry itself doesn't need much.
-    registry = get_tools()
-    
-    # Get all tools, regardless of doc type or tier
-    # filter_doc_type=False ensures we see all tools even without a live document
-    # specialized_control is the inner chat loop (including specialized_workflow_finished).
-    # Venv scripts do not run that loop, so the whole tier stays off the proxy.
-    all_tools = registry.get_tools(filter_doc_type=False, exclude_tiers=frozenset())
-    all_tools = [t for t in all_tools if getattr(t, "tier", None) != "specialized_control"]
-    
-    print(generate_module(all_tools))
+    with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
+        _config_in_scratch_dir(tmp_dir)
+        registry = get_tools()
+
+        # Get all tools, regardless of doc type or tier
+        # filter_doc_type=False ensures we see all tools even without a live document
+        # specialized_control is the inner chat loop (including specialized_workflow_finished).
+        # Venv scripts do not run that loop, so the whole tier stays off the proxy.
+        all_tools = registry.get_tools(filter_doc_type=False, exclude_tiers=frozenset())
+        all_tools = [t for t in all_tools if getattr(t, "tier", None) != "specialized_control"]
+
+        print(generate_module(all_tools))
 
 
 if __name__ == "__main__":

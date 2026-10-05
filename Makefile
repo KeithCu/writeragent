@@ -529,7 +529,10 @@ clean-native:
 	$(RM_RF) native/writeragent_vec/src/writeragent_vec/*.c
 
 proxy-stubs:
-	"$(PYTHON)" scripts/generate_tool_proxies.py > plugin/scripting/writeragent_api.py
+	# Write to a temp file first: a failed run used to leave writeragent_api.py empty.
+	"$(PYTHON)" scripts/generate_tool_proxies.py > plugin/scripting/writeragent_api.py.tmp \
+		&& mv plugin/scripting/writeragent_api.py.tmp plugin/scripting/writeragent_api.py \
+		|| { rm -f plugin/scripting/writeragent_api.py.tmp; exit 1; }
 
 xcu: manifest
 
