@@ -337,3 +337,77 @@ def test_stale_bookmark_anchor_is_not_paragraph_zero():
     )
     with pytest.raises(ToolExecutionError, match="Bookmark '_mcp_stale' anchor is not in the document"):
         resolve_locator(doc, "bookmark:_mcp_stale")
+
+from unittest.mock import patch
+
+@patch.object(DocumentService, 'find_paragraph_element')
+def test_get_page_for_paragraph_uses_find_element(mock_find):
+    """Verify get_page_for_paragraph looks up the enumeration element instead of gotoNextParagraph."""
+    from plugin.doc.document_helpers import DocumentService
+
+    mock_doc = MagicMock()
+    mock_text = MagicMock()
+    mock_doc.getText.return_value = mock_text
+
+    mock_controller = MagicMock()
+    mock_doc.getCurrentController.return_value = mock_controller
+
+    mock_vc = MagicMock()
+    mock_controller.getViewCursor.return_value = mock_vc
+    mock_vc.getPage.return_value = 5
+
+    mock_saved_cursor = MagicMock()
+    mock_text.createTextCursorByRange.return_value = mock_saved_cursor
+
+    mock_element = MagicMock()
+    mock_anchor = MagicMock()
+    mock_element.getAnchor.return_value = mock_anchor
+
+    ds = DocumentService()
+    # Mock find_paragraph_element to return our specific element
+    mock_find.return_value = (mock_element, None)
+
+    page = ds.get_page_for_paragraph(mock_doc, 42)
+
+    assert page == 5
+    ds.find_paragraph_element.assert_called_once_with(mock_doc, 42)
+    mock_vc.gotoRange.assert_any_call(mock_anchor, False)
+    mock_doc.lockControllers.assert_called_once()
+    mock_doc.unlockControllers.assert_called_once()
+
+
+@patch.object(DocumentService, 'find_paragraph_element')
+def test_get_page_for_paragraph_handles_zero_page(mock_find):
+    """Verify get_page_for_paragraph temporarily unlocks if getPage() returns 0 (table stall)."""
+    from plugin.doc.document_helpers import DocumentService
+
+    mock_doc = MagicMock()
+    mock_text = MagicMock()
+    mock_doc.getText.return_value = mock_text
+
+    mock_controller = MagicMock()
+    mock_doc.getCurrentController.return_value = mock_controller
+
+    mock_vc = MagicMock()
+    mock_controller.getViewCursor.return_value = mock_vc
+
+    # First getPage returns 0, second returns 6
+    mock_vc.getPage.side_effect = [0, 6]
+
+    mock_saved_cursor = MagicMock()
+    mock_text.createTextCursorByRange.return_value = mock_saved_cursor
+
+    mock_element = MagicMock()
+    mock_anchor = MagicMock()
+    mock_element.getAnchor.return_value = mock_anchor
+
+    ds = DocumentService()
+    mock_find.return_value = (mock_element, None)
+
+    page = ds.get_page_for_paragraph(mock_doc, 10)
+
+    assert page == 6
+    assert mock_vc.getPage.call_count == 2
+    # Lock -> Unlock (temp) -> Lock (temp) -> Unlock (restore)
+    assert mock_doc.lockControllers.call_count == 2
+    assert mock_doc.unlockControllers.call_count == 2
