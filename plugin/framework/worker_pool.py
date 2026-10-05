@@ -106,9 +106,13 @@ class BackgroundHandle:
         fut = self._future
         if fut is None:
             return
+        if fut.done():
+            return
         # What was wrong: join() from a wa-bg-* pool thread waits on a Future
         # that only another pool worker can finish. With two workers both
         # blocked in join, the pool deadlocks and the timeout hides it.
+        # A finished future requires no pool worker to complete; checking
+        # fut.done() first prevents spurious deadlock errors.
         if threading.current_thread().name.startswith("wa-bg-"):
             raise RuntimeError("join() of a pooled job from a pool thread would deadlock the background pool")
         try:

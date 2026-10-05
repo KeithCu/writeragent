@@ -811,7 +811,7 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
                     try:
                         on_error(error_payload)
                     except Exception:
-                        pass
+                        log.exception("Failed to notify error handler for batch processing failure")
 
                 if toolkit:
                     pump_ui_idle(toolkit)
@@ -996,6 +996,10 @@ def run_async_worker_with_drain(
         # STREAM_DONE fallback was suppressed, and left the put wrapper
         # installed. Why: log the flush error, still queue ERROR, and
         # unwatch from finally.
+        # What was wrong: if the worker already queued a terminal item (such
+        # as ERROR) and then raised, a second ERROR was queued unconditionally.
+        # A recovery on_error (returning True) would then execute a second time
+        # against the replacement worker. Skip ERROR if saw_terminal[0] is set.
         error_item: tuple[Any, Any] | None = None
         _watch_queue_terminal(real_any, saw_terminal)
         try:
@@ -1003,14 +1007,12 @@ def run_async_worker_with_drain(
                 # Pass the real queue (or batcher). Puts go through the patched put.
                 worker_fn(cast("queue.Queue[Any]", q))
             except BaseException as e:
-                from plugin.framework.errors import format_error_payload
-
                 error_item = (StreamQueueKind.ERROR, format_error_payload(e))
             try:
                 _flush_producer_batch()
             except Exception:
                 log.exception("BatchingStreamQueue flush before terminal failed")
-            if error_item is not None:
+            if error_item is not None and not saw_terminal[0]:
                 real_any.put(error_item)
             elif not saw_terminal[0]:
                 real_any.put((StreamQueueKind.STREAM_DONE, None))
@@ -1025,7 +1027,10 @@ def run_async_worker_with_drain(
 
         err = UnoObjectError(f"Failed to create toolkit for {name}")
         if on_error_fn:
-            on_error_fn(err)
+            try:
+                on_error_fn(format_error_payload(err))
+            except Exception:
+                log.exception("Failed to notify error handler for toolkit creation failure")
         return
 
     # What was wrong: the nested-owner check lived inside the drain loop,
@@ -1034,8 +1039,6 @@ def run_async_worker_with_drain(
     # writing to a queue nobody reads. Refuse before spawn.
     existing_owner = get_drain_owner()
     if existing_owner is not None:
-        from plugin.framework.errors import format_error_payload
-
         nested = NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
         if on_error_fn:
             try:

@@ -895,6 +895,31 @@ def test_join_handles_future_from_pool_thread_still_raises() -> None:
     assert "deadlock" in str(errors[0])
 
 
+def test_join_done_future_from_pool_thread_does_not_raise() -> None:
+    """A finished future needs no worker to complete, so join() must not raise deadlock."""
+    from concurrent.futures import Future
+
+    fut: Future[str] = Future()
+    fut.set_result("finished")
+    handle = BackgroundHandle(future=fut)
+    errors: list[BaseException | None] = []
+
+    def run() -> None:
+        threading.current_thread().name = "wa-bg-9"
+        try:
+            handle.join(timeout=0.2)
+        except Exception as exc:
+            errors.append(exc)
+        else:
+            errors.append(None)
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(1)
+    assert not worker.is_alive()
+    assert errors == [None]
+
+
 def test_run_in_background_keeps_submit_time_send_cancellation():
     """A dedicated job keeps the contextvar copied at submit.
 

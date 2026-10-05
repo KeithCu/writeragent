@@ -269,6 +269,63 @@ def test_closed_over_queue_error_skips_wrapper_stream_done():
     assert any(p == "ok" or (isinstance(p, tuple) and p[-1] == "ok") for p in done_payloads)
 
 
+def test_worker_error_put_then_raise_queues_single_error():
+    """If the worker puts ERROR and then raises, only one ERROR must be queued."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    shared: queue.Queue = queue.Queue()
+    applied = []
+    errors = []
+
+    def worker(worker_q):
+        worker_q.put((StreamQueueKind.ERROR, {"message": "first error"}))
+        raise RuntimeError("boom after error put")
+
+    def on_error(err):
+        errors.append(err)
+        shared.put((StreamQueueKind.CHUNK, "recovered"))
+        shared.put((StreamQueueKind.STREAM_DONE, None))
+        return True
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(
+            ctx,
+            worker,
+            lambda text, _is_thinking: applied.append(text),
+            lambda _item: None,
+            on_error,
+            q=shared,
+        )
+
+    assert len(errors) == 1
+    assert errors[0] == {"message": "first error"}
+    assert "recovered" in applied
+
+
+def test_run_async_worker_with_drain_toolkit_failure_formats_error():
+    """No-toolkit path must pass format_error_payload dict to on_error_fn."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    errors = []
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=None):
+        run_async_worker_with_drain(
+            ctx,
+            lambda _q: None,
+            None,
+            None,
+            on_error_fn=lambda err: errors.append(err),
+            name="test-worker",
+        )
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], dict)
+    assert "Failed to create toolkit for test-worker" in errors[0].get("message", "")
+
+
 def test_on_done_body_type_error_mentioning_positional_argument_is_not_retried():
     """A TypeError inside on_done must not be treated as the wrong arity."""
     from plugin.framework.async_stream import run_async_worker_with_drain
