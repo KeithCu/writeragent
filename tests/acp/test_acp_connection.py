@@ -460,6 +460,28 @@ sys.stdout.buffer.flush()
         assert reads["n"] == 1
         assert "Reader error" not in caplog.text
 
+    def test_reader_loop_termination_unblocks_pending_requests(self):
+        conn = ACPConnection(cmd_line=["test"])
+        mock_proc = MagicMock()
+        mock_proc.poll.side_effect = [None, 0]  # running for 1 iteration, then stopped
+        mock_proc.stdout.readline.return_value = b""  # EOF
+        mock_proc.stdin = MagicMock()
+        conn._proc = mock_proc
+        conn._running = True
+
+        # Register a pending request manually
+        event = threading.Event()
+        with conn._lock:
+            conn._pending[1] = {"event": event, "response": None}
+
+        # Run reader loop (simulating subprocess termination)
+        conn._reader_loop()
+
+        # The pending request must have been unblocked immediately
+        assert event.is_set()
+        entry = conn._pending.get(1) or {}
+        assert "error" in entry.get("response", {})
+
 
 def _proc_nulled_on_bool(conn: ACPConnection, stdin: object):
     """Process whose truthiness test clears ``conn._proc``.

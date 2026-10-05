@@ -15,8 +15,10 @@ The reference table is ``indexes_create(kind="bibliography")``. After cite
 changes, ``indexes_update_all`` refreshes that table. One TOC row is
 ``indexes_refresh_toc_entry`` / ``indexes_insert_toc_entry`` /
 ``indexes_delete_toc_entry``. Those three do not call ``update()`` and do not
-edit neighboring rows. ``indexes_update_all`` still rebuilds a TOC and drops
-customized formatting. Outline ``HyperLinkURL`` on refresh goes through
+edit neighboring rows. ``indexes_list_toc_entries`` reads the same index
+paragraphs (visible text, Contents N level, HyperLinkURL) and also does not
+call ``update()`` or export the document. ``indexes_update_all`` still rebuilds
+a TOC and drops customized formatting. Outline ``HyperLinkURL`` on refresh goes through
 ``hyperlink_fixup``, which skips a title-only URL rewrite when the whole-span
 write already set it. Insert sets ``#…|outline`` on the new row only.
 """
@@ -599,6 +601,93 @@ def _entry_text(para: Any) -> str:
     except Exception:
         return ""
     return value if isinstance(value, str) else ""
+
+
+def _outline_level(style: str) -> int | None:
+    """1-10 from a ``Contents N`` paragraph style, else None."""
+    if not _is_contents_level_style(style):
+        return None
+    return int(style[len(_CONTENTS_LEVEL_PREFIX):])
+
+
+def _paragraph_hyperlink(para: Any) -> str:
+    """Internal hyperlink on this TOC row.
+
+    Generated entries store ``HyperLinkURL`` on the text portions (often
+    ``#…|outline`` or a ``#__RefHeading___Toc…`` bookmark), not as a separate
+    field. An outline URL wins over another fragment; a fragment wins over an
+    external URL. This read does not export the paragraph.
+    """
+    outline = ""
+    internal = ""
+    other = ""
+    try:
+        portions = para.createEnumeration()
+    except Exception:
+        portions = None
+    if portions is not None:
+        while _enum_has_more(portions):
+            portion = portions.nextElement()
+            try:
+                url = portion.getPropertyValue("HyperLinkURL") or ""
+            except Exception:
+                url = ""
+            if not isinstance(url, str) or not url:
+                continue
+            if "|outline" in url:
+                outline = url
+                break
+            if url.startswith("#") and not internal:
+                internal = url
+            elif not other:
+                other = url
+    if outline or internal or other:
+        return outline or internal or other
+    try:
+        url = para.getPropertyValue("HyperLinkURL") or ""
+    except Exception:
+        return ""
+    return url if isinstance(url, str) else ""
+
+
+def toc_entry_rows(anchor: Any) -> list[dict[str, Any]]:
+    """Visible text, outline level, and hyperlink for each TOC row.
+
+    Walks paragraphs inside the index anchor, the same read insert and delete
+    already use. Does not call ``ContentIndex.update()`` and does not export
+    the document. The ``Contents Heading`` title is not a row.
+    """
+    rows: list[dict[str, Any]] = []
+    for para in _paragraphs_in_anchor(anchor):
+        style = _para_style_name(para)
+        if style == "Contents Heading":
+            continue
+        text = _entry_text(para)
+        if not text.strip():
+            continue
+        rows.append({
+            "text": text,
+            "level": _outline_level(style),
+            "hyperlink_url": _paragraph_hyperlink(para),
+        })
+    return rows
+
+
+def _single_toc_position(doc: Any) -> int | None:
+    """Document-index position of the only TOC. None when it cannot be named."""
+    try:
+        indexes = doc.getDocumentIndexes()
+        count = indexes.getCount()
+    except Exception:
+        return None
+    found = None
+    for i in range(count):
+        if index_kind_from_uno(indexes.getByIndex(i)) != "toc":
+            continue
+        if found is not None:
+            return found
+        found = i
+    return found
 
 
 def _compose_toc_line(content: str, page: str | None, sibling_text: str) -> tuple[str, str, bool]:
@@ -1247,7 +1336,8 @@ class IndexesList(ToolWriterIndexBase):
     description: str = (
         "List document indexes (TOC, alphabetical, user, bibliography tables). "
         "type matches indexes_create kind (bibliography via getServiceName). "
-        "For in-flow cites use indexes_list_cites, not this tool."
+        "For in-flow cites use indexes_list_cites, not this tool. "
+        "For TOC row text, outline level, and the internal hyperlink use indexes_list_toc_entries."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = False
@@ -1270,6 +1360,65 @@ class IndexesList(ToolWriterIndexBase):
                 "type": index_kind_from_uno(idx),
             })
         return {"status": "ok", "indexes": result, "count": count}
+
+
+class IndexesListTocEntries(ToolWriterIndexBase):
+    name: str | None = "indexes_list_toc_entries"
+    intent: str | None = "examine"
+    description: str = (
+        "List table-of-contents rows by reading the index paragraphs. "
+        "Each row is the visible text, the outline level (Contents 1-10), "
+        "and the internal hyperlink (HyperLinkURL, including #…|outline). "
+        "Does not export the document and does not call index update(). "
+        "Use this to inspect or validate TOC entries. "
+        "indexes_list returns only the index name and type. "
+        "Do not use get_document_content for a linked TOC: that export runs "
+        "the XHTML Writer filter, entry text often comes back empty, and a long outline can hang."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+        },
+        "required": [],
+    }
+    is_mutation: bool | None = False
+
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        # What was wrong: there was no TOC row listing, so the indexes helper
+        # called get_document_content. That exports the whole document through
+        # the XHTML Writer filter on the LibXSLT thread. A linked TOC comes
+        # back with empty entry text, and a long outline can sit there for
+        # minutes, while the UI stays on "Running delegate (indexes)". The
+        # one-row update, insert, and delete tools already read these
+        # paragraphs and do not hang. This listing uses that same read.
+        # Why this fixes it: the helper can see text, level, and hyperlink
+        # without a full-document export and without ContentIndex.update()
+        # (update rebuilds every row and drops customized formatting).
+        doc = ctx.doc
+        index = kwargs.get("index")
+        idx, index_error = resolve_toc(doc, index)
+        if index_error or idx is None:
+            return self._tool_error(
+                index_error or "Could not find the table of contents.",
+                code="INVALID_PARAM")
+        try:
+            anchor = idx.getAnchor()
+        except Exception:
+            return self._tool_error(
+                "Could not read the table of contents.",
+                code="TOOL_EXECUTION_ERROR")
+        entries = toc_entry_rows(anchor)
+        if isinstance(index, int) and not isinstance(index, bool):
+            position: int | None = index
+        else:
+            position = _single_toc_position(doc)
+        return {
+            "status": "ok",
+            "index": position,
+            "count": len(entries),
+            "entries": entries,
+        }
 
 
 class IndexesListCites(ToolWriterIndexBase):

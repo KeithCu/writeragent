@@ -132,6 +132,7 @@ class TestWriterToolsSmoke:
             "indexes_add_mark",
             "indexes_create",
             "indexes_list",
+            "indexes_list_toc_entries",
             "indexes_list_cites",
             "indexes_update_all",
             "indexes_refresh_toc_entry",
