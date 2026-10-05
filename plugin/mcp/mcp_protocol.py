@@ -51,7 +51,7 @@ log = logging.getLogger("writeragent.mcp.protocol")
 
 # Local binding for headers/handlers; canonical constant is wire_types.MCP_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
-_SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05"})
+_SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05", "2025-06-18", "2025-03-26"})
 
 
 def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
@@ -179,18 +179,16 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
 
 
 def _get_request_protocol_version(handler: Any) -> str | None:
-    for name in ("Mcp-Protocol-Version", "mcp-protocol-version", "MCP-Protocol-Version"):
-        value = handler.headers.get(name)
-        if value:
-            return value.strip()
+    value = handler.headers.get("Mcp-Protocol-Version")
+    if value:
+        return value.strip()
     return None
 
 
 def _get_request_session_id(handler: Any) -> str | None:
-    for name in ("Mcp-Session-Id", "mcp-session-id", "MCP-Session-Id"):
-        value = handler.headers.get(name)
-        if value:
-            return value.strip()
+    value = handler.headers.get("Mcp-Session-Id")
+    if value:
+        return value.strip()
     return None
 
 
@@ -538,17 +536,8 @@ class MCPProtocolHandler:
 
     def handle_sse_post(self, handler: Any) -> None:
         """POST /sse or /messages — streamable HTTP (same as /mcp)."""
-        log_mcp_transport_entry(handler, "sse")
-        version_error = _validate_http_protocol_version(handler)
-        if version_error is not None:
-            status, response = version_error
-            self._send_json(handler, status, response)
-            return
-        body = self._read_body(handler)
-        if body is None:
-            return
-        document_url = handler.headers.get("X-Document-URL") or None
-        self._handle_mcp(body, handler, document_url=document_url)
+        # Shares the same body as handle_mcp_post to include keepalive logic
+        self.handle_mcp_post(handler)
 
     def _is_tunneled(self, handler: Any) -> bool:
         """Check if the request arrived via a public tunnel."""
@@ -670,7 +659,10 @@ class MCPProtocolHandler:
     # ── MCP method handlers ──────────────────────────────────────────
 
     def _mcp_initialize(self, params: Any) -> Any:
+        # Bugfix: older clients get locked out when we echo their unsupported version and then block them in _validate_http_protocol_version
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
+        if client_version not in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
+            client_version = MCP_PROTOCOL_VERSION
         return wire_types.initialize_result(protocol_version=MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
 
     def _mcp_ping(self, params: Any) -> Any:
@@ -870,6 +862,7 @@ class MCPProtocolHandler:
                         except BusyError:
                             raise
                         except TimeoutError:
+                            # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
                             raise
                         except Exception as e:
                             # Tool failures must be MCP tool results (isError), not JSON-RPC
@@ -953,9 +946,10 @@ class MCPProtocolHandler:
                 result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id)
             else:
                 result = one_arg[method](params)
-            preview = str(result)
-            cap = 2000 if (isinstance(result, dict) and result.get("isError")) else 100
-            log.debug("*** MCP RESULT: %s ***", preview[:cap])
+            if log.isEnabledFor(logging.DEBUG):
+                preview = str(result)
+                cap = 2000 if (isinstance(result, dict) and result.get("isError")) else 100
+                log.debug("*** MCP RESULT: %s ***", preview[:cap])
             if result is None:
                 return (500, wire_types.jsonrpc_failure(req_id, wire_types.INTERNAL_ERROR, "No result from MCP handler"))
             return (200, wire_types.jsonrpc_success(req_id, result))
@@ -1004,6 +998,7 @@ class MCPProtocolHandler:
             with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
                 return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
         finally:
+            # We release the semaphore on a marshal TimeoutError, not keep it held, because QueueExecutor raises it only for work that never started.
             _tool_semaphore.release()
 
     def _add_other_open_doc_schemas(self, schemas: list[dict[str, Any]], active_doc_type: str | None, exclude_tiers: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
