@@ -440,11 +440,37 @@ class TreeService(ServiceBase):
             if not tables.hasByName(loc_value):
                 raise ToolExecutionError("Table '%s' not found" % loc_value)
             table = tables.getByName(loc_value)
-            anchor = table.getAnchor()
+            try:
+                anchor = table.getAnchor()
+            except Exception as exc:
+                raise ToolExecutionError(
+                    "Table '%s' anchor is not in the document" % loc_value
+                ) from exc
+            if anchor is None:
+                raise ToolExecutionError(
+                    "Table '%s' anchor is not in the document" % loc_value
+                )
             para_ranges = self._doc_svc.get_paragraph_ranges(doc)
             text_obj = doc.getText()
             para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-            return {"para_index": para_idx, "table_name": loc_value}
+            # Same as bookmarks: find_paragraph_for_range returns 0 when the
+            # place fails. confirm_paragraph_index keeps 0 only for a real hit
+            # inside a paragraph. A table in enumeration slot 0 is still valid,
+            # and confirm only checks paragraph getStart, so accept that slot
+            # when the named table is there.
+            placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+            if placed is None:
+                if (
+                    isinstance(para_idx, int)
+                    and 0 <= para_idx < len(para_ranges)
+                    and getattr(para_ranges[para_idx], "getName", lambda: None)() == loc_value
+                ):
+                    placed = para_idx
+                else:
+                    raise ToolExecutionError(
+                        "Table '%s' anchor is not in the document" % loc_value
+                    )
+            return {"para_index": placed, "table_name": loc_value}
 
         raise ToolExecutionError("Unknown Writer locator type: '%s'" % loc_type)
 
