@@ -77,8 +77,10 @@ def test_strip_html_tags_comparison_stays_text():
 
 def test_strip_html_tags_unescapes_entities():
     assert strip_html_tags("a &amp; b") == "a & b"
-    assert strip_html_tags("<p>3 &lt; 5</p>") == "3 &lt; 5"
-    assert strip_html_tags("&lt;b&gt;bold&lt;/b&gt;") == "&lt;b&gt;bold&lt;/b&gt;"
+    assert strip_html_tags("<p>3 &lt; 5</p>") == "3 < 5"
+    assert strip_html_tags("&lt;b&gt;bold&lt;/b&gt;") == "<b>bold</b>"
+    assert strip_html_tags("&#60;p&#62;3 &#60; 5&#60;/p&#62;") == "<p>3 < 5</p>"
+    assert strip_html_tags("&#x3c;p&#x3e;3 &#x3c; 5&#x3c;/p&#x3e;") == "<p>3 < 5</p>"
 
 
 def test_streaming_html_stripper_holds_split_entity():

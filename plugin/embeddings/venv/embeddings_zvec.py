@@ -436,11 +436,16 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
                 _COLL_CACHE[coll_path] = coll
             file_docs = coll.query(filter=f'doc_url == "{entry.url}"', include_vector=False, topk=1)
             if file_docs:
-                mtime = file_docs[0].get("file_mtime")
+                d = file_docs[0]
+                mtime = d.field("file_mtime") if hasattr(d, "field") else (getattr(d, "fields", None) or (d if isinstance(d, dict) else {})).get("file_mtime")
                 if mtime is not None and abs(mtime - entry.modified) < 1.0:
                     continue
-        except Exception:
-            pass
+        except Exception as e:
+            # What was wrong: calling .get("file_mtime") on a zvec Doc raised AttributeError
+            # which was silently swallowed with pass, causing every file to be re-embedded every tick.
+            # How it happened: zvec Doc has .field() or .fields, not .get(), and bare except hid it.
+            # Why this fixes it: read field via .field() or .fields, and log warning on probe failure.
+            log.warning("zvec incremental probe failed for %s: %s", entry.name, e)
 
         try:
             paragraph_count, chunks = indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)

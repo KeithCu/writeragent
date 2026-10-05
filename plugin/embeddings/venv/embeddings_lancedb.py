@@ -334,8 +334,11 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
                 mtime = file_docs[0].get("file_mtime")
                 if mtime is not None and abs(mtime - entry.modified) < 1.0:
                     continue
-        except Exception:
-            pass
+        except Exception as e:
+            # What was wrong: a thrown probe error was swallowed with pass, falling through to a full re-embed.
+            # How it happened: bare except Exception: pass hid query failure.
+            # Why this fixes it: log warning on probe failure instead of silently rebuilding.
+            log.warning("lancedb incremental probe failed for %s: %s", entry.name, e)
 
         try:
             paragraph_count, chunks = indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)

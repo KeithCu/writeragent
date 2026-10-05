@@ -860,17 +860,23 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     except Exception:
         log.debug("notebook controls: getControls attach failed", exc_info=True)
 
-    container_lis: NotebookFormContainerListener | None = NotebookFormContainerListener(listener, container)
+    container_lis = NotebookFormContainerListener(listener, container)
     try:
         container.addContainerListener(container_lis)
     except Exception:
         log.debug("notebook controls: addContainerListener failed", exc_info=True)
-        container_lis = None
+        try:
+            controls = container.getControls() if hasattr(container, "getControls") else ()
+            for control in controls or ():
+                if hasattr(control, "removeActionListener"):
+                    control.removeActionListener(listener)
+        except Exception:
+            pass
+        return 0
 
     with _lock:
         _listener_refs.append(listener)
-        if container_lis is not None:
-            _listener_refs.append(container_lis)
+        _listener_refs.append(container_lis)
         _wired_form_docs.add(doc_key)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))

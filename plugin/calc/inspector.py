@@ -27,6 +27,7 @@ from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
+from plugin.calc.formulas import _formula_cell_result
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 
 try:
@@ -263,9 +264,7 @@ class CellInspector:
                 if err != 0:
                     value = cell.getString()
                 else:
-                    val_str = cell.getString()
-                    val_num = cell.getValue()
-                    value = val_num if val_num != 0 or val_str in ("0", "0.0", "-0", "-0.0") or not val_str else val_str
+                    value = _formula_cell_result(cell)
             else:
                 value = cell.getString()
 
@@ -320,9 +319,7 @@ class CellInspector:
                 if err != 0:
                     value = cell.getString()
                 else:
-                    val_str = cell.getString()
-                    val_num = cell.getValue()
-                    value = val_num if val_num != 0 or val_str in ("0", "0.0", "-0", "-0.0") or not val_str else val_str
+                    value = _formula_cell_result(cell)
             else:
                 value = cell.getString()
 
@@ -483,9 +480,7 @@ class CellInspector:
                         if err != 0:
                             value = cell.getString()
                         else:
-                            val_str = cell.getString()
-                            val_num = cell.getValue()
-                            value = val_num if val_num != 0 or val_str in ("0", "0.0", "-0", "-0.0") or not val_str else val_str
+                            value = _formula_cell_result(cell)
 
                         refs = _FORMULA_REF_RE.findall(formula.upper())
                         precedents = list({f"{c}{r}" for c, r in refs})

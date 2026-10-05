@@ -249,6 +249,11 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             # scope, which aborted this document mutation if Stop was clicked during/after OCR.
             # Why this change: once bytes are in hand, marshal the insert unscoped (bound_scope=None).
             execute_on_main_thread(_insert, bound_scope=None)
+        result["image_name"] = image_name
+        if "context" not in result or not isinstance(result["context"], dict):
+            result["context"] = {"image_name": image_name}
+        else:
+            result["context"]["image_name"] = image_name
         results.append(result)
 
     full_parts = [str(r.get("full_text") or "") for r in results]
@@ -279,6 +284,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         "inserted": inserted,
         "images_processed": len(results),
         "image_names": list(target_names),
+        "image_name": target_names[0] if target_names else None,
         "message": message,
         "results": results if len(results) > 1 else None,
     }

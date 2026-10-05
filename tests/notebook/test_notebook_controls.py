@@ -647,3 +647,32 @@ def test_recreated_view_skips_rewire_if_container_changes():
             assert res3 == 1
             # We added 2 new listeners
             assert len(notebook_controls._listener_refs) == 4
+
+
+def test_attach_form_listener_fails_when_add_container_listener_raises():
+    """If addContainerListener throws, do not keep the run listener and do not mark doc wired."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///fake.odt"
+    doc.RuntimeUID = "fake_uid"
+
+    import plugin.notebook.notebook_controls as notebook_controls
+
+    container = MagicMock()
+    container.addContainerListener.side_effect = RuntimeError("Container listener failed")
+    control = MagicMock()
+    container.getControls.return_value = [control]
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+    ):
+        notebook_controls._listener_refs.clear()
+        notebook_controls._wired_form_docs.clear()
+
+        res = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
+        assert res == 0
+        assert len(notebook_controls._listener_refs) == 0
+        assert len(notebook_controls._wired_form_docs) == 0
+        control.removeActionListener.assert_called_once()

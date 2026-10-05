@@ -1161,7 +1161,7 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_isolated_does_not_lease_session_process(self) -> None:
+    def test_isolated_leases_session_process_when_all_workers_have_sessions(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             created = pool.execute(code="keep = 1\nresult = keep", session_id="only-shared", mode="shared")
@@ -1169,9 +1169,9 @@ class TestFormulaPoolSupervisor:
             owner = pool.live_session_worker("only-shared")
             assert owner is not None and owner.process is not None
             pid = owner.process.pid
-            blocked = pool.execute(code="result = 1", mode="isolated", timeout_sec=1, req_id="iso-blocked")
-            assert blocked.get("status") == "error"
-            assert blocked.get("code") == "WORKER_POOL_BUSY"
+            ran = pool.execute(code="result = 1", mode="isolated", timeout_sec=1, req_id="iso-blocked")
+            assert ran.get("status") == "ok"
+            assert ran.get("result") == 1
             assert owner.is_alive()
             assert owner.process is not None and owner.process.pid == pid
         finally:
@@ -1365,6 +1365,24 @@ class TestFormulaHttpEndpoint:
                 assert picked is not None
                 assert picked is not shared_worker
                 # Put it back
+                pool._idle.add(picked)
+        finally:
+            pool.shutdown()
+
+    def test_isolated_worker_lease_falls_back_when_all_workers_have_sessions(self) -> None:
+        """When all idle workers hold shared sessions, _pick_idle_worker still picks an idle worker."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            res1 = pool.execute(code="result = 1", session_id="s1", mode="shared")
+            assert res1.get("status") == "ok"
+            res2 = pool.execute(code="result = 2", session_id="s2", mode="shared")
+            assert res2.get("status") == "ok"
+
+            with pool._cond:
+                # Both workers have sessions and both are idle
+                assert len(pool._idle) == 2
+                picked = pool._pick_idle_worker()
+                assert picked is not None
                 pool._idle.add(picked)
         finally:
             pool.shutdown()

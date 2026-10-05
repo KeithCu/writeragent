@@ -141,8 +141,6 @@ def _formula_cell_result(cell: Any) -> Any:
     if _formula_result_is_value(getattr(cell, "FormulaResultType", None)) and as_float is not None:
         return as_float
     text = cell.getString()
-    if as_float is not None and isinstance(text, str) and text.strip() in {"0", "0.0", "0.00", "-0"}:
-        return as_float
     return text
 
 

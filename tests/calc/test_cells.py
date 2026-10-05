@@ -92,6 +92,27 @@ def test_inspector_single_cell_range_fallback():
     mock_range.getCellByPosition.assert_called_with(0, 0)
 
 
+def test_inspector_formula_string_zero_stays_string():
+    from plugin.calc.inspector import CellInspector
+
+    bridge = MagicMock()
+    mock_cell = MagicMock()
+    del mock_cell.getRangeAddress
+    mock_cell.getType.return_value = 3  # FORMULA
+    mock_cell.getError.return_value = 0
+    mock_cell.FormulaResultType = 2  # STRING (not VALUE)
+    mock_cell.getString.return_value = "0"
+    mock_cell.getValue.return_value = 0.0
+    mock_cell.getFormula.return_value = '="0"'
+
+    bridge.resolve_range_or_address.return_value = mock_cell
+
+    inspector = CellInspector(bridge)
+    res = inspector.read_cell("A1")
+    assert res["value"] == "0"
+    assert isinstance(res["value"], str)
+
+
 def test_calc_serial_iso8601_uses_document_null_date():
     from plugin.calc.inspector import _format_category_from_type, _iso8601_from_serial
 

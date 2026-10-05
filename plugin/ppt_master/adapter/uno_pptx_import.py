@@ -137,7 +137,14 @@ def _copy_page_notes(source_page: Any, target_page: Any) -> None:
     except Exception as exc:
         if is_disposed_exception(exc):
             raise
-        raise
+        # What was wrong: a non-disposed error (e.g. corrupted NotesShape) re-raised
+        # and aborted the entire PPTX import after earlier slides were already replaced.
+        # How it happened: any exception from NotesShape inspection or text setting
+        # was re-raised unconditionally.
+        # Why this fixes it: log a warning, skip copying notes for this slide, and return
+        # so remaining slides continue importing. A disposed document still re-raises.
+        log.warning("Skipping slide notes copy due to error: %s", exc)
+        return
 
 
 def _import_slides_from_source(

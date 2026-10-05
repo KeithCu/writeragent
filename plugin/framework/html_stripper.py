@@ -210,7 +210,7 @@ class StreamingHTMLStripper:
             ready, self._entity_tail = combined, ""
         return re.sub(
             r"&(?:[a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);",
-            lambda m: m.group(0) if m.group(0).lower() in ("&lt;", "&gt;", "&#60;", "&#62;", "&#x3c;", "&#x3e;") else html.unescape(m.group(0)),
+            lambda m: html.unescape(m.group(0)),
             ready,
         )
 

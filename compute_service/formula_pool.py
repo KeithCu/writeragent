@@ -226,12 +226,11 @@ class FormulaProcessPool(BaseProcessPool):
             return worker.tasks_executed >= self.max_tasks
 
     def _pick_idle_worker(self) -> BaseProcessWorker | None:
-        """Pop an idle worker that hosts no shared session.
+        """Pop an idle worker, preferring clean workers without shared sessions.
 
-        Isolated work used to fall back onto the worker with the fewest
-        sessions. A hang there SIGKILLed every workbook on that pid. There
-        is no fallback: if every idle worker owns a session, the caller
-        waits. A dead pid is taken out of idle so lease can respawn it.
+        When all idle workers hold shared sessions, falls back to the worker
+        with the fewest sessions so isolated work (=PY() / =PROMPT()) does not
+        sit in WORKER_POOL_BUSY until shared session TTL.
         Caller holds self._cond.
         """
         if not self._idle:
@@ -240,10 +239,13 @@ class FormulaProcessPool(BaseProcessPool):
         for worker in list(self._idle):
             if not worker.is_alive():
                 self._idle.discard(worker)
-        clean_workers = [w for w in self._idle if not self._worker_sessions.get(w)]
-        if not clean_workers:
+        if not self._idle:
             return None
-        chosen = clean_workers[0]
+        clean_workers = [w for w in self._idle if not self._worker_sessions.get(w)]
+        if clean_workers:
+            chosen = clean_workers[0]
+        else:
+            chosen = min(self._idle, key=lambda w: len(self._worker_sessions.get(w, ())))
         self._idle.remove(chosen)
         return chosen
 

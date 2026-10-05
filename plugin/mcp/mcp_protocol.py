@@ -403,8 +403,9 @@ class MCPProtocolHandler:
         self.queue_executor = services.get("main_thread") or QueueExecutor(ctx=services.get("uno") if services else None)
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
-        self.version = "unknown"
         self._cancelled_requests: set[str | int] = set()
+        self._in_flight_requests: set[str | int] = set()
+        self._requests_lock: threading.Lock = threading.Lock()
         try:
             from plugin.version import EXTENSION_VERSION
 
@@ -836,67 +837,74 @@ class MCPProtocolHandler:
 
         initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
 
+        if req_id is not None:
+            with self._requests_lock:
+                self._cancelled_requests.discard(req_id)
+                self._in_flight_requests.add(req_id)
+
         # State machine runner
         events_to_process = [initial_event]
         final_result = None
 
-        while events_to_process:
-            event = events_to_process.pop(0)
-            tr = next_state(state, event)
-            state = tr.state
-            effects = tr.effects
+        try:
+            while events_to_process:
+                event = events_to_process.pop(0)
+                tr = next_state(state, event)
+                state = tr.state
+                effects = tr.effects
 
-            for effect in effects:
-                if isinstance(effect, ParseRequestEffect):
-                    log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
-                    event_bus = getattr(self, "event_bus", None)
-                    if event_bus is not None:
-                        event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
+                for effect in effects:
+                    if isinstance(effect, ParseRequestEffect):
+                        log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
+                        event_bus = getattr(self, "event_bus", None)
+                        if event_bus is not None:
+                            event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
 
-                elif isinstance(effect, ExecuteToolEffect):
-                    try:
-                        if effect.is_long_running is True:
-                            res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
+                    elif isinstance(effect, ExecuteToolEffect):
+                        try:
+                            if effect.is_long_running is True:
+                                res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
+                            else:
+                                res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
+                            events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
+                        except BusyError:
+                            raise
+                        except TimeoutError:
+                            raise
+                        except Exception as e:
+                            # Tool failures must be MCP tool results (isError), not JSON-RPC
+                            # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
+                            # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
+                            # stay 429/504 above. WriterAgentException used to re-raise into
+                            # _process_jsonrpc as HTTP 500 — that is the retryable path.
+                            log.exception("MCP tool %s raised unexpectedly", effect.tool_name)
+                            code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
+                            if code == "INTERNAL_ERROR":
+                                code = "TOOL_EXECUTION_ERROR"
+                            events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
+
+                    elif isinstance(effect, StreamResponseEffect):
+                        event_bus = getattr(self, "event_bus", None)
+                        if event_bus is not None:
+                            snippet = str(effect.result)[:100] if effect.result else ""
+                            event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
+
+                        # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
+                        # emit a native MCP image content block (get_image) instead of base64-as-text.
+                        res = effect.result
+                        img = res.get("_mcp_image") if isinstance(res, dict) else None
+                        if isinstance(img, dict) and img.get("data"):
+                            final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
                         else:
-                            res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
-                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
-                        if req_id is not None:
-                            self._cancelled_requests.discard(req_id)
-                    except BusyError:
-                        raise
-                    except TimeoutError:
-                        raise
-                    except Exception as e:
-                        # Tool failures must be MCP tool results (isError), not JSON-RPC
-                        # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
-                        # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
-                        # stay 429/504 above. WriterAgentException used to re-raise into
-                        # _process_jsonrpc as HTTP 500 — that is the retryable path.
-                        log.exception("MCP tool %s raised unexpectedly", effect.tool_name)
-                        code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
-                        if code == "INTERNAL_ERROR":
-                            code = "TOOL_EXECUTION_ERROR"
-                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
-                        if req_id is not None:
-                            self._cancelled_requests.discard(req_id)
+                            final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
 
-                elif isinstance(effect, StreamResponseEffect):
-                    event_bus = getattr(self, "event_bus", None)
-                    if event_bus is not None:
-                        snippet = str(effect.result)[:100] if effect.result else ""
-                        event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
-
-                    # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
-                    # emit a native MCP image content block (get_image) instead of base64-as-text.
-                    res = effect.result
-                    img = res.get("_mcp_image") if isinstance(res, dict) else None
-                    if isinstance(img, dict) and img.get("data"):
-                        final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
-                    else:
-                        final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
-
-                elif isinstance(effect, SendErrorEffect):
-                    raise ValueError(effect.message)
+                    elif isinstance(effect, SendErrorEffect):
+                        raise ValueError(effect.message)
+        finally:
+            if req_id is not None:
+                with self._requests_lock:
+                    self._in_flight_requests.discard(req_id)
+                    self._cancelled_requests.discard(req_id)
 
         return final_result
 
@@ -914,7 +922,9 @@ class MCPProtocolHandler:
         if msg.get("method") == "notifications/cancelled":
             req_id_to_cancel = msg.get("params", {}).get("requestId")
             if req_id_to_cancel is not None:
-                self._cancelled_requests.add(req_id_to_cancel)
+                with self._requests_lock:
+                    if req_id_to_cancel in self._in_flight_requests:
+                        self._cancelled_requests.add(req_id_to_cancel)
 
         # Notifications must not receive a JSON-RPC response (HTTP 202, empty body).
         if wire_types.is_jsonrpc_notification(msg):
@@ -1112,8 +1122,10 @@ class MCPProtocolHandler:
                 pass
 
         def stop_checker() -> bool:
-            if req_id is not None and req_id in self._cancelled_requests:
-                return True
+            if req_id is not None:
+                with self._requests_lock:
+                    if req_id in self._cancelled_requests:
+                        return True
             if send_cancellation is not None and send_cancellation.is_cancelled():
                 return True
             return False
@@ -1123,8 +1135,8 @@ class MCPProtocolHandler:
         # to int raises TypeError and aborts preparation before ToolContext.
         _is_async_attr = getattr(tool, "is_async", None)
         _is_async = _is_async_attr() is True if callable(_is_async_attr) else False
-        _timeout = getattr(tool, "timeout", 0)
-        if _is_async and not (isinstance(_timeout, (int, float)) and _timeout > 0):
+        _timeout = getattr(tool, "timeout", None)
+        if _is_async and _timeout is not None and not (isinstance(_timeout, (int, float)) and _timeout > 0):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=send_cancellation, stop_checker=stop_checker)

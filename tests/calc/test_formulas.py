@@ -205,3 +205,18 @@ def test_evaluate_formula_numeric_zero_stays_a_number():
     text = EvaluateFormula().execute(_eval_ctx(text_doc), formula='="hello"', cell="A1")
     assert text["status"] == "ok"
     assert text["result"] == "hello"
+
+
+def test_evaluate_formula_string_zero_stays_a_string():
+    """A formula whose result is text "0", "0.0", "-0" must remain a string when result type is not VALUE."""
+    for text_val in ("0", "0.0", "0.00", "-0", "-0.0"):
+        doc = _EvalDoc()
+        doc.temp_cell.kind = FORMULA
+        doc.temp_cell.value = 0.0
+        doc.temp_cell.text = text_val
+        doc.temp_cell.FormulaResultType = 2  # STRING, not VALUE
+
+        result = EvaluateFormula().execute(_eval_ctx(doc), formula=f'="{text_val}"', cell="A1")
+        assert result["status"] == "ok"
+        assert result["result"] == text_val
+        assert isinstance(result["result"], str)

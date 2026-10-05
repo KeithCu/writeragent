@@ -1073,11 +1073,6 @@ class ApplyDocumentContent(ToolBase):
                     "refusing rather than risk a half-applied edit.",
                     code="UNDO_UNAVAILABLE"), session
             changes_before = len(session.changes)
-            from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
-            max_limit_hit = False
-            if len(ranges) > _MAX_SEARCH_REPLACEMENTS:
-                max_limit_hit = True
-                ranges = ranges[:_MAX_SEARCH_REPLACEMENTS]
             applied_ok = False
             count = 0
             link_reports: list[dict[str, Any]] = []
@@ -1116,9 +1111,6 @@ class ApplyDocumentContent(ToolBase):
                 resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
             else:
                 resp = search_mod.build_search_replace_response(count, use_preserve=use_preserve)
-                from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
-                if max_limit_hit:
-                    resp["message"] += f" Note: Replacement stopped at the safety limit of {_MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
                 if count > 1:
                     resp["message"] += " edited_context shows the first occurrence's neighborhood."
                 if doomed:

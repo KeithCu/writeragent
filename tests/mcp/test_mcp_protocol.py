@@ -658,6 +658,31 @@ def test_timeout_zero_rejects_async_tool():
     from plugin.mcp.mcp_protocol import MCPProtocolHandler
     from unittest.mock import MagicMock
 
+    class MockAsyncZeroTimeoutTool(ToolBase):
+        name = "async_zero_timeout"
+        timeout = 0
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def is_async(self):
+            return True
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["async_zero_timeout"] = MockAsyncZeroTimeoutTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    result = handler._prepare_mcp_execution("async_zero_timeout", {}, None)
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+
+
+def test_async_tool_without_timeout_runs():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from unittest.mock import MagicMock
+
     class MockAsyncNoTimeoutTool(ToolBase):
         name = "async_no_timeout"
 
@@ -672,9 +697,7 @@ def test_timeout_zero_rejects_async_tool():
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
     result = handler._prepare_mcp_execution("async_no_timeout", {}, None)
-    assert isinstance(result, dict)
-    assert result["status"] == "error"
-    assert result["code"] == "TOOL_EXECUTION_ERROR"
+    assert not isinstance(result, dict) or result.get("status") != "error"
 
 
 def test_named_async_tools_declare_positive_timeout():

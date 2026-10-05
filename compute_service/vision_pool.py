@@ -70,7 +70,7 @@ class VisionProcessPool(BaseProcessPool):
                 image_bytes = bytes(image_b64)
             elif isinstance(image_b64, str):
                 try:
-                    image_bytes = base64.b64decode(image_b64, validate=True)
+                    image_bytes = base64.b64decode(image_b64)
                 except Exception as exc:
                     return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
             else:

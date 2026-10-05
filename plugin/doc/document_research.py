@@ -814,8 +814,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             break
         try:
             elem = enum.nextElement()
-        except Exception:
-            break
+        except Exception as exc:
+            reraise_listener_boundary(exc)
         model = _office_model_from_desktop_element(elem)
         if model is None or not hasattr(model, "getURL"):
             continue

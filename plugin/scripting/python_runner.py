@@ -373,9 +373,10 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
             # Wrap the entire result as an individual result so _finish_rps_execution can insert it.
             # It also adds context with image_name so the egress logic can figure out the anchor.
             image_names = result.get("image_names")
-            context_name = image_name or (image_names[0] if image_names else None)
+            context_name = image_name or (image_names[0] if image_names else None) or result.get("image_name")
             indiv_res = dict(result)
             if context_name:
+                indiv_res["image_name"] = context_name
                 indiv_res["context"] = {"image_name": context_name}
             result["individual_results"] = [indiv_res]
 
@@ -417,7 +418,7 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
             for indiv_res in indiv_results:
                 # insert_vision_result requires the image_name to be set in params for correct insertion
                 # The background thread set it in the response context or we pass it
-                img_name = indiv_res.get("context", {}).get("image_name")
+                img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
                 insert_params = dict(prepared.get("params") or {})
                 if img_name:
                     insert_params["image_name"] = img_name
