@@ -765,11 +765,14 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
     try:
         # Same-name nesting is legal for a peer execute under an existing scope.
-        # A second stream drain on that stack would be the waiter and would skip
-        # processEventsToIdle while the outer loop is blocked inside it.
-        # Raised inside this try so NestedDrainOwnerError sets job_done and on_error.
+        # A different drain owner (e.g. MCP) must be rejected so pumps do not conflict.
+        # What was wrong: commit 8ea060d0d rejected any existing_owner even when it was
+        # "stream", breaking dual-deck peer send drains with NestedDrainOwnerError.
+        # How it happened: get_drain_owner() was checked for any truthy value.
+        # Why this change: only reject when existing_owner != "stream". Same-name nesting
+        # is handled by drain_owner_scope (depth counter) and pump_ui_idle (skips nested VCL).
         existing_owner = get_drain_owner()
-        if existing_owner is not None:
+        if existing_owner is not None and existing_owner != "stream":
             raise NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
         # One active drain owner: nested Send/drain must not start a second pump loop.
         with drain_owner_scope("stream"):

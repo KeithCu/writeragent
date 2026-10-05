@@ -1978,6 +1978,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     self._set_status(_(self._terminal_status))
                     self._flush_sticky_restart()
             from plugin.chatbot.tool_loop_actions import drop_turn
+            from plugin.doc.peer_message import kick_pending_peer_starts
 
             drop_turn(self)
             kick_pending_peer_starts()

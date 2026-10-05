@@ -319,9 +319,15 @@ def handle_debug_sidebar_command(command: str) -> None:
         return
     if op == "KICK_PEERS":
         # Packet P URP: queues live in soffice; the test-process kick is a no-op.
+        # What was wrong: KICK_PEERS called kick_pending_peer_starts() directly on
+        # the URP Dummy thread, which ran start_extracted_peer_send and stream drain
+        # on the background thread without a working VCL event pump, deadlocking URP.
+        # How it happened: handle_debug_sidebar_command runs on a URP bridge thread.
+        # Why this change: post to VCL via _post_to_soffice_vcl so peer sends drain
+        # on the main UI thread.
         from plugin.doc.peer_message import kick_pending_peer_starts
 
-        kick_pending_peer_starts()
+        _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
         _write_debug_snapshot(sl)
         return
     # Settings→Speech writes audio.tts_enabled then emits config:changed; these
