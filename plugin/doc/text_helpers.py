@@ -61,6 +61,9 @@ def _writer_char_count(model: Any) -> int:
     chat's [DOCUMENT END] excerpt and get_full_writer_text dropped the end of the document, and a
     selection at the end came back as (length, length). The statistic was not cheap either: after
     an edit it recomputes (253 ms on a 348k-char body; this walk took 55 ms).
+
+    Future: if huge-document chat feels slow, cache this length (and the visible
+    ``get_document_length`` walk) until the next edit instead of walking every call.
     """
     try:
         text = safe_call(model.getText, "Get document text")
