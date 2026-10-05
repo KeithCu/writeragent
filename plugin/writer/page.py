@@ -279,6 +279,19 @@ def resolve_page_style(doc: Any, style_name: str = "Standard") -> tuple[Any, str
     return styles.getByName(style_name), style_name
 
 
+def _mm(style: Any, name: str) -> float | None:
+    """A 1/100 mm page-style property in mm, or None while LibreOffice leaves it void.
+
+    What was wrong: HeaderHeight, HeaderBodyDistance, FooterHeight and FooterBodyDistance are
+    void (Python None) while that header or footer is off, which is how every new Writer
+    document starts (checked live). ``None / 100.0`` raised TypeError, and the whole read
+    failed with "Error reading properties from page style 'Standard'". Why this fixes it: a
+    void measure is reported as None (not applicable), and the rest of the style still reads.
+    """
+    value = style.getPropertyValue(name)
+    return None if value is None else value / 100.0
+
+
 def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[str, Any]:
     """Read dimensions, margins, and header/footer state of a Writer page style.
 
@@ -298,26 +311,26 @@ def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[st
     try:
         props = {
             "style_name": style_name,
-            "width_mm": style.getPropertyValue("Width") / 100.0,
-            "height_mm": style.getPropertyValue("Height") / 100.0,
+            "width_mm": _mm(style, "Width"),
+            "height_mm": _mm(style, "Height"),
             "is_landscape": style.getPropertyValue("IsLandscape"),
-            "left_margin_mm": style.getPropertyValue("LeftMargin") / 100.0,
-            "right_margin_mm": style.getPropertyValue("RightMargin") / 100.0,
-            "top_margin_mm": style.getPropertyValue("TopMargin") / 100.0,
-            "bottom_margin_mm": style.getPropertyValue("BottomMargin") / 100.0,
-            "gutter_margin_mm": style.getPropertyValue("GutterMargin") / 100.0,
+            "left_margin_mm": _mm(style, "LeftMargin"),
+            "right_margin_mm": _mm(style, "RightMargin"),
+            "top_margin_mm": _mm(style, "TopMargin"),
+            "bottom_margin_mm": _mm(style, "BottomMargin"),
+            "gutter_margin_mm": _mm(style, "GutterMargin"),
             "header_is_on": style.getPropertyValue("HeaderIsOn"),
             "footer_is_on": style.getPropertyValue("FooterIsOn"),
             "header_is_shared": style.getPropertyValue("HeaderIsShared"),
             "footer_is_shared": style.getPropertyValue("FooterIsShared"),
-            "header_height_mm": style.getPropertyValue("HeaderHeight") / 100.0,
-            "footer_height_mm": style.getPropertyValue("FooterHeight") / 100.0,
-            "header_body_distance_mm": style.getPropertyValue("HeaderBodyDistance") / 100.0,
-            "footer_body_distance_mm": style.getPropertyValue("FooterBodyDistance") / 100.0,
+            "header_height_mm": _mm(style, "HeaderHeight"),
+            "footer_height_mm": _mm(style, "FooterHeight"),
+            "header_body_distance_mm": _mm(style, "HeaderBodyDistance"),
+            "footer_body_distance_mm": _mm(style, "FooterBodyDistance"),
             "back_color": style.getPropertyValue("BackColor"),
             "back_transparent": style.getPropertyValue("BackTransparent"),
             "numbering_type": style.getPropertyValue("NumberingType"),
-            "footnote_height_mm": style.getPropertyValue("FootnoteHeight") / 100.0,
+            "footnote_height_mm": _mm(style, "FootnoteHeight"),
             "register_paragraph_style": style.getPropertyValue("RegisterParagraphStyle"),
         }
         # False means the first page has its OWN header/footer — the usual setup for a
