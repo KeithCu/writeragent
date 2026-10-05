@@ -75,6 +75,7 @@ class TurnController:
     model: Any
     stripper: StreamingHTMLStripper | None
     _alive: bool
+    _stop_banner_appended: bool
 
     def __init__(self, session: Any, mode: str, model: Any = None) -> None:
         self.mode = str(mode or "")
@@ -85,6 +86,7 @@ class TurnController:
         self.model = model
         self.stripper = StreamingHTMLStripper()
         self._alive = True
+        self._stop_banner_appended = False
 
     @property
     def alive(self) -> bool:

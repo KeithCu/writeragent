@@ -961,6 +961,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
         turn = current_turn(self)
+        if isinstance(turn, TurnController) and not turn.same_messages():
+            return
         if isinstance(turn, TurnController) and turn.fold_chunk(self, text, "assistant"):
             if getattr(self, "session", None) is turn.session and turn.session is not None:
                 self.render_session_messages(turn.session)
@@ -1010,9 +1012,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 def _paint_from_list() -> None:
                     # Captured at send time. A post that runs after Stop or a
                     # new send dropped this turn must not fold into the next one.
-                    if not isinstance(turn, TurnController) or current_turn(self) is not turn or not turn.alive:
+                    if (
+                        not isinstance(turn, TurnController)
+                        or current_turn(self) is not turn
+                        or not turn.alive
+                        or not turn.same_messages()
+                    ):
                         return
-                    turn.fold_chunk(self, clean_text, role)
+                    if not turn.fold_chunk(self, clean_text, role):
+                        return
                     if role != "user" and getattr(self, "_record_assistant_start", False):
                         self._record_assistant_start = False
                         self._assistant_stream_start_len = widget.get_text_length()
@@ -2335,11 +2343,28 @@ class ClearButtonListener(BaseActionListener):
             abort_turn(self.send_listener)
         self.session.clear()
 
+        greeting = self.greeting
+        if not greeting:
+            model = getattr(self.send_listener, "doc", None) if self.send_listener else None
+            try:
+                from plugin.framework.prompts import get_greeting_for_document, DEFAULT_WRITER_GREETING
+                greeting = get_greeting_for_document(model) or DEFAULT_WRITER_GREETING
+            except Exception:
+                greeting = "AI: I can edit or translate this document, or help you outline ideas. What would you like to work on?"
+
         if self.send_listener and self.send_listener.rich_text_widget:
             try:
-                self.send_listener.rich_text_widget.clear_and_greeting(self.greeting or "")
+                self.send_listener.rich_text_widget.clear_and_greeting(greeting)
             except Exception:
                 log.exception("Error clearing RichTextControl sidebar")
+                try:
+                    ctrl = getattr(self.send_listener.rich_text_widget, "control", None)
+                    if ctrl is not None:
+                        from plugin.chatbot.dialogs import set_control_text
+
+                        set_control_text(ctrl, greeting + "\n")
+                except Exception:
+                    pass
             if self.status_control:
                 self.status_control.setText("")
             return
@@ -2347,7 +2372,7 @@ class ClearButtonListener(BaseActionListener):
         if self.response_control and self.response_control.getModel():
             from plugin.chatbot.dialogs import set_control_text
 
-            text = self.greeting + "\n" if self.greeting else ""
+            text = greeting + "\n" if greeting else ""
             set_control_text(self.response_control, text)
         if self.status_control:
             self.status_control.setText("")

@@ -630,12 +630,21 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     n = len(messages)
     while i < n:
         msg = messages[i]
+        if msg.get("_open_transcript"):
+            i += 1
+            continue
         if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):
             j = i + 1
             tools = []
-            while j < n and messages[j].get("role") == "tool":
-                tools.append(messages[j])
-                j += 1
+            while j < n:
+                if messages[j].get("_open_transcript"):
+                    j += 1
+                    continue
+                if messages[j].get("role") == "tool":
+                    tools.append(messages[j])
+                    j += 1
+                else:
+                    break
             have = {t.get("tool_call_id") for t in tools}
             kept_calls = [
                 tc

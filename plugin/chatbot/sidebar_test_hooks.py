@@ -1348,9 +1348,12 @@ def wait_controls_send_finished(
     stop = controls.get("stop")
     # Let the click start; HTTP 500 can finish before the first poll.
     time.sleep(0.25)
+    saw_busy = False
     while time.monotonic() <= deadline:
         en = control_enabled(stop) if stop is not None else None
         busy = en is True
+        if busy:
+            saw_busy = True
         body = transcript_fn() if transcript_fn is not None else ""
         suffix = body[len(before) :] if before and body.startswith(before) else body
         if wait_for:
@@ -1361,8 +1364,8 @@ def wait_controls_send_finished(
             if not found and before and body and not body.startswith(before):
                 found = wait_for.lower() in body.lower()
         else:
-            found = True
-        if found and not busy:
+            found = bool(suffix.strip()) or (not before and bool(body.strip()))
+        if (saw_busy or found) and not busy:
             return True
         time.sleep(0.15)
     if wait_for and transcript_fn is not None:

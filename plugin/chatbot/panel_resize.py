@@ -289,6 +289,15 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         w, h = int(r.Width), int(r.Height)
         if w <= 0 or h <= 0:
             return
+        if self._parent_window is not None:
+            try:
+                pr = self._parent_window.getPosSize()
+                if pr.Height > 0 and h > pr.Height:
+                    h = int(pr.Height)
+            except Exception:
+                pass
+        if h > 3000:
+            h = 3000
         # Column is last getHeightForWidth. Before the first hfw, the first
         # layout width (320) is the column so a GTK jump (320→383) is not filled.
         # A windowResized grow without a new deck_hint is GTK, not a drag.

@@ -521,8 +521,38 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
     turn = current_turn(listener)
+    if isinstance(turn, TurnController) and not turn.same_messages():
+        return
     stripper = turn.stripper if isinstance(turn, TurnController) else None
     if stripper is not None and isinstance(turn, TurnController):
         leftover = turn.take_stripper_tail()
         if leftover and not replaced:
             listener._append_response(leftover, role="assistant")
+
+    # What was wrong: commit 2b247521 passed allow_rerender=not self.stop_requested
+    # to avoid re-rendering the full ramble over the stopped banner. However,
+    # TurnController.close_stopped only persisted _STOP_LINE to session.messages,
+    # and skipping rerender meant [Stopped by user] was never drawn on the control.
+    # Why this change: append _STOP_LINE to the control for this stopped turn,
+    # ensuring the stopped banner appears on the control suffix without re-rendering HTML.
+    stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
+    if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
+        if isinstance(turn, TurnController):
+            if getattr(turn, "_stop_banner_appended", False):
+                return
+            turn._stop_banner_appended = True
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+        from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+        widget = getattr(listener, "rich_text_widget", None)
+        if widget is not None:
+            run_rich = getattr(listener, "_run_rich_ui", None)
+            if callable(run_rich):
+                run_rich(lambda: widget.append_chunk(_STOP_LINE))
+            else:
+                widget.append_chunk(_STOP_LINE)
+        else:
+            control = getattr(listener, "response_control", None)
+            if control is not None and control.getModel():
+                cur = get_control_text(control, default="") or ""
+                set_control_text(control, cur + _STOP_LINE)

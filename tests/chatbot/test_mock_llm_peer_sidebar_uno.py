@@ -124,8 +124,11 @@ def _teardown_peer():
         if sl is None:
             continue
         try:
+            from plugin.chatbot.sidebar_test_hooks import wait_idle
+
             if send_state(listener=sl).is_busy:
                 press_stop(listener=sl)
+            wait_idle(listener=sl, timeout=15.0)
         except Exception:
             pass
     stop_mock_sidebar_session(_session)

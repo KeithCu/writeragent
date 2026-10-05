@@ -85,6 +85,15 @@ def _setup_mock(ctx):
     controls = wait_for_chat_dialog_controls(ctx, timeout=20.0)
     adopt_runtime_send_listeners()
     sl = send_listener()
+    if sl is not None:
+        try:
+            from plugin.chatbot.sidebar_test_hooks import press_stop, send_state, wait_idle
+
+            if send_state(listener=sl).is_busy:
+                press_stop(listener=sl)
+            wait_idle(listener=sl, timeout=15.0)
+        except Exception:
+            pass
     if sl is None and controls is None:
         from plugin.chatbot.sidebar_test_hooks import current_component, sidebar_deck_names
 
@@ -265,7 +274,12 @@ def _send_enabled() -> bool | None:
     from plugin.chatbot.sidebar_test_hooks import control_enabled
 
     controls = getattr(_session, "controls", None) or {}
-    return control_enabled(controls.get("send"))
+    ctrl = controls.get("send")
+    if ctrl is not None and hasattr(ctrl, "getModel"):
+        model = ctrl.getModel()
+        if getattr(model, "Label", None) != "Send":
+            return False
+    return control_enabled(ctrl)
 
 
 def _wait_idle_after_send(before: str, timeout: float = 30.0) -> None:
@@ -295,6 +309,9 @@ def _start_until_stop_enabled(text: str, *, delay_ms: int = 40, timeout: float =
     )
 
     assert _session is not None
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline and _is_busy():
+        time.sleep(0.1)
     _session.config.delay_ms = delay_ms
     before = _transcript()
     controls = getattr(_session, "controls", None)
@@ -338,7 +355,7 @@ def _hello_ok() -> None:
 
         assert next_hello_ok(listener=sl, timeout=60.0), "recovery hello failed"
         return
-    _send_and_wait("hello", timeout=60.0)
+    _send_and_wait("hello", timeout=60.0, wait_for="hello")
     body = _transcript()
     suffix = body[len(before) :] if body.startswith(before) else body
     blob = suffix if suffix else body

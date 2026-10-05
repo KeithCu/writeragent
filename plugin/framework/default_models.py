@@ -180,7 +180,6 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "DeepSeek V4 Flash", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 163840, "ids": {"together": "deepseek-ai/DeepSeek-V4-Flash-0731"}},
     {"display_name": "MiniMax M3", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 1000000, "ids": {"together": "MiniMaxAI/MiniMax-M3"}, "default_text": True},
     {"display_name": "GPT-OSS 120B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 131072, "ids": {"together": "openai/gpt-oss-120b", "openrouter": "openai/gpt-oss-120b:nitro", "groq": "openai/gpt-oss-120b"}, "default_text": True},
-    # No default_text: 120B already owns the provider default; a second flag was a no-op.
     {"display_name": "GPT-OSS 20B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 131072, "ids": {"together": "openai/gpt-oss-20b", "openrouter": "openai/gpt-oss-20b", "groq": "openai/gpt-oss-20b"}},
     {"display_name": "Mistral Large 3", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 262144, "ids": {"openrouter": "mistralai/mistral-large-2512", "mistral": "mistral-large-latest"}},
     {"display_name": "Voxtral Mini Transcribe", "capability": ModelCapability.AUDIO, "ids": {"openrouter": "mistralai/voxtral-mini-transcribe"}, "default_audio": True},

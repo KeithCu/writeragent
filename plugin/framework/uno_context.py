@@ -626,6 +626,10 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     use :func:`wait_while_pumping` rather than a local PE2I loop.
     """
     from plugin.framework.queue_executor import _note_suppressed_vcl_pump, _pump_vcl_events, get_drain_owner
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return False
 
     if not force:
         if os.environ.get("WRITERAGENT_TESTING") == "1":

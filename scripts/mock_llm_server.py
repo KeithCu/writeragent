@@ -523,6 +523,9 @@ def _last_user_raw(messages: list[Any]) -> str:
 
 
 def _delegate_for_tools(tool_names: set[str]) -> str | None:
+    calc_tools = {"write_formula_range", "list_sheets", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
+    if _DELEGATE_CALC in tool_names and (bool(tool_names & calc_tools) or _DELEGATE_WRITER not in tool_names):
+        return _DELEGATE_CALC
     for name in (_DELEGATE_WRITER, _DELEGATE_CALC, _DELEGATE_DRAW):
         if name in tool_names:
             return name
@@ -856,7 +859,7 @@ _HTML_TEMPLATES = (
         "<em>not</em> a real model; it only exists so scrolling and HTML paste can be tested.</p>"
     ),
     (
-        "<p>Chatting about {topic}. Below is a short list so lists render in the rich control.</p>"
+        "<p>Chatting about {topic}. Below is a short mock list so lists render in the rich control.</p>"
         "<ul><li>Streamed as plain text first</li><li>Then HTML is pasted after STREAM_DONE</li>"
         "<li>Caret follow is the scroll path</li></ul>"
         "<p>Second paragraph continues so you get two blocks of body text every turn.</p>"
@@ -868,7 +871,7 @@ _HTML_TEMPLATES = (
         "<p>Second paragraph is filler for scroll height. Repeat until the control is long.</p>"
     ),
     (
-        "<p>A tiny table about {topic} — check that cells survive the hidden-Writer paste.</p>"
+        "<p>A tiny mock table about {topic} — check that cells survive the hidden-Writer paste.</p>"
         "<table><tr><th>Col A</th><th>Col B</th></tr><tr><td>stream</td><td>plain</td></tr>"
         "<tr><td>done</td><td>HTML</td></tr></table>"
         "<p>Second paragraph after the table so the message is still two blocks tall.</p>"
@@ -1133,10 +1136,7 @@ def _peer_specialized_inner(
 
     if _peer_tool_called(called):
         if wait:
-            disc = _specialized_inner_discovery(tool_names)
-            if disc is not None:
-                return disc
-            name = _SPECIALIZED_INNER_PRE_FINISH[0]
+            name = "list_nearby_files" if "list_nearby_files" in tool_names else _SPECIALIZED_INNER_PRE_FINISH[0]
             return Completion(
                 tool_name=name,
                 tool_args=_specialized_inner_args(name),

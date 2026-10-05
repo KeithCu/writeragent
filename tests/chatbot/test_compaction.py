@@ -410,6 +410,36 @@ def test_sanitize_drops_empty_name_tool_call_and_matching_result():
     assert tools[0]["tool_call_id"] == "good"
 
 
+def test_sanitize_tool_pairs_skips_open_transcript():
+    """Streaming _open_transcript rows must not break tool_calls and tool result pairing."""
+    messages = [
+        {"role": "user", "content": "search"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_abc",
+                    "type": "function",
+                    "function": {"name": "web_research", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "assistant", "content": "Searching...", "_open_transcript": True},
+        {"role": "tool", "tool_call_id": "call_abc", "content": "found results"},
+        {"role": "assistant", "content": "Done searching", "_open_transcript": True},
+    ]
+    cleaned = C.sanitize_tool_pairs(messages)
+    assert len(cleaned) == 3
+    assert cleaned[0]["role"] == "user"
+    assert cleaned[1]["role"] == "assistant"
+    assert len(cleaned[1]["tool_calls"]) == 1
+    assert cleaned[1]["tool_calls"][0]["id"] == "call_abc"
+    assert cleaned[2]["role"] == "tool"
+    assert cleaned[2]["tool_call_id"] == "call_abc"
+    assert not any(m.get("_open_transcript") for m in cleaned)
+
+
 def test_last_user_snap_does_not_backward_align_into_tool_group():
     messages = [
         _system_doc(10),

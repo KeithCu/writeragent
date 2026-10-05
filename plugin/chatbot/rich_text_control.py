@@ -1278,8 +1278,22 @@ def clear_control(control: Any) -> None:
         from plugin.calc.navigation import clear_cell_link_spans
 
         clear_cell_link_spans(control)
+        if hasattr(control, "setText"):
+            try:
+                control.setText("")
+            except Exception:
+                pass
         model = control.getModel()
         if model is not None:
+            if hasattr(model, "createTextCursor"):
+                try:
+                    cursor = model.createTextCursor()
+                    cursor.gotoStart(False)
+                    cursor.gotoEnd(True)
+                    if hasattr(cursor, "setString"):
+                        cursor.setString("")
+                except Exception:
+                    pass
             model.Text = ""
     except Exception:
         log.exception("clear_control failed")
