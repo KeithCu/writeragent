@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Polish <LL@li.org>\n"
@@ -193,16 +193,16 @@ msgstr "Przebudowywanie nie powiodło się: "
 msgid "TLS/SSL Error: {0}"
 msgstr "Błąd TLS/SSL: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Nieprawidłowy klucz API. Sprawdź swoje ustawienia."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "Dostęp do API zabroniony. Twój klucz może nie mieć uprawnień do tego modelu."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr ""
 "Nie znaleziono punktu końcowego (404). Sprawdź adres URL i nazwę modelu."
@@ -284,18 +284,6 @@ msgstr "Dostawca AI zgłosił błąd. Spróbuj ponownie."
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "Nie znaleziono {resource_type}: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Maksymalna liczba tokenów czatu musi być >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Limit czasu żądania musi być > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatura musi być <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -404,6 +392,78 @@ msgstr "Proszę ustawić model w Ustawieniach."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Proszę wybrać prawidłowy model w Ustawieniach (nie symbol zastępczy)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Transkrypcja przy użyciu lokalnego modelu Whisper ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"Transkrypcja przy użyciu lokalnego modelu Whisper ({0})… Pierwsze "
+"uruchomienie pobiera model."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Transkrypcja dźwięku..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Lokalny Whisper nie powiódł się: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Lokalny Whisper nie zwrócił transkrypcji."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Lokalny Whisper działa w środowisku Python venv z Ustawień, a nie w Pythonie"
+" LibreOffice. Skonfiguruj venv, a następnie zainstaluj za pomocą: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"Biblioteka faster-whisper nie jest zainstalowana w środowisku Python venv z "
+"Ustawień. Zainstaluj ją za pomocą: {0}. Ustawienia → Test Pythona wymienia "
+"ją w opcjonalnych pakietach audio."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Skrypt lokalnego Whispera nie znajduje się w rozszerzeniu."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Lokalny Whisper przekroczył limit czasu lub nie mógł się uruchomić. Spróbuj "
+"ponownie lub wybierz mniejszy model lokalny w Ustawienia → Mowa."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Lokalny Whisper przekroczył limit czasu lub nie mógł się uruchomić. Pierwsze"
+" uruchomienie pobiera wagi modelu; spróbuj ponownie lub wybierz mniejszy "
+"model lokalny w Ustawienia → Mowa."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"Brak dostępnego klienta modelu językowego dla punktu końcowego zamiany mowy "
+"na tekst."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -519,8 +579,7 @@ msgid "Status:"
 msgstr "Stan:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Gotowe"
 
@@ -702,6 +761,15 @@ msgstr "WriterAgent: Edytuj zaznaczenie (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Rozszerz zaznaczenie (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Nie znaleziono obrazu '{name}'. Użyj image_list lub pozostaw image_name "
+"puste i wybierz grafikę."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Wybierz osadzony obraz, a następnie uruchom ponownie."
@@ -856,6 +924,19 @@ msgstr "Zaakceptuj tę zmianę"
 msgid "Reject this change"
 msgstr "Odrzuć tę zmianę"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Nie udało się zapisać strumieniowego tekstu do dokumentu: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Zaznaczenie zawiera śledzone wstawienia lub usunięcia. Najpierw zaakceptuj "
+"lub odrzuć te zmiany. Zaznaczenie nie zostało zmodyfikowane."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Rozszerz zaznaczenie"
@@ -976,10 +1057,6 @@ msgid "any"
 msgstr "dowolny"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "nagrody"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "najlepsze"
 
@@ -1004,10 +1081,6 @@ msgid "concise"
 msgstr "zwięzły"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "głębia"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "opis"
 
@@ -1026,10 +1099,6 @@ msgstr "wyświetl"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "każdy"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "funkcje"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1084,10 +1153,6 @@ msgid "me"
 msgstr "ja"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "znaczące"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "ogólne"
 
@@ -1120,10 +1185,6 @@ msgid "question"
 msgstr "pytanie"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "oceny"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "rekomendacja"
 
@@ -1136,10 +1197,6 @@ msgid "research"
 msgstr "badania"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "recenzje"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "szukaj"
 
@@ -1150,10 +1207,6 @@ msgstr "krótkie"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "pokaż"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "podpis"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1192,10 +1245,6 @@ msgid "top"
 msgstr "góra"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "trendy"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "typy"
 
@@ -1222,6 +1271,10 @@ msgstr "dlaczego"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "ty"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Nieprawidłowe ustawienie"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1297,10 +1350,6 @@ msgstr "Panel oceny"
 msgid "Debug"
 msgstr "Debugowanie"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Nie wykryto mowy.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Błąd: Zestaw narzędzi niedostępny"
@@ -1309,7 +1358,7 @@ msgstr "Błąd: Zestaw narzędzi niedostępny"
 msgid "Chat"
 msgstr "Czat"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Obraz"
 
@@ -1394,7 +1443,7 @@ msgstr "Nagrywanie dźwięku… (%d ms ciszy)"
 msgid "Record"
 msgstr "Nagrywaj"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Zatrzymaj nagrywanie"
 
@@ -1428,6 +1477,14 @@ msgstr ""
 " zgłosić!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Błąd dźwięku: nagrywanie zatrzymane bez pliku dźwiękowego.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Nie wykryto mowy.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1437,8 +1494,17 @@ msgstr ""
 "ustawieniach.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Błąd zaplecza agenta: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Wysyłanie do partnera wymaga trybu czatu na tym pasku bocznym.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Nagrywanie bez użycia rąk..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1498,7 +1564,7 @@ msgstr "Zapisano w pamięci podręcznej badań (klucz: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "Otwieranie „%s” w trybie tylko do odczytu."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Badania w sieci zakończone."
 
@@ -1529,10 +1595,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Nie można uruchomić edytora: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Transkrypcja dźwięku..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1641,7 +1703,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Wyszukiwanie w sieci nie przyniosło użytecznych dowodów."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Asystent:"
 
@@ -1683,10 +1744,6 @@ msgstr ""
 "Dostępna jest nowsza wersja %(name)s (%(version)s). Użyj Narzędzia → "
 "Menedżer rozszerzeń, aby sprawdzić dostępność aktualizacji i zainstalować "
 "najnowszą wersję rozszerzenia."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Nieprawidłowe ustawienie"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1888,13 +1945,14 @@ msgstr "Skrypty"
 msgid "My Scripts"
 msgstr "Moje skrypty"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Wbudowane pomocniki są tylko do odczytu. Użyj „Kopiuj do Moich skryptów”, "
 "aby je dostosować."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1979,12 +2037,23 @@ msgid "No document is open to save scripts."
 msgstr "Nie otwarto żadnego dokumentu, aby zapisać skrypty."
 
 #: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+msgid "Document is read-only or properties cannot be written."
 msgstr ""
-"Dokument jest tylko do odczytu lub nie można zapisać jego właściwości. "
-"Skrypt zapisano w bibliotece osobistej."
+"Dokument jest tylko do odczytu lub nie można zapisać jego właściwości."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
+msgstr ""
+"Skrypt inicjujący został zapisany w dokumencie, ale pamięć podręczna "
+"współdzielonego jądra nie została zaktualizowana. =PY() może nadal "
+"uruchamiać poprzedni skrypt."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' jest zarezerwowane dla skryptu inicjującego skoroszyt."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1996,9 +2065,18 @@ msgid "This Document"
 msgstr "Ten dokument"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Dokument został zamknięty."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Zapisano skrypt „{0}” w Moich skryptach."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "Skrypt o nazwie '{0}' już istnieje w Moich skryptach. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "Zapisano skrypt „{0}” w Moich skryptach. {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2040,8 +2118,22 @@ msgid "Deleted script '{0}'."
 msgstr "Usunięto skrypt „{0}”."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Dokument nie jest już otwarty."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Wykonanie skryptu nie powiodło się."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "Nie można załadować PythonScriptDialog z rozszerzenia."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr ""
+"Nie można zapisać w Moich skryptach: skrypt o nazwie „%s” już istnieje."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2057,6 +2149,14 @@ msgstr "Skrypt „%s” zapisano w tym dokumencie."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skrypt „%s” został pomyślnie zapisany."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Uruchamianie..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Błąd wykonania"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2090,10 +2190,6 @@ msgstr "Skrypt „%s” został utworzony w tym dokumencie."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "Skrypt „%s” został utworzony w Moich skryptach."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Błąd wykonania"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2149,6 +2245,37 @@ msgstr ""
 "Nie znaleziono pliku wykonywalnego Python w skonfigurowanym venv: {0} "
 "(oczekiwano bin/python, Scripts/python.exe lub python.exe w katalogu głównym"
 " środowiska)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Przekroczono limit czasu aktualizacji listy skryptów."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Przekroczono limit czasu zapisywania skryptu."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "skrypt inicjujący"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "formuła LaTeX"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "ten edytor"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Zapisać zmiany w {0}?\n"
+"\n"
+"Tak zapisuje je przed przełączeniem. Nie odrzuca je. Anuluj pozostawia bieżący edytor."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2220,6 +2347,22 @@ msgstr ""
 "writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "Sonda UI / Monaco nie powiodła się (zobacz writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "Przekroczono czas oczekiwania sondy UI / Monaco."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "Sonda DuckDB nie powiodła się (zobacz writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "Przekroczono czas oczekiwania sondy DuckDB."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Nagrywanie dźwięku i mowa"
 
@@ -2280,6 +2423,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Lokalne silniki TTS (opcjonalnie):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Lokalny Whisper (opcjonalnie):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Uruchamianie procesu roboczego Python..."
 
@@ -2288,8 +2435,12 @@ msgid "Reading Python version..."
 msgstr "Odczytywanie wersji języka Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Dźwięk i mowa: sprawdzanie sounddevice i silników TTS..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Dźwięk i mowa: sprawdzanie sounddevice, TTS i lokalnego Whisper..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "Biblioteki UI / Monaco: sprawdzanie poza skryptem roboczym..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2502,6 +2653,10 @@ msgstr ""
 "skoroszyt programu Calc i spróbuj ponownie."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Nie można przywrócić skryptu inicjującego."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Sesja Python została zresetowana dla tego skoroszytu."
 
@@ -2569,11 +2724,6 @@ msgstr ""
 "{time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Nie udało się wstawić wyniku do programu Calc: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Informacje"
 
@@ -2624,6 +2774,18 @@ msgstr "Skrypt wykonano pomyślnie. (czas trwania: {time})"
 msgid "Script saved."
 msgstr "Skrypt zapisano."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Skrypt jest już uruchomiony."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Skrypt „{0}” nie znajduje się w Moich skryptach ani w tym dokumencie, więc "
+"nie został zapisany."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Uruchom skrypt Python"
@@ -2655,17 +2817,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Nie znaleziono obrazu '{name}'. Użyj image_list lub pozostaw image_name "
-"puste i wybierz grafikę."
+msgid "Image '{name}' could not be exported."
+msgstr "Nie można wyeksportować obrazu „{name}”."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Nie można wyeksportować obrazu „{name}”."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Obraz jest zbyt duży, aby wysłać go do modułu wizji ({size} bajtów; limit "
+"{limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Anulowano przez użytkownika."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3118,10 +3284,6 @@ msgid "Image Model:"
 msgstr "Model obrazu:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Ustawienia obrazu"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Zastępowanie w miejscu"
 
@@ -3373,12 +3535,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Monit o uprawnienia agenta"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Pytaj o potwierdzenie przed zezwoleniem agentowi na używanie narzędzi "
+"(odczyt plików, wykonywanie poleceń itp.)"
+
+msgid "STT Provider"
+msgstr "Dostawca STT"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"Punkt końcowy LLM używa modelu audio i metody POST /v1/audio/transcriptions."
+" Lokalne Whisper uruchamia faster-whisper w Ustawieniach → Python venv (nie "
+"w Pythonie LibreOffice)."
+
+msgid "LLM Endpoint"
+msgstr "Punkt końcowy LLM"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Lokalne Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Model audio:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
 msgstr ""
-"Model zamiany mowy na tekst, gdy model czatu nie obsługuje wejścia audio."
+"Model zamiany mowy na tekst, gdy dostawcą STT jest punkt końcowy LLM, a "
+"model czatu nie obsługuje wejścia audio."
+
+msgid "Local Model"
+msgstr "Model lokalny"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"Rozmiar faster-whisper. Pierwsza transkrypcja pobiera wagi do pamięci "
+"podręcznej Hugging Face (domyślny rozmiar base to około 150 MB; tiny ~75 MB,"
+" small ~500 MB, medium ~1,5 GB)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1,5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Włącz wyjście mowy (TTS)"
@@ -3426,9 +3643,6 @@ msgstr "Kokoro (lokalny model neuronowy, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (lokalny szybki model neuronowy, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "Punkt końcowy LLM"
 
 msgid "TTS Model"
 msgstr "Model TTS"
@@ -4037,10 +4251,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "Próg ufności OCR"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"Minimalny wynik tekstu dla RapidOCR. Zwiększ, aby ograniczyć śmieciowe "
-"znaki."
+"Minimalny wynik tekstu RapidOCR. 0.0 to rzeczywisty próg (nie domyślny). "
+"Zwiększ, aby ograniczyć śmieciowy tekst."
 
 msgid "OCR entire image"
 msgstr "OCR całego obrazu"
@@ -4092,8 +4308,8 @@ msgstr "Model układu"
 msgid "Heron (default)"
 msgstr "Heron (domyślny)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (wolniejszy"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (wolniejszy, złożone dokumenty)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Wyodrębnij formuły (LaTeX)"

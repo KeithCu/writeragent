@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -186,17 +186,17 @@ msgstr "Ombyggnad misslyckades: "
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL-fel: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Ogiltig API-nyckel. Kontrollera dina inställningar."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "API-åtkomst förbjuden. Din nyckel saknar kanske behörigheter för denna "
 "modell."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Slutpunkt hittades inte (404). Kontrollera din URL och modellnamn."
 
@@ -278,18 +278,6 @@ msgstr "AI-leverantören rapporterade ett fel. Försök igen."
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} hittades inte: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Chat max tokens måste vara >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Begärans timeout måste vara > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatur måste vara <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -399,6 +387,74 @@ msgstr "Vänligen ställ in modell i Inställningar."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr ""
 "Vänligen välj en giltig modell i Inställningar (inte en platshållare)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Transkriberar med lokal Whisper ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"Transkriberar med lokal Whisper ({0})… Första körningen laddar ner modellen."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Transkriberar ljud..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Lokal Whisper misslyckades: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Lokal Whisper returnerade ingen transkription."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Lokal Whisper körs i Inställningar → Python venv, inte i LibreOffices "
+"Python. Ställ in venv, installera sedan med: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper är inte installerat i Inställningar → Python venv. Installera"
+" med: {0}. Inställningar → Python-test listar det under valfria ljudpaket."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Skriptet för lokal Whisper saknas i tillägget."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Lokal Whisper fick timeout eller kunde inte starta. Försök igen eller välj "
+"en mindre lokal modell i Inställningar → Tal."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Lokal Whisper fick timeout eller kunde inte starta. Första körningen laddar "
+"ner modellvikter; försök igen eller välj en mindre lokal modell i "
+"Inställningar → Tal."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr "Ingen språkmodellklient är tillgänglig för slutpunkten tal-till-text."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -512,8 +568,7 @@ msgid "Status:"
 msgstr "Status:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Redo"
 
@@ -687,6 +742,15 @@ msgstr "WriterAgent: Redigera markering (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utöka markering (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Bilden '{name}' hittades inte. Använd image_list eller lämna image_name tomt"
+" och välj grafiken."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Markera en inbäddad bild och kör sedan igen."
@@ -841,6 +905,19 @@ msgstr "Acceptera denna ändring"
 msgid "Reject this change"
 msgstr "Avvisa denna ändring"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Det gick inte att skriva strömmad text till dokumentet: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Detta markerade område innehåller spårade tillägg eller borttagningar. "
+"Acceptera eller avvisa dessa ändringar först. Markeringen ändrades inte."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Utöka markering"
@@ -965,10 +1042,6 @@ msgid "any"
 msgstr "någon"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "utmärkelser"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "bästa"
 
@@ -993,10 +1066,6 @@ msgid "concise"
 msgstr "koncis"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "djup"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "beskrivning"
 
@@ -1015,10 +1084,6 @@ msgstr "visa"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "varje"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "funktioner"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1073,10 +1138,6 @@ msgid "me"
 msgstr "mig"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "anmärkningsvärd"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "övergripande"
 
@@ -1109,10 +1170,6 @@ msgid "question"
 msgstr "fråga"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "betyg"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "rekommendation"
 
@@ -1125,10 +1182,6 @@ msgid "research"
 msgstr "forskning"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "recensioner"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "sök"
 
@@ -1139,10 +1192,6 @@ msgstr "kort"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "visa"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "signatur"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1181,10 +1230,6 @@ msgid "top"
 msgstr "högst upp"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "trender"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "typer"
 
@@ -1211,6 +1256,10 @@ msgstr "varför"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "du"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Ogiltig inställning"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1286,10 +1335,6 @@ msgstr "Utvärderingspanel"
 msgid "Debug"
 msgstr "Felsökning"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Inget tal detekterat.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Fel: Verktygskit otillgängligt"
@@ -1298,7 +1343,7 @@ msgstr "Fel: Verktygskit otillgängligt"
 msgid "Chat"
 msgstr "Chatt"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Bild"
 
@@ -1383,7 +1428,7 @@ msgstr "Spelar in ljud… (%d ms tystnad)"
 msgid "Record"
 msgstr "Spela in"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Stoppa insp."
 
@@ -1417,6 +1462,14 @@ msgstr ""
 "rapportera detta!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Ljudfel: inspelningen stoppades utan en ljudfil.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Inget tal detekterat.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1426,8 +1479,17 @@ msgstr ""
 "Inställningarna.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Fel i agent-backend: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer-sändning kräver chattläge i detta sidofält.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Handsfree-inspelning..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1487,7 +1549,7 @@ msgstr "Forskningscache sparad (nyckel: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "Öppnar \"%s\" för skrivskyddad åtkomst."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Webbforskning slutförd."
 
@@ -1518,10 +1580,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Kunde inte starta editor: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Transkriberar ljud..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1632,7 +1690,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Webbforskningen samlade inte in några användbara bevis."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Assistent:"
 
@@ -1674,10 +1731,6 @@ msgstr ""
 "En nyare %(name)s (%(version)s) finns tillgänglig. Använd Verktyg → "
 "Tilläggshanterare för att söka efter uppdateringar och installera det "
 "senaste tillägget."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Ogiltig inställning"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1878,13 +1931,14 @@ msgstr "Skript"
 msgid "My Scripts"
 msgstr "Mina skript"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Inbyggda hjälpare är skrivskyddade. Använd Kopiera till Mina skript för att "
 "anpassa."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1968,12 +2022,21 @@ msgid "No document is open to save scripts."
 msgstr "Inget dokument är öppet för att spara skript."
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Dokumentet är skrivskyddat eller så kan egenskaper inte skrivas."
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
 msgstr ""
-"Dokumentet är skrivskyddat eller så kan egenskaper inte skrivas. Skriptet "
-"sparades i ditt personliga bibliotek istället."
+"Initieringsskriptet sparades i dokumentet, men cachen för den delade kärnan "
+"uppdaterades inte. =PY() kan fortfarande köra det tidigare skriptet."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' är reserverat för arbetsbokens initieringsskript."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1985,9 +2048,18 @@ msgid "This Document"
 msgstr "Detta dokument"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Dokumentet stängdes."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Skriptet '{0}' sparades i Mina skript."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "Ett skript med namnet '{0}' finns redan i Mina skript. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "Skriptet ”{0}” har sparats i Mina skript. {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2029,8 +2101,22 @@ msgid "Deleted script '{0}'."
 msgstr "Tog bort skriptet \"{0}\"."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Dokumentet är inte längre öppet."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Skriptkörningen misslyckades."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog kunde inte läsas in från tillägget."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr ""
+"Kan inte spara till Mina skript: ett skript med namnet ”%s” finns redan."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2046,6 +2132,14 @@ msgstr "Skriptet \"%s\" sparades i detta dokument."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Skriptet \"%s\" har sparats."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Kör..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Körningsfel"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2079,10 +2173,6 @@ msgstr "Skriptet \"%s\" har skapats i detta dokument."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "Skriptet \"%s\" har skapats i Mina skript."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Körningsfel"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2137,6 +2227,37 @@ msgid ""
 msgstr ""
 "Ingen körbar Python-fil hittades under konfigurerad venv: {0} (förväntade "
 "bin/python, Scripts/python.exe eller env-root python.exe)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Tidsgränsen för uppdatering av skriptlistan överskreds."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Tidsgränsen för att spara skriptet överskreds."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "initieringsskriptet"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "LaTeX-formeln"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "denna redigerare"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Spara ändringar i {0}?\n"
+"\n"
+"Ja sparar dem innan växling. Nej kastar dem. Avbryt behåller den aktuella editorn."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2205,6 +2326,22 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Sökning i vektorbibliotek misslyckades (se writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco-sökning misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco-sökning fick timeout."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB-sökning misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "DuckDB-sökning fick timeout."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Ljudinspelning och tal"
 
@@ -2265,6 +2402,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Lokala TTS-motorer (valfritt):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Lokal Whisper (valfritt):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Startar Python-arbetsprocess..."
 
@@ -2273,8 +2414,12 @@ msgid "Reading Python version..."
 msgstr "Läser Python-version..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Ljud och tal: kontrollerar sounddevice och TTS-motorer..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Ljud & Tal: kontrollerar sounddevice, TTS och lokal Whisper..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Monaco-bibliotek: kontrollerar utanför skriptarbetaren..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2481,6 +2626,10 @@ msgstr ""
 " och försök igen."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Kunde inte återställa initieringsskriptet."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Python-session återställd för denna arbetsbok."
 
@@ -2545,11 +2694,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Enheter '{helper}' slutförda. Infogat: {preview} (tog {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Misslyckades med att infoga resultat i Calc: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Info"
 
@@ -2597,6 +2741,18 @@ msgstr "Skriptet kördes utan problem. (tog {time})"
 msgid "Script saved."
 msgstr "Skript sparat."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Ett skript körs redan."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Skriptet ”{0}” finns inte i Mina skript eller i detta dokument, så det "
+"sparades inte."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Kör Python-skript"
@@ -2626,17 +2782,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Bilden '{name}' hittades inte. Använd image_list eller lämna image_name tomt"
-" och välj grafiken."
+msgid "Image '{name}' could not be exported."
+msgstr "Bilden '{name}' kunde inte exporteras."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Bilden '{name}' kunde inte exporteras."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Bilden är för stor för att skickas till vision-arbetaren ({size} byte; gräns"
+" {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Avbröts av användaren."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3085,10 +3245,6 @@ msgid "Image Model:"
 msgstr "Bildmodell:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Bildinställningar"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Ersättning på plats"
 
@@ -3340,12 +3496,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Fråga om agentbehörigheter"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Be om bekräftelse innan agenten tillåts använda verktyg (läsa filer, köra "
+"kommandon, etc.)"
+
+msgid "STT Provider"
+msgstr "STT-leverantör"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"LLM-slutpunkt använder ljudmodell och POST /v1/audio/transcriptions. Lokal "
+"Whisper kör faster-whisper i Inställningar → Python venv (inte LibreOffice "
+"egen Python)."
+
+msgid "LLM Endpoint"
+msgstr "LLM-slutpunkt"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Lokal Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Ljudmodell:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
 msgstr ""
-"Tal-till-text-modell när chattmodellen inte kan ta emot ljudinmatning."
+"Tal-till-text-modell när STT-leverantör är LLM-slutpunkt och chattmodellen "
+"inte kan ta emot ljudinmatning."
+
+msgid "Local Model"
+msgstr "Lokal modell"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"faster-whisper-storlek. Den första transkriberingen laddar ner vikter till "
+"Hugging Face-cachen (base, standardvalet, är cirka 150 MB; tiny ~75 MB, "
+"small ~500 MB, medium ~1,5 GB)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1,5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Aktivera talutmatning (TTS)"
@@ -3393,9 +3604,6 @@ msgstr "Kokoro (lokal neural, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (lokal snabb neural, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "LLM-slutpunkt"
 
 msgid "TTS Model"
 msgstr "TTS-modell"
@@ -3994,8 +4202,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "Tröskelvärde för OCR-konfidens"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
-msgstr "Minsta textpoäng för RapidOCR. Höj för att minska skräptext."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
+msgstr ""
+"Minsta textpoäng för RapidOCR. 0.0 är ett faktiskt tröskelvärde (inte "
+"standard). Höj för att minska skräptext."
 
 msgid "OCR entire image"
 msgstr "OCR-läs hela bilden"
@@ -4047,8 +4259,8 @@ msgstr "Layoutmodell"
 msgid "Heron (default)"
 msgstr "Heron (standard)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (långsammare"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (långsammare, komplexa dokument)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Extrahera formler (LaTeX)"

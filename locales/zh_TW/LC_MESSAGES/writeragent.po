@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -184,15 +184,15 @@ msgstr "重建失敗： "
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL 錯誤：{0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "無效的 API 金鑰。請檢查您的設定。"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr "API 存取被禁止。您的金鑰可能缺少此模型的權限。"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "找不到端點 (404)。請檢查您的 URL 和模型名稱。"
 
@@ -264,18 +264,6 @@ msgstr "AI 提供者報告錯誤。請再試一次。"
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} 未找到：{identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "聊天最大權杖數必須 >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "請求逾時必須 > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "溫度必須 <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -370,6 +358,68 @@ msgstr "請在「設定」中設定模型。"
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "請在「設定」中選擇有效的模型（而非預留位置）。"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "正在使用本機 Whisper ({0}) 進行轉錄…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr "正在使用本機 Whisper ({0}) 進行轉錄… 首次執行時會下載模型。"
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "正在轉錄音頻..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "本機 Whisper 失敗：{0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "本機 Whisper 未傳回轉錄內容。"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"本機 Whisper 執行於「設定」→「Python venv」，而非 LibreOffice 的 Python。請設定 "
+"venv，然後使用下列指令安裝：{0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"「設定」→「Python venv」中未安裝 faster-whisper。請使用下列指令安裝：{0}。「設定」→「Python "
+"測試」將其列於「音訊選用套件」下。"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "擴充功能遺失本機 Whisper 指令碼。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr "本機 Whisper 逾時或無法啟動。請再試一次，或在「設定」→「語音」中選擇較小的本機模型。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr "本機 Whisper 逾時或無法啟動。首次執行時會下載模型權重；請再試一次，或在「設定」→「語音」中選擇較小的本機模型。"
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr "沒有可用的語音轉文字端點語言模型用戶端。"
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -479,8 +529,7 @@ msgid "Status:"
 msgstr "狀態："
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "準備就緒"
 
@@ -647,6 +696,13 @@ msgstr "WriterAgent：編輯選取 (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent：擴展選取 (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr "找不到影像 '{name}'。請使用 image_list，或將 image_name 留空並選取該圖形。"
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "請選擇一張嵌入的圖片，然後再次執行。"
@@ -801,6 +857,17 @@ msgstr "接受此變更"
 msgid "Reject this change"
 msgstr "拒絕此變更"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "無法將串流文字寫入文件：{0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr "此選取範圍包含追蹤的插入或刪除內容。請先接受或拒絕這些變更。選取範圍未被修改。"
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent：擴展選取"
@@ -919,10 +986,6 @@ msgid "any"
 msgstr "任何"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "獎項"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "最佳"
 
@@ -947,10 +1010,6 @@ msgid "concise"
 msgstr "簡潔"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "深度"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "描述"
 
@@ -969,10 +1028,6 @@ msgstr "顯示"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "每個"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "功能"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1027,10 +1082,6 @@ msgid "me"
 msgstr "我"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "顯著"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "整體"
 
@@ -1063,10 +1114,6 @@ msgid "question"
 msgstr "問題"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "評分"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "建議"
 
@@ -1079,10 +1126,6 @@ msgid "research"
 msgstr "研究"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "評論"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "搜尋"
 
@@ -1093,10 +1136,6 @@ msgstr "簡短"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "顯示"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "簽名"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1135,10 +1174,6 @@ msgid "top"
 msgstr "頂部"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "趨勢"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "類型"
 
@@ -1165,6 +1200,10 @@ msgstr "為什麼"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "您"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "無效設定"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1240,10 +1279,6 @@ msgstr "評估儀表板"
 msgid "Debug"
 msgstr "除錯"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[未偵測到語音。]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "錯誤：工具組不可用"
@@ -1252,7 +1287,7 @@ msgstr "錯誤：工具組不可用"
 msgid "Chat"
 msgstr "聊天"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "影像"
 
@@ -1337,7 +1372,7 @@ msgstr "正在錄製音訊… (%d 毫秒靜音)"
 msgid "Record"
 msgstr "錄製"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "停止錄製"
 
@@ -1367,6 +1402,14 @@ msgid ""
 msgstr "[內部錯誤：無法識別 {0} 的文件類型。請回報此問題！]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[音訊錯誤：錄製已停止，未產生聲音檔案。]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[未偵測到語音。]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1374,8 +1417,17 @@ msgid ""
 msgstr "[模型 {0} 不支援原生音訊。請在設定中選擇 STT 模型。]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[代理後端錯誤：{0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[對等傳送需要在此側邊欄開啟聊天模式。]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "免持錄製中..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1431,7 +1483,7 @@ msgstr "研究快取已儲存 (鍵值：%s)"
 msgid "Opening '%s' for read-only access."
 msgstr "正在以唯讀模式開啟「%s」。"
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "網路研究完成。"
 
@@ -1458,10 +1510,6 @@ msgstr "找不到編輯器（請安裝 Kate 或 Gedit，或設定 EDITOR）。�
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "無法啟動編輯器：{0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "正在轉錄音頻..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1568,7 +1616,6 @@ msgid "Web research collected no usable evidence."
 msgstr "網路研究未收集到可用證據。"
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "助理："
 
@@ -1607,10 +1654,6 @@ msgid ""
 "A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
 "to check for updates and install the latest extension."
 msgstr "已有更新版本的 %(name)s (%(version)s) 可供使用。請使用「工具」→「擴充功能管理員」檢查更新並安裝最新版本。"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "無效設定"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1796,11 +1839,12 @@ msgstr "指令稿"
 msgid "My Scripts"
 msgstr "我的指令碼"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr "內建輔助程式為唯讀。請使用「複製到我的指令稿」進行自訂。"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1881,10 +1925,19 @@ msgid "No document is open to save scripts."
 msgstr "沒有開啟任何文件以儲存指令碼。"
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "文件為唯讀，或無法寫入屬性。"
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
-msgstr "文件為唯讀狀態，或無法寫入屬性。指令碼已改為儲存至您的個人程式庫。"
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
+msgstr "初始化指令碼已儲存至文件，但共用核心快取未更新。=PY() 可能仍會執行先前的指令碼。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' 為活頁簿初始化指令碼保留。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1896,9 +1949,18 @@ msgid "This Document"
 msgstr "本文件"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "文件已關閉。"
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "已將指令碼「{0}」儲存至「我的指令碼」。"
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "名為 '{0}' 的指令碼已存在於「我的指令碼」中。{1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "已將指令碼「{0}」儲存至「我的指令碼」。{1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1940,8 +2002,21 @@ msgid "Deleted script '{0}'."
 msgstr "已刪除指令碼「{0}」。"
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "文件已關閉。"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "指令碼執行失敗。"
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "無法從擴充功能載入 PythonScriptDialog。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr "無法儲存至「我的指令碼」：名為「%s」的指令碼已存在。"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1957,6 +2032,14 @@ msgstr "指令碼「%s」已儲存至此文件。"
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "指令碼「%s」已成功儲存。"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "執行中..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "執行錯誤"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1990,10 +2073,6 @@ msgstr "指令碼 '%s' 已在此文件中建立。"
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "指令碼 '%s' 已在「我的指令碼」中建立。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "執行錯誤"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2045,6 +2124,37 @@ msgid ""
 msgstr ""
 "在設定的 venv 下找不到 python 執行檔：{0}（預期為 bin/python、Scripts/python.exe 或 env-root "
 "python.exe）。"
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "指令碼清單更新逾時。"
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "儲存指令碼逾時。"
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "初始化指令碼"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "LaTeX 公式"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "此編輯器"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"是否儲存對 {0} 的變更？\n"
+"\n"
+"選擇「是」會在切換前儲存。選擇「否」會捨棄變更。選擇「取消」則保留目前的編輯器。"
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2102,6 +2212,22 @@ msgstr "向量搜尋探測逾時 (首次檢查時，匯入 sentence-transformers
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "向量搜尋探測失敗 (請參閱 writeragent_debug.log)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco 探測失敗（請參閱 writeragent_debug.log）。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco 探測逾時。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB 探測失敗（請參閱 writeragent_debug.log）。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "DuckDB 探測逾時。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
@@ -2164,6 +2290,10 @@ msgid "Local TTS engines (optional):"
 msgstr "本機 TTS 引擎 (選用)："
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "本機 Whisper（選用）："
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "正在啟動 Python 背景程式..."
 
@@ -2172,8 +2302,12 @@ msgid "Reading Python version..."
 msgstr "正在讀取 Python 版本..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "音訊與語音：正在檢查 sounddevice 與 TTS 引擎..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "音訊與語音：正在檢查 sounddevice、TTS 以及本機 Whisper..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Monaco 程式庫：正在檢查指令碼工作執行緒之外的區域..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2372,6 +2506,10 @@ msgid ""
 msgstr "「重設 Python 工作階段」適用於 Calc 試算表。請開啟一個 Calc 活頁簿後再試一次。"
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "無法還原初始化指令碼。"
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "已為此活頁簿重設 Python 工作階段。"
 
@@ -2432,11 +2570,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "單位 '{helper}' 已完成。已插入：{preview}（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "無法將結果插入 Calc：%s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "資訊"
 
@@ -2480,6 +2613,16 @@ msgstr "指令碼執行成功。（耗時 {time}）"
 msgid "Script saved."
 msgstr "指令碼已儲存。"
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "已有指令碼正在執行中。"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr "指令稿「{0}」不在「我的指令稿」或本文件中，因此未儲存。"
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "執行 Python 指令稿"
@@ -2507,15 +2650,19 @@ msgstr "請選取一張嵌入的影像（或包含影像的範圍），然後再
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr "找不到影像 '{name}'。請使用 image_list，或將 image_name 留空並選取該圖形。"
+msgid "Image '{name}' could not be exported."
+msgstr "無法匯出影像 '{name}'。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "無法匯出影像 '{name}'。"
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr "影像過大，無法傳送至視覺處理器（{size} 位元組；限制為 {limit}）。"
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "已由使用者取消。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2959,10 +3106,6 @@ msgid "Image Model:"
 msgstr "圖像模型："
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "圖像設定"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "就地取代"
 
@@ -3214,11 +3357,61 @@ msgstr "Grok 建置 (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "代理程式權限提示"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr "在允許代理程式使用工具（讀取檔案、執行指令等）前先詢問確認"
+
+msgid "STT Provider"
+msgstr "語音轉文字 (STT) 提供者"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"LLM 端點使用音訊模型與 POST /v1/audio/transcriptions。本機 Whisper 於「設定」→「Python venv」（非"
+" LibreOffice 的 Python）中執行 faster-whisper。"
+
+msgid "LLM Endpoint"
+msgstr "LLM 端點"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "本機 Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "音訊模型："
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr "當聊天模型無法接收音訊輸入時使用的語音轉文字模型。"
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
+msgstr "當 STT 提供者為 LLM 端點且聊天模型無法接收音訊輸入時所使用的語音轉文字模型。"
+
+msgid "Local Model"
+msgstr "本機模型"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"faster-whisper 模型大小。首次轉錄時會將權重下載至 Hugging Face 快取（預設的 base 約 150 MB；tiny 約 75"
+" MB，small 約 500 MB，medium 約 1.5 GB）。"
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1.5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "啟用語音輸出 (TTS)"
@@ -3259,9 +3452,6 @@ msgstr "Kokoro (本機神經網路, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (本機快速神經網路, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "LLM 端點"
 
 msgid "TTS Model"
 msgstr "TTS 模型"
@@ -3803,8 +3993,10 @@ msgstr "docling-tools 模型下載的可選資料夾（離線使用）。"
 msgid "OCR confidence threshold"
 msgstr "OCR 信心閾值"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
-msgstr "RapidOCR 最低文字分數。提高此值可減少雜訊文字。"
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
+msgstr "RapidOCR 最低文字分數。0.0 為實際閾值（非預設值）。提高此數值可減少雜亂文字。"
 
 msgid "OCR entire image"
 msgstr "OCR 整張影像"
@@ -3855,8 +4047,8 @@ msgstr "版面配置模型"
 msgid "Heron (default)"
 msgstr "Heron (預設)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (較慢"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (較慢，適用於複雜文件)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "擷取公式 (LaTeX)"

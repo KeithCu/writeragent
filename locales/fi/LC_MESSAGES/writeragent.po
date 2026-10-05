@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -195,16 +195,16 @@ msgstr "Uudelleenrakennus epäonnistui: "
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL-virhe: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Virheellinen API-avain. Tarkista asetuksesi."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "API-yhteys kielletty. Avaimeltasi saattaa puuttua oikeudet tähän malliin."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Päätepistettä ei löytynyt (404). Tarkista URL-osoite ja mallin nimi."
 
@@ -285,18 +285,6 @@ msgstr "Tekoälypalveluntarjoaja ilmoitti virheestä. Yritä uudelleen."
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} ei löytynyt: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Chat-enimmäistunnusten on oltava >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Pyynnön aikakatkaisun on oltava > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Lämpötilan on oltava <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -406,6 +394,78 @@ msgstr "Aseta malli (Model) asetuksista."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Valitse kelvollinen malli asetuksista (ei paikkamerkkiä)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Muunnetaan tekstiksi paikallisella Whisperillä ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"Muunnetaan tekstiksi paikallisella Whisperillä ({0})… Ensimmäinen "
+"suorituskerta lataa mallin."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Muunnetaan ääntä tekstiksi..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Paikallinen Whisper epäonnistui: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Paikallinen Whisper ei palauttanut litteraattia."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Paikallinen Whisper suoritetaan Asetukset → Python venv -ympäristössä, ei "
+"LibreOfficen Pythonissa. Määritä venv ja asenna komennolla: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper ei ole asennettu Asetukset → Python venv -ympäristöön. Asenna"
+" komennolla: {0}. Asetukset → Python-testi listaa sen kohdassa Audio "
+"optional packages."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Paikallinen Whisper-skripti puuttuu laajennuksesta."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Paikallisen Whisperin aikakatkaisu tai käynnistysvirhe. Yritä uudelleen tai "
+"valitse pienempi paikallinen malli kohdasta Asetukset → Puhe."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Paikallisen Whisperin aikakatkaisu tai käynnistysvirhe. Ensimmäinen "
+"suorituskerta lataa mallin painot; yritä uudelleen tai valitse pienempi "
+"paikallinen malli kohdasta Asetukset → Puhe."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"Puheesta tekstiksi -päätepisteelle ei ole käytettävissä "
+"kielimalliasiakasohjelmaa."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -520,8 +580,7 @@ msgid "Status:"
 msgstr "Tila:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Valmis"
 
@@ -698,6 +757,15 @@ msgstr "WriterAgent: Muokkaa valintaa (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Laajenna valintaa (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Kuvaa '{name}' ei löytynyt. Käytä image_list-toimintoa tai jätä image_name "
+"tyhjäksi ja valitse kuva."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Valitse upotettu kuva ja suorita uudelleen."
@@ -852,6 +920,19 @@ msgstr "Hyväksy tämä muutos"
 msgid "Reject this change"
 msgstr "Hylkää tämä muutos"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Tekstin kirjoittaminen asiakirjaan epäonnistui: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Valinta sisältää seurattuja lisäyksiä tai poistoja. Hyväksy tai hylkää "
+"muutokset ensin. Valintaa ei muutettu."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Laajenna valintaa"
@@ -974,10 +1055,6 @@ msgid "any"
 msgstr "mikä tahansa"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "palkinnot"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "paras"
 
@@ -1002,10 +1079,6 @@ msgid "concise"
 msgstr "tiivis"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "syvyys"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "kuvaus"
 
@@ -1024,10 +1097,6 @@ msgstr "näytä"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "jokainen"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "ominaisuudet"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1082,10 +1151,6 @@ msgid "me"
 msgstr "minä"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "merkittävä"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "yleinen"
 
@@ -1118,10 +1183,6 @@ msgid "question"
 msgstr "kysymys"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "arviot"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "suositus"
 
@@ -1134,10 +1195,6 @@ msgid "research"
 msgstr "tutkimus"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "arvostelut"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "haku"
 
@@ -1148,10 +1205,6 @@ msgstr "lyhyt"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "näytä"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "allekirjoitus"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1190,10 +1243,6 @@ msgid "top"
 msgstr "ylin"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "trendit"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "tyypit"
 
@@ -1220,6 +1269,10 @@ msgstr "miksi"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "sinä"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Virheellinen asetus"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1295,10 +1348,6 @@ msgstr "Arvioinnin koontinäyttö"
 msgid "Debug"
 msgstr "Virheenjäljitys"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Puhetta ei tunnistettu.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Virhe: Työkalupakki ei käytettävissä"
@@ -1307,7 +1356,7 @@ msgstr "Virhe: Työkalupakki ei käytettävissä"
 msgid "Chat"
 msgstr "Chat"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Kuva"
 
@@ -1392,7 +1441,7 @@ msgstr "Tallennetaan ääntä… (%d ms hiljaisuutta)"
 msgid "Record"
 msgstr "Tallenna"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Lopeta tallennus"
 
@@ -1426,6 +1475,14 @@ msgstr ""
 "ilmoitus!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Äänivirhe: tallennus pysähtyi ilman äänitiedostoa.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Puhetta ei tunnistettu.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1433,8 +1490,17 @@ msgid ""
 msgstr "[Malli {0} ei tue natiivia ääntä. Valitse STT-malli asetuksista.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Agentin taustajärjestelmän virhe: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Vertaislähetys vaatii Chat-tilan tässä sivupalkissa.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Hands-free-tallennus..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1494,7 +1560,7 @@ msgstr "Tutkimusvälimuisti tallennettu (avain: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "Avataan '%s' vain luku -tilassa."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Verkkotutkimus valmis."
 
@@ -1525,10 +1591,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Editoria ei voitu käynnistää: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Muunnetaan ääntä tekstiksi..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1637,7 +1699,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Verkkotutkimus ei kerännyt käyttökelpoista näyttöä."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Avustaja:"
 
@@ -1678,10 +1739,6 @@ msgid ""
 msgstr ""
 "Uudempi %(name)s (%(version)s) on saatavilla. Käytä Työkalut → Laajennusten "
 "hallinta tarkistaaksesi päivitykset ja asentaaksesi uusimman laajennuksen."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Virheellinen asetus"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1883,13 +1940,14 @@ msgstr "Skriptit"
 msgid "My Scripts"
 msgstr "Omat skriptit"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Sisäänrakennetut apuohjelmat ovat vain luku -muodossa. Käytä Kopioi omiin "
 "skripteihin -toimintoa muokataksesi niitä."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1975,12 +2033,22 @@ msgid "No document is open to save scripts."
 msgstr "Yhtään asiakirjaa ei ole avattu skriptien tallentamista varten."
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Asiakirja on vain luku -muodossa tai ominaisuuksia ei voi kirjoittaa."
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
 msgstr ""
-"Asiakirja on kirjoitussuojattu tai ominaisuuksia ei voi kirjoittaa. Skripti "
-"tallennettiin sen sijaan henkilökohtaiseen kirjastoosi."
+"Alustuskomentosarja tallennettiin asiakirjaan, mutta jaetun ytimen "
+"välimuisti ei päivittynyt. =PY() saattaa yhä suorittaa edellisen "
+"komentosarjan."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' on varattu työkirjan alustuskomentosarjalle."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1992,9 +2060,19 @@ msgid "This Document"
 msgstr "Tämä asiakirja"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Asiakirja suljettiin."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Skripti '{0}' tallennettiin Omiin skripteihin."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr ""
+"Komentosarja nimeltä '{0}' on jo olemassa kohdassa Omat komentosarjat. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "Skripti '{0}' tallennettu Omiin skripteihin. {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2036,8 +2114,22 @@ msgid "Deleted script '{0}'."
 msgstr "Skripti '{0}' poistettu."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Asiakirja ei ole enää auki."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Skriptin suoritus epäonnistui."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialogia ei voitu ladata laajennuksesta."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr ""
+"Ei voitu tallentaa Omiin skripteihin: skripti nimeltä '%s' on jo olemassa."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2053,6 +2145,14 @@ msgstr "Skripti '%s' tallennettu tähän asiakirjaan."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Komentosarja \"%s\" tallennettiin onnistuneesti."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Suoritetaan..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Suoritusvirhe"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2086,10 +2186,6 @@ msgstr "Skripti \"%s\" luotiin tähän asiakirjaan."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "Skripti \"%s\" luotiin Omiin skripteihin."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Suoritusvirhe"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2144,6 +2240,37 @@ msgid ""
 msgstr ""
 "Määritetystä virtuaaliympäristöstä ei löytynyt Python-suoritustiedostoa: {0}"
 " (odotettiin bin/python, Scripts/python.exe tai env-root python.exe)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Skriptiluettelon päivitys aikakatkaistiin."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Skriptin tallennus aikakatkaistiin."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "alustusskripti"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "LaTeX-kaava"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "tämä muokkain"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Tallennetaanko muutokset kohteeseen {0}?\n"
+"\n"
+"Kyllä tallentaa ne ennen vaihtamista. Ei hylkää ne. Peruuta pitää nykyisen muokkaimen."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2211,6 +2338,22 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Vektorihakututkinta epäonnistui (katso writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco -testi epäonnistui (katso writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco -testin aikakatkaisu."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB-testi epäonnistui (katso writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "DuckDB-testin aikakatkaisu."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Äänitys ja puhe"
 
@@ -2271,6 +2414,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Paikalliset TTS-moottorit (valinnainen):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Paikallinen Whisper (valinnainen):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Käynnistetään Python-työntekijää..."
 
@@ -2279,8 +2426,13 @@ msgid "Reading Python version..."
 msgstr "Luetaan Python-versiota..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Ääni ja puhe: tarkistetaan sounddevice-laitetta ja TTS-moottoreita..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Ääni ja puhe: tarkistetaan sounddevice, TTS ja paikallinen Whisper..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr ""
+"UI / Monaco -kirjastot: tarkistetaan skriptityöntekijän ulkopuolelta..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2488,6 +2640,10 @@ msgstr ""
 "ja yritä uudelleen."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Alustuskomentosarjaa ei voitu palauttaa."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Python-istunto on nollattu tälle työkirjalle."
 
@@ -2551,11 +2707,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Yksiköt '{helper}' valmiit. Lisätty: {preview} (kesti {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Tuloksen lisääminen Calc-tiedostoon epäonnistui: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Tiedot"
 
@@ -2605,6 +2756,18 @@ msgstr "Skripti suoritettiin onnistuneesti. (kesti {time})"
 msgid "Script saved."
 msgstr "Skripti tallennettu."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Komentosarja on jo käynnissä."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Skriptiä '{0}' ei löydy Omat skriptit -kansiosta tai tästä asiakirjasta, "
+"joten sitä ei tallennettu."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Suorita Python-skripti"
@@ -2634,17 +2797,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Kuvaa '{name}' ei löytynyt. Käytä image_list-toimintoa tai jätä image_name "
-"tyhjäksi ja valitse kuva."
+msgid "Image '{name}' could not be exported."
+msgstr "Kuvaa '{name}' ei voitu viedä."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Kuvaa '{name}' ei voitu viedä."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Kuva on liian suuri lähetettäväksi näkökykyä käsittelevälle työntekijälle "
+"({size} tavua; raja {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Käyttäjän peruuttama."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3094,10 +3261,6 @@ msgid "Image Model:"
 msgstr "Kuvamalli:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Kuva-asetukset"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Paikallinen korvaus"
 
@@ -3349,11 +3512,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Pyydä agentin käyttöoikeuksia"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Pyydä vahvistusta ennen kuin agentti saa käyttää työkaluja (tiedostojen "
+"lukeminen, komentojen suorittaminen jne.)"
+
+msgid "STT Provider"
+msgstr "STT-palveluntarjoaja"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"LLM-päätepiste käyttää äänimallia ja POST /v1/audio/transcriptions -metodia."
+" Paikallinen Whisper käyttää faster-whisper-kirjastoa asetusten Python-"
+"virtuaaliympäristössä (ei LibreOfficen omaa Pythonia)."
+
+msgid "LLM Endpoint"
+msgstr "LLM-päätepiste"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Paikallinen Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Äänimalli:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr "Puheesta tekstiksi -malli, kun chat-malli ei tue äänisyötettä."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
+msgstr ""
+"Puheesta tekstiksi -malli, kun STT-palveluntarjoajana on LLM-päätepiste eikä"
+" chat-malli tue äänisyötettä."
+
+msgid "Local Model"
+msgstr "Paikallinen malli"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"faster-whisper-koko. Ensimmäinen litterointi lataa painokertoimet Hugging "
+"Face -välimuistiin (oletusarvoinen base on noin 150 Mt; tiny ~75 Mt, small "
+"~500 Mt, medium ~1,5 Gt)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 Mt)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 Mt)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 Mt)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1,5 Gt)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Ota puheulostulo käyttöön (TTS)"
@@ -3401,9 +3620,6 @@ msgstr "Kokoro (paikallinen neuroverkko, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (paikallinen nopea neuroverkko, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "LLM-päätepiste"
 
 msgid "TTS Model"
 msgstr "TTS-malli"
@@ -4011,9 +4227,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "OCR-luottamusraja"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"RapidOCR:n tekstin vähimmäispistemäärä. Nosta vähentääksesi turhaa tekstiä."
+"RapidOCR-tekstin vähimmäispistemäärä. 0.0 on todellinen kynnysarvo (ei "
+"oletus). Nosta arvoa vähentääksesi turhaa tekstiä."
 
 msgid "OCR entire image"
 msgstr "OCR koko kuvalle"
@@ -4065,8 +4284,8 @@ msgstr "Asettelumalli"
 msgid "Heron (default)"
 msgstr "Heron (oletus)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (hitaampi"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (hitaampi, monimutkaiset asiakirjat)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Pura kaavat (LaTeX)"

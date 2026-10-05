@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -185,15 +185,15 @@ msgstr "再構築に失敗しました: "
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL エラー: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "API キーが無効です。設定を確認してください。"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr "API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可能性があります。"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
 
@@ -265,18 +265,6 @@ msgstr "AI プロバイダーがエラーを報告しました。もう一度や
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} が見つかりません: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "チャットの最大トークン数は 0 以上である必要があります"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "リクエストのタイムアウト時間は 0 より大きい必要があります"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatureは1.0以下である必要があります"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -373,6 +361,71 @@ msgstr "設定でモデルを設定してください。"
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "設定で有効なモデルを選択してください（プレースホルダーは不可）。"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "ローカルのWhisperで文字起こし中 ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr "ローカルのWhisperで文字起こし中 ({0})… 初回実行時にモデルがダウンロードされます。"
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "音声を文字起こし中..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "ローカルのWhisperが失敗しました: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "ローカルのWhisperから文字起こし結果が返されませんでした。"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"ローカルのWhisperはLibreOfficeのPythonではなく、設定 → Python "
+"venvで実行されます。venvを設定し、以下でインストールしてください: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisperが設定 → Python venvにインストールされていません。以下でインストールしてください: {0}。設定 → "
+"Pythonテストの「音声関連のオプションパッケージ」にリストされています。"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "ローカルのWhisperスクリプトが拡張機能に見当たりません。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"ローカルのWhisperがタイムアウトしたか、起動できませんでした。再試行するか、設定 → 音声でより小さなローカルモデルを選択してください。"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"ローカルのWhisperがタイムアウトしたか、起動できませんでした。初回実行時はモデルの重みをダウンロードします。再試行するか、設定 → "
+"音声でより小さなローカルモデルを選択してください。"
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr "音声認識エンドポイント用の言語モデルクライアントが利用できません。"
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -483,8 +536,7 @@ msgid "Status:"
 msgstr "ステータス:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "準備完了"
 
@@ -653,6 +705,13 @@ msgstr "WriterAgent: 選択範囲の編集 (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr "画像 '{name}' が見つかりません。image_listを使用するか、image_nameを空にして画像を選択してください。"
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "埋め込み画像を選択してから、もう一度実行してください。"
@@ -807,6 +866,17 @@ msgstr "この変更を承諾"
 msgid "Reject this change"
 msgstr "この変更を拒否"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "ドキュメントへのストリームテキストの書き込みに失敗しました: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr "選択範囲に追跡された挿入または削除が含まれています。先にそれらの変更を承諾または拒否してください。選択範囲は変更されませんでした。"
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: 選択範囲の拡張"
@@ -925,10 +995,6 @@ msgid "any"
 msgstr "任意"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "賞"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "ベスト"
 
@@ -953,10 +1019,6 @@ msgid "concise"
 msgstr "簡潔"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "詳細度"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "説明"
 
@@ -975,10 +1037,6 @@ msgstr "表示"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "各"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "機能"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1033,10 +1091,6 @@ msgid "me"
 msgstr "私"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "注目すべき"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "全体"
 
@@ -1069,10 +1123,6 @@ msgid "question"
 msgstr "質問"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "評価"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "推奨"
 
@@ -1085,10 +1135,6 @@ msgid "research"
 msgstr "調査"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "レビュー"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "検索"
 
@@ -1099,10 +1145,6 @@ msgstr "短い"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "表示"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "署名"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1141,10 +1183,6 @@ msgid "top"
 msgstr "トップ"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "トレンド"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "タイプ"
 
@@ -1171,6 +1209,10 @@ msgstr "なぜ"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "あなた"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "無効な設定"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1246,10 +1288,6 @@ msgstr "評価ダッシュボード"
 msgid "Debug"
 msgstr "デバッグ"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[音声が検出されませんでした。]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "エラー: ツールキットが利用できません"
@@ -1258,7 +1296,7 @@ msgstr "エラー: ツールキットが利用できません"
 msgid "Chat"
 msgstr "チャット"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "画像"
 
@@ -1343,7 +1381,7 @@ msgstr "音声を録音中… (%d ms の無音)"
 msgid "Record"
 msgstr "録音"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "録音停止"
 
@@ -1374,6 +1412,14 @@ msgid ""
 msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告ください。]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[オーディオエラー: 音声ファイルなしで録音が停止しました。]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[音声が検出されませんでした。]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1381,8 +1427,17 @@ msgid ""
 msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[エージェントバックエンドエラー: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[ピア送信には、このサイドバーでチャットモードが必要です。]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "ハンズフリー録音中..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1440,7 +1495,7 @@ msgstr "リサーチキャッシュ保存済み (キー: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "'%s' を読み取り専用で開いています。"
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "ウェブリサーチが完了しました。"
 
@@ -1471,10 +1526,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "エディタを開始できませんでした: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "音声を文字起こし中..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1581,7 +1632,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Webリサーチで利用可能な証拠は見つかりませんでした。"
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "アシスタント:"
 
@@ -1622,10 +1672,6 @@ msgid ""
 msgstr ""
 "新しい %(name)s (%(version)s) "
 "が利用可能です。「ツール」→「拡張機能マネージャー」を使用して更新を確認し、最新の拡張機能をインストールしてください。"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "無効な設定"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1813,11 +1859,12 @@ msgstr "スクリプト"
 msgid "My Scripts"
 msgstr "マイ スクリプト"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr "組み込みヘルパーは読み取り専用です。「マイ スクリプトにコピー」を使用してカスタマイズしてください。"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1898,10 +1945,21 @@ msgid "No document is open to save scripts."
 msgstr "スクリプトを保存するためのドキュメントが開かれていません。"
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "ドキュメントが読み取り専用であるか、プロパティを書き込めません。"
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
-msgstr "ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライブラリにスクリプトを保存しました。"
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
+msgstr ""
+"初期化スクリプトはドキュメントに保存されましたが、共有カーネルキャッシュが更新されませんでした。=PY() "
+"は以前のスクリプトを実行し続ける可能性があります。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' はワークブックの初期化スクリプト用に予約されています。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1913,9 +1971,18 @@ msgid "This Document"
 msgstr "このドキュメント"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "ドキュメントが閉じられました。"
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "スクリプト '{0}' を「マイ スクリプト」に保存しました。"
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "'{0}' という名前のスクリプトはすでに「マイ スクリプト」に存在します。{1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "スクリプト '{0}' を「マイ スクリプト」に保存しました。 {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1957,8 +2024,21 @@ msgid "Deleted script '{0}'."
 msgstr "スクリプト '{0}' を削除しました。"
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "ドキュメントは開かれていません。"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "スクリプトの実行に失敗しました。"
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialogを拡張機能から読み込めませんでした。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr "「マイ スクリプト」に保存できません: '%s' という名前のスクリプトは既に存在します。"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1974,6 +2054,14 @@ msgstr "スクリプト '%s' をこのドキュメントに保存しました。
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "スクリプト '%s' を正常に保存しました。"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "実行中..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "実行エラー"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2007,10 +2095,6 @@ msgstr "スクリプト '%s' をこのドキュメント内に作成しました
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "スクリプト '%s' をマイ スクリプト内に作成しました。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "実行エラー"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2062,6 +2146,37 @@ msgid ""
 msgstr ""
 "設定されたvenv内にPython実行ファイルが見つかりません: {0} (bin/python、Scripts/python.exe、またはenv-"
 "rootのpython.exeが必要です)。"
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "スクリプトリストの更新がタイムアウトしました。"
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "スクリプトの保存がタイムアウトしました。"
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "初期化スクリプト"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "LaTeX 数式"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "このエディター"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"{0} への変更を保存しますか？\n"
+"\n"
+"「はい」を選択すると保存してから切り替えます。「いいえ」を選択すると変更を破棄します。「キャンセル」を選択すると現在のエディターを維持します。"
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2124,6 +2239,22 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "ベクトル検索プローブが失敗しました (writeragent_debug.log を参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco のプローブに失敗しました (writeragent_debug.log を参照してください)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco のプローブがタイムアウトしました。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB のプローブに失敗しました (writeragent_debug.log を参照してください)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "DuckDB のプローブがタイムアウトしました。"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "録音と音声"
 
@@ -2184,6 +2315,10 @@ msgid "Local TTS engines (optional):"
 msgstr "ローカル TTS エンジン (オプション):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "ローカル Whisper (オプション):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Python ワーカーを起動中..."
 
@@ -2192,8 +2327,12 @@ msgid "Reading Python version..."
 msgstr "Python バージョンを読み込み中..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "音声と録音: sounddevice と TTS エンジンを確認中..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "オーディオと音声: sounddevice、TTS、およびローカル Whisper を確認中..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Monaco ライブラリ: スクリプトワーカーの外部を確認中..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2396,6 +2535,10 @@ msgid ""
 msgstr "「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワークブックを開いて、もう一度試してください。"
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "初期化スクリプトを復元できませんでした。"
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "このワークブックのPythonセッションをリセットしました。"
 
@@ -2456,11 +2599,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Calcへの結果の挿入に失敗しました: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "情報"
 
@@ -2505,6 +2643,16 @@ msgstr "スクリプトは正常に実行されました。(所要時間: {time}
 msgid "Script saved."
 msgstr "スクリプトが保存されました。"
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "スクリプトが既に実行中です。"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr "スクリプト '{0}' は「マイ スクリプト」またはこのドキュメント内に存在しないため、保存されませんでした。"
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Pythonスクリプトを実行"
@@ -2532,15 +2680,19 @@ msgstr "埋め込み画像（または画像を含む範囲）を選択してか
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr "画像 '{name}' が見つかりません。image_listを使用するか、image_nameを空にして画像を選択してください。"
+msgid "Image '{name}' could not be exported."
+msgstr "画像 '{name}' をエクスポートできませんでした。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "画像 '{name}' をエクスポートできませんでした。"
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr "画像が大きすぎるため、ビジョンワーカーに送信できません（サイズ: {size} バイト、制限: {limit}）。"
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "ユーザーによってキャンセルされました。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2984,10 +3136,6 @@ msgid "Image Model:"
 msgstr "画像モデル:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "画像設定"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "インプレース置換"
 
@@ -3239,11 +3387,63 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "エージェントの権限に関するプロンプト"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr "エージェントにツール（ファイルの読み取り、コマンドの実行など）の使用を許可する前に確認を求める"
+
+msgid "STT Provider"
+msgstr "STTプロバイダー"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"LLMエンドポイントはオーディオモデルと POST /v1/audio/transcriptions "
+"を使用します。ローカルWhisperは「設定」→「Python venv」（LibreOfficeのPythonではありません）で faster-"
+"whisper を実行します。"
+
+msgid "LLM Endpoint"
+msgstr "LLM エンドポイント"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "ローカルWhisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "オーディオモデル:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr "チャットモデルが音声入力を受け付けない場合の音声認識モデル。"
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
+msgstr "STTプロバイダーがLLMエンドポイントで、かつチャットモデルが音声入力を受け付けない場合に使用する音声認識（STT）モデル。"
+
+msgid "Local Model"
+msgstr "ローカルモデル"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"faster-whisperのサイズ。最初の文字起こし時にHugging "
+"Faceキャッシュへ重みデータがダウンロードされます（デフォルトのbaseは約150 MB、tinyは約75 MB、smallは約500 "
+"MB、mediumは約1.5 GBです）。"
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1.5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "音声出力 (TTS) を有効にする"
@@ -3285,9 +3485,6 @@ msgstr "Kokoro (ローカルニューラル, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (ローカル高速ニューラル, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "LLM エンドポイント"
 
 msgid "TTS Model"
 msgstr "TTS モデル"
@@ -3843,8 +4040,11 @@ msgstr "docling-toolsモデルダウンロード用のオプションフォル�
 msgid "OCR confidence threshold"
 msgstr "OCR信頼度しきい値"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
-msgstr "RapidOCRの最小テキストスコア。値を上げると不要なテキストを減らせます。"
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
+msgstr ""
+"RapidOCRの最小テキストスコア。0.0は実質的なしきい値です（デフォルト値ではありません）。不要なテキストを減らすには値を上げてください。"
 
 msgid "OCR entire image"
 msgstr "画像全体をOCR"
@@ -3895,8 +4095,8 @@ msgstr "レイアウトモデル"
 msgid "Heron (default)"
 msgstr "Heron (デフォルト)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (低速"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (低速、複雑なドキュメント向け)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "数式を抽出 (LaTeX)"

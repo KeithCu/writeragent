@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -194,17 +194,17 @@ msgstr "Η αναδόμηση απέτυχε: "
 msgid "TLS/SSL Error: {0}"
 msgstr "Σφάλμα TLS/SSL: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Μη έγκυρο κλειδί API. Παρακαλούμε ελέγξτε τις ρυθμίσεις σας."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "Απαγορευμένη πρόσβαση API. Το κλειδί σας ενδέχεται να μην έχει δικαιώματα "
 "για αυτό το μοντέλο."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr ""
 "Το τελικό σημείο (endpoint) δεν βρέθηκε (404). Ελέγξτε το URL και το όνομα "
@@ -294,18 +294,6 @@ msgstr "Ο πάροχος AI ανέφερε ένα σφάλμα. Προσπαθ�
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "Το {resource_type} δεν βρέθηκε: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Τα μέγιστα tokens συνομιλίας πρέπει να είναι >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Το χρονικό όριο αιτήματος πρέπει να είναι > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Η θερμοκρασία πρέπει να είναι <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -416,6 +404,78 @@ msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr ""
 "Παρακαλώ επιλέξτε ένα έγκυρο μοντέλο στις Ρυθμίσεις (όχι ένα σύμβολο "
 "κράτησης θέσης)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Μεταγραφή με το τοπικό Whisper ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"Μεταγραφή με το τοπικό Whisper ({0})… Η πρώτη εκτέλεση πραγματοποιεί λήψη "
+"του μοντέλου."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Μεταγραφή ήχου..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Το τοπικό Whisper απέτυχε: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Το τοπικό Whisper δεν επέστρεψε μεταγραφή."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Το τοπικό Whisper εκτελείται στο Python venv των Ρυθμίσεων, όχι στην Python "
+"του LibreOffice. Ορίστε το venv και μετά εγκαταστήστε με: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"Το faster-whisper δεν είναι εγκατεστημένο στο Python venv των Ρυθμίσεων. "
+"Εγκαταστήστε το με: {0}. Οι Ρυθμίσεις → Δοκιμή Python το παραθέτουν στα "
+"προαιρετικά πακέτα ήχου."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Το σενάριο του τοπικού Whisper λείπει από την επέκταση."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Το τοπικό Whisper έληξε χρονικά ή δεν μπόρεσε να ξεκινήσει. Δοκιμάστε ξανά ή"
+" επιλέξτε ένα μικρότερο τοπικό μοντέλο στις Ρυθμίσεις → Ομιλία."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Το τοπικό Whisper έληξε χρονικά ή δεν μπόρεσε να ξεκινήσει. Η πρώτη εκτέλεση"
+" πραγματοποιεί λήψη των βαρών του μοντέλου· δοκιμάστε ξανά ή επιλέξτε ένα "
+"μικρότερο τοπικό μοντέλο στις Ρυθμίσεις → Ομιλία."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"Δεν υπάρχει διαθέσιμος πελάτης γλωσσικού μοντέλου για το τελικό σημείο "
+"μετατροπής ομιλίας σε κείμενο."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -530,8 +590,7 @@ msgid "Status:"
 msgstr "Κατάσταση:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Έτοιμο"
 
@@ -715,6 +774,15 @@ msgstr "WriterAgent: Επεξεργασία επιλογής (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Επέκταση επιλογής (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Η εικόνα '{name}' δεν βρέθηκε. Χρησιμοποιήστε το image_list ή αφήστε το "
+"image_name κενό και επιλέξτε το γραφικό."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Επιλέξτε μια ενσωματωμένη εικόνα και, στη συνέχεια, εκτελέστε ξανά."
@@ -871,6 +939,19 @@ msgstr "Αποδοχή αυτής της αλλαγής"
 msgid "Reject this change"
 msgstr "Απόρριψη αυτής της αλλαγής"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Αποτυχία εγγραφής κειμένου ροής στο έγγραφο: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Αυτή η επιλογή περιέχει παρακολουθούμενες προσθήκες ή διαγραφές. Αποδεχτείτε"
+" ή απορρίψτε αυτές τις αλλαγές πρώτα. Η επιλογή δεν τροποποιήθηκε."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Επέκταση επιλογής"
@@ -996,10 +1077,6 @@ msgid "any"
 msgstr "οποιοδήποτε"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "βραβεία"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "καλύτερο"
 
@@ -1024,10 +1101,6 @@ msgid "concise"
 msgstr "συνοπτικό"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "βάθος"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "περιγραφή"
 
@@ -1046,10 +1119,6 @@ msgstr "εμφάνιση"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "κάθε"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "χαρακτηριστικά"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1104,10 +1173,6 @@ msgid "me"
 msgstr "εγώ"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "αξιόλογο"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "συνολικά"
 
@@ -1140,10 +1205,6 @@ msgid "question"
 msgstr "ερώτηση"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "αξιολογήσεις"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "σύσταση"
 
@@ -1156,10 +1217,6 @@ msgid "research"
 msgstr "έρευνα"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "κριτικές"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "αναζήτηση"
 
@@ -1170,10 +1227,6 @@ msgstr "σύντομο"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "εμφάνιση"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "υπογραφή"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1212,10 +1265,6 @@ msgid "top"
 msgstr "κορυφή"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "τάσεις"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "τύποι"
 
@@ -1242,6 +1291,10 @@ msgstr "γιατί"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "εσείς"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Μη έγκυρη ρύθμιση"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1317,10 +1370,6 @@ msgstr "Πίνακας ελέγχου αξιολόγησης"
 msgid "Debug"
 msgstr "Αποσφαλμάτωση"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Δεν ανιχνεύθηκε ομιλία.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Σφάλμα: Το εργαλειοθήκη δεν είναι διαθέσιμο"
@@ -1329,7 +1378,7 @@ msgstr "Σφάλμα: Το εργαλειοθήκη δεν είναι διαθέ
 msgid "Chat"
 msgstr "Συνομιλία"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Εικόνα"
 
@@ -1414,7 +1463,7 @@ msgstr "Εγγραφή ήχου… (%d ms σιωπής)"
 msgid "Record"
 msgstr "Εγγραφή"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Διακοπή εγγραφής"
 
@@ -1448,6 +1497,14 @@ msgstr ""
 "{0}. Παρακαλούμε αναφέρετε το!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Σφάλμα ήχου: η εγγραφή σταμάτησε χωρίς αρχείο ήχου.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Δεν ανιχνεύθηκε ομιλία.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1457,10 +1514,19 @@ msgstr ""
 " STT στις Ρυθμίσεις.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Σφάλμα υποσυστήματος πράκτορα: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Η αποστολή σε ομότιμους απαιτεί λειτουργία Chat σε αυτήν την πλευρική "
 "στήλη.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Εγγραφή hands-free..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1520,7 +1586,7 @@ msgstr "Αποθήκευση προσωρινής μνήμης έρευνας (�
 msgid "Opening '%s' for read-only access."
 msgstr "Άνοιγμα του '%s' για πρόσβαση μόνο για ανάγνωση."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Η έρευνα στον ιστό ολοκληρώθηκε."
 
@@ -1551,10 +1617,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Αδυναμία εκκίνησης του επεξεργαστή: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Μεταγραφή ήχου..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1663,7 +1725,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Η διαδικτυακή έρευνα δεν συνέλεξε αξιοποιήσιμα στοιχεία."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Βοηθός:"
 
@@ -1705,10 +1766,6 @@ msgstr ""
 "Μια νεότερη έκδοση του %(name)s (%(version)s) είναι διαθέσιμη. "
 "Χρησιμοποιήστε το Εργαλεία → Διαχείριση επεκτάσεων για να ελέγξετε για "
 "ενημερώσεις και να εγκαταστήσετε την πιο πρόσφατη επέκταση."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Μη έγκυρη ρύθμιση"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1912,13 +1969,14 @@ msgstr "Σενάρια"
 msgid "My Scripts"
 msgstr "Τα σενάριά μου"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Οι ενσωματωμένοι βοηθοί είναι μόνο για ανάγνωση. Χρησιμοποιήστε την "
 "Αντιγραφή στα δικά μου σενάρια για προσαρμογή."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -2008,12 +2066,24 @@ msgid "No document is open to save scripts."
 msgstr "Δεν υπάρχει ανοιχτό έγγραφο για την αποθήκευση σεναρίων."
 
 #: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+msgid "Document is read-only or properties cannot be written."
 msgstr ""
-"Το έγγραφο είναι μόνο για ανάγνωση ή οι ιδιότητες δεν μπορούν να εγγραφούν. "
-"Το σενάριο αποθηκεύτηκε στην προσωπική σας βιβλιοθήκη."
+"Το έγγραφο είναι μόνο για ανάγνωση ή οι ιδιότητες δεν μπορούν να εγγραφούν."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
+msgstr ""
+"Το σενάριο αρχικοποίησης αποθηκεύτηκε στο έγγραφο, αλλά η προσωρινή μνήμη "
+"του κοινόχρηστου πυρήνα δεν ενημερώθηκε. Το =PY() ενδέχεται να εκτελεί ακόμα"
+" το προηγούμενο σενάριο."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr ""
+"Το '{0}' είναι δεσμευμένο για το σενάριο αρχικοποίησης του βιβλίου εργασίας."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2025,9 +2095,18 @@ msgid "This Document"
 msgstr "Αυτό το έγγραφο"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Το έγγραφο έκλεισε."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Το σενάριο '{0}' αποθηκεύτηκε στα Σενάριά μου."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "Ένα σενάριο με το όνομα '{0}' υπάρχει ήδη στα Σενάριά μου. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "Το σενάριο '{0}' αποθηκεύτηκε στα «Τα σενάριά μου». {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2069,8 +2148,23 @@ msgid "Deleted script '{0}'."
 msgstr "Το σενάριο '{0}' διαγράφηκε."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Το έγγραφο δεν είναι πλέον ανοιχτό."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Η εκτέλεση του σεναρίου απέτυχε."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "Το PythonScriptDialog δεν μπόρεσε να φορτωθεί από την επέκταση."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr ""
+"Αδυναμία αποθήκευσης στα «Τα σενάριά μου»: υπάρχει ήδη σενάριο με το όνομα "
+"'%s'."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2086,6 +2180,14 @@ msgstr "Το σενάριο '%s' αποθηκεύτηκε σε αυτό το έ�
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Το σενάριο '%s' αποθηκεύτηκε με επιτυχία."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Εκτέλεση..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Σφάλμα εκτέλεσης"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2119,10 +2221,6 @@ msgstr "Το σενάριο '%s' δημιουργήθηκε σε αυτό το �
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "Το σενάριο '%s' δημιουργήθηκε στα Σενάριά μου."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Σφάλμα εκτέλεσης"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2177,6 +2275,37 @@ msgid ""
 msgstr ""
 "Δεν βρέθηκε εκτελέσιμο αρχείο python στο ρυθμισμένο venv: {0} (αναμενόταν "
 "bin/python, Scripts/python.exe ή env-root python.exe)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Έληξε το χρονικό όριο ενημέρωσης της λίστας σεναρίων."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Έληξε το χρονικό όριο αποθήκευσης του σεναρίου."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "το σενάριο αρχικοποίησης"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "τον τύπο LaTeX"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "αυτόν τον επεξεργαστή"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Αποθήκευση αλλαγών στο {0};\n"
+"\n"
+"Το «Ναι» τις αποθηκεύει πριν την εναλλαγή. Το «Όχι» τις απορρίπτει. Το «Άκυρο» διατηρεί τον τρέχοντα επεξεργαστή."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2248,6 +2377,22 @@ msgstr ""
 "Ο έλεγχος διανυσματικής αναζήτησης απέτυχε (δείτε το writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Ο έλεγχος Monaco απέτυχε (δείτε το writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Ο έλεγχος Monaco έληξε χρονικά."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "Ο έλεγχος DuckDB απέτυχε (δείτε το writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "Ο έλεγχος DuckDB έληξε χρονικά."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Ηχογράφηση & Ομιλία"
 
@@ -2308,6 +2453,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Τοπικές μηχανές TTS (προαιρετικά):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Τοπικό Whisper (προαιρετικό):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Εκκίνηση εργάτη Python..."
 
@@ -2316,8 +2465,12 @@ msgid "Reading Python version..."
 msgstr "Ανάγνωση έκδοσης Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Ήχος & Ομιλία: έλεγχος του sounddevice και των μηχανών TTS..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Ήχος & Ομιλία: έλεγχος sounddevice, TTS και τοπικού Whisper..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Βιβλιοθήκες Monaco: έλεγχος εκτός του script worker..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2534,6 +2687,10 @@ msgstr ""
 "Ανοίξτε ένα βιβλίο εργασίας Calc και δοκιμάστε ξανά."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Δεν ήταν δυνατή η επαναφορά του σεναρίου αρχικοποίησης."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Η συνεδρία Python επαναφέρθηκε για αυτό το βιβλίο εργασίας."
 
@@ -2600,11 +2757,6 @@ msgstr ""
 "Οι μονάδες '{helper}' ολοκληρώθηκαν. Εισήχθησαν: {preview} (διάρκεια {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Αποτυχία εισαγωγής αποτελέσματος στο Calc: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Πληροφορίες"
 
@@ -2656,6 +2808,18 @@ msgstr "Το σενάριο εκτελέστηκε με επιτυχία. (δι�
 msgid "Script saved."
 msgstr "Το σενάριο αποθηκεύτηκε."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Ένα σενάριο εκτελείται ήδη."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Το σενάριο '{0}' δεν βρίσκεται στα «Δικά μου σενάρια» ή σε αυτό το έγγραφο, "
+"επομένως δεν αποθηκεύτηκε."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Εκτέλεση σεναρίου Python"
@@ -2688,17 +2852,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Η εικόνα '{name}' δεν βρέθηκε. Χρησιμοποιήστε το image_list ή αφήστε το "
-"image_name κενό και επιλέξτε το γραφικό."
+msgid "Image '{name}' could not be exported."
+msgstr "Η εικόνα '{name}' δεν ήταν δυνατό να εξαχθεί."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Η εικόνα '{name}' δεν ήταν δυνατό να εξαχθεί."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Η εικόνα είναι πολύ μεγάλη για αποστολή στον εργάτη όρασης ({size} bytes· "
+"όριο {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Ακυρώθηκε από τον χρήστη."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3152,10 +3320,6 @@ msgid "Image Model:"
 msgstr "Μοντέλο εικόνας:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Ρυθμίσεις εικόνας"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Επιτόπια αντικατάσταση"
 
@@ -3407,13 +3571,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Ερώτημα για δικαιώματα πράκτορα"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Ζήτηση επιβεβαίωσης πριν επιτραπεί στον πράκτορα η χρήση εργαλείων (ανάγνωση"
+" αρχείων, εκτέλεση εντολών κ.λπ.)"
+
+msgid "STT Provider"
+msgstr "Πάροχος STT"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"Το τελικό σημείο LLM χρησιμοποιεί το μοντέλο ήχου και POST "
+"/v1/audio/transcriptions. Το τοπικό Whisper εκτελεί το faster-whisper στις "
+"Ρυθμίσεις → Python venv (όχι στην Python του LibreOffice)."
+
+msgid "LLM Endpoint"
+msgstr "Τερματικό LLM"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Τοπικό Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Μοντέλο ήχου:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
 msgstr ""
-"Μοντέλο μετατροπής ομιλίας σε κείμενο όταν το μοντέλο συνομιλίας δεν μπορεί "
-"να δεχτεί είσοδο ήχου."
+"Μοντέλο μετατροπής ομιλίας σε κείμενο όταν ο πάροχος STT είναι το τελικό "
+"σημείο LLM και το μοντέλο συνομιλίας δεν μπορεί να δεχτεί είσοδο ήχου."
+
+msgid "Local Model"
+msgstr "Τοπικό μοντέλο"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"Μέγεθος faster-whisper. Η πρώτη μεταγραφή κατεβάζει τα βάρη στην προσωρινή "
+"μνήμη του Hugging Face (το base, που είναι το προεπιλεγμένο, είναι περίπου "
+"150 MB· tiny ~75 MB, small ~500 MB, medium ~1.5 GB)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1.5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Ενεργοποίηση εξόδου ομιλίας (TTS)"
@@ -3463,9 +3681,6 @@ msgstr "Kokoro (Τοπικό Νευρωνικό, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (Τοπικό Γρήγορο Νευρωνικό, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "Τερματικό LLM"
 
 msgid "TTS Model"
 msgstr "Μοντέλο TTS"
@@ -4087,10 +4302,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "Κατώφλι εμπιστοσύνης OCR"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"Ελάχιστο σκορ κειμένου RapidOCR. Αυξήστε το για να μειώσετε τα άχρηστα "
-"κείμενα."
+"Ελάχιστο σκορ κειμένου RapidOCR. Το 0.0 είναι ένα πραγματικό κατώφλι (όχι η "
+"προεπιλογή). Αυξήστε το για να μειώσετε το άχρηστο κείμενο."
 
 msgid "OCR entire image"
 msgstr "OCR ολόκληρης της εικόνας"
@@ -4143,8 +4360,8 @@ msgstr "Μοντέλο διάταξης"
 msgid "Heron (default)"
 msgstr "Heron (προεπιλογή)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (πιο αργό"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (πιο αργό, σύνθετα έγγραφα)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Εξαγωγή τύπων (LaTeX)"

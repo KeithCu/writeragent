@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -192,17 +192,17 @@ msgstr "पुनर्निर्माण विफल रहा: "
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL त्रुटि: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "अमान्य API कुंजी। कृपया अपनी सेटिंग्स की जाँच करें।"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "API एक्सेस वर्जित है। हो सकता है कि आपकी कुंजी में इस मॉडल के लिए अनुमतियों "
 "की कमी हो।"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "एंडपॉइंट नहीं मिला (404)। अपने URL और मॉडल नाम की जाँच करें।"
 
@@ -284,18 +284,6 @@ msgstr "AI प्रदाता ने एक त्रुटि की सू�
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} नहीं मिला: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "चैट अधिकतम टोकन >= 0 होने चाहिए"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "अनुरोध समय-सीमा (timeout) > 0 होनी चाहिए"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "तापमान <= 1.0 होना चाहिए"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -404,6 +392,77 @@ msgstr "कृपया सेटिंग्स में मॉडल से�
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "कृपया सेटिंग्स में एक मान्य मॉडल चुनें (प्लेसहोल्डर नहीं)।"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "स्थानीय Whisper ({0}) के साथ ट्रांसक्राइब किया जा रहा है…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"स्थानीय Whisper ({0}) के साथ ट्रांसक्राइब किया जा रहा है… पहली बार चलाने पर "
+"मॉडल डाउनलोड होता है।"
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "ऑडियो ट्रांसक्राइब किया जा रहा है..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "स्थानीय Whisper विफल रहा: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "स्थानीय Whisper ने कोई ट्रांसक्रिप्ट नहीं लौटाया।"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"स्थानीय Whisper LibreOffice के Python में नहीं, बल्कि Settings → Python venv"
+" में चलता है। venv सेट करें, फिर इससे इंस्टॉल करें: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper, Settings → Python venv में इंस्टॉल नहीं है। इससे इंस्टॉल "
+"करें: {0}। Settings → Python Test इसे Audio वैकल्पिक पैकेज के अंतर्गत "
+"सूचीबद्ध करता है।"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "एक्सटेंशन से स्थानीय Whisper स्क्रिप्ट गायब है।"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"स्थानीय Whisper का समय समाप्त हो गया या शुरू नहीं हो सका। पुनः प्रयास करें, "
+"या Settings → Speech में एक छोटा स्थानीय मॉडल चुनें।"
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"स्थानीय Whisper का समय समाप्त हो गया या शुरू नहीं हो सका। पहली बार चलाने पर "
+"मॉडल वेट्स डाउनलोड होते हैं; पुनः प्रयास करें, या Settings → Speech में एक "
+"छोटा स्थानीय मॉडल चुनें।"
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"स्पीच-टू-टेक्स्ट एंडपॉइंट के लिए कोई भाषा-मॉडल क्लाइंट उपलब्ध नहीं है।"
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -515,8 +574,7 @@ msgid "Status:"
 msgstr "स्थिति:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "तैयार"
 
@@ -690,6 +748,15 @@ msgstr "WriterAgent: चयन संपादित करें (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: चयन का विस्तार करें (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"छवि '{name}' नहीं मिली। image_list का उपयोग करें या image_name को खाली "
+"छोड़ें और ग्राफ़िक का चयन करें।"
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "एक एम्बेडेड छवि चुनें, फिर पुनः चलाएँ।"
@@ -844,6 +911,19 @@ msgstr "इस परिवर्तन को स्वीकार करे�
 msgid "Reject this change"
 msgstr "इस परिवर्तन को अस्वीकार करें"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "दस्तावेज़ में स्ट्रीम किया गया टेक्स्ट लिखने में विफल: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"इस चयन में ट्रैक किए गए सम्मिलन या विलोपन शामिल हैं। पहले उन परिवर्तनों को "
+"स्वीकार या अस्वीकार करें। चयन को संशोधित नहीं किया गया था।"
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: चयन का विस्तार करें"
@@ -967,10 +1047,6 @@ msgid "any"
 msgstr "कोई भी"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "पुरस्कार"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "सर्वश्रेष्ठ"
 
@@ -995,10 +1071,6 @@ msgid "concise"
 msgstr "संक्षिप्त"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "गहराई"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "विवरण"
 
@@ -1017,10 +1089,6 @@ msgstr "प्रदर्शन"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "प्रत्येक"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "विशेषताएँ"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1075,10 +1143,6 @@ msgid "me"
 msgstr "मैं"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "उल्लेखनीय"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "कुल मिलाकर"
 
@@ -1111,10 +1175,6 @@ msgid "question"
 msgstr "प्रश्न"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "रेटिंग"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "अनुशंसा"
 
@@ -1127,10 +1187,6 @@ msgid "research"
 msgstr "अनुसंधान"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "समीक्षाएं"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "खोजें"
 
@@ -1141,10 +1197,6 @@ msgstr "संक्षिप्त"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "दिखाएँ"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "हस्ताक्षर"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1183,10 +1235,6 @@ msgid "top"
 msgstr "शीर्ष"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "प्रवृत्तियाँ"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "प्रकार"
 
@@ -1213,6 +1261,10 @@ msgstr "क्यों"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "आप"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "अमान्य सेटिंग"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1288,10 +1340,6 @@ msgstr "मूल्यांकन डैशबोर्ड"
 msgid "Debug"
 msgstr "डिबग"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[कोई भाषण नहीं मिला।]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "त्रुटि: टूलकिट अनुपलब्ध है"
@@ -1300,7 +1348,7 @@ msgstr "त्रुटि: टूलकिट अनुपलब्ध है"
 msgid "Chat"
 msgstr "चैट"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "छवि"
 
@@ -1385,7 +1433,7 @@ msgstr "ऑडियो रिकॉर्ड हो रहा है… (%d ms 
 msgid "Record"
 msgstr "रिकॉर्ड करें"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "रिकॉर्डिंग रोकें"
 
@@ -1419,6 +1467,14 @@ msgstr ""
 "इसकी रिपोर्ट करें!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[ऑडियो त्रुटि: रिकॉर्डिंग बिना किसी ध्वनि फ़ाइल के रुक गई।]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[कोई भाषण नहीं मिला।]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1428,8 +1484,17 @@ msgstr ""
 " चुनें।]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[एजेंट बैकएंड त्रुटि: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[पीयर सेंड के लिए इस साइडबार पर चैट मोड की आवश्यकता है।]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "हैंड्स-फ़्री रिकॉर्डिंग..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1489,7 +1554,7 @@ msgstr "अनुसंधान कैश सहेजा गया (कुं�
 msgid "Opening '%s' for read-only access."
 msgstr "'%s' को केवल-पठनीय (read-only) एक्सेस के लिए खोला जा रहा है।"
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "वेब अनुसंधान पूर्ण हुआ।"
 
@@ -1520,10 +1585,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "एडिटर शुरू नहीं किया जा सका: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "ऑडियो ट्रांसक्राइब किया जा रहा है..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1631,7 +1692,6 @@ msgid "Web research collected no usable evidence."
 msgstr "वेब शोध में कोई उपयोगी साक्ष्य नहीं मिला।"
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "सहायक:"
 
@@ -1672,10 +1732,6 @@ msgid ""
 msgstr ""
 "एक नया %(name)s (%(version)s) उपलब्ध है। अपडेट की जाँच करने और नवीनतम "
 "एक्सटेंशन इंस्टॉल करने के लिए उपकरण → एक्सटेंशन मैनेजर का उपयोग करें।"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "अमान्य सेटिंग"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1877,13 +1933,14 @@ msgstr "स्क्रिप्ट्स"
 msgid "My Scripts"
 msgstr "मेरी स्क्रिप्ट्स"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "इन-बिल्ट हेल्पर्स केवल-पठनीय हैं। अनुकूलित करने के लिए 'मेरी स्क्रिप्ट्स में"
 " कॉपी करें' का उपयोग करें।"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1973,12 +2030,21 @@ msgid "No document is open to save scripts."
 msgstr "स्क्रिप्ट सहेजने के लिए कोई दस्तावेज़ खुला नहीं है।"
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "दस्तावेज़ केवल-पढ़ने योग्य है या गुणों को लिखा नहीं जा सकता है।"
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
 msgstr ""
-"दस्तावेज़ 'रीड-ओनली' है या गुणों को लिखा नहीं जा सकता। इसके बजाय स्क्रिप्ट "
-"को आपकी व्यक्तिगत लाइब्रेरी में सहेजा गया।"
+"आरंभीकरण स्क्रिप्ट को दस्तावेज़ पर सहेजा गया था, लेकिन साझा-कर्नेल कैश अपडेट"
+" नहीं हुआ। =PY() अभी भी पिछली स्क्रिप्ट चला सकता है।"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' वर्कबुक आरंभीकरण स्क्रिप्ट के लिए आरक्षित है।"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1990,9 +2056,18 @@ msgid "This Document"
 msgstr "यह दस्तावेज़"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "दस्तावेज़ बंद कर दिया गया था।"
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "स्क्रिप्ट '{0}' को 'मेरी स्क्रिप्ट्स' में सहेजा गया।"
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "My Scripts में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है। {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "स्क्रिप्ट '{0}' को 'My Scripts' में सहेजा गया। {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2034,8 +2109,23 @@ msgid "Deleted script '{0}'."
 msgstr "स्क्रिप्ट '{0}' को हटा दिया गया।"
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "दस्तावेज़ अब खुला नहीं है।"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "स्क्रिप्ट निष्पादन विफल रहा।"
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog को एक्सटेंशन से लोड नहीं किया जा सका।"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr ""
+"'My Scripts' में सहेजा नहीं जा सका: '%s' नाम की एक स्क्रिप्ट पहले से मौजूद "
+"है।"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2051,6 +2141,14 @@ msgstr "स्क्रिप्ट '%s' को इस दस्तावेज�
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "स्क्रिप्ट '%s' सफलतापूर्वक सहेजी गई।"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "चल रहा है..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "निष्पादन त्रुटि"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2084,10 +2182,6 @@ msgstr "स्क्रिप्ट '%s' इस दस्तावेज़ म�
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "स्क्रिप्ट '%s' को 'My Scripts' में बनाया गया।"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "निष्पादन त्रुटि"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2143,6 +2237,37 @@ msgstr ""
 "कॉन्फ़िगर किए गए venv के अंतर्गत कोई python निष्पादन योग्य (executable) नहीं"
 " मिला: {0} (bin/python, Scripts/python.exe, या env-root python.exe अपेक्षित "
 "है)।"
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "स्क्रिप्ट सूची अपडेट का समय समाप्त हो गया।"
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "स्क्रिप्ट सहेजने का समय समाप्त हो गया।"
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "प्रारंभीकरण स्क्रिप्ट"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "LaTeX सूत्र"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "यह संपादक"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"{0} में किए गए परिवर्तनों को सहेजें?\n"
+"\n"
+"हाँ, स्विच करने से पहले उन्हें सहेजता है। नहीं, उन्हें त्याग देता है। रद्द करें, वर्तमान संपादक को बनाए रखता है।"
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2209,6 +2334,22 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "वेक्टर सर्च जांच विफल रही (writeragent_debug.log देखें)।"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco जाँच विफल रही (writeragent_debug.log देखें)।"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco जाँच का समय समाप्त हो गया।"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB जाँच विफल रही (writeragent_debug.log देखें)।"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "DuckDB जाँच का समय समाप्त हो गया।"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "ऑडियो रिकॉर्डिंग और स्पीच"
 
@@ -2269,6 +2410,10 @@ msgid "Local TTS engines (optional):"
 msgstr "स्थानीय TTS इंजन (वैकल्पिक):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "स्थानीय व्हिस्पर (वैकल्पिक):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "पायथन वर्कर शुरू किया जा रहा है..."
 
@@ -2277,8 +2422,14 @@ msgid "Reading Python version..."
 msgstr "पायथन संस्करण पढ़ा जा रहा है..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "ऑडियो और स्पीच: sounddevice और TTS इंजन की जाँच की जा रही है..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr ""
+"ऑडियो और स्पीच: sounddevice, TTS, और स्थानीय व्हिस्पर की जाँच की जा रही "
+"है..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Monaco लाइब्रेरीज़: स्क्रिप्ट वर्कर के बाहर जाँच की जा रही है..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2491,6 +2642,10 @@ msgstr ""
 "खोलें और पुनः प्रयास करें।"
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "आरंभीकरण स्क्रिप्ट को पुनर्स्थापित नहीं किया जा सका।"
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "इस वर्कबुक के लिए Python सत्र रीसेट कर दिया गया है।"
 
@@ -2555,11 +2710,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Units '{helper}' पूर्ण हुआ। डाला गया: {preview} ({time} लगा)"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Calc में परिणाम डालने में विफल: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "जानकारी"
 
@@ -2607,6 +2757,18 @@ msgstr "स्क्रिप्ट सफलतापूर्वक निष�
 msgid "Script saved."
 msgstr "स्क्रिप्ट सहेजी गई।"
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "एक स्क्रिप्ट पहले से ही चल रही है।"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"स्क्रिप्ट '{0}' 'My Scripts' या इस दस्तावेज़ में नहीं है, इसलिए इसे सहेजा "
+"नहीं गया।"
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "पायथन स्क्रिप्ट चलाएँ"
@@ -2634,17 +2796,20 @@ msgstr "एक एम्बेडेड चित्र (या चित्र�
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"छवि '{name}' नहीं मिली। image_list का उपयोग करें या image_name को खाली "
-"छोड़ें और ग्राफ़िक का चयन करें।"
+msgid "Image '{name}' could not be exported."
+msgstr "इमेज '{name}' को एक्सपोर्ट नहीं किया जा सका।"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "इमेज '{name}' को एक्सपोर्ट नहीं किया जा सका।"
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"छवि विज़न वर्कर को भेजने के लिए बहुत बड़ी है ({size} बाइट्स; सीमा {limit})।"
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "उपयोगकर्ता द्वारा रद्द किया गया।"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3095,10 +3260,6 @@ msgid "Image Model:"
 msgstr "छवि मॉडल:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "छवि सेटिंग्स"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "इन-प्लेस रिप्लेसमेंट"
 
@@ -3350,11 +3511,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "एजेंट अनुमतियों के लिए प्रॉम्प्ट"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"एजेंट को टूल (फ़ाइलें पढ़ना, कमांड निष्पादित करना, आदि) का उपयोग करने की "
+"अनुमति देने से पहले पुष्टि मांगें"
+
+msgid "STT Provider"
+msgstr "STT प्रदाता"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"LLM एंडपॉइंट ऑडियो मॉडल और POST /v1/audio/transcriptions का उपयोग करता है। "
+"लोकल व्हिस्पर (Local Whisper) सेटिंग्स → Python venv (LibreOffice के Python "
+"नहीं) में faster-whisper चलाता है।"
+
+msgid "LLM Endpoint"
+msgstr "LLM एंडपॉइंट"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "लोकल व्हिस्पर (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "ऑडियो मॉडल:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr "स्पीच-टू-टेक्स्ट मॉडल जब चैट मॉडल ऑडियो इनपुट न ले सके।"
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
+msgstr ""
+"स्पीच-टू-टेक्स्ट मॉडल जब STT प्रदाता LLM एंडपॉइंट हो और चैट मॉडल ऑडियो इनपुट"
+" न ले सके।"
+
+msgid "Local Model"
+msgstr "लोकल मॉडल"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"faster-whisper का आकार। पहली बार ट्रांसक्रिप्शन करने पर वेट्स (weights) "
+"Hugging Face कैश में डाउनलोड होते हैं (base, जो डिफ़ॉल्ट है, लगभग 150 MB है;"
+" tiny ~75 MB, small ~500 MB, medium ~1.5 GB)।"
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1.5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "स्पीच आउटपुट (TTS) सक्षम करें"
@@ -3403,9 +3620,6 @@ msgstr "Kokoro (Local Neural, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (Local Fast Neural, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "LLM एंडपॉइंट"
 
 msgid "TTS Model"
 msgstr "TTS मॉडल"
@@ -4001,9 +4215,12 @@ msgstr "docling-tools मॉडल डाउनलोड (ऑफ़लाइन 
 msgid "OCR confidence threshold"
 msgstr "OCR कॉन्फिडेंस थ्रेशोल्ड"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"RapidOCR न्यूनतम टेक्स्ट स्कोर। कचरा टेक्स्ट कम करने के लिए इसे बढ़ाएं।"
+"RapidOCR न्यूनतम टेक्स्ट स्कोर। 0.0 एक वास्तविक थ्रेशोल्ड है (डिफ़ॉल्ट "
+"नहीं)। कचरा टेक्स्ट (garbage text) को कम करने के लिए इसे बढ़ाएं।"
 
 msgid "OCR entire image"
 msgstr "संपूर्ण छवि का OCR करें"
@@ -4057,8 +4274,8 @@ msgstr "लेआउट मॉडल"
 msgid "Heron (default)"
 msgstr "हेरोन (डिफ़ॉल्ट)"
 
-msgid "Egret large (slower"
-msgstr "एग्रेट लार्ज (धीमा"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (धीमा, जटिल दस्तावेज़)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "सूत्र निकालें (LaTeX)"

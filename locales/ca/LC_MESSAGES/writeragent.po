@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -193,17 +193,17 @@ msgstr "Ha fallat la reconstrucció: "
 msgid "TLS/SSL Error: {0}"
 msgstr "Error de TLS/SSL: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Clau d'API no vàlida. Comproveu la configuració."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "Accés a l'API prohibit. És possible que la vostra clau no tingui permisos "
 "per a aquest model."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr ""
 "No s'ha trobat el punt final (404). Comproveu l'URL i el nom del model."
@@ -292,18 +292,6 @@ msgstr "El proveïdor d'IA ha informat d'un error. Torneu-ho a provar."
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} no trobat: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "El màxim de testimonis del xat ha de ser >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "El temps d'espera de la sol·licitud ha de ser > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "La temperatura ha de ser <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -414,6 +402,78 @@ msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr ""
 "Si us plau, seleccioneu un model vàlid a la configuració (no un marcador de "
 "posició)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "S'està transcrivint amb el Whisper local ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"S'està transcrivint amb el Whisper local ({0})… La primera execució "
+"descarrega el model."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "S'està transcrivint l'àudio..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "El Whisper local ha fallat: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "El Whisper local no ha retornat cap transcripció."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"El Whisper local s'executa al venv de Python de la configuració, no al "
+"Python del LibreOffice. Establiu el venv i instal·leu-lo amb: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper no està instal·lat al venv de Python de la configuració. "
+"Instal·leu-lo amb: {0}. La prova de Python a la configuració l'enumera sota "
+"els paquets opcionals d'àudio."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Falta l'script del Whisper local a l'extensió."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"El Whisper local ha exhaurit el temps d'espera o no s'ha pogut iniciar. "
+"Torneu-ho a provar o trieu un model local més petit a Configuració → Parla."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"El Whisper local ha exhaurit el temps d'espera o no s'ha pogut iniciar. La "
+"primera execució descarrega els pesos del model; torneu-ho a provar o trieu "
+"un model local més petit a Configuració → Parla."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"No hi ha cap client de model de llenguatge disponible per al punt final de "
+"veu a text."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -528,8 +588,7 @@ msgid "Status:"
 msgstr "Estat:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Preparat"
 
@@ -709,6 +768,15 @@ msgstr "WriterAgent: Edita la selecció (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Amplia la selecció (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"No s'ha trobat la imatge '{name}'. Utilitzeu image_list o deixeu image_name "
+"buit i seleccioneu el gràfic."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Seleccioneu una imatge incrustada i torneu a executar."
@@ -863,6 +931,19 @@ msgstr "Accepta aquest canvi"
 msgid "Reject this change"
 msgstr "Rebutja aquest canvi"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "No s'ha pogut escriure el text transmès al document: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Aquesta selecció conté insercions o supressions amb seguiment. Accepteu o "
+"rebutgeu aquests canvis primer. La selecció no s'ha modificat."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Amplia la selecció"
@@ -989,10 +1070,6 @@ msgid "any"
 msgstr "qualsevol"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "premis"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "millor"
 
@@ -1017,10 +1094,6 @@ msgid "concise"
 msgstr "concís"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "profunditat"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "descripció"
 
@@ -1039,10 +1112,6 @@ msgstr "visualitza"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "cada"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "funcionalitats"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1097,10 +1166,6 @@ msgid "me"
 msgstr "jo"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "notable"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "general"
 
@@ -1133,10 +1198,6 @@ msgid "question"
 msgstr "pregunta"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "valoracions"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "recomanació"
 
@@ -1149,10 +1210,6 @@ msgid "research"
 msgstr "investigació"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "ressenyes"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "cerca"
 
@@ -1163,10 +1220,6 @@ msgstr "curt"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "mostra"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "signatura"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1205,10 +1258,6 @@ msgid "top"
 msgstr "superior"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "tendències"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "tipus"
 
@@ -1235,6 +1284,10 @@ msgstr "per què"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "vostè"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Configuració no vàlida"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1310,10 +1363,6 @@ msgstr "Tauler d'avaluació"
 msgid "Debug"
 msgstr "Depura"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[No s'ha detectat veu.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Error: el joc d'eines no està disponible"
@@ -1322,7 +1371,7 @@ msgstr "Error: el joc d'eines no està disponible"
 msgid "Chat"
 msgstr "Xat"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Imatge"
 
@@ -1407,7 +1456,7 @@ msgstr "S'està enregistrant l'àudio… (%d ms de silenci)"
 msgid "Record"
 msgstr "Enregistra"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Atura l'enregistrament"
 
@@ -1441,6 +1490,14 @@ msgstr ""
 "us plau, informeu-ne!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Error d'àudio: l'enregistrament s'ha aturat sense un fitxer de so.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[No s'ha detectat veu.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1450,9 +1507,18 @@ msgstr ""
 "la configuració.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Error del rerefons de l'agent: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[L'enviament entre iguals requereix el mode Xat en aquesta barra lateral.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Enregistrament mans lliures..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1512,7 +1578,7 @@ msgstr "S'ha desat la memòria cau de recerca (clau: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "S'està obrint «%s» per a accés de només lectura."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Recerca web completada."
 
@@ -1543,10 +1609,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "No s'ha pogut iniciar l'editor: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "S'està transcrivint l'àudio..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1655,7 +1717,6 @@ msgid "Web research collected no usable evidence."
 msgstr "La recerca web no ha recollit cap evidència utilitzable."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Assistent:"
 
@@ -1697,10 +1758,6 @@ msgstr ""
 "Hi ha una versió més recent de %(name)s (%(version)s) disponible. Utilitzeu "
 "Eines → Gestor d'extensions per comprovar si hi ha actualitzacions i "
 "instal·lar l'extensió més recent."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Configuració no vàlida"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1902,13 +1959,14 @@ msgstr "Scripts"
 msgid "My Scripts"
 msgstr "Els meus scripts"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Els ajudants integrats són de només lectura. Utilitzeu «Copia a Els meus "
 "scripts» per a personalitzar-los."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1999,12 +2057,24 @@ msgid "No document is open to save scripts."
 msgstr "No hi ha cap document obert per desar els scripts."
 
 #: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+msgid "Document is read-only or properties cannot be written."
 msgstr ""
-"El document és de només lectura o no es poden escriure les propietats. "
-"L'script s'ha desat a la vostra biblioteca personal."
+"El document és de només lectura o no se'n poden escriure les propietats."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
+msgstr ""
+"L'script d'inicialització s'ha desat al document, però la memòria cau del "
+"nucli compartit no s'ha actualitzat. =PY() encara podria executar l'script "
+"anterior."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr ""
+"«{0}» està reservat per a l'script d'inicialització del llibre de treball."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2016,9 +2086,18 @@ msgid "This Document"
 msgstr "Aquest document"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "El document s'ha tancat."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "S'ha desat l'script «{0}» a Els meus scripts."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "Ja existeix un script anomenat «{0}» a Els meus scripts. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "S'ha desat l'script «{0}» a Els meus scripts. {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2060,8 +2139,22 @@ msgid "Deleted script '{0}'."
 msgstr "S'ha suprimit l'script «{0}»."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "El document ja no està obert."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Ha fallat l'execució de l'script."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "No s'ha pogut carregar el PythonScriptDialog des de l'extensió."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr ""
+"No es pot desar a Els meus scripts: ja existeix un script anomenat «%s»."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2077,6 +2170,14 @@ msgstr "L'script «%s» s'ha desat en aquest document."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "El script «%s» s'ha desat correctament."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "S'està executant..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Error d'execució"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2110,10 +2211,6 @@ msgstr "El script «%s» s'ha creat en aquest document."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "El script «%s» s'ha creat a Els meus scripts."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Error d'execució"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2168,6 +2265,37 @@ msgid ""
 msgstr ""
 "No s'ha trobat cap executable de Python al venv configurat: {0} (s'esperava "
 "bin/python, Scripts/python.exe o python.exe a l'arrel de l'entorn)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "La llista d'scripts ha superat el temps d'espera d'actualització."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "S'ha superat el temps d'espera en desar l'script."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "l'script d'inicialització"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "la fórmula LaTeX"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "aquest editor"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Desar els canvis a {0}?\n"
+"\n"
+"«Sí» els desa abans de canviar. «No» els descarta. «Cancel·la» manté l'editor actual."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2238,6 +2366,23 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "La sonda de cerca vectorial ha fallat (vegeu writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr ""
+"UI / La comprovació de Monaco ha fallat (vegeu writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / La comprovació de Monaco ha excedit el temps d'espera."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "La comprovació de DuckDB ha fallat (vegeu writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "La comprovació de DuckDB ha excedit el temps d'espera."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Enregistrament d'àudio i veu"
 
@@ -2298,6 +2443,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Motors de TTS locals (opcional):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Whisper local (opcional):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "S'està iniciant el treballador de Python..."
 
@@ -2306,9 +2455,13 @@ msgid "Reading Python version..."
 msgstr "S'està llegint la versió de Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Àudio i veu: comprovant sounddevice, TTS i Whisper local..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
 msgstr ""
-"Àudio i veu: s'està comprovant el dispositiu de so i els motors de TTS..."
+"UI / Biblioteques de Monaco: comprovant fora del treballador de script..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2525,6 +2678,10 @@ msgstr ""
 "llibre de treball del Calc i torneu-ho a provar."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "No s'ha pogut restaurar l'script d'inicialització."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "S'ha restablert la sessió Python per a aquest llibre de treball."
 
@@ -2590,11 +2747,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Unitats '{helper}' completades. Inserit: {preview} (ha trigat {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Ha fallat la inserció del resultat al Calc: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Informació"
 
@@ -2646,6 +2798,18 @@ msgstr "L'script s'ha executat correctament. (ha trigat {time})"
 msgid "Script saved."
 msgstr "L'script s'ha desat."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Ja hi ha un script en execució."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"L'script «{0}» no és a «Els meus scripts» ni en aquest document, per tant no"
+" s'ha desat."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Executa l'script de Python"
@@ -2676,17 +2840,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"No s'ha trobat la imatge '{name}'. Utilitzeu image_list o deixeu image_name "
-"buit i seleccioneu el gràfic."
+msgid "Image '{name}' could not be exported."
+msgstr "No s'ha pogut exportar la imatge '{name}'."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "No s'ha pogut exportar la imatge '{name}'."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"La imatge és massa gran per enviar-la al treballador de visió ({size} bytes;"
+" límit {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Cancel·lat per l'usuari."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3140,10 +3308,6 @@ msgid "Image Model:"
 msgstr "Model d'imatge:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Configuració de la imatge"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Substitució in situ"
 
@@ -3395,12 +3559,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Sol·licita permisos de l'agent"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Demana confirmació abans de permetre que l'agent utilitzi eines (llegir "
+"fitxers, executar ordres, etc.)"
+
+msgid "STT Provider"
+msgstr "Proveïdor STT"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"El punt final de l'LLM utilitza el model d'àudio i POST "
+"/v1/audio/transcriptions. El Whisper local executa faster-whisper a la "
+"configuració → entorn virtual de Python (no el Python de LibreOffice)."
+
+msgid "LLM Endpoint"
+msgstr "Punt final d'LLM"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Whisper local (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Model d'àudio:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
 msgstr ""
-"Model de veu a text quan el model de xat no pot rebre entrada d'àudio."
+"Model de veu a text quan el proveïdor STT és el punt final de l'LLM i el "
+"model de xat no pot acceptar entrada d'àudio."
+
+msgid "Local Model"
+msgstr "Model local"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"Mida de faster-whisper. La primera transcripció descarrega els pesos a la "
+"memòria cau d'Hugging Face (base, el predeterminat, és d'uns 150 MB; tiny "
+"~75 MB, small ~500 MB, medium ~1,5 GB)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1,5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Habilita la sortida de veu (TTS)"
@@ -3450,9 +3669,6 @@ msgstr "Kokoro (Neural local, CPU ONNX)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (Neural ràpida local, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "Punt final d'LLM"
 
 msgid "TTS Model"
 msgstr "Model de TTS"
@@ -4068,10 +4284,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "Llindar de confiança de l'OCR"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"Puntuació mínima de text per a RapidOCR. Augmenteu-la per reduir el text "
-"brossa."
+"Puntuació mínima de text de RapidOCR. 0.0 és un llindar real (no el "
+"predeterminat). Augmenteu-lo per reduir el text brossa."
 
 msgid "OCR entire image"
 msgstr "OCR de tota la imatge"
@@ -4124,8 +4342,8 @@ msgstr "Model de disseny"
 msgid "Heron (default)"
 msgstr "Heron (predeterminat)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (més lent"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (més lent, documents complexos)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Extreu fórmules (LaTeX)"

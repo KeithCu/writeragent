@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -193,17 +193,17 @@ msgstr "Reconstruirea a eșuat: "
 msgid "TLS/SSL Error: {0}"
 msgstr "Eroare TLS/SSL: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Cheie API nevalidă. Vă rugăm să verificați setările."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "Acces API interzis. Este posibil ca cheia dumneavoastră să nu aibă "
 "permisiuni pentru acest model."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Endpoint negăsit (404). Verificați URL-ul și numele modelului."
 
@@ -285,18 +285,6 @@ msgstr "Furnizorul AI a raportat o eroare. Încercați din nou."
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nu a fost găsit: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Numărul maxim de tokenuri pentru chat trebuie să fie >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Timpul de expirare a cererii trebuie să fie > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatura trebuie să fie <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -405,6 +393,75 @@ msgstr "Vă rugăm să setați Modelul în Setări."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Vă rugăm să selectați un model valid în Setări (nu un substituent)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Se transcrie cu Whisper local ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr "Se transcrie cu Whisper local ({0})… Prima rulare descarcă modelul."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Se transcrie conținutul audio..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Whisper local a eșuat: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Whisper local nu a returnat nicio transcriere."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Whisper local rulează în Setări → Python venv, nu în Python-ul din "
+"LibreOffice. Configurați venv, apoi instalați cu: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper nu este instalat în Setări → Python venv. Instalați cu: {0}. "
+"Setări → Test Python îl listează sub pachete opționale Audio."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Scriptul Whisper local lipsește din extensie."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Whisper local a expirat sau nu a putut porni. Încercați din nou sau alegeți "
+"un model local mai mic în Setări → Vorbire."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Whisper local a expirat sau nu a putut porni. Prima rulare descarcă "
+"ponderile modelului; încercați din nou sau alegeți un model local mai mic în"
+" Setări → Vorbire."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"Niciun client de model lingvistic nu este disponibil pentru punctul final de"
+" transformare a vorbirii în text."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -522,8 +579,7 @@ msgid "Status:"
 msgstr "Stare:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Pregătit"
 
@@ -703,6 +759,15 @@ msgstr "WriterAgent: Editare selecție (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Extindere selecție (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Imaginea '{name}' nu a fost găsită. Folosiți image_list sau lăsați "
+"image_name gol și selectați elementul grafic."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Selectați o imagine încorporată, apoi rulați din nou."
@@ -857,6 +922,19 @@ msgstr "Acceptă această modificare"
 msgid "Reject this change"
 msgstr "Respinge această modificare"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Nu s-a putut scrie textul transmis în document: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Această selecție conține inserări sau ștergeri urmărite. Acceptați sau "
+"respingeți mai întâi acele modificări. Selecția nu a fost modificată."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Extindere selecție"
@@ -982,10 +1060,6 @@ msgid "any"
 msgstr "oricare"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "premii"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "cel mai bun"
 
@@ -1010,10 +1084,6 @@ msgid "concise"
 msgstr "concis"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "profunzime"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "descriere"
 
@@ -1032,10 +1102,6 @@ msgstr "afișare"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "fiecare"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "funcționalități"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1090,10 +1156,6 @@ msgid "me"
 msgstr "eu"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "notabil"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "per total"
 
@@ -1126,10 +1188,6 @@ msgid "question"
 msgstr "întrebare"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "evaluări"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "recomandare"
 
@@ -1142,10 +1200,6 @@ msgid "research"
 msgstr "cercetare"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "recenzii"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "căutare"
 
@@ -1156,10 +1210,6 @@ msgstr "scurt"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "afișare"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "semnătură"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1198,10 +1248,6 @@ msgid "top"
 msgstr "sus"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "tendințe"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "tipuri"
 
@@ -1228,6 +1274,10 @@ msgstr "de ce"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "dumneavoastră"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Setare nevalidă"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1303,10 +1353,6 @@ msgstr "Tablou de bord evaluare"
 msgid "Debug"
 msgstr "Depanare"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Nu a fost detectată nicio voce.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Eroare: Setul de instrumente nu este disponibil"
@@ -1315,7 +1361,7 @@ msgstr "Eroare: Setul de instrumente nu este disponibil"
 msgid "Chat"
 msgstr "Chat"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Imagine"
 
@@ -1400,7 +1446,7 @@ msgstr "Se înregistrează audio… (%d ms liniște)"
 msgid "Record"
 msgstr "Înregistrare"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Oprire înregistrare"
 
@@ -1434,6 +1480,14 @@ msgstr ""
 "rugăm să raportați acest lucru!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Eroare audio: înregistrarea s-a oprit fără un fișier de sunet.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Nu a fost detectată nicio voce.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1443,9 +1497,18 @@ msgstr ""
 "Setări.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Eroare backend agent: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Trimiterea între egali necesită modul Chat în această bară laterală.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Înregistrare hands-free..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1506,7 +1569,7 @@ msgstr "Cache cercetare salvat (cheie: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "Se deschide „%s” pentru acces doar în citire."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Cercetarea web a fost finalizată."
 
@@ -1537,10 +1600,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Nu s-a putut porni editorul: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Se transcrie conținutul audio..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1649,7 +1708,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Cercetarea web nu a colectat nicio dovadă utilizabilă."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Asistent:"
 
@@ -1691,10 +1749,6 @@ msgstr ""
 "O versiune mai nouă %(name)s (%(version)s) este disponibilă. Utilizați "
 "Instrumente → Manager de extensii pentru a verifica actualizările și a "
 "instala cea mai recentă extensie."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Setare nevalidă"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1897,13 +1951,14 @@ msgstr "Scripturi"
 msgid "My Scripts"
 msgstr "Scripturile mele"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Ajutoarele integrate sunt doar pentru citire. Folosiți „Copiază în "
 "Scripturile mele” pentru a personaliza."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1990,12 +2045,23 @@ msgid "No document is open to save scripts."
 msgstr "Niciun document nu este deschis pentru a salva scripturile."
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Documentul este doar în citire sau proprietățile nu pot fi scrise."
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
 msgstr ""
-"Documentul este doar în citire sau proprietățile nu pot fi scrise. Scriptul "
-"a fost salvat în biblioteca personală."
+"Scriptul de inițializare a fost salvat în document, dar memoria cache a "
+"nucleului partajat nu s-a actualizat. =PY() ar putea rula în continuare "
+"scriptul anterior."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr ""
+"„{0}” este rezervat pentru scriptul de inițializare al registrului de lucru."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2007,9 +2073,18 @@ msgid "This Document"
 msgstr "Acest document"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Documentul a fost închis."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Scriptul „{0}” a fost salvat în Scripturile mele."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "Un script numit „{0}” există deja în Scripturile mele. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "Scriptul „{0}” a fost salvat în „My Scripts”. {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2051,8 +2126,21 @@ msgid "Deleted script '{0}'."
 msgstr "Scriptul „{0}” a fost șters."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Documentul nu mai este deschis."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Executarea scriptului a eșuat."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog nu a putut fi încărcat din extensie."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr "Nu se poate salva în „My Scripts”: un script numit „%s” există deja."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2068,6 +2156,14 @@ msgstr "Scriptul „%s” a fost salvat în acest document."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Scriptul „%s” a fost salvat cu succes."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Se execută..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Eroare de execuție"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2101,10 +2197,6 @@ msgstr "Scriptul „%s” a fost creat în acest document."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "Scriptul „%s” a fost creat în Scripturile mele."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Eroare de execuție"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2159,6 +2251,37 @@ msgid ""
 msgstr ""
 "Nu a fost găsit niciun executabil python în venv-ul configurat: {0} (se "
 "aștepta bin/python, Scripts/python.exe sau python.exe în rădăcina mediului)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Actualizarea listei de scripturi a expirat."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Salvarea scriptului a expirat."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "scriptul de inițializare"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "formula LaTeX"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "acest editor"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Salvați modificările în {0}?\n"
+"\n"
+"Da le salvează înainte de comutare. Nu le elimină. Anulare păstrează editorul curent."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2225,6 +2348,22 @@ msgstr ""
 "Sonda de căutare vectorială a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Sonda Monaco a eșuat (consultați writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Sonda Monaco a expirat."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "Sonda DuckDB a eșuat (consultați writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "Sonda DuckDB a expirat."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Înregistrare audio și vorbire"
 
@@ -2285,6 +2424,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Motoare TTS locale (opțional):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Whisper local (opțional):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Se pornește worker-ul Python..."
 
@@ -2293,8 +2436,12 @@ msgid "Reading Python version..."
 msgstr "Se citește versiunea Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Audio și vorbire: se verifică sounddevice și motoarele TTS..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Audio și vorbire: se verifică sounddevice, TTS și Whisper local..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Biblioteci Monaco: se verifică în afara worker-ului de script..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2505,6 +2652,10 @@ msgstr ""
 "registru de lucru Calc și încercați din nou."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Nu s-a putut restaura scriptul de inițializare."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Sesiunea Python a fost resetată pentru acest registru de lucru."
 
@@ -2570,11 +2721,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Unități „{helper}” finalizate. Inserat: {preview} (durată: {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Inserarea rezultatului în Calc a eșuat: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Informații"
 
@@ -2625,6 +2771,18 @@ msgstr "Scriptul a fost executat cu succes. (a durat {time})"
 msgid "Script saved."
 msgstr "Script salvat."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Un script rulează deja."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Scriptul „{0}” nu se află în „Scripturile mele” sau în acest document, deci "
+"nu a fost salvat."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Execută script Python"
@@ -2655,17 +2813,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Imaginea '{name}' nu a fost găsită. Folosiți image_list sau lăsați "
-"image_name gol și selectați elementul grafic."
+msgid "Image '{name}' could not be exported."
+msgstr "Imaginea „{name}” nu a putut fi exportată."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Imaginea „{name}” nu a putut fi exportată."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Imaginea este prea mare pentru a fi trimisă către agentul de viziune ({size}"
+" octeți; limită {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Anulat de utilizator."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3118,10 +3280,6 @@ msgid "Image Model:"
 msgstr "Model imagine:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Setări imagine"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Înlocuire pe loc"
 
@@ -3373,13 +3531,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Solicită permisiuni pentru agent"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Cere confirmare înainte de a permite agentului să utilizeze instrumente "
+"(citire fișiere, executare comenzi etc.)"
+
+msgid "STT Provider"
+msgstr "Furnizor STT"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"Endpoint-ul LLM utilizează modelul audio și POST /v1/audio/transcriptions. "
+"Whisper local rulează faster-whisper în Setări → Python venv (nu Python-ul "
+"din LibreOffice)."
+
+msgid "LLM Endpoint"
+msgstr "Endpoint LLM"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Whisper local (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Model audio:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
 msgstr ""
-"Modelul de vorbire-în-text când modelul de chat nu poate prelua intrare "
-"audio."
+"Model de vorbire-în-text (STT) atunci când furnizorul STT este Endpoint LLM "
+"și modelul de chat nu poate prelua intrare audio."
+
+msgid "Local Model"
+msgstr "Model local"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"Dimensiunea faster-whisper. Prima transcriere descarcă ponderile în memoria "
+"cache Hugging Face (base, valoarea implicită, are aproximativ 150 MB; tiny "
+"~75 MB, small ~500 MB, medium ~1,5 GB)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1,5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Activare ieșire vocală (TTS)"
@@ -3432,9 +3644,6 @@ msgstr "Kokoro (Neural local, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (Neural rapid local, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "Endpoint LLM"
 
 msgid "TTS Model"
 msgstr "Model TTS"
@@ -4043,10 +4252,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "Prag de încredere OCR"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"Scor minim de text pentru RapidOCR. Creșteți pentru a reduce textul "
-"irelevant."
+"Scorul minim de text RapidOCR. 0.0 este un prag real (nu cel implicit). "
+"Creșteți valoarea pentru a reduce textul irelevant."
 
 msgid "OCR entire image"
 msgstr "OCR pentru întreaga imagine"
@@ -4098,8 +4309,8 @@ msgstr "Model de machetă"
 msgid "Heron (default)"
 msgstr "Heron (implicit)"
 
-msgid "Egret large (slower"
-msgstr "Egret mare (mai lent"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (mai lent, documente complexe)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Extrage formule (LaTeX)"

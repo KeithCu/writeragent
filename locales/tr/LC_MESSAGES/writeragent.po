@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -193,17 +193,17 @@ msgstr "Yeniden oluşturma başarısız: "
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL Hatası: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Geçersiz API Anahtarı. Lütfen ayarlarınızı kontrol edin."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "API erişimi yasaklandı. Anahtarınız bu model için gerekli izinlere sahip "
 "olmayabilir."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Uç nokta bulunamadı (404). URL'nizi ve Model adınızı kontrol edin."
 
@@ -286,18 +286,6 @@ msgstr "Yapay zeka sağlayıcısı bir hata bildirdi. Tekrar deneyin."
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} bulunamadı: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Sohbet maksimum belirteç sayısı >= 0 olmalıdır"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "İstek zaman aşımı > 0 olmalıdır"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Sıcaklık <= 1.0 olmalıdır"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -406,6 +394,76 @@ msgstr "Lütfen Ayarlar'dan Modeli ayarlayın."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Lütfen Ayarlar'dan geçerli bir model seçin (yer tutucu değil)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Yerel Whisper ile yazıya dökülüyor ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"Yerel Whisper ile yazıya dökülüyor ({0})… İlk çalıştırmada model indirilir."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Ses dökümü alınıyor..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Yerel Whisper başarısız oldu: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Yerel Whisper bir döküm döndürmedi."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Yerel Whisper, LibreOffice'in Python'unda değil, Ayarlar → Python venv "
+"içinde çalışır. Venv'i ayarlayın, ardından şu komutla yükleyin: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper, Ayarlar → Python venv içinde yüklü değil. Şu komutla "
+"yükleyin: {0}. Ayarlar → Python Testi altında Ses isteğe bağlı paketleri "
+"listelenir."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Yerel Whisper betiği eklentide eksik."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Yerel Whisper zaman aşımına uğradı veya başlatılamadı. Tekrar deneyin veya "
+"Ayarlar → Konuşma bölümünden daha küçük bir Yerel Model seçin."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Yerel Whisper zaman aşımına uğradı veya başlatılamadı. İlk çalıştırmada "
+"model ağırlıkları indirilir; tekrar deneyin veya Ayarlar → Konuşma "
+"bölümünden daha küçük bir Yerel Model seçin."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"Konuşmadan metne uç noktası için hiçbir dil modeli istemcisi mevcut değil."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -516,8 +574,7 @@ msgid "Status:"
 msgstr "Durum:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Hazır"
 
@@ -695,6 +752,15 @@ msgstr "WriterAgent: Seçimi Düzenle (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Seçimi Genişlet (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"'{name}' resmi bulunamadı. image_list kullanın veya image_name kısmını boş "
+"bırakıp görseli seçin."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Gömülü bir resim seçin ve ardından tekrar Çalıştırın."
@@ -849,6 +915,19 @@ msgstr "Bu değişikliği kabul et"
 msgid "Reject this change"
 msgstr "Bu değişikliği reddet"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Belgeye akış metni yazılamadı: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Bu seçim, izlenen eklemeler veya silmeler içeriyor. Önce bu değişiklikleri "
+"kabul edin veya reddedin. Seçim değiştirilmedi."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Seçimi Genişlet"
@@ -970,10 +1049,6 @@ msgid "any"
 msgstr "herhangi"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "ödüller"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "en iyi"
 
@@ -998,10 +1073,6 @@ msgid "concise"
 msgstr "öz"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "derinlik"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "açıklama"
 
@@ -1020,10 +1091,6 @@ msgstr "görüntüle"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "her biri"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "özellikler"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1078,10 +1145,6 @@ msgid "me"
 msgstr "ben"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "önemli"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "genel"
 
@@ -1114,10 +1177,6 @@ msgid "question"
 msgstr "soru"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "dereceler"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "öneri"
 
@@ -1130,10 +1189,6 @@ msgid "research"
 msgstr "araştırma"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "incelemeler"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "ara"
 
@@ -1144,10 +1199,6 @@ msgstr "kısa"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "göster"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "imza"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1186,10 +1237,6 @@ msgid "top"
 msgstr "üst"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "eğilimler"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "türler"
 
@@ -1216,6 +1263,10 @@ msgstr "neden"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "siz"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Geçersiz Ayar"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1291,10 +1342,6 @@ msgstr "Değerlendirme Panosu"
 msgid "Debug"
 msgstr "Hata Ayıklama"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Konuşma algılanmadı.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Hata: Araç takımı kullanılamıyor"
@@ -1303,7 +1350,7 @@ msgstr "Hata: Araç takımı kullanılamıyor"
 msgid "Chat"
 msgstr "Sohbet"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Görsel"
 
@@ -1388,7 +1435,7 @@ msgstr "Ses kaydediliyor… (%d ms sessizlik)"
 msgid "Record"
 msgstr "Kaydet"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Kaydı Durdur"
 
@@ -1421,6 +1468,14 @@ msgstr ""
 "[Dahili Hata: {0} için belge türü tanımlanamadı. Lütfen bunu bildirin!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Ses hatası: kayıt bir ses dosyası olmadan durduruldu.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Konuşma algılanmadı.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1430,8 +1485,17 @@ msgstr ""
 "seçin.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Aracı arka uç hatası: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Eşler arası gönderim, bu kenar çubuğunda Sohbet modunu gerektirir.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Eller serbest kayıt..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1491,7 +1555,7 @@ msgstr "Araştırma önbelleği kaydedildi (anahtar: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "'%s' salt okunur erişim için açılıyor."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Web araştırması tamamlandı."
 
@@ -1522,10 +1586,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Düzenleyici başlatılamadı: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Ses dökümü alınıyor..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1634,7 +1694,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Web araştırması kullanılabilir bir kanıt toplamadı."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Asistan:"
 
@@ -1675,10 +1734,6 @@ msgid ""
 msgstr ""
 "Daha yeni bir %(name)s (%(version)s) mevcut. Güncellemeleri kontrol etmek ve"
 " en son eklentiyi yüklemek için Araçlar → Eklenti Yöneticisi'ni kullanın."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Geçersiz Ayar"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1880,13 +1935,14 @@ msgstr "Betikler"
 msgid "My Scripts"
 msgstr "Betiklerim"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Yerleşik yardımcılar salt okunurdur. Özelleştirmek için Betiklerime "
 "Kopyala'yı kullanın."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1969,12 +2025,21 @@ msgid "No document is open to save scripts."
 msgstr "Betikleri kaydetmek için açık bir belge yok."
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Belge salt okunur veya özellikler yazılamıyor."
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
 msgstr ""
-"Belge salt okunur veya özellikler yazılamıyor. Betik bunun yerine kişisel "
-"kitaplığınıza kaydedildi."
+"Başlatma betiği belgeye kaydedildi ancak paylaşılan çekirdek önbelleği "
+"güncellenmedi. =PY() hala önceki betiği çalıştırıyor olabilir."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' çalışma kitabı başlatma betiği için ayrılmıştır."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1986,9 +2051,18 @@ msgid "This Document"
 msgstr "Bu Belge"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Belge kapatıldı."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "'{0}' betiği Betiklerim'e kaydedildi."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "'{0}' adlı bir betik zaten Betiklerim'de mevcut. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "'{0}' betiği 'Betiklerim'e kaydedildi. {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2030,8 +2104,21 @@ msgid "Deleted script '{0}'."
 msgstr "'{0}' betiği silindi."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Belge artık açık değil."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Betik yürütme başarısız oldu."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog eklentiden yüklenemedi."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr "'Betiklerim'e kaydedilemiyor: '%s' adında bir betik zaten mevcut."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2047,6 +2134,14 @@ msgstr "'%s' betiği bu belgeye kaydedildi."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "'%s' betiği başarıyla kaydedildi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Çalıştırılıyor..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Yürütme Hatası"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2080,10 +2175,6 @@ msgstr "'%s' betiği bu belgede oluşturuldu."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "'%s' betiği Betiklerim'de oluşturuldu."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Yürütme Hatası"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2137,6 +2228,37 @@ msgid ""
 msgstr ""
 "Yapılandırılmış venv altında Python yürütülebilir dosyası bulunamadı: {0} "
 "(bin/python, Scripts/python.exe veya env-root python.exe bekleniyordu)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Betik listesi güncellemesi zaman aşımına uğradı."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Betik kaydetme zaman aşımına uğradı."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "başlatma betiği"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "LaTeX formülü"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "bu düzenleyici"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"{0} üzerindeki değişiklikler kaydedilsin mi?\n"
+"\n"
+"Evet, geçiş yapmadan önce kaydeder. Hayır, değişiklikleri atar. İptal, mevcut düzenleyiciyi korur."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2209,6 +2331,25 @@ msgstr ""
 "bakın)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr ""
+"Arayüz / Monaco incelemesi başarısız oldu (writeragent_debug.log dosyasına "
+"bakın)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "Arayüz / Monaco incelemesi zaman aşımına uğradı."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr ""
+"DuckDB incelemesi başarısız oldu (writeragent_debug.log dosyasına bakın)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "DuckDB incelemesi zaman aşımına uğradı."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Ses Kaydı ve Konuşma"
 
@@ -2269,6 +2410,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Yerel TTS motorları (isteğe bağlı):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Yerel Whisper (isteğe bağlı):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Python çalışanı başlatılıyor..."
 
@@ -2277,8 +2422,14 @@ msgid "Reading Python version..."
 msgstr "Python sürümü okunuyor..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Ses ve Konuşma: sounddevice ve TTS motorları kontrol ediliyor..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Ses ve Konuşma: sounddevice, TTS ve yerel Whisper kontrol ediliyor..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr ""
+"Arayüz / Monaco Kütüphaneleri: betik çalıştırıcısının dışı kontrol "
+"ediliyor..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2489,6 +2640,10 @@ msgstr ""
 "Bir Calc çalışma kitabı açın ve tekrar deneyin."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Başlatma betiği geri yüklenemedi."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Bu çalışma kitabı için Python oturumu sıfırlandı."
 
@@ -2553,11 +2708,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "'{helper}' birimleri tamamlandı. Eklenen: {preview} ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Sonuç Calc'a eklenemedi: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Bilgi"
 
@@ -2607,6 +2757,18 @@ msgstr "Betik başarıyla çalıştırıldı. ({time} sürdü)"
 msgid "Script saved."
 msgstr "Betik kaydedildi."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Bir betik zaten çalışıyor."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"'{0}' betiği 'Betiğim' içinde veya bu belgede bulunmuyor, bu yüzden "
+"kaydedilmedi."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Python Betiğini Çalıştır"
@@ -2636,17 +2798,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"'{name}' resmi bulunamadı. image_list kullanın veya image_name kısmını boş "
-"bırakıp görseli seçin."
+msgid "Image '{name}' could not be exported."
+msgstr "'{name}' görüntüsü dışa aktarılamadı."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "'{name}' görüntüsü dışa aktarılamadı."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Görüntü, görüntü işleme birimine gönderilemeyecek kadar büyük ({size} bayt; "
+"sınır {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Kullanıcı tarafından iptal edildi."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3098,10 +3264,6 @@ msgid "Image Model:"
 msgstr "Görsel Modeli:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Görsel Ayarları"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Yerinde değiştirme"
 
@@ -3353,12 +3515,67 @@ msgstr "Grok Derlemesi (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Ajan İzinleri için İstem"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Ajanın araçları kullanmasına (dosya okuma, komut çalıştırma vb.) izin "
+"vermeden önce onay iste"
+
+msgid "STT Provider"
+msgstr "STT Sağlayıcısı"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"LLM Uç Noktası, Ses Modeli ve POST /v1/audio/transcriptions kullanır. Yerel "
+"Whisper, Ayarlar → Python venv (LibreOffice'in Python'u değil) içinde "
+"faster-whisper çalıştırır."
+
+msgid "LLM Endpoint"
+msgstr "LLM Uç Noktası"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Yerel Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Ses Modeli:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
 msgstr ""
-"Sohbet modeli sesli girdi alamadığında kullanılacak konuşmadan metne modeli."
+"STT Sağlayıcısı LLM Uç Noktası olduğunda ve sohbet modeli ses girişi "
+"alamadığında kullanılacak konuşmadan metne dönüştürme modeli."
+
+msgid "Local Model"
+msgstr "Yerel Model"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"faster-whisper boyutu. İlk transkripsiyon ağırlıkları Hugging Face "
+"önbelleğine indirir (varsayılan olan base yaklaşık 150 MB; tiny ~75 MB, "
+"small ~500 MB, medium ~1.5 GB)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1.5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Konuşma Çıktısını Etkinleştir (TTS)"
@@ -3406,9 +3623,6 @@ msgstr "Kokoro (Yerel Sinir Ağı, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (Yerel Hızlı Sinir Ağı, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "LLM Uç Noktası"
 
 msgid "TTS Model"
 msgstr "TTS Modeli"
@@ -4019,9 +4233,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "OCR güven eşiği"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"RapidOCR minimum metin puanı. Gereksiz metinleri azaltmak için yükseltin."
+"RapidOCR minimum metin puanı. 0.0 gerçek bir eşik değeridir (varsayılan "
+"değildir). Gereksiz metinleri azaltmak için yükseltin."
 
 msgid "OCR entire image"
 msgstr "Tüm görüntüyü OCR ile işle"
@@ -4072,8 +4289,8 @@ msgstr "Düzen modeli"
 msgid "Heron (default)"
 msgstr "Heron (varsayılan)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (daha yavaş"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (daha yavaş, karmaşık belgeler)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Formülleri ayıkla (LaTeX)"

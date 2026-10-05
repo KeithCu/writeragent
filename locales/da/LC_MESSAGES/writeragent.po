@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Danish <LL@li.org>\n"
@@ -191,16 +191,16 @@ msgstr "Genopbygning mislykkedes: "
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL-fejl: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Ugyldig API-nøgle. Tjek venligst dine indstillinger."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "API-adgang forbudt. Din nøgle mangler muligvis tilladelser til denne model."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Slutpunkt ikke fundet (404). Tjek din URL og modelnavn."
 
@@ -280,18 +280,6 @@ msgstr "AI-udbyderen rapporterede en fejl. Prøv igen."
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} ikke fundet: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Chat max tokens skal være >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Anmodningstimeout skal være > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatur skal være <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -400,6 +388,74 @@ msgstr "Angiv venligst Model i Indstillinger."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Vælg venligst en gyldig model i Indstillinger (ikke en pladsholder)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Transskriberer med lokal Whisper ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"Transskriberer med lokal Whisper ({0})… Første kørsel downloader modellen."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Transskriberer lyd..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Lokal Whisper fejlede: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Lokal Whisper returnerede ikke en transskription."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Lokal Whisper kører i Indstillinger → Python venv, ikke i LibreOffices "
+"Python. Angiv venv, og installer derefter med: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper er ikke installeret i Indstillinger → Python venv. Installer "
+"med: {0}. Indstillinger → Python-test viser den under valgfrie lydpakker."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Lokalt Whisper-script mangler i udvidelsen."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Lokal Whisper fik timeout eller kunne ikke starte. Prøv igen, eller vælg en "
+"mindre lokal model i Indstillinger → Tale."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Lokal Whisper fik timeout eller kunne ikke starte. Første kørsel downloader "
+"modelvægte; prøv igen, eller vælg en mindre lokal model i Indstillinger → "
+"Tale."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr "Ingen sprogmodel-klient er tilgængelig for endpointet tale-til-tekst."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -512,8 +568,7 @@ msgid "Status:"
 msgstr "Status:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Klar"
 
@@ -687,6 +742,15 @@ msgstr "WriterAgent: Rediger markering (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Udvid markering (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Billedet '{name}' blev ikke fundet. Brug image_list eller lad image_name "
+"være tom og vælg grafikken."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Vælg et indlejret billede, og kør derefter igen."
@@ -841,6 +905,20 @@ msgstr "Acceptér denne ændring"
 msgid "Reject this change"
 msgstr "Afvis denne ændring"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Kunne ikke skrive streamet tekst til dokumentet: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Dette markerede område indeholder registrerede indsættelser eller "
+"sletninger. Acceptér eller afvis disse ændringer først. Markeringen blev "
+"ikke ændret."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Udvid markering"
@@ -964,10 +1042,6 @@ msgid "any"
 msgstr "enhver"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "priser"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "bedste"
 
@@ -992,10 +1066,6 @@ msgid "concise"
 msgstr "kortfattet"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "dybde"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "beskrivelse"
 
@@ -1014,10 +1084,6 @@ msgstr "vis"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "hver"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "funktioner"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1072,10 +1138,6 @@ msgid "me"
 msgstr "mig"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "bemærkelsesværdig"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "overordnet"
 
@@ -1108,10 +1170,6 @@ msgid "question"
 msgstr "spørgsmål"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "vurderinger"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "anbefaling"
 
@@ -1124,10 +1182,6 @@ msgid "research"
 msgstr "research"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "anmeldelser"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "søg"
 
@@ -1138,10 +1192,6 @@ msgstr "kort"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "vis"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "signatur"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1180,10 +1230,6 @@ msgid "top"
 msgstr "top"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "tendenser"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "typer"
 
@@ -1210,6 +1256,10 @@ msgstr "hvorfor"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "du"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Ugyldig indstilling"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1285,10 +1335,6 @@ msgstr "Evalueringspanel"
 msgid "Debug"
 msgstr "Fejlfinding"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Ingen tale registreret.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Fejl: Værktøjssæt ikke tilgængeligt"
@@ -1297,7 +1343,7 @@ msgstr "Fejl: Værktøjssæt ikke tilgængeligt"
 msgid "Chat"
 msgstr "Chat"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Billede"
 
@@ -1382,7 +1428,7 @@ msgstr "Optager lyd… (%d ms stilhed)"
 msgid "Record"
 msgstr "Optag"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Stop optagelse"
 
@@ -1416,6 +1462,14 @@ msgstr ""
 " en fejlrapport!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Lydfejl: optagelse stoppet uden en lydfil.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Ingen tale registreret.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1425,8 +1479,17 @@ msgstr ""
 "Indstillinger.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Agent-backend-fejl: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer-afsendelse kræver Chat-tilstand i dette sidepanel.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Håndfri optagelse..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1486,7 +1549,7 @@ msgstr "Research-cache gemt (nøgle: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "Åbner '%s' til skrivebeskyttet adgang."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Webresearch fuldført."
 
@@ -1517,10 +1580,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Kunne ikke starte editor: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Transskriberer lyd..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1629,7 +1688,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Websøgning indsamlede ingen brugbare beviser."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Assistent:"
 
@@ -1671,10 +1729,6 @@ msgstr ""
 "En nyere %(name)s (%(version)s) er tilgængelig. Brug Funktioner → "
 "Udvidelsesstyring for at tjekke for opdateringer og installere den nyeste "
 "udvidelse."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Ugyldig indstilling"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1876,13 +1930,14 @@ msgstr "Scripts"
 msgid "My Scripts"
 msgstr "Mine scripts"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Indbyggede hjælpere er skrivebeskyttede. Brug Kopiér til Mine scripts for at"
 " tilpasse."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1967,12 +2022,21 @@ msgid "No document is open to save scripts."
 msgstr "Intet dokument er åbent til at gemme scripts."
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Dokumentet er skrivebeskyttet, eller egenskaber kan ikke skrives."
+
+#: plugin/scripting/document_scripts.py
 msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
 msgstr ""
-"Dokumentet er skrivebeskyttet, eller egenskaber kan ikke skrives. Scriptet "
-"blev gemt i dit personlige bibliotek i stedet."
+"Initialiseringsscriptet blev gemt i dokumentet, men delt-kerne-cachen blev "
+"ikke opdateret. =PY() kører muligvis stadig det forrige script."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' er reserveret til projektmappens init-script."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1984,9 +2048,18 @@ msgid "This Document"
 msgstr "Dette dokument"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Dokumentet blev lukket."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Gemte scriptet '{0}' i Mine scripts."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "Et script med navnet '{0}' findes allerede i Mine scripts. {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "Gemte scriptet '{0}' i Mine scripts. {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2028,8 +2101,22 @@ msgid "Deleted script '{0}'."
 msgstr "Scriptet '{0}' er slettet."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Dokumentet er ikke længere åbent."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Scriptkørsel mislykkedes."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "PythonScriptDialog kunne ikke indlæses fra udvidelsen."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr ""
+"Kan ikke gemme i Mine scripts: et script med navnet '%s' findes allerede."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2045,6 +2132,14 @@ msgstr "Scriptet '%s' er gemt i dette dokument."
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Script '%s' blev gemt korrekt."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Kører..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Udførelsesfejl"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2078,10 +2173,6 @@ msgstr "Scriptet '%s' er oprettet i dette dokument."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "Scriptet '%s' er oprettet i Mine scripts."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Udførelsesfejl"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2136,6 +2227,37 @@ msgid ""
 msgstr ""
 "Ingen python-eksekverbar fil fundet under konfigureret venv: {0} (forventede"
 " bin/python, Scripts/python.exe eller env-root python.exe)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Opdatering af scriptlisten fik timeout."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Lagring af scriptet fik timeout."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "initialiseringsscriptet"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "LaTeX-formlen"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "denne editor"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Gem ændringer til {0}?\n"
+"\n"
+"Ja gemmer dem før skift. Nej kasserer dem. Annuller beholder den nuværende editor."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2202,6 +2324,22 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Vector Search-probe fejlede (se writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco-test mislykkedes (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco-test fik timeout."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB-test mislykkedes (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "DuckDB-test fik timeout."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Lydoptagelse og tale"
 
@@ -2262,6 +2400,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Lokale TTS-motorer (valgfrit):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Lokal Whisper (valgfri):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Starter Python-arbejder..."
 
@@ -2270,8 +2412,12 @@ msgid "Reading Python version..."
 msgstr "Læser Python-version..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Lyd og tale: tjekker sounddevice og TTS-motorer..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr "Lyd & Tale: tjekker sounddevice, TTS og lokal Whisper..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Monaco-biblioteker: tjekker uden for script-worker..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2481,6 +2627,10 @@ msgstr ""
 "projektmappe og prøv igen."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Kunne ikke gendanne initialiseringsscriptet."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Python-session nulstillet for denne projektmappe."
 
@@ -2545,11 +2695,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Enheder '{helper}' fuldført. Indsat: {preview} (tog {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Kunne ikke indsætte resultat i Calc: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Info"
 
@@ -2600,6 +2745,18 @@ msgstr "Script udført korrekt. (tog {time})"
 msgid "Script saved."
 msgstr "Script gemt."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Et script kører allerede."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Scriptet '{0}' findes ikke i Mine scripts eller i dette dokument, så det "
+"blev ikke gemt."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Kør Python-script"
@@ -2629,17 +2786,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Billedet '{name}' blev ikke fundet. Brug image_list eller lad image_name "
-"være tom og vælg grafikken."
+msgid "Image '{name}' could not be exported."
+msgstr "Billedet '{name}' kunne ikke eksporteres."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Billedet '{name}' kunne ikke eksporteres."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Billedet er for stort til at blive sendt til vision-worker ({size} bytes; "
+"grænse {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Annulleret af brugeren."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3088,10 +3249,6 @@ msgid "Image Model:"
 msgstr "Billedmodel:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Billedindstillinger"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Erstat på stedet"
 
@@ -3343,11 +3500,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Anmod om agenttilladelser"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Bed om bekræftelse, før agenten får lov til at bruge værktøjer (læse filer, "
+"udføre kommandoer osv.)"
+
+msgid "STT Provider"
+msgstr "STT-udbyder"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"LLM-slutpunkt bruger lydmodel og POST /v1/audio/transcriptions. Lokal "
+"Whisper kører faster-whisper i Indstillinger → Python venv (ikke "
+"LibreOffices Python)."
+
+msgid "LLM Endpoint"
+msgstr "LLM-slutpunkt"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Lokal Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Lydmodel:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr "Tale-til-tekst-model, når chatmodellen ikke kan modtage lydinput."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
+msgstr ""
+"Tal-til-tekst-model, når STT-udbyder er LLM-slutpunkt, og chatmodellen ikke "
+"kan modtage lydinput."
+
+msgid "Local Model"
+msgstr "Lokal model"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"faster-whisper størrelse. Den første transskribering downloader vægte til "
+"Hugging Face-cachen (base, som er standard, fylder ca. 150 MB; tiny ~75 MB, "
+"small ~500 MB, medium ~1,5 GB)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 MB)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 MB)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 MB)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1,5 GB)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Aktivér taleoutput (TTS)"
@@ -3395,9 +3608,6 @@ msgstr "Kokoro (lokal neural, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (lokal hurtig neural, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "LLM-slutpunkt"
 
 msgid "TTS Model"
 msgstr "TTS-model"
@@ -3991,8 +4201,12 @@ msgstr "Valgfri mappe fra download af docling-tools-modeller (offline-brug)."
 msgid "OCR confidence threshold"
 msgstr "Tærskelværdi for OCR-konfidens"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
-msgstr "Minimum tekstscore for RapidOCR. Hæv for at reducere støjende tekst."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
+msgstr ""
+"RapidOCR minimum tekstscore. 0,0 er en reel tærskelværdi (ikke standard). "
+"Hæv værdien for at reducere uønsket tekst."
 
 msgid "OCR entire image"
 msgstr "OCR hele billedet"
@@ -4043,8 +4257,8 @@ msgstr "Layoutmodel"
 msgid "Heron (default)"
 msgstr "Heron (standard)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (langsommere"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (langsommere, komplekse dokumenter)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Udtræk formler (LaTeX)"

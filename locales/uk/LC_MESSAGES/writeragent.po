@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:02-0400\n"
+"POT-Creation-Date: 2026-10-04 22:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -197,17 +197,17 @@ msgstr "Помилка оновлення: "
 msgid "TLS/SSL Error: {0}"
 msgstr "Помилка TLS/SSL: {0}"
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Недійсний ключ API. Будь ласка, перевірте ваші налаштування."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "Доступ до API заборонено. Можливо, вашому ключу бракує дозволів для цієї "
 "моделі."
 
-#: plugin/framework/errors.py
+#: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr ""
 "Кінцеву точку не знайдено (404). Перевірте вашу URL-адресу та назву моделі."
@@ -290,18 +290,6 @@ msgstr "Постачальник ШІ повідомив про помилку. 
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} не знайдено: {identifier}"
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Максимальна кількість токенів чату має бути >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Час очікування запиту має бути > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Температура має бути <= 1.0"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -410,6 +398,79 @@ msgstr "Будь ласка, встановіть модель (Model) у нал
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Будь ласка, виберіть дійсну модель у налаштуваннях (не заповнювач)."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Transcribing with local Whisper ({0})…"
+msgstr "Транскрибування за допомогою локального Whisper ({0})…"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Transcribing with local Whisper ({0})… The first run downloads the model."
+msgstr ""
+"Транскрибування за допомогою локального Whisper ({0})… Перший запуск "
+"завантажує модель."
+
+#: plugin/audio/stt_service.py
+msgid "Transcribing audio..."
+msgstr "Транскрибування аудіо..."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid "Local Whisper failed: {0}"
+msgstr "Помилка локального Whisper: {0}"
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper did not return a transcript."
+msgstr "Локальний Whisper не повернув транскрипт."
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"Local Whisper runs in the Settings → Python venv, not LibreOffice's Python. "
+"Set the venv, then install with: {0}"
+msgstr ""
+"Локальний Whisper працює у віртуальному середовищі Python (Settings → Python"
+" venv), а не в Python LibreOffice. Налаштуйте venv, а потім встановіть за "
+"допомогою: {0}"
+
+#: plugin/audio/stt_service.py
+#, python-brace-format
+msgid ""
+"faster-whisper is not installed in the Settings → Python venv. Install with:"
+" {0}. Settings → Python Test lists it under Audio optional packages."
+msgstr ""
+"faster-whisper не встановлено у віртуальному середовищі Python (Settings → "
+"Python venv). Встановіть за допомогою: {0}. У розділі Settings → Python Test"
+" він вказаний серед додаткових пакетів для аудіо."
+
+#: plugin/audio/stt_service.py
+msgid "Local Whisper script is missing from the extension."
+msgstr "Скрипт локального Whisper відсутній у розширенні."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. Try again, or pick a smaller "
+"Local Model in Settings → Speech."
+msgstr ""
+"Час очікування локального Whisper вичерпано або він не зміг запуститися. "
+"Спробуйте ще раз або виберіть меншу локальну модель у Settings → Speech."
+
+#: plugin/audio/stt_service.py
+msgid ""
+"Local Whisper timed out or could not start. The first run downloads model "
+"weights; try again, or pick a smaller Local Model in Settings → Speech."
+msgstr ""
+"Час очікування локального Whisper вичерпано або він не зміг запуститися. "
+"Перший запуск завантажує ваги моделі; спробуйте ще раз або виберіть меншу "
+"локальну модель у Settings → Speech."
+
+#: plugin/audio/stt_service.py
+msgid "No language-model client is available for endpoint speech-to-text."
+msgstr ""
+"Клієнт мовної моделі для кінцевої точки перетворення мовлення в текст "
+"недоступний."
 
 #: plugin/audio/tts_service.py
 msgid "Hello, I'm your LibreOffice WriterAgent."
@@ -524,8 +585,7 @@ msgid "Status:"
 msgstr "Стан:"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Готово"
 
@@ -702,6 +762,15 @@ msgstr "WriterAgent: Редагувати виділення (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Розширити виділення (Calc)"
 
+#: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+"Зображення '{name}' не знайдено. Використовуйте image_list або залиште "
+"image_name порожнім і виберіть графічний об'єкт."
+
 #: plugin/calc/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Виберіть вбудоване зображення, а потім запустіть знову."
@@ -857,6 +926,19 @@ msgstr "Прийняти цю зміну"
 msgid "Reject this change"
 msgstr "Відхилити цю зміну"
 
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid "Failed to write streamed text to the document: {0}"
+msgstr "Не вдалося записати потоковий текст у документ: {0}"
+
+#: plugin/writer/editselection.py
+msgid ""
+"This selection contains tracked insertions or deletions. Accept or reject "
+"those changes first. The selection was not modified."
+msgstr ""
+"Це виділення містить відстежувані вставки або видалення. Спочатку прийміть "
+"або відхиліть ці зміни. Виділення не було змінено."
+
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Розширити виділення"
@@ -979,10 +1061,6 @@ msgid "any"
 msgstr "будь-який"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "awards"
-msgstr "нагороди"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "best"
 msgstr "найкращий"
 
@@ -1007,10 +1085,6 @@ msgid "concise"
 msgstr "стисло"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "depth"
-msgstr "глибина"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "description"
 msgstr "опис"
 
@@ -1029,10 +1103,6 @@ msgstr "відображення"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "each"
 msgstr "кожен"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "features"
-msgstr "функції"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "find"
@@ -1087,10 +1157,6 @@ msgid "me"
 msgstr "я"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "notable"
-msgstr "важливий"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "overall"
 msgstr "загальний"
 
@@ -1123,10 +1189,6 @@ msgid "question"
 msgstr "запитання"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "ratings"
-msgstr "оцінки"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "recommendation"
 msgstr "рекомендація"
 
@@ -1139,10 +1201,6 @@ msgid "research"
 msgstr "дослідження"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "reviews"
-msgstr "відгуки"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "search"
 msgstr "пошук"
 
@@ -1153,10 +1211,6 @@ msgstr "короткий"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "show"
 msgstr "показати"
-
-#: plugin/chatbot/research_cache_fluff.py
-msgid "signature"
-msgstr "підпис"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "source"
@@ -1195,10 +1249,6 @@ msgid "top"
 msgstr "верх"
 
 #: plugin/chatbot/research_cache_fluff.py
-msgid "trends"
-msgstr "тенденції"
-
-#: plugin/chatbot/research_cache_fluff.py
 msgid "types"
 msgstr "типи"
 
@@ -1225,6 +1275,10 @@ msgstr "чому"
 #: plugin/chatbot/research_cache_fluff.py
 msgid "you"
 msgstr "ви"
+
+#: plugin/chatbot/module_config_dialog.py plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr "Недійсне налаштування"
 
 #: plugin/chatbot/dialogs.py
 msgid "Agent requests approval"
@@ -1300,10 +1354,6 @@ msgstr "Панель оцінювання"
 msgid "Debug"
 msgstr "Налагодження"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Мовлення не виявлено.]"
-
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Помилка: набір інструментів недоступний"
@@ -1312,7 +1362,7 @@ msgstr "Помилка: набір інструментів недоступни
 msgid "Chat"
 msgstr "Чат"
 
-#: plugin/chatbot/chat_sidebar_mode.py
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Image"
 msgstr "Зображення"
 
@@ -1397,7 +1447,7 @@ msgstr "Запис аудіо… (%d мс тиші)"
 msgid "Record"
 msgstr "Запис"
 
-#: plugin/chatbot/panel.py
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Зупинити запис"
 
@@ -1431,6 +1481,14 @@ msgstr ""
 "повідомте про це!]"
 
 #: plugin/chatbot/panel.py
+msgid "[Audio error: recording stopped without a sound file.]"
+msgstr "[Помилка аудіо: запис зупинено без файлу звуку.]"
+
+#: plugin/chatbot/panel.py plugin/scripting/audio_recorder_service.py
+msgid "[No speech detected.]"
+msgstr "[Мовлення не виявлено.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1440,9 +1498,18 @@ msgstr ""
 "налаштуваннях.]"
 
 #: plugin/chatbot/panel.py
+#, python-brace-format
+msgid "[Agent backend error: {0}]"
+msgstr "[Помилка серверної частини агента: {0}]"
+
+#: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Надсилання одноранговому вузлу потребує режиму чату на цій бічній панелі.]"
+
+#: plugin/chatbot/record_gesture.py
+msgid "Hands-free recording..."
+msgstr "Запис без допомоги рук..."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1502,7 +1569,7 @@ msgstr "Кеш досліджень збережено (ключ: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "Відкриття '%s' для доступу лише для читання."
 
-#: plugin/chatbot/web_research.py
+#: plugin/chatbot/web_research.py plugin/chatbot/web_research_deep.py
 msgid "Web research completed."
 msgstr "Веб-дослідження завершено."
 
@@ -1533,10 +1600,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Не вдалося запустити редактор: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Транскрибування аудіо..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -1645,7 +1708,6 @@ msgid "Web research collected no usable evidence."
 msgstr "Веб-дослідження не зібрало жодних придатних до використання даних."
 
 #: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
-#: plugin/chatbot/panel_factory.py
 msgid "Assistant:"
 msgstr "Помічник:"
 
@@ -1687,10 +1749,6 @@ msgstr ""
 "Доступна новіша версія %(name)s (%(version)s). Використовуйте Інструменти → "
 "Керування розширеннями, щоб перевірити наявність оновлень та встановити "
 "останню версію розширення."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
-msgstr "Недійсне налаштування"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -1893,13 +1951,14 @@ msgstr "Скрипти"
 msgid "My Scripts"
 msgstr "Мої скрипти"
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Вбудовані помічники доступні лише для читання. Використовуйте «Копіювати до "
 "Мої скрипти» для налаштування."
 
-#: plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
@@ -1984,12 +2043,22 @@ msgid "No document is open to save scripts."
 msgstr "Немає відкритого документа для збереження скриптів."
 
 #: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
+msgid "Document is read-only or properties cannot be written."
 msgstr ""
 "Документ доступний лише для читання або властивості не можуть бути записані."
-" Скрипт збережено у вашій особистій бібліотеці."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Initialization script was saved on the document, but the shared-kernel cache"
+" did not update. =PY() may still run the previous script."
+msgstr ""
+"Сценарій ініціалізації було збережено в документі, але кеш спільного ядра не"
+" оновився. =PY() може все ще запускати попередній сценарій."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' is reserved for the workbook init script."
+msgstr "'{0}' зарезервовано для сценарію ініціалізації книги."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2001,9 +2070,18 @@ msgid "This Document"
 msgstr "Цей документ"
 
 #: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Документ було закрито."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Скрипт «{0}» збережено в «Мої скрипти»."
+msgid "A script named '{0}' already exists in My Scripts. {1}"
+msgstr "Сценарій з назвою '{0}' вже існує в «Моїх сценаріях». {1}"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts. {1}"
+msgstr "Скрипт «{0}» збережено у «Мої скрипти». {1}"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2045,8 +2123,21 @@ msgid "Deleted script '{0}'."
 msgstr "Видалено скрипт «{0}»."
 
 #: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
+msgstr "Документ більше не відкритий."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Виконання скрипта не вдалося."
+
+#: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr "Не вдалося завантажити PythonScriptDialog з розширення."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Cannot save to My Scripts: a script named '%s' already exists."
+msgstr "Не вдалося зберегти у «Мої скрипти»: скрипт з назвою «%s» вже існує."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2062,6 +2153,14 @@ msgstr "Скрипт «%s» збережено в цьому документі.
 #, python-format
 msgid "Script '%s' saved successfully."
 msgstr "Сценарій «%s» успішно збережено."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Running..."
+msgstr "Виконання..."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Помилка виконання"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -2095,10 +2194,6 @@ msgstr "Скрипт «%s» створено в цьому документі."
 #, python-format
 msgid "Script '%s' created in My Scripts."
 msgstr "Скрипт «%s» створено в «Мої скрипти»."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Помилка виконання"
 
 #: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
 msgid "Script executed successfully."
@@ -2153,6 +2248,37 @@ msgstr ""
 "Виконуваний файл Python не знайдено у налаштованому віртуальному середовищі:"
 " {0} (очікується bin/python, Scripts/python.exe або python.exe у корені "
 "середовища)."
+
+#: plugin/scripting/editor_host.py
+msgid "The script list update timed out."
+msgstr "Час очікування оновлення списку скриптів вичерпано."
+
+#: plugin/scripting/editor_host.py
+msgid "Saving the script timed out."
+msgstr "Час очікування збереження скрипта вичерпано."
+
+#: plugin/scripting/editor_host.py
+msgid "the initialization script"
+msgstr "скрипт ініціалізації"
+
+#: plugin/scripting/editor_host.py
+msgid "the LaTeX formula"
+msgstr "формула LaTeX"
+
+#: plugin/scripting/editor_host.py
+msgid "this editor"
+msgstr "цей редактор"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves them before switching. No discards them. Cancel keeps the current editor."
+msgstr ""
+"Зберегти зміни в {0}?\n"
+"\n"
+"«Так» збереже їх перед перемиканням. «Ні» відхилить їх. «Скасувати» залишить поточний редактор."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -2221,6 +2347,22 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Зондування векторного пошуку не вдалося (див. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Помилка зондування Monaco (див. writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Час очікування зондування Monaco вичерпано."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "Помилка зондування DuckDB (див. writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "DuckDB probe timed out."
+msgstr "Час очікування зондування DuckDB вичерпано."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording & Speech"
 msgstr "Аудіозапис та мовлення"
 
@@ -2281,6 +2423,10 @@ msgid "Local TTS engines (optional):"
 msgstr "Локальні рушії TTS (необов'язково):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Local Whisper (optional):"
+msgstr "Локальний Whisper (необов'язково):"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Запуск робочого процесу Python..."
 
@@ -2289,8 +2435,13 @@ msgid "Reading Python version..."
 msgstr "Зчитування версії Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Аудіо та мовлення: перевірка sounddevice та рушіїв TTS..."
+msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
+msgstr ""
+"Аудіо та мовлення: перевірка sounddevice, TTS та локального Whisper..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries: checking outside the script worker..."
+msgstr "UI / Бібліотеки Monaco: перевірка поза межами робочого скрипта..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2502,6 +2653,10 @@ msgstr ""
 " книгу Calc і спробуйте знову."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not restore the initialization script."
+msgstr "Не вдалося відновити скрипт ініціалізації."
+
+#: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
 msgstr "Сеанс Python скинуто для цієї книги."
 
@@ -2567,11 +2722,6 @@ msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr "Одиниці '{helper}' завершено. Вставлено: {preview} (витрачено {time})"
 
 #: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Не вдалося вставити результат у Calc: %s"
-
-#: plugin/scripting/python_runner.py
 msgid "Info"
 msgstr "Інформація"
 
@@ -2622,6 +2772,18 @@ msgstr "Сценарій виконано успішно. (тривалість:
 msgid "Script saved."
 msgstr "Скрипт збережено."
 
+#: plugin/scripting/python_runner.py
+msgid "A script is already running."
+msgstr "Скрипт уже виконується."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Скрипт «{0}» не знаходиться у «Моїх скриптах» або в цьому документі, тому "
+"його не було збережено."
+
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Запустити скрипт Python"
@@ -2652,17 +2814,21 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Зображення '{name}' не знайдено. Використовуйте image_list або залиште "
-"image_name порожнім і виберіть графічний об'єкт."
+msgid "Image '{name}' could not be exported."
+msgstr "Зображення '{name}' не вдалося експортувати."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Зображення '{name}' не вдалося експортувати."
+msgid ""
+"Image is too large to send to the vision worker ({size} bytes; limit "
+"{limit})."
+msgstr ""
+"Зображення занадто велике для надсилання до модуля розпізнавання ({size} "
+"байтів; ліміт {limit})."
+
+#: plugin/vision/vision_runner.py
+msgid "Cancelled by user."
+msgstr "Скасовано користувачем."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3113,10 +3279,6 @@ msgid "Image Model:"
 msgstr "Модель зображення:"
 
 #: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Налаштування зображення"
-
-#: plugin/xdl_strings.py
 msgid "In-place replacement"
 msgstr "Заміна на місці"
 
@@ -3368,13 +3530,67 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Prompt for Agent Permissions"
+msgstr "Запит на дозволи агента"
+
+msgid ""
+"Ask for confirmation before allowing the agent to use tools (read files, "
+"execute commands, etc.)"
+msgstr ""
+"Запитувати підтвердження перед тим, як дозволити агенту використовувати "
+"інструменти (читання файлів, виконання команд тощо)"
+
+msgid "STT Provider"
+msgstr "Постачальник STT"
+
+msgid ""
+"LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local "
+"Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's"
+" Python)."
+msgstr ""
+"Кінцева точка LLM використовує аудіомодель та POST /v1/audio/transcriptions."
+" Локальний Whisper запускає faster-whisper у налаштуваннях Python venv (не в"
+" Python LibreOffice)."
+
+msgid "LLM Endpoint"
+msgstr "Кінцева точка LLM"
+
+msgid "Local Whisper (faster-whisper)"
+msgstr "Локальний Whisper (faster-whisper)"
+
 msgid "Audio Model:"
 msgstr "Аудіомодель:"
 
-msgid "Speech-to-text model when the chat model cannot take audio input."
+msgid ""
+"Speech-to-text model when STT Provider is LLM Endpoint and the chat model "
+"cannot take audio input."
 msgstr ""
-"Модель перетворення мовлення на текст, коли чат-модель не може приймати "
-"аудіовхід."
+"Модель перетворення мовлення в текст, коли постачальником STT є кінцева "
+"точка LLM, а модель чату не може приймати аудіовхід."
+
+msgid "Local Model"
+msgstr "Локальна модель"
+
+msgid ""
+"faster-whisper size. The first transcription downloads weights into the "
+"Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small "
+"~500 MB, medium ~1.5 GB)."
+msgstr ""
+"Розмір faster-whisper. Під час першої транскрипції ваги завантажуються в кеш"
+" Hugging Face (base, типово, близько 150 МБ; tiny ~75 МБ, small ~500 МБ, "
+"medium ~1.5 ГБ)."
+
+msgid "tiny (~75 MB)"
+msgstr "tiny (~75 МБ)"
+
+msgid "base (~150 MB)"
+msgstr "base (~150 МБ)"
+
+msgid "small (~500 MB)"
+msgstr "small (~500 МБ)"
+
+msgid "medium (~1.5 GB)"
+msgstr "medium (~1.5 ГБ)"
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Увімкнути голосовий вивід (TTS)"
@@ -3422,9 +3638,6 @@ msgstr "Kokoro (локальна нейромережа, ONNX CPU)"
 
 msgid "Piper (Local Fast Neural, CPU)"
 msgstr "Piper (локальна швидка нейромережа, CPU)"
-
-msgid "LLM Endpoint"
-msgstr "Кінцева точка LLM"
 
 msgid "TTS Model"
 msgstr "Модель TTS"
@@ -4035,10 +4248,12 @@ msgstr ""
 msgid "OCR confidence threshold"
 msgstr "Поріг впевненості OCR"
 
-msgid "RapidOCR minimum text score. Raise to reduce garbage text."
+msgid ""
+"RapidOCR minimum text score. 0.0 is a real threshold (not the default). "
+"Raise to reduce garbage text."
 msgstr ""
-"Мінімальний текстовий бал RapidOCR. Збільште, щоб зменшити кількість "
-"сміттєвого тексту."
+"Мінімальний бал тексту RapidOCR. 0.0 — це реальний поріг (не типовий). "
+"Збільште, щоб зменшити кількість «сміттєвого» тексту."
 
 msgid "OCR entire image"
 msgstr "OCR всього зображення"
@@ -4089,8 +4304,8 @@ msgstr "Модель макета"
 msgid "Heron (default)"
 msgstr "Heron (типово)"
 
-msgid "Egret large (slower"
-msgstr "Egret large (повільніше"
+msgid "Egret large (slower, complex docs)"
+msgstr "Egret large (повільніше, складні документи)"
 
 msgid "Extract formulas (LaTeX)"
 msgstr "Видобути формули (LaTeX)"
