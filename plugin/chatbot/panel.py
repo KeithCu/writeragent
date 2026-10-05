@@ -1936,7 +1936,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _run_extracted_peer_drain(self) -> None:
         """Same completion FSM as ``_run_send_drain``, without Ask-box ``_do_send``.
-        We keep peer drain separate from _run_send_drain TTS/WAV/_stt_inflight sharing for now — unifying for TTS would widen risk; this PR only fixes the drop_turn finally. Do not collapse peer into full send drain.
+
+        We keep this separate from ``_run_send_drain``, not one shared drain,
+        because the Ask-box path also owns TTS, pending WAV and ``_stt_inflight``
+        handling that a peer turn must not trigger.
         """
         from plugin.framework.i18n import _
         from plugin.framework.queue_executor import SendCancellation, agent_session
@@ -1957,11 +1960,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         return
                     self._do_send_extracted_peer(query_text, already_appended=already_appended)
                 finally:
-                    from plugin.chatbot.tool_loop_actions import drop_turn
-                    from plugin.doc.peer_message import kick_pending_peer_starts
-
-                    drop_turn(self)
-                    kick_pending_peer_starts()
                     if not getattr(self, "_panel_teardown", False):
                         self._send_cancellation = None
         except Exception as e:
@@ -1973,17 +1971,29 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             update_activity_state("")
             # Same teardown guard as _run_send_drain: completion writes status
             # and can arm the mic after the sidebar is gone.
-            if not self._panel_teardown:
-                if self._terminal_status == "Error":
-                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                else:
-                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                    self._sync_has_text_from_query()
-                    # Ty: _terminal_status defaults to "Ready", which is unconditionally true.
-                    # _run_send_drain may leave it "" to keep the label as-is, but extracted
-                    # peer ignores those paths. Avoid the redundant if-check.
-                    self._set_status(_(self._terminal_status))
-                    self._flush_sticky_restart()
+            try:
+                if not self._panel_teardown:
+                    if self._terminal_status == "Error":
+                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                    else:
+                        self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                        self._sync_has_text_from_query()
+                        # Ty: _terminal_status defaults to "Ready", which is unconditionally true.
+                        # _run_send_drain may leave it "" to keep the label as-is, but extracted
+                        # peer ignores those paths. Avoid the redundant if-check.
+                        self._set_status(_(self._terminal_status))
+                        self._flush_sticky_restart()
+            finally:
+                # What was wrong: an exception from the completion dispatch above
+                # skipped drop_turn and kick_pending_peer_starts, leaking the turn
+                # and stalling queued peer turns.
+                # Why this works: same inner finally as _run_send_drain. Drop the
+                # turn after SEND_COMPLETED, never before, so the next peer turn
+                # starts only once this one is finished.
+                from plugin.chatbot.tool_loop_actions import drop_turn
+
+                drop_turn(self)
+                kick_pending_peer_starts()
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
         """Force chat-with-tools. No Ask read/clear, no setFocus, no librarian/image."""
