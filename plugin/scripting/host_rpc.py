@@ -130,6 +130,8 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     ``python_tool_domain is None``. A name that is not a ``DOMAIN_TOOLS`` key
     is an empty set and stays limited to ``list_open_documents``.
     """
+    # Broad catalog access is intentional; re-entry guard in venv_worker covers deadlock;
+    # do not narrow the catalog without a product ask.
     if python_tool_domain is None:
         return None
     if python_tool_domain == TOOL_RPC_DISABLED:
@@ -414,6 +416,8 @@ def execute_tool(
 
     from plugin.framework.queue_executor import execute_on_main_thread
 
+    # We keep two hops; collapsing resolve+execute into one hop changes queue semantics/races;
+    # a disposed doc between hops is acceptable vs merging hops.
     registry, tctx, is_async = execute_on_main_thread(_run)
 
     if is_async:
@@ -515,8 +519,18 @@ def handle_tool_call_frame(
     tool_name = response.get("tool")
     if not isinstance(tool_name, str):
         raise RuntimeError(f"Invalid tool_call: {tool_name!r}")
-    args = response.get("args") or {}
+    args = response.get("args")
     call_id = response.get("id")
+    if args is not None and not isinstance(args, dict):
+        tool_response = {"status": "error", "id": call_id, "message": "args must be a dictionary"}
+        try:
+            frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+            stdin_write(frame)
+        except (OSError, ValueError):
+            # ValueError can be raised when writing to a closed file in Python.
+            log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
+        return True
+    args = args or {}
     # What was wrong: Stop was checked once before the venv turn. The child
     # then kept calling host tools, including export, after the sidebar went idle.
     # Why this works: the same checker the LLM frame already receives refuses
@@ -536,13 +550,14 @@ def handle_tool_call_frame(
         # Why this works: pipe failure stays here and the host keeps reading.
         try:
             stdin_write(frame)
-        except OSError:
+        except (OSError, ValueError):
+            # ValueError can be raised when writing to a closed file in Python.
             log.warning("venv tool_call USER_STOPPED reply failed (worker pipe closed)", exc_info=True)
         return True
     try:
         res = execute_tool(
             tool_name,
-            args if isinstance(args, dict) else {},
+            args,
             caller=caller,
             allowed_tools=allowed_tools,
             script_session_id=script_session_id,
@@ -560,10 +575,17 @@ def handle_tool_call_frame(
             {"status": "error", "id": call_id, "message": str(exc)},
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
         )
+    except Exception as exc:
+        # Unpicklable tool result. Fall back to sending an error frame instead of hanging.
+        frame = pack_pickle_frame(
+            {"status": "error", "id": call_id, "message": f"Result not serializable: {exc}"},
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+        )
     # Same broken-pipe rule as the USER_STOPPED write above. The tool may
     # already have run; raising here used to abort the worker loop.
     try:
         stdin_write(frame)
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError can be raised when writing to a closed file in Python.
         log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
     return True

@@ -103,15 +103,8 @@ def dispatch_worker_response(
             on_worker_event(event)
         return True
 
-    if frame_type == "tool_call":
-        from plugin.scripting.host_rpc import handle_tool_call_frame
-
-        return handle_tool_call_frame(
-            response,
-            stdin_write=stdin_write,
-            caller="ppt_master_venv",
-            stop_checker=stop_checker,
-        )
+    # Note: tool_call is not handled here because it's already handled first
+    # by venv_worker._maybe_dispatch_intermediate_response.
 
     if frame_type == "llm_request":
         call_id = response.get("id")
