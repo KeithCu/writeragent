@@ -126,7 +126,10 @@ def _stream_error_message(chunk: dict[str, Any]) -> str | None:
     return None
 
 
-_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many", "unavailable")
+# Why-not: do not use broad substrings like "too many" or "unavailable".
+# They match fatal errors like "too many tokens" (context overflow) or
+# "model unavailable" and retry them until timeout. Structured codes win.
+_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit")
 # 429/503 must be a whole token. "4290 tokens" is a context size, not HTTP 429.
 _OVERLOAD_STATUS_RE = re.compile(r"\b(?:429|503)\b")
 
@@ -638,7 +641,8 @@ class LlmClient:
         init_logging(self.ctx)
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
         log.debug("URL: %s" % _path_without_query(path))
-        log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
         _log_chat_request_body_diag(self, path, body, headers, tools)
 
         return method, path, body, headers
@@ -1021,10 +1025,10 @@ class LlmClient:
                                         if on_thinking:
                                             on_thinking(text_piece)
                                 else:
-                                    if on_content:
-                                        on_content(text_piece)
                                     if text_piece:
                                         emitted_any = True
+                                    if on_content:
+                                        on_content(text_piece)
                                     # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                                     last_contents.append(text_piece)
                                     if len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT and len(text_piece) > 2 and all(c == last_contents[0] for c in last_contents):
@@ -1058,6 +1062,16 @@ class LlmClient:
                     if retry_outer:
                         continue
 
+                    if not content_finished and not last_finish_reason:
+                        # What was wrong: a socket that closed gracefully but early
+                        # (truncated stream) was treated as a successful answer.
+                        # How: iterate_sse finishes quietly on EOF, and this loop
+                        # returned whatever finish_reason was last seen (None).
+                        # Why: treat a missing [DONE] / finish_reason as a drop.
+                        # This raises a real connection error so the outer loop
+                        # can retry it (if nothing emitted) or surface CONNECTION_LOST.
+                        raise ConnectionResetError("Stream truncated without [DONE] or finish_reason")
+
                     log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
 
                     # Flush any trailing buffered text from the think tag splitter
@@ -1075,9 +1089,9 @@ class LlmClient:
                                 if on_thinking:
                                     on_thinking(text_piece)
                             elif not is_think and on_content:
-                                on_content(text_piece)
                                 if text_piece:
                                     emitted_any = True
+                                on_content(text_piece)
                     clean_finish = not self._stopped
                 finally:
                     # What was wrong: STREAM_ERROR, INFINITE_LOOP, finish_reason
@@ -1133,6 +1147,9 @@ class LlmClient:
                     return "stop"
                 raise
             except Exception as e:
+                from plugin.framework.errors import WriterAgentException, is_disposed_exception
+                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+                    raise
                 err_msg = format_error_message(e)
                 log.exception("streaming_loop: Unexpected error")
                 raise NetworkError(err_msg, details={"url": path}) from e
@@ -1218,6 +1235,9 @@ class LlmClient:
             except NetworkError:
                 raise
             except Exception as e:
+                from plugin.framework.errors import WriterAgentException, is_disposed_exception
+                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+                    raise
                 err_msg = format_error_message(e)
                 log.exception("stream_request_with_tools failed")
                 raise NetworkError(err_msg, details={"url": path}) from e
@@ -1255,7 +1275,8 @@ class LlmClient:
             if action == "stop":
                 return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
 
-            log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
             used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
             log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
