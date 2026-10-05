@@ -493,7 +493,7 @@ class TestExecute:
         result = reg.execute("type_checker", ctx, text=["not", "a", "string"])
         assert result["status"] == "error"
         assert result.get("code") == "VALIDATION_ERROR"
-        assert "Invalid type for text" in result.get("message", "")
+        assert "Invalid type for text: expected string, got list" in result.get("message", "")
 
     def test_optional_json_null_is_omitted(self):
         class OptionalTool(ToolBase):
@@ -1412,7 +1412,7 @@ def test_execute_bypass_thread_guard_allows_background_thread() -> None:
 
     def bg():
         nonlocal out
-        out = reg.execute("dummy_sync", ctx, bypass_thread_guard=True)
+        out = reg.execute_unguarded("dummy_sync", ctx)
 
     t = threading.Thread(target=bg)
     t.start()
@@ -1462,8 +1462,8 @@ def _guard_probe_registry():
     return reg, ctx, calls, seen
 
 
-def test_execute_explicit_bypass_with_spread_params_still_skips_guard() -> None:
-    """tools_lo passes the keyword and then **params. That must still bypass."""
+def test_execute_unguarded_skips_guard() -> None:
+    """execute_unguarded must still bypass."""
     reg, ctx, calls, seen = _guard_probe_registry()
     marshalled: list[str] = []
 
@@ -1475,7 +1475,7 @@ def test_execute_explicit_bypass_with_spread_params_still_skips_guard() -> None:
     with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
         # Same shape as tools_lo: keyword, then **params. A dict literal
         # spread is a different bytecode path and is not this contract.
-        out = reg.execute("dummy_sync", ctx, bypass_thread_guard=True, **params)
+        out = reg.execute_unguarded("dummy_sync", ctx, **params)
 
     assert out == {"status": "ok", "note": "keep"}
     assert calls == ["execute"]
@@ -1531,3 +1531,23 @@ def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
     assert seen == [{"note": "keep"}]
     assert out == {"status": "ok", "note": "keep"}
 
+
+
+def test_tool_get_parameters_value_error_returns_registry_error() -> None:
+    class FailingTool(ToolBase):
+        name = "failing_tool"
+        description = "This tool raises ValueError in get_parameters"
+
+        def get_parameters(self, doc_type: str | None = None) -> dict:
+            raise ValueError("Intentional crash")
+
+        def execute(self, ctx, **kwargs) -> dict:
+            return {"status": "ok"}
+
+    reg = _make_registry(FailingTool())
+    ctx = _make_ctx("writer")
+    result = reg.execute("failing_tool", ctx)
+
+    assert result["status"] == "error"
+    assert result.get("code") == "TOOL_REGISTRY_ERROR"
+    assert "Intentional crash" in str(result)
