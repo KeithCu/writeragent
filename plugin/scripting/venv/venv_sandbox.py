@@ -17,6 +17,7 @@ harness / ``trusted_action_registry`` — not string stubs through this sandbox.
 from __future__ import annotations
 
 import ast
+import copy
 import datetime
 import decimal
 import fractions
@@ -41,6 +42,7 @@ from plugin.scripting.payload_codec import (
     find_image_payloads,
 )
 from plugin.scripting.config_limits import python_exec_timeout_default
+from plugin.scripting.ipc import UserStopped
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
 
@@ -55,11 +57,63 @@ _SESSION_LOCK = threading.Lock()
 _CURRENT_SANDBOX_SESSION: ContextVar[str | None] = ContextVar(
     "sandbox_session_id", default=None
 )
+# Distinct from the session id: isolated executes set the id to None, and host
+# callers never enter run_sandboxed_code. DuckDB uses this to refuse a cell
+# that names another workbook's catalog.
+_SANDBOX_EXECUTE: ContextVar[bool] = ContextVar("sandbox_execute", default=False)
 
 
 def current_sandbox_session_id() -> str | None:
     """Workbook session id for this sandboxed execute, or ``None`` (isolated)."""
     return _CURRENT_SANDBOX_SESSION.get()
+
+
+def sandbox_execute_active() -> bool:
+    """True while ``run_sandboxed_code`` is on this thread (including isolated)."""
+    return _SANDBOX_EXECUTE.get()
+
+
+def _install_timeout_context_pool() -> None:
+    """Copy sandbox ContextVars onto the SIGALRM fallback thread.
+
+    What was wrong: ``local_python_executor.timeout`` runs the cell on a
+    ``ThreadPoolExecutor`` worker when SIGALRM cannot be installed (Windows,
+    or not the main thread). That worker starts with an empty context, so
+    ``current_sandbox_session_id`` and ``sandbox_execute_active`` were the
+    defaults and ``session_duckdb(other_id)`` opened another workbook.
+    Why this works: the vendored timeout looks up ``ThreadPoolExecutor`` on
+    its module when the fallback runs. Submit through ``copy_context().run``
+    so the worker sees the session ``run_sandboxed_code`` just set. The
+    vendored file stays unchanged; it must keep using that module global.
+    """
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+    from typing import TYPE_CHECKING
+
+    if TYPE_CHECKING:
+        from collections.abc import Callable
+        from concurrent.futures import Future
+
+    from plugin.contrib.smolagents import local_python_executor as lpe
+
+    current = lpe.ThreadPoolExecutor
+    if getattr(current, "_writeragent_copies_context", False):
+        return
+
+    class _ContextThreadPoolExecutor(ThreadPoolExecutor):
+        _writeragent_copies_context: bool = True
+
+        def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future[Any]:
+            ctx = contextvars.copy_context()
+            return super().submit(ctx.run, fn, *args, **kwargs)
+
+    # The vendored name is the stdlib class. This subclass is what timeout()
+    # constructs on the SIGALRM fallback path. setattr: mypy rejects assigning
+    # over a class object ("Cannot assign to a type").
+    setattr(lpe, "ThreadPoolExecutor", _ContextThreadPoolExecutor)
+
+
+_install_timeout_context_pool()
 
 
 def _reset_session_duckdb(session_id: str | None) -> None:
@@ -82,6 +136,18 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     except ImportError:
         return
 
+    # Bugfix: run_sql used to ignore its scoped_dir argument and then read
+    # executor.state["scoped_dir"]. Bindings inject the host folder, but the
+    # cell can assign scoped_dir (set_value writes that state) before calling
+    # run_sql, and resolve_flat_file_path then accepted files under the
+    # rewritten folder. Capture the host path at inject time — after bindings,
+    # before user code — and do not consult state again.
+    # run_sandboxed_code drops a previous execute's scoped_dir before bindings,
+    # so this read is only the folder this execute actually bound.
+    host_scoped_dir = executor.state.get("scoped_dir")
+    if not isinstance(host_scoped_dir, str) or not host_scoped_dir.strip():
+        host_scoped_dir = None
+
     def run_sql_bound(
         sql: str,
         con: Any | None = None,
@@ -89,14 +155,8 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
         scoped_dir: str | None = None,
         **kwargs: Any,
     ) -> Any:
-        # Bugfix: the cell passed scoped_dir="/any/dir" and the basename check
-        # then read that directory. The host rebinds scoped_dir on each execute;
-        # the argument is ignored.
         del scoped_dir
-        folder = executor.state.get("scoped_dir")
-        if not isinstance(folder, str) or not folder.strip():
-            folder = None
-        return run_sql(sql, con, files, scoped_dir=folder, **kwargs)
+        return run_sql(sql, con, files, scoped_dir=host_scoped_dir, **kwargs)
 
     helpers = {
         "session_duckdb": session_duckdb,
@@ -354,30 +414,43 @@ def _pil_image_to_payload(img: Any) -> dict[str, Any]:
     return {"__wa_payload__": "image", "format": "png", "data": buf.getvalue()}
 
 
-def _has_custom_serialize_objects(obj: Any) -> bool:
+# One container level missed {"sheets": [df, df]} and [{"stats": df}]. Those
+# took child_pack_result, which raises ValueError and drops a successful cell.
+# Deeper than this is treated as a plain container (child_pack / pickle reject).
+_CUSTOM_SERIALIZE_MAX_DEPTH = 8
+
+
+def _custom_serialize_types() -> tuple[type, ...]:
     mpl_fig = optional_module("matplotlib.figure")
     pd_mod = optional_module("pandas")
     pil_mod = optional_module("PIL.Image")
-
-    custom_types = []
+    custom_types: list[type] = []
     if mpl_fig is not None:
         custom_types.append(mpl_fig.Figure)
     if pd_mod is not None:
         custom_types.extend([pd_mod.DataFrame, pd_mod.Series])
     if pil_mod is not None:
         custom_types.append(pil_mod.Image)
+    return tuple(custom_types)
 
-    if not custom_types:
-        return False
 
-    custom_tuple = tuple(custom_types)
+def _contains_custom_serialize(obj: Any, custom_tuple: tuple[type, ...], depth: int) -> bool:
     if isinstance(obj, custom_tuple):
         return True
+    if depth >= _CUSTOM_SERIALIZE_MAX_DEPTH:
+        return False
     if isinstance(obj, (list, tuple)):
-        return any(isinstance(x, custom_tuple) for x in obj)
+        return any(_contains_custom_serialize(item, custom_tuple, depth + 1) for item in obj)
     if isinstance(obj, dict):
-        return any(isinstance(v, custom_tuple) for v in obj.values())
+        return any(_contains_custom_serialize(value, custom_tuple, depth + 1) for value in obj.values())
     return False
+
+
+def _has_custom_serialize_objects(obj: Any) -> bool:
+    custom_tuple = _custom_serialize_types()
+    if not custom_tuple:
+        return False
+    return _contains_custom_serialize(obj, custom_tuple, 0)
 
 
 def _column_label(c: Any) -> str:
@@ -609,10 +682,16 @@ def _get_or_create_session_executor(session_id: str, timeout_sec: int) -> LocalP
 
 
 def _related_init_session_id(session_id: str) -> str | None:
-    """Return ``calc:…:init`` companion for a ``calc:…`` workbook session, if applicable."""
-    if session_id.startswith("calc:") and not session_id.endswith(":init"):
-        return f"{session_id}:init"
-    return None
+    """Return the ``{id}:init`` companion for a cell session.
+
+    Desktop workbooks use ``calc:…``. The compute service uses the raw Online
+    session id. Both store the init executor at ``{id}:init``. Reset used to
+    drop that companion only for ``calc:`` ids, so an Online reset left the
+    pre-reset snapshot and the next cell seeded from it.
+    """
+    if session_id.endswith(":init"):
+        return None
+    return f"{session_id}:init"
 
 
 def _cell_session_for_init(init_session_id: str) -> str | None:
@@ -635,7 +714,7 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
     """Drop the persistent executor for *session_id* (idempotent).
 
-    Also clears the workbook's ``:init`` session when resetting a ``calc:…`` cell session.
+    Also clears the ``{id}:init`` companion when *session_id* is a cell id.
     """
     if not (session_id or "").strip():
         return {"status": "error", "message": "No session_id provided."}
@@ -683,8 +762,26 @@ def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
     return dict(executor.custom_tools)
 
 
-def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str) -> None:
+def _copy_isolated_seed_value(value: Any) -> Any:
+    """Copy one init binding so an isolated cell cannot edit the snapshot.
+
+    Seeding used to pass the init executor's objects through. ``items.append``
+    in one isolated cell changed what every later isolated cell on that worker
+    saw. Functions and modules stay shared; deepcopy rejects them. Shared-kernel
+    seeding does not use this — that workbook is one namespace.
+    """
+    if callable(value) or isinstance(value, types.ModuleType):
+        return value
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return value
+
+
+def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str, *, copy_values: bool = False) -> None:
     bindings = _snapshot_init_bindings(init_session_id)
+    if copy_values and bindings:
+        bindings = {key: _copy_isolated_seed_value(value) for key, value in bindings.items()}
     if bindings:
         executor.send_variables(bindings)
     custom_tools = _snapshot_init_custom_tools(init_session_id)
@@ -941,6 +1038,20 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
             "result": serialized,
             "stdout": stdout,
         }
+    except UserStopped as e:
+        # What was wrong: exchange_tool_call turned host USER_STOPPED into
+        # RuntimeError. evaluate_try catches Exception, so the script kept
+        # running and issued more wa.* calls after Stop.
+        # Why this works: UserStopped is BaseException, so that handler does
+        # not run. End the turn with the code the host already sent.
+        _restore_prior_result(executor, prior_result)
+        _close_open_figures()
+        return {
+            "status": "error",
+            "code": "USER_STOPPED",
+            "message": str(e) or "Stopped by user.",
+            "stdout": "",
+        }
     except InterpreterError as e:
         _restore_prior_result(executor, prior_result)
         _close_open_figures()
@@ -987,8 +1098,8 @@ def run_sandboxed_code(
     executor per id (shared kernel / workbook session).
 
     When *init_script* is set, it runs once in *init_session_id* (typically ``calc:…:init``).
-    Isolated cell runs seed a fresh executor from that snapshot; shared kernel seeds the
-    workbook session executor once, then reuses it for cell code.
+    Isolated cell runs seed a fresh executor from a copy of that snapshot; shared kernel
+    seeds the workbook session executor once, then reuses it for cell code.
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
@@ -999,6 +1110,7 @@ def run_sandboxed_code(
 
     # Only the cell / RPS session_id is persistable. Isolated cells still have
     # init_session_id (calc:…:init); binding that would share DuckDB across cells.
+    active_token = _SANDBOX_EXECUTE.set(True)
     token = _CURRENT_SANDBOX_SESSION.set(session_id)
     try:
         init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
@@ -1020,7 +1132,7 @@ def run_sandboxed_code(
         else:
             executor = _new_executor(timeout_sec)
             if init_sid:
-                _seed_executor_from_init(executor, init_sid)
+                _seed_executor_from_init(executor, init_sid, copy_values=True)
 
         left = _seconds_left(deadline)
         if left is None:
@@ -1030,8 +1142,15 @@ def run_sandboxed_code(
         inject_auto_imports(executor, code)
         ranges = _inject_data(executor, data)
         _inject_excel_xl(executor, ranges)
+        # Bugfix: a shared calc: executor is reused by =PY() and Run Python
+        # Script. The cell assignment scoped_dir = "/some/dir" stayed in
+        # state. The next execute that did not bind a folder (RPS injects
+        # none) re-read that path as the host folder. Drop it before bindings
+        # so only this execute's host value is visible.
+        executor.state.pop("scoped_dir", None)
         _inject_bindings(executor, bindings)
         _inject_session_duckdb(executor)
         return _run_on_executor(executor, code)
     finally:
         _CURRENT_SANDBOX_SESSION.reset(token)
+        _SANDBOX_EXECUTE.reset(active_token)

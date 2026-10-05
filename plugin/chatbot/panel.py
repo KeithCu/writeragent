@@ -56,7 +56,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
     from plugin.framework.client.llm_client import LlmClient
-    from plugin.framework.html_stripper import StreamingHTMLStripper
 
 _AudioRecorderCls: type[Any] | None
 try:
@@ -181,6 +180,11 @@ class ChatSession:
             msg["tool_calls"] = tool_calls
         if reasoning_replay:
             msg.update(reasoning_replay)
+        # Streamed tokens sit in an open row so the sidebar can paint them.
+        # This committed message replaces that row. Leaving both showed the
+        # answer twice, and the open row is not a history write.
+        if self.messages and self.messages[-1].get("_open_transcript"):
+            self.messages.pop()
         self.messages.append(msg)
         # Tool calls stay out of history. content=None used to be written
         # anyway, and message_to_dict stored JSON null for a tool-only turn.
@@ -198,6 +202,11 @@ class ChatSession:
         self.messages = []
         self.document_context = ""
         self.compaction = None
+        # The next send advertises tools from these fields. Leaving the
+        # previous delegate set meant Clear still offered that domain.
+        self.active_specialized_domain = None
+        self.python_tool_domain = None
+        self.tool_streamed_texts = {}
         if self.db:
             self.db.clear()
             
@@ -241,6 +250,11 @@ class QueryTextListener(BaseTextListener):
         self.send_listener = send_listener
 
     def on_text_changed(self, rEvent: Any) -> None:
+        # What was wrong: disposing left this listener on the Ask control, so a
+        # late text event dispatched TEXT_UPDATED into a dead panel.
+        # Why: ``is True`` so a MagicMock host (tests) is not treated as dead.
+        if getattr(self.send_listener, "_panel_teardown", False) is True:
+            return
         model = getattr(rEvent.Source, "Model", None)
         if not model:
             model = rEvent.Source.getModel()
@@ -358,11 +372,25 @@ class QueryKeyListener(BaseKeyListener):
 # ---------------------------------------------------------------------------
 
 
+def _chunk_text(turn: Any, text: str, role: str, *, strip_non_assistant: bool) -> str:
+    """Plain text for one sidebar chunk. The stripper lives on the turn."""
+    from plugin.chatbot.tool_loop_actions import TurnController
+    from plugin.framework.html_stripper import strip_html_tags
+
+    stripper = turn.stripper if isinstance(turn, TurnController) else None
+    if role == "assistant" and stripper is not None:
+        return stripper.feed(text)
+    if role == "assistant" or strip_non_assistant:
+        return strip_html_tags(text)
+    return text
+
+
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
     ctx: Any
     frame: Any
+    frame_session: Any
     send_control: Any
     stop_control: Any
     clear_control: Any
@@ -384,6 +412,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     cached_uno_services: frozenset[str] | None
     _stop_requested_fallback: bool
     _terminal_status: str
+    _stt_inflight: bool
+    _stt_kill: Any
     _send_busy: bool
     _in_librarian_mode: bool
     _in_brainstorming_mode: bool
@@ -412,6 +442,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _sticky_restart_gen: int
     _sticky_restart_pending: bool
     _panel_teardown: bool
+    _mcp_event_bus: Any
+    _turn: Any
+    _last_mcp_turn: dict[str, Any]
+    _last_mcp_req_id: int | str | None
+
+    def clear_pending_audio_wav(self) -> None:
+        """Clear and delete any un-sent audio recording."""
+        if hasattr(self, "audio_wav_path") and self.audio_wav_path:
+            try:
+                import os
+
+                os.remove(self.audio_wav_path)
+            except Exception:
+                pass
+            self.audio_wav_path = None
 
     def __init__(
         self,
@@ -434,6 +479,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     ) -> None:
         self.ctx = ctx
         self.frame = frame
+        self.frame_session = None
         self.send_control = send_control
         self.stop_control = stop_control
         self.clear_control = clear_control
@@ -457,6 +503,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._stop_requested_fallback = False
         self._send_cancellation: Any = None
         self._terminal_status = "Ready"
+        self._stt_inflight = False
+        self._stt_kill = None
         self._send_busy = False
         self._in_librarian_mode = False
         self._in_brainstorming_mode = False
@@ -465,20 +513,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._writing_plan_topic = ""
         self._in_ppt_master_mode = False
         self._ppt_master_topic = ""
-        self._plain_text_stripper: StreamingHTMLStripper | None = None
         self.panel = None
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
         self._fixed_send_width: int | None = None
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
-        self._active_q: Any = None
+        # The queue, stripper, and document model live on ``_turn``.
+        self._turn = None
+        self._last_mcp_turn = {}
+        self._last_mcp_req_id = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
         self._active_execute_tool_fn: Any = None
         self._active_query_text: Any = None
-        self._active_model: Any = None
         self._active_supports_status: Any = None
         self._current_tool_call_id = None
         self._record_assistant_start = False
@@ -516,6 +565,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Set at the start of disposing so a drain still on the stack skips
         # status, TTS, and a sticky re-record after ctx is cleared.
         self._panel_teardown = False
+        # services.events is not always global_event_bus (a second import can
+        # hold another bus). disposing must unsubscribe the bus we joined.
+        self._mcp_event_bus = None
 
         # Subscribe to MCP/tool bus events
         try:
@@ -524,6 +576,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             event_bus = getattr(get_tools()._services, "events", None)
             if event_bus:
+                # What was wrong: disposing unsubscribed global_event_bus, so
+                # this subscription stayed and kept calling a closed panel.
+                # Why: remember this object and unsubscribe it in disposing.
+                self._mcp_event_bus = event_bus
                 event_bus.subscribe("mcp:request", self._on_mcp_request, weak=True)
                 event_bus.subscribe("mcp:result", self._on_mcp_result, weak=True)
                 log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
@@ -536,22 +592,27 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.rich_text_widget = widget
         log.info("[RICH-CONTROL] SendButtonListener.set_rich_text_widget called")
 
-    def rerender_rich_text_session(self) -> None:
-        """Re-render the final streamed assistant response with HTML formatting, leaving previous text untouched.
+    def rerender_rich_text_session(self) -> bool:
+        """Paint the control from the session message list.
 
-        Called after streaming completes to replace the last plain-text assistant response
-        with full HTML rendering instead of raw chunks.
+        Called after streaming completes so the hidden Writer shows the
+        committed messages, not the plain chunks that were painted while the
+        open row was growing.
+
+        True only when that paint ran. False leaves the control as it is so a
+        held stripper leftover can still be appended.
         """
         widget = getattr(self, "rich_text_widget", None)
         if widget is None:
-            return
+            return False
         try:
-            widget.rerender_last_assistant_if_html(
+            return bool(widget.rerender_last_assistant_if_html(
                 self.session,
                 getattr(self, "_assistant_stream_start_len", None),
-            )
+            ))
         except Exception:
             log.exception("rerender_rich_text_session (rich control) failed")
+            return False
 
     @property
     def stop_requested(self) -> bool:
@@ -571,16 +632,36 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._stop_requested_fallback = False
 
     def resolve_stop_checker(self) -> Callable[[], bool]:
-        """Stable stop predicate for worker threads (survives clearing ``_send_cancellation``).
+        """Stop predicate bound to the scope on this panel right now.
 
-        ``StartSendEffect`` clears ``_send_cancellation`` when the drain loop exits while
-        web-research / tool workers may still run — pass this checker (not
-        ``lambda: self.stop_requested`` alone) into ``LlmClient`` and stream drains.
+        Call this on the send thread when spawning a worker (``capture_send_stop``)
+        and close over the result. Calling it again inside the worker binds
+        whatever ``_send_cancellation`` is then. The drain clears that field
+        when it exits, and the next send stores a new scope there.
+
+        The returned callable keeps the scope object from this call, so it
+        stays true after the field is cleared. Do not pass
+        ``lambda: self.stop_requested`` alone: that property reads the live field.
         See ``docs/framework/streaming-and-threading.md`` § Stop / cancellation.
         """
         from plugin.framework.queue_executor import bind_send_stop_checker
 
         return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
+
+    def _kill_inflight_stt(self) -> None:
+        """Kill the Whisper child for the transcription that is running now.
+
+        The scope hook covers Stop on the send that started STT. This covers
+        Stop after a second send replaced ``_send_cancellation``: that click
+        cancels the new scope, which does not own the first child.
+        """
+        kill = self._stt_kill
+        if not callable(kill):
+            return
+        try:
+            kill()
+        except Exception:
+            log.debug("STT kill failed", exc_info=True)
 
     def sync_audio_slice(self) -> None:
         """Mirror :attr:`audio_recorder.state` into the composite (strategy A)."""
@@ -591,7 +672,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.sidebar_state = dataclasses.replace(self.sidebar_state, audio=self.audio_recorder.state)
 
     def set_session(self, session: Any) -> None:
-        """Update the active session (e.g. when switching between Document and Research chat)."""
+        """Swap the visible session after the in-flight turn has been aborted.
+
+        A mode change used to replace ``host.session`` while the turn was
+        still alive, and the next bind wrote the reply onto the transcript
+        just shown. Abort first. The turn keeps the session it started with.
+        """
+        from plugin.chatbot.tool_loop_actions import abort_turn
+
+        abort_turn(self)
         self.session = session
         self.client = None  # Force client recreation if needed, though they usually share same config
 
@@ -846,44 +935,100 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return fn(*args, **kwargs)
         self.queue_executor.post(fn, *args, **kwargs)
 
+    def render_session_messages(self, session: Any) -> None:
+        """Draw the sidebar from ``session.messages``."""
+        widget = getattr(self, "rich_text_widget", None)
+        if widget is not None:
+            widget.paint_session(session)
+            return
+        control = getattr(self, "response_control", None)
+        if control is None or not control.getModel():
+            return
+        from plugin.chatbot.dialogs import set_control_text
+        from plugin.chatbot.rich_text_paste import plain_transcript_text
+
+        set_control_text(control, plain_transcript_text(session))
+        if self._should_auto_scroll():
+            self._scroll_response_to_bottom()
+
+    def _project_closing_line(self, text: str) -> None:
+        """Write a closing line onto this turn's session after ``abort``.
+
+        The drain aborts before the send ``finally`` can report an exception.
+        ``_append_response`` then treats the line as a late chunk. The turn
+        still owns the list until a newer send or Clear replaces it.
+        """
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+        turn = current_turn(self)
+        if isinstance(turn, TurnController) and turn.fold_chunk(self, text, "assistant"):
+            if getattr(self, "session", None) is turn.session and turn.session is not None:
+                self.render_session_messages(turn.session)
+            return
+        self._append_response(text)
+
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
-        """Append text to the response area (RichTextControl or plain multiline field)."""
+        """Project ``text`` onto the session, then draw that list.
+
+        Chunks land only while this turn is alive. Stop writes its line
+        through the turn, so a stop string after abort is not a special
+        paint. A message list with no live turn is not written. A unit host
+        with no list still concatenates the plain control.
+        """
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+        turn = current_turn(self)
+        session = getattr(self, "session", None)
+        messages = getattr(session, "messages", None) if session is not None else None
+        has_list = isinstance(messages, list)
+        if has_list:
+            if (
+                not isinstance(turn, TurnController)
+                or not turn.alive
+                or not turn.accepts_history(self)
+                or turn.session is not session
+            ):
+                return
+        elif isinstance(turn, TurnController) and not turn.alive:
+            return
         with suppress_disposed("_append_response", logger=log):
             widget = getattr(self, "rich_text_widget", None)
             if widget:
-                auto_scroll = self._should_auto_scroll()
+                from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
-                if role == "user":
+                # "AI:" / "Using chat model" are plain-sidebar labels. The paint
+                # writes Assistant: from the message list, so they are not rows.
+                if role != "user" and skip_legacy_assistant_stream_chunk(text):
+                    return
+                clean_text = _chunk_text(turn, text, role, strip_non_assistant=False)
+                # A held tag fragment is not a list change. Drawing now would
+                # rebuild the same paint.
+                if role == "assistant" and not clean_text:
+                    return
 
-                    def _on_user_inserted(control_len: int) -> None:
-                        self._assistant_stream_start_len = control_len
-                        log.debug("_append_response: rich-control stream start len=%d", control_len)
-
-                    self._run_rich_ui(
-                        widget.append_user_message,
-                        text,
-                        on_after_insert=_on_user_inserted,
-                    )
-                else:
-                    if getattr(self, "_record_assistant_start", False):
+                def _paint_from_list() -> None:
+                    # Captured at send time. A post that runs after Stop or a
+                    # new send dropped this turn must not fold into the next one.
+                    if not isinstance(turn, TurnController) or current_turn(self) is not turn or not turn.alive:
+                        return
+                    turn.fold_chunk(self, clean_text, role)
+                    if role != "user" and getattr(self, "_record_assistant_start", False):
                         self._record_assistant_start = False
                         self._assistant_stream_start_len = widget.get_text_length()
                         log.debug(
-                            "_append_response: rich-control stream start len=%d (final answer)",
+                            "_append_response: rich-control stream start len=%s (final answer)",
                             self._assistant_stream_start_len,
                         )
-                    
-                    if self._plain_text_stripper is not None:
-                        clean_text = self._plain_text_stripper.feed(text)
-                    else:
-                        from plugin.framework.html_stripper import strip_html_tags
-                        clean_text = strip_html_tags(text)
+                    widget.paint_session(turn.session)
+                    if role == "user":
+                        self._assistant_stream_start_len = widget.get_text_length()
+                        log.debug(
+                            "_append_response: rich-control stream start len=%s",
+                            self._assistant_stream_start_len,
+                        )
 
-                    self._run_rich_ui(
-                        widget.append_assistant_stream_chunk,
-                        clean_text,
-                        auto_scroll=auto_scroll,
-                    )
+                self._run_rich_ui(_paint_from_list)
                 return
 
             if not getattr(self, "_rich_plain_fallback_warned", False):
@@ -897,16 +1042,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
-                from plugin.framework.html_stripper import strip_html_tags
+                from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+
+                # A session list is the transcript. Hosts with no list (unit
+                # tests) still append onto the control.
+                if has_list:
+                    if role != "user" and skip_legacy_assistant_stream_chunk(text):
+                        return
+                    clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
+                    if role == "assistant" and not clean_text:
+                        return
+                    if isinstance(turn, TurnController):
+                        turn.fold_chunk(self, clean_text, role)
+                    self.render_session_messages(session)
+                    return
 
                 should_scroll = self._should_auto_scroll()
                 current = get_control_text(self.response_control) or ""
-                
-                if role == "assistant" and self._plain_text_stripper is not None:
-                    clean_text = self._plain_text_stripper.feed(text)
-                else:
-                    clean_text = strip_html_tags(text)
-
+                clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
                 set_control_text(self.response_control, current + clean_text)
                 if should_scroll:
                     self._scroll_response_to_bottom()
@@ -914,6 +1067,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
         try:
+            self._last_mcp_req_id = kwargs.get("req_id")
+            from plugin.chatbot.tool_loop_actions import current_turn
+
+            rid = str(kwargs.get("req_id", ""))
+            self._last_mcp_turn[rid] = current_turn(self)
             from plugin.framework.logging import format_tool_call_for_display
 
             fmt_str = format_tool_call_for_display(tool, args, method)
@@ -923,8 +1081,41 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _on_mcp_result(self, tool: str = "", result_snippet: str = "", **kwargs: Any) -> None:
         """Handle MCP result events from the bus (background thread)."""
+        # What was wrong: a result posted before disposing still ran
+        # _append_response after the panel was gone.
+        # How: the bus callback and the queued UI hop are different turns.
+        # Why: drop both once teardown has started or ctx is cleared.
+        if self._panel_teardown or self.ctx is None:
+            return
+
+        # What was wrong: gating on kwargs["req_id"] == self._last_mcp_req_id
+        # dropped the result for the earlier of two concurrent MCP requests.
+        # How it happened: _on_mcp_request overwrote _last_mcp_req_id with the newest
+        # request ID, so any earlier in-flight request was discarded on completion.
+        # Why this change: rely on per-request turn tracking in _last_mcp_turn[rid].
+        # Each request is tied to its originating TurnController without interference.
+        try:
+            from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+            rid = str(kwargs.get("req_id", ""))
+            last_turn = self._last_mcp_turn.get(rid)
+            if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                return
+        except Exception:
+            pass
 
         def _update_ui() -> None:
+            if self._panel_teardown or self.ctx is None:
+                return
+            try:
+                from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+                rid = str(kwargs.get("req_id", ""))
+                last_turn = self._last_mcp_turn.pop(rid, None)
+                if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
+                    return
+            except Exception:
+                pass
             try:
                 from plugin.framework.logging import format_tool_result_for_display
 
@@ -1151,6 +1342,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         Hands-free does not replace this. The sticky flag stays set so the
         reply's ``SEND_COMPLETED`` can arm Record again.
         """
+        # A post can already be queued when disposing clears the recorder hooks.
+        if self._panel_teardown or self.ctx is None:
+            return
         if not self.sidebar_state.send.is_recording:
             log.info("audio auto-stop ignored (not recording)")
             return
@@ -1164,6 +1358,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         that thread raised out of ReportErrorEffect and left the button on
         Stop Rec. ERROR_OCCURRED drops the recording label.
         """
+        if self._panel_teardown or self.ctx is None:
+            return
         recorder = self.audio_recorder
         if recorder is not None:
             recorder.apply_stdout_error(msg)
@@ -1174,6 +1370,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_audio_silence_progress(self, silence_ms: int) -> None:
         from plugin.framework.i18n import _
 
+        if self._panel_teardown or self.ctx is None:
+            return
         if self.sidebar_state.send.is_recording:
             self._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
 
@@ -1240,6 +1438,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case StartSendEffect():
                 from plugin.framework.queue_executor import SendCancellation
 
+                # What was wrong: STT runs inside run_blocking_in_thread, which
+                # pumps the UI. A second Send replaced _send_cancellation and
+                # cleared the stop fallback while the first Whisper child was
+                # still alive, so Stop for the first send did not kill it.
+                # Why: leave the first scope in place until that child exits.
+                if getattr(self, "_stt_inflight", False):
+                    log.info("StartSend ignored while speech-to-text is running")
+                    return
+
                 try:
                     from plugin.audio.tts_service import stop_speech
                     stop_speech()
@@ -1264,6 +1471,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             case StopSendEffect():
                 log.info("Stop clicked (cancel in-flight send)")
+                from plugin.chatbot.tool_loop_actions import abort_turn
+
+                # Drop later worker callbacks. The drain still closes this
+                # turn: the stop line is written onto the session, then the
+                # send drain forgets the controller.
+                abort_turn(self)
                 try:
                     from plugin.audio.tts_service import stop_speech
                     stop_speech()
@@ -1272,6 +1485,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 scope = getattr(self, "_send_cancellation", None)
                 if scope is not None:
                     scope.cancel()
+
+                # AI/DEV INVARIANT: Do NOT clear audio_wav_path or kill in-flight STT here.
+                # If Stop is clicked while recording or transcribing, we want speech-to-text to finish
+                # and populate the query box so the user's spoken words are preserved and not discarded.
+
                 self._stop_requested_fallback = True
                 from plugin.doc.peer_message import drop_listener_queue
 
@@ -1282,6 +1500,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.i18n import _
+
+        if not self.send_control or not self.send_control.getModel():
+            return
 
         if getattr(self, "_approval_event", None) is not None and self.send_control and self.send_control.getModel():
             if self.send_control.getModel().Label == _("Accept"):
@@ -1311,92 +1532,144 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
 
+    def _sync_has_text_from_query(self) -> None:
+        """Ask is the source of truth after SEND_COMPLETED forces has_text False.
+
+        What was wrong: completion always cleared has_text. Text typed while a
+        reply streamed, and the extracted-peer path that never clears Ask,
+        then looked empty. With recording support the button became Record.
+        The FSM still forces False so a missed text listener cannot leave
+        has_text true on an empty box. This event corrects it from the control.
+        """
+        ctrl = getattr(self, "query_control", None)
+        if ctrl is None:
+            return
+        try:
+            from plugin.chatbot.dialogs import get_control_text
+
+            text = get_control_text(ctrl) or ""
+        except Exception:
+            log.debug("has_text sync skipped", exc_info=True)
+            return
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(str(text).strip())}))
+
     def _run_send_drain(self) -> None:
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
         from plugin.framework.i18n import _
         from plugin.framework.queue_executor import agent_session
+
+        # A drain posted before StartSend learned STT was in flight must not
+        # clear the first send's scope or dispatch SEND_COMPLETED under it.
+        if getattr(self, "_stt_inflight", False):
+            log.info("Nested send drain ignored during speech-to-text")
+            return
 
         try:
             with agent_session(getattr(self, "_send_cancellation", None)) as cancel_scope:
                 # Safe now: this callback is already running, not a pending post.
                 cancel_scope.bind_executor(self.queue_executor)
                 self._send_cancellation = cancel_scope
-                try:
-                    if cancel_scope.is_cancelled() or self._stop_requested_fallback:
-                        log.info("Send drain skipped (Stop before drain started)")
-                        return
-                    self._do_send()
-                finally:
-                    self._send_cancellation = None
+                if cancel_scope.is_cancelled() or self._stop_requested_fallback:
+                    log.info("Send drain skipped (Stop before drain started)")
+                    return
+                self._do_send()
         except Exception as e:
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
-            self._append_response("\n\n[Error: %s]\n" % str(e))
+            # The drain aborts the turn in its finally before this runs, so
+            # _append_response would treat the line as a late chunk and drop it.
+            self._project_closing_line("\n\n[Error: %s]\n" % str(e))
             self._terminal_status = "Error"
         finally:
             update_activity_state("")
             # Dispose runs inside this drain, then sets ctx to None. The
             # completion dispatch writes the status line, and the rest starts
             # TTS or arms the mic on a dead panel.
-            if not self._panel_teardown:
-                if self._terminal_status == "Error":
-                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                else:
-                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                    if self._terminal_status:
-                        self._set_status(_(self._terminal_status))
-                    try:
-                        from plugin.framework.config import get_config_bool_safe
-                        if get_config_bool_safe("audio.tts_enabled"):
-                            if self.session and self.session.messages:
-                                last_msg = self.session.messages[-1]
-                                if last_msg.get("role") == "assistant" and last_msg.get("content"):
-                                    from plugin.audio.tts_service import speak_text_async, is_speaking
+            # What was wrong: an inner finally cleared _send_cancellation even
+            # when disposing had just cancelled that scope, so a late reader
+            # saw None on a dead panel.
+            # Why: drop the field only while the panel is still alive.
+            try:
+                if not self._panel_teardown:
+                    self._send_cancellation = None
+                    if self._terminal_status == "Error":
+                        self.clear_pending_audio_wav()
+                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                    else:
+                        self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                        self._sync_has_text_from_query()
+                        if self._terminal_status:
+                            self._set_status(_(self._terminal_status))
+                        try:
+                            from plugin.framework.config import get_config_bool_safe
+                            # What was wrong: checking an alive turn failed because the tool loop finally
+                            # had already run abort_turn(self), marking the turn not alive.
+                            # Why this change: speak from session_for_turn(self) (valid until drop_turn)
+                            # whenever TTS is enabled and terminal status is not Stopped.
+                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
+                                from plugin.chatbot.tool_loop_actions import session_for_turn
 
-                                    # Restore the send-complete status after download/fallback lines.
-                                    prior_status = self._terminal_status or "Ready"
+                                spoken = session_for_turn(self)
+                                if spoken and spoken.messages:
+                                    last_msg = spoken.messages[-1]
+                                    if last_msg.get("role") == "assistant" and last_msg.get("content"):
+                                        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+                                        content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
+                                        if content_to_speak.strip():
+                                            from plugin.audio.tts_service import speak_text_async, is_speaking
 
-                                    def _on_tts_status(message: str) -> None:
-                                        # Speech runs on a worker; the status control is a UNO widget.
-                                        def _apply() -> None:
-                                            self._set_status(message)
+                                            # Restore the send-complete status after download/fallback lines.
+                                            prior_status = self._terminal_status or "Ready"
 
-                                        try:
-                                            self.queue_executor.post(_apply)
-                                        except Exception:
-                                            log.debug("TTS status post failed", exc_info=True)
+                                            def _on_tts_status(message: str) -> None:
+                                                # Speech runs on a worker; the status control is a UNO widget.
+                                                def _apply() -> None:
+                                                    self._set_status(message)
 
-                                    def _on_speech_complete() -> None:
-                                        def _disable_stop() -> None:
-                                            if not getattr(self, "_send_busy", False):
+                                                try:
+                                                    self.queue_executor.post(_apply)
+                                                except Exception:
+                                                    log.debug("TTS status post failed", exc_info=True)
+
+                                            def _on_speech_complete() -> None:
+                                                def _disable_stop() -> None:
+                                                    if not getattr(self, "_send_busy", False):
+                                                        if self.stop_control and self.stop_control.getModel():
+                                                            with suppress_disposed("disable stop after speech", logger=log):
+                                                                self.stop_control.getModel().Enabled = False
+                                                        # A sticky restart may already be capturing; Ready would hide it.
+                                                        if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
+                                                            self._set_status(hands_free_status_text())
+                                                        else:
+                                                            self._set_status(_(prior_status))
+                                                self.queue_executor.post(_disable_stop)
+
+                                            speak_text_async(
+                                                content_to_speak,
+                                                on_complete=_on_speech_complete,
+                                                on_status=_on_tts_status,
+                                                # Sentence breaks use BreakIterator on this UI
+                                                # thread. The audio worker only receives the list.
+                                                ctx=self.ctx,
+                                            )
+                                            if is_speaking():
                                                 if self.stop_control and self.stop_control.getModel():
-                                                    with suppress_disposed("disable stop after speech", logger=log):
-                                                        self.stop_control.getModel().Enabled = False
-                                                # A sticky restart may already be capturing; Ready would hide it.
-                                                if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
-                                                    self._set_status(hands_free_status_text())
-                                                else:
-                                                    self._set_status(_(prior_status))
-                                        self.queue_executor.post(_disable_stop)
+                                                    with suppress_disposed("enable stop for speech", logger=log):
+                                                        self.stop_control.getModel().Enabled = True
+                        except Exception as e:
+                            log.debug("TTS playback trigger: %s", e)
+                        self._flush_sticky_restart()
+            finally:
+                # What was wrong: commit 588704555 returned early when content_to_speak was empty,
+                # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
+                # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
+                # finally so no early return or TTS exception can leak active_turns.
+                from plugin.chatbot.tool_loop_actions import drop_turn
+                from plugin.doc.peer_message import kick_pending_peer_starts
 
-                                    speak_text_async(
-                                        last_msg["content"],
-                                        on_complete=_on_speech_complete,
-                                        on_status=_on_tts_status,
-                                        # Sentence breaks use BreakIterator on this UI
-                                        # thread. The audio worker only receives the list.
-                                        ctx=self.ctx,
-                                    )
-                                    if is_speaking():
-                                        if self.stop_control and self.stop_control.getModel():
-                                            with suppress_disposed("enable stop for speech", logger=log):
-                                                self.stop_control.getModel().Enabled = True
-                    except Exception as e:
-                        log.debug("TTS playback trigger: %s", e)
-                    self._flush_sticky_restart()
-            from plugin.doc.peer_message import kick_pending_peer_starts
-
-            kick_pending_peer_starts()
+                # Spoken text was copied above. Later callbacks must not find this turn.
+                drop_turn(self)
+                kick_pending_peer_starts()
 
     def _get_doc_type_str(self, model: Any) -> str:
         from plugin.doc.doc_type import doc_type_title_for_label
@@ -1405,9 +1678,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _do_send(self) -> None:
         from plugin.framework.i18n import _
-        from plugin.framework.html_stripper import StreamingHTMLStripper
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        self._plain_text_stripper = StreamingHTMLStripper()
+        # begin_send_turn aborts the turn already in flight. A pump re-entry
+        # during Whisper must not do that, and must not clear the WAV.
+        # What was wrong: this read self._stt_inflight. Smol tests call
+        # _do_send on a SimpleNamespace that never ran __init__, so the
+        # attribute was missing and every chat send raised AttributeError.
+        # Why: missing means not transcribing, same as the mixin default.
+        if getattr(self, "_stt_inflight", False):
+            log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
+            return
+
+        # The turn exists before any worker and before early error rows.
+        # Mode and the document are filled in once this send knows them.
+        begin_send_turn(self, "")
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         log.info("=== _do_send START ===")
@@ -1464,9 +1749,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # Send button click leaves focus on Send; keep the query field
             # ready for the next question (reveal/scroll must not win later).
             try:
-                from plugin.framework.uno_context import note_user_wants_query
-
-                note_user_wants_query()
+                session = getattr(self, "frame_session", None)
+                if session is not None:
+                    session.note_user_wants_query()
                 if hasattr(self.query_control, "setFocus"):
                     self.query_control.setFocus()
             except Exception as e:
@@ -1498,6 +1783,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
                     try:
                         transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
+                        if self._terminal_status == "Stopped":
+                            if transcript and self.query_control and self.query_control.getModel():
+                                from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+                                existing = (get_control_text(self.query_control) or "").strip()
+                                new_text = (existing + "\n" + transcript).strip() if existing else transcript
+                                set_control_text(self.query_control, new_text)
+                                self._sync_has_text_from_query()
+                            return
                         if transcript:
                             query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
                     except Exception as e:
@@ -1513,7 +1807,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     # fall through into a chat POST with a blank user message (G27).
                     if not query_text.strip():
                         self._append_response("\n" + _("[No speech detected.]") + "\n")
-                        self._terminal_status = ""
+                        self._terminal_status = "Stopped"
                         return
                 else:
                     err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
@@ -1538,6 +1832,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
         sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+        # Mode and the document are arguments of the turn already started.
+        # A later dropdown change aborts it; it does not retarget the turn.
+        started = current_turn(self)
+        if isinstance(started, TurnController):
+            started.mode = str(sidebar_mode or "")
+            started.model = model
 
         if sidebar_mode == CHAT_MODE_LIBRARIAN:
             log.info("_do_send: using librarian onboarding agent")
@@ -1580,7 +1882,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._run_ppt_master(query_text, model)
             return
 
-        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
+        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
+        # What was wrong: `_do_send_via_agent_backend` sat in this try. The except
+        # only logged, then execution fell through to `_do_send_chat_with_tools`,
+        # so one Send started a second builtin turn. The handler documents no
+        # builtin fallback. Show the error and end the send here.
         try:
             from plugin.framework.config import get_config
             from plugin.acp.registry import normalize_backend_id
@@ -1590,8 +1896,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.info("_do_send: using agent backend %s" % agent_backend_id)
                 self._do_send_via_agent_backend(query_text, model, doc_type_label)
                 return
-        except Exception:
+        except Exception as exc:
             log.exception("_do_send: agent backend check failed")
+            self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
+            self._terminal_status = "Error"
+            self._set_status(_("Error"))
+            return
 
         # Regular Chat with Tools or Streams
         # Cast to Any to satisfy ty since SendButtonListener mixes in multiple protocol hosts
@@ -1637,11 +1947,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         return
                     self._do_send_extracted_peer(query_text, already_appended=already_appended)
                 finally:
-                    self._send_cancellation = None
+                    if not getattr(self, "_panel_teardown", False):
+                        self._send_cancellation = None
         except Exception as e:
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("Extracted peer send unhandled exception [doc: %s]", doc_type_for_log)
-            self._append_response("\n\n[Error: %s]\n" % str(e))
+            self._project_closing_line("\n\n[Error: %s]\n" % str(e))
             self._terminal_status = "Error"
         finally:
             update_activity_state("")
@@ -1651,25 +1962,30 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if self._terminal_status == "Error":
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
-                    # Extracted send only uses Ready or Error (unlike _do_send, which
-                    # may leave ""). Always set Ready here so ty does not treat a
-                    # nonempty-string check as a redundant condition.
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                    self._set_status(_("Ready"))
+                    self._sync_has_text_from_query()
+                    # Ty: _terminal_status defaults to "Ready", which is unconditionally true.
+                    # _run_send_drain may leave it "" to keep the label as-is, but extracted
+                    # peer ignores those paths. Avoid the redundant if-check.
+                    self._set_status(_(self._terminal_status))
                     self._flush_sticky_restart()
+            from plugin.chatbot.tool_loop_actions import drop_turn
+
+            drop_turn(self)
             kick_pending_peer_starts()
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
         """Force chat-with-tools. No Ask read/clear, no setFocus, no librarian/image."""
         from plugin.framework.i18n import _
-        from plugin.framework.html_stripper import StreamingHTMLStripper
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_CHAT,
             mode_from_selector_with_flags,
             sidebar_mode_flags_for_doc_type,
         )
 
-        self._plain_text_stripper = StreamingHTMLStripper()
+        from plugin.chatbot.tool_loop_actions import TurnController, begin_send_turn, current_turn
+
+        begin_send_turn(self, CHAT_MODE_CHAT)
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         if self.ensure_path_fn:
@@ -1692,6 +2008,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             )
             self._terminal_status = "Error"
             return
+        started = current_turn(self)
+        if isinstance(started, TurnController):
+            started.mode = CHAT_MODE_CHAT
+            started.model = model
         if not already_appended:
             self.session.add_user_message(query_text)
             self._append_response(query_text, role="user")
@@ -1721,7 +2041,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
-    def disposing(self, Source: Any) -> None:
+    def disposing(self, Source: Any = None) -> None:
+        try:
+            from plugin.audio.tts_service import stop_speech
+            stop_speech()
+        except Exception:
+            pass
         # UNO can deliver this re-entrantly inside processEventsToIdle while
         # run_stream_drain_loop is still on the stack. The flag is first so
         # that drain's finally does not write status or start TTS after ctx
@@ -1730,12 +2055,30 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # streaming into a dead panel. Match StopSendEffect: cancel the scope
         # and latch the fallback.
         self._panel_teardown = True
+        # What was wrong: silence auto-stop lambdas stayed on the recorder and
+        # posted UI work after this listener was gone.
+        # Why: drop them before cleanup so stop does not re-enter the panel.
+        recorder = getattr(self, "audio_recorder", None)
+        if recorder is not None:
+            try:
+                recorder.set_auto_stop_callbacks(
+                    on_auto_stop=None,
+                    on_silence_progress=None,
+                    on_error=None,
+                )
+            except Exception:
+                log.debug("SendButtonListener.disposing: clear audio callbacks failed", exc_info=True)
+        from plugin.chatbot.tool_loop_actions import abort_turn
+
+        abort_turn(self)
         scope = getattr(self, "_send_cancellation", None)
         if scope is not None:
             scope.cancel()
         self._stop_requested_fallback = True
+        self._kill_inflight_stt()
         self._release_open_microphone()
         self.exit_hands_free_record()
+        self.clear_pending_audio_wav()
         try:
             from plugin.doc.peer_message import drop_listener_queue
 
@@ -1745,12 +2088,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             from plugin.framework.event_bus import global_event_bus
 
-            global_event_bus.unsubscribe("mcp:request", self._on_mcp_request)
-            global_event_bus.unsubscribe("mcp:result", self._on_mcp_result)
+            # What was wrong: mcp:request / mcp:result were subscribed on
+            # services.events and unsubscribed on global_event_bus. Those are
+            # not always the same object, so the panel stayed subscribed.
+            # Why: unsubscribe the bus saved at subscribe time. grammar:status
+            # was subscribed on global_event_bus and stays on that bus.
+            mcp_bus = getattr(self, "_mcp_event_bus", None)
+            if mcp_bus is not None:
+                mcp_bus.unsubscribe("mcp:request", self._on_mcp_request)
+                mcp_bus.unsubscribe("mcp:result", self._on_mcp_result)
             global_event_bus.unsubscribe("grammar:status", self._on_grammar_status)
         except Exception as e:
             log.debug("SendButtonListener.disposing: error unsubscribing from event bus: %s", e)
         finally:
+            self._mcp_event_bus = None
             self.panel = None
             self.ctx = None
 
@@ -1761,11 +2112,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 # ---------------------------------------------------------------------------
 
 
-def notify_stop_mouse_entered() -> None:
-    """Hovering Stop: do not restore Ask/instruct on the next stream chunk."""
-    from plugin.framework.uno_context import note_user_left_query
-
-    note_user_left_query()
+def notify_stop_mouse_entered(send_listener: Any = None) -> None:
+    """Hovering Stop: do not restore this frame's Ask field on the next stream chunk."""
+    session = getattr(send_listener, "frame_session", None)
+    if session is not None:
+        session.note_user_left_query()
 
 
 def notify_stop_mouse_pressed(send_listener: Any) -> None:
@@ -1777,9 +2128,9 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
     belt-and-suspenders if ActionEvent still never fires. Change/Reject during
     web-search approval stays on ActionEvent — do not treat those as Stop.
     """
-    from plugin.framework.uno_context import note_user_left_query
-
-    note_user_left_query()
+    session = getattr(send_listener, "frame_session", None)
+    if session is not None:
+        session.note_user_left_query()
     if send_listener is None:
         return
     if getattr(send_listener, "_approval_event", None) is not None:
@@ -1823,7 +2174,7 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
             return
 
         def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-            notify_stop_mouse_entered()
+            notify_stop_mouse_entered(send_listener)
 
         def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             return
@@ -1975,6 +2326,13 @@ class ClearButtonListener(BaseActionListener):
         send_state = getattr(getattr(self.send_listener, "sidebar_state", None), "send", None)
         if self.send_listener is not None and send_state is not None and send_state.is_busy:
             self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        if self.send_listener is not None:
+            from plugin.chatbot.tool_loop_actions import abort_turn
+
+            # Abort before the list is replaced. Stop already aborted a busy
+            # send; abort again when it was idle so a worker that outlived
+            # the button cannot paint onto the new list.
+            abort_turn(self.send_listener)
         self.session.clear()
 
         if self.send_listener and self.send_listener.rich_text_widget:

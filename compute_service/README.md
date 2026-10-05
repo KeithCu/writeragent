@@ -31,6 +31,7 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 
 Unauthenticated health probe suitable for Kubernetes/Docker liveness and readiness checks.
 Always unauthenticated even when Bearer authentication is configured for execution.
+`version` is `plugin.version.EXTENSION_VERSION`, the extension version this process was built with.
 
 - **Request**: `GET /health`
 - **Response**: `200 OK`
@@ -38,7 +39,7 @@ Always unauthenticated even when Bearer authentication is configured for executi
   {
     "status": "healthy",
     "service": "python-compute",
-    "version": "0.8.76"
+    "version": "<EXTENSION_VERSION>"
   }
   ```
 
@@ -114,6 +115,7 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
   { "id": "corr-1", "status": "ok" }
   ```
 - **Errors:** `400` missing/empty query `session_id` or `session_id` in the JSON body; `401` auth (same Bearer as execute); worker lease failure → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
+- The supervisor drops its session map only when the worker reset returns `status: ok`. A failed reset is logged and the map stays: that process may still hold the namespace. Forgetting the id would make the next sticky cell look new on a kernel that is not empty.
 - Idle TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed. Do not remove it.
 
 ### 4. Vision & OCR Endpoint (`POST /v1/vision`)
@@ -134,7 +136,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
   }
   ```
 
-- **Request Schema (Option B: Server Filesystem Path)** — the worker reads this path as the service user; any authenticated client can open any readable file:
+- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return `FILE_TOO_LARGE`:
   ```json
   {
     "id": "ocr-124",
@@ -167,11 +169,11 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` longer than `max_code_chars` (`CODE_TOO_LARGE`; multipart also applies that byte cap to the `init_script` part), invalid UTF-8 in a multipart source part, missing/empty reset `session_id`, `session_id` in the request body, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
-| **`503 Service Unavailable`** | `/v1/session/reset` worker lease failure (`WORKER_POOL_BUSY`). coolwsd may map this to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the pool never finished the cell (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_CRASHED`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `EMPTY_RESPONSE`, `QUEUE_TIMEOUT`). A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
@@ -185,15 +187,18 @@ key is non-empty. Configure the **same** secret on the service:
 |--------|-----|
 | Environment | `PYTHON_COMPUTE_API_KEY=...` |
 | Key file | `PYTHON_COMPUTE_API_KEY_FILE=/path` or `--api-key-file /path` |
-| Config JSON | `"auth": { "api_key_file": "..." }` (no raw key in the JSON file) |
+| Config JSON | `"auth": { "api_key_file": "..." }`. A raw `api_key` in the file is a startup error. |
 
 There is **no** `--api-key` CLI flag (secrets in argv are visible in `ps`).
 
 Rules:
 
-- **No key configured** → `/v1/execute` and `/v1/session/reset` are open (insecure; fine for local/dev/test).
+- **Loopback and no key** → `/v1/execute` and `/v1/session/reset` are open (local dev/test only).
+- **Any other bind without a key** → `load_settings` refuses to start. This includes `0.0.0.0` and `::`. The image entrypoint checks the same case before exec.
 - **Key configured** → `/v1/execute` and `/v1/session/reset` require an exact `Bearer <token>` match
-  (`hmac.compare_digest`). Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
+  (`hmac.compare_digest` on the UTF-8 bytes). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
+- `PYTHON_COMPUTE_API_KEY` is not stripped. A key file drops one trailing newline and keeps surrounding spaces. The same secret text is the same bytes from either source.
+- **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error. Aliases `max_workers` and `session_ttl_sec` are accepted.
 
 Match coolwsd (`coolwsd.xml`):
 
@@ -219,17 +224,17 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 |----------|---------|---------|
 | `PYTHON_COMPUTE_HOST` | Bind address (loopback default) | `127.0.0.1` |
 | `PYTHON_COMPUTE_PORT` | Listening port | `8000` |
-| `PYTHON_COMPUTE_API_KEY` | Shared Bearer secret | `""` |
+| `PYTHON_COMPUTE_API_KEY` | Shared Bearer secret (not stripped) | `""` |
 | `PYTHON_COMPUTE_API_KEY_FILE` | Path to secret file (strip one trailing newline) | `""` |
 | `PYTHON_COMPUTE_CONFIG` | Path to JSON config | `""` |
 | `PYTHON_COMPUTE_LOG_LEVEL` | Log verbosity (`DEBUG`, `INFO`, `WARN`, `ERROR`) | `INFO` |
 | `PYTHON_COMPUTE_MAX_BODY_BYTES` | Request body cap | `33554432` (32 MiB) |
 | `PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC` | Default execution timeout in seconds | `30` |
 | `PYTHON_COMPUTE_MAX_TIMEOUT_SEC` | Upper bound clamp for `timeout_ms` | `600` |
-| `PYTHON_COMPUTE_WORKERS` / `PYTHON_COMPUTE_MAX_WORKERS` | Number of formula worker subprocesses | `2` |
+| `PYTHON_COMPUTE_WORKERS` | Number of formula worker subprocesses. `PYTHON_COMPUTE_MAX_WORKERS` is an accepted alias. | `2` |
 | `PYTHON_COMPUTE_WORKER_MAX_TASKS` | Tasks before recycling formula worker | `500` |
-| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction | `3600` (1 hour) |
-| `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination | `3600` (1 hour) |
+| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. `PYTHON_COMPUTE_SESSION_TTL_SEC` is an accepted alias. | `3600` (1 hour) |
+| `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. | `3600` (1 hour) |
 | `PYTHON_COMPUTE_OCR_WORKERS` | Dedicated OCR/Vision worker subprocesses | `0` (disabled by default) |
 | `PYTHON_COMPUTE_OCR_TIMEOUT_SEC` | OCR/Vision execution timeout in seconds | `60` |
 | `PYTHON_COMPUTE_OCR_MAX_TASKS` | Tasks before recycling OCR worker process | `100` |
@@ -242,16 +247,18 @@ Key file permissions: readable only by the service user (e.g. mode `0400`).
 
 coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock.
 
-`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns `VISION_POOL_BUSY` in the JSON body.
+`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns HTTP 503 with `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and leaves the process up while the late frame is discarded; a second timeout then kills it.
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
+`load_settings` refuses a non-loopback bind that has no API key, so `python compute_service/server.py --host 0.0.0.0` fails the same way as the image. `./compute_service/start-docker.sh` still requires `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` before it publishes a port. When the file variable is set, the script mounts that host file read-only at `/run/secrets/python_compute_api_key` and sets the container's `PYTHON_COMPUTE_API_KEY_FILE` to that path. Loopback with no key remains allowed.
+
 ```bash
-./compute_service/start-docker.sh
+PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd ./compute_service/start-docker.sh
 # or:
 docker build -f compute_service/Dockerfile -t python-compute .
 docker run --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
-  --memory=512m --cpus=1 --pids-limit=256 \
+  --memory=512m --memory-swap=512m --cpus=1 --pids-limit=256 \
   --security-opt no-new-privileges --cap-drop ALL \
   -p 127.0.0.1:8000:8000 \
   -e PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd \
@@ -265,7 +272,7 @@ Shared `mode=shared` **must** use a per-document `session_id` query parameter (`
 ## Lifecycle & Signal Handling
 
 - **Graceful Shutdown**: The service traps `SIGTERM` and `SIGINT`.
-- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), the server initiates `server.shutdown()` on a background thread, terminates worker subprocess pools cleanly, stops accepting new connections, drains in-flight evaluations, and closes listening sockets.
+- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), the server stops accepting on a background thread. After the accept loop returns it waits up to 30s for requests already taken, then terminates worker subprocesses and closes listening sockets. A cell still running at the end of that wait is abandoned.
 
 ---
 
@@ -275,7 +282,7 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **HTTP listener**: One thread per formula worker and vision worker (2 with the stock defaults). Not a setting. A `ThreadPoolExecutor` accepts connections, including Kubernetes `/health` probes, without socket stalls.
+- **HTTP listener**: Thread pool sized above worker count ($W + 2$, stock default $\ge 4$). `/v1/execute` and `/v1/session/reset` share a non-blocking semaphore sized to the formula pool; `/v1/vision` has its own sized to the vision pool. A saturated pool returns 503 before the body is read and does not consume the other pool's permits. At least two listener threads stay free for immediate `GET /health`.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward
@@ -289,9 +296,9 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 **Compute JSON-forward** ([`json_forward.py`](json_forward.py)):
 
 - Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker after kit switches to multipart.
-- Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode`, `timeout_ms`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts: the host byte-caps them with `max_code_chars` and UTF-8-decodes once into the `str` the worker already takes. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
-- Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. Pickle copies the byte buffer; it does not walk the JSON tree.
-- Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`.
+- Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode`, `timeout_ms`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length) and both use the same mode check. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
+- Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. That is the only payload. `wire` other than `json_forward` is rejected. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
+- Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.
 
 **Pickle framing** (control envelope only — [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py), [`worker_base.py`](worker_base.py)):
@@ -309,11 +316,11 @@ Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/script
 - Manages persistent worker subprocesses (`workers`, default `2`).
 - **Single-Threaded Child Subprocesses**: Each worker is a dedicated, single-threaded OS process running a synchronous IPC loop with exclusive lease occupancy (0 worker threads inside the child), ensuring determinism and zero race conditions.
 - **GIL Elimination**: Each worker runs its own Python interpreter, achieving true parallel multi-core scaling for pure-Python and NumPy workloads.
-- **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are consistently routed to the specific worker holding that workbook's state in memory. Isolated and sticky jobs **exclusively occupy** a worker (idle set + condition); they never run concurrently on the same process.
+- **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are routed to the process that owns that workbook. The supervisor maps are a cache of that pid: when the process exits, every session on it is dropped, and a respawn is not the same workbook. Isolated work never runs on a process that owns a shared session. Shared sessions on one process still occupy it exclusively (one cell at a time).
 - **Stderr drain**: Each worker pipes stderr into `start_stderr_drain` (same helper as the desktop venv worker) so a noisy child cannot fill the OS pipe and deadlock the parent.
-- **Hard `SIGKILL` Watchdogs**: If a user formula triggers an uncatchable loop or timeout, the pool terminates the hanging process via `SIGKILL`, returns a clean timeout error, and automatically spawns a fresh worker.
+- **Timeouts**: The accept timestamp, the worker lease, and the child share one deadline. The child is given the time still left and returns an error frame when its alarm fires, so a normal timeout leaves the process up. `SIGKILL` is only when that frame never arrives. That kill drops every shared session on the pid.
 - **Task Recycling**: Recycles worker processes after `worker_max_tasks` (default: 500) to keep memory fragmentation low. Workers holding active stateful sessions (`mode="shared"`) bypass normal recycling to preserve state indefinitely while active. Idle sessions auto-evict after `shared_kernel_ttl_sec` (default: 1 hour) of inactivity.
-- **Idle Worker Reaper**: All worker pools terminate worker subprocesses that remain idle for > `idle_worker_ttl_sec` (default: 1 hour) to free system RAM; processes lazily re-spawn on the next incoming request.
+- **Idle Worker Reaper**: All worker pools terminate worker subprocesses that remain idle for > `idle_worker_ttl_sec` (default: 1 hour) to free system RAM. A dead pid is not idle. The next lease claims that slot and the following request respawns it after a ready handshake. A worker that still owns a shared session is not idle-evicted; session TTL clears those namespaces.
 
 ### 3. Tier 2: Isolated Vision & OCR Pool (`VisionProcessPool`)
 - Dedicated worker subprocesses (`ocr_workers`, default `0`, disabled until configured) for heavy Docling and PaddleOCR tasks.
@@ -347,7 +354,7 @@ Execution Architecture Benchmark: In-Process vs Subprocess Pickle IPC
 1. **Negligible IPC Overhead**:
    - The IPC roundtrip over local binary pipes adds only **sub-millisecond latency**. Compared to standard browser-to-server HTTP network latency (typically 10–50 ms), this overhead is imperceptible (<1% of network roundtrip).
 2. **Hard `SIGKILL` on Infinite Loops**:
-   - In-process threads cannot be forcefully killed without destabilizing or terminating the entire Python interpreter. Subprocess workers can be immediately destroyed via `SIGKILL` on timeout, guaranteeing that rogue formulas or uncatchable loops cannot stall the service.
+   - In-process threads cannot be forcefully killed without destabilizing or terminating the entire Python interpreter. A formula timeout returns an error frame and leaves the process up. `SIGKILL` is reserved for a child that never writes that frame, and it drops every shared session on that pid.
 3. **Total Fault & Crash Isolation**:
    - If user code or a third-party C/C++ extension triggers a segmentation fault (`SIGSEGV`) or abort, only that disposable child worker crashes. The master HTTP server and all other active sessions remain 100% unaffected and a replacement worker is automatically spawned.
 4. **Complete GIL Bypass**:
@@ -384,7 +391,7 @@ docker run --rm -p 127.0.0.1:8000:8000 \
   python-compute
 ```
 
-- For cross-container networking within a private bridge network, set `HOST=0.0.0.0`.
+- The image and `start-docker.sh` set `PYTHON_COMPUTE_HOST=0.0.0.0` so the published port reaches the process. The host publish stays on `127.0.0.1`. `HOST` and `PORT` are not read.
 - The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`).
 
 ---

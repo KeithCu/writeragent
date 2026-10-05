@@ -65,7 +65,7 @@ Release default remains `x86-64` in [`setup.py`](../native/writeragent_vec/setup
 | **Atomic replace** when downloading host natives (`temp` + `os.replace`) | Truncate a mapped `.so` in place (`open(..., "wb")`) — SIGBUS on redownload |
 
 > [!WARNING]
-> Settings → Python **Download** must never overwrite an already-`dlopen`’d host native in place. Write to a sibling `.partial` file and `os.replace`. After replace, invalidate `writeragent_vec` in `sys.modules` so the next load binds the new inode. Settings → **Test** should reload Cython status on the **main thread** and pass a report-only string into the probe worker.
+> Settings → Python **Download** must never overwrite an already-`dlopen`’d host native in place. Write to a sibling `.partial` file and `os.replace`. After replace, invalidate `writeragent_vec` in `sys.modules` so the next load binds the new inode. LibrePy's download does that invalidate, and `ensure_downloaded_audio_on_path`, on the **main thread** after the probe worker finishes the transfer (`bind_host=False` plus `execute_on_main_thread`). Settings → **Test** should reload Cython status on the **main thread** and pass a report-only string into the probe worker.
 
 ---
 

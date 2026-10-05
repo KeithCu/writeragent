@@ -29,7 +29,10 @@ class MockTextCursor:
         pass
 
     def goRight(self, count, select):
-        pass
+        if not hasattr(self, "go_right_calls"):
+            self.go_right_calls = []
+        self.go_right_calls.append((count, select))
+        return True
 
     def getStart(self):
         return self
@@ -124,6 +127,32 @@ class TestAppendRichText:
         doc = self._call("", role="assistant")
         content = doc.getText().getString()
         assert ("Assistant: ") in (content)
+
+    def test_append_rich_text_chunks_go_right(self):
+        from plugin.chatbot.rich_text import append_rich_text
+        doc = MockDoc()
+
+        # Force pre_len in append_rich_text to be large enough to trigger chunking
+        # pre_len is calculated as doc.CharacterCount - previous
+        doc._text._content = " " * 40000
+
+        created_cursors = []
+        original_create = doc.getText().createTextCursor
+        def patched_create():
+            c = original_create()
+            created_cursors.append(c)
+            return c
+        doc.getText().createTextCursor = patched_create
+
+        append_rich_text(doc, "Some content", "user")
+
+        body_cursor = created_cursors[-1]
+        assert hasattr(body_cursor, "go_right_calls")
+
+        calls = body_cursor.go_right_calls
+        pre_len = sum(count for count, expand in calls)
+        assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
+        assert all(count <= 8192 for count, expand in calls)
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
@@ -261,6 +290,98 @@ class TestAppendRichText:
 
         assert (len(body_cursors)) >= (2)
         assert (body_cursors[-1].CharColor) == (ASSISTANT_COLOR)
+
+    def test_html_import_failure_does_not_insert_raw_tags(self):
+        """A filter exception must not leave the tags in the hidden doc."""
+        from plugin.chatbot.rich_text import append_rich_text
+
+        doc = MockDoc()
+        with patch(
+            "plugin.chatbot.rich_text._insert_html_at_cursor",
+            side_effect=RuntimeError("filter"),
+        ):
+            ok = append_rich_text(doc, "<p>Hi</p>", role="assistant")
+
+        assert ok is False
+        content = doc.getText().getString()
+        # The prefix was inserted before the filter raised. Restoring the body
+        # drops that partial row; the caller writes the stripped message.
+        assert content == ""
+        assert "<p>" not in content
+        assert "Hi" not in content
+
+    def test_full_document_imports_body_only(self):
+        """A full HTML document is reduced to its body before the filter."""
+        from plugin.chatbot.rich_text import append_rich_text
+
+        doc = MockDoc()
+        seen: list[str] = []
+
+        def _capture(_doc, _cursor, fragment):
+            seen.append(fragment)
+
+        full = "<html><head><script>alert(1)</script></head><body><p>Hi</p></body></html>"
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_capture):
+            ok = append_rich_text(doc, full, role="assistant")
+
+        assert ok is True
+        assert seen == ["<p>Hi</p>"]
+
+    def test_bad_element_does_not_leave_tags_or_a_partial_row(self):
+        """A filter that writes tags and then raises must not leave them."""
+        from plugin.chatbot.rich_text import append_rich_text, render_messages_to_hidden_doc
+
+        doc = MockDoc()
+
+        def _writes_tags_then_raises(_doc, _cursor, fragment):
+            doc.getText().insertString(None, fragment, False)
+            raise RuntimeError("bad element")
+
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_writes_tags_then_raises):
+            ok = append_rich_text(doc, "<p>Hi</p><script>alert(1)</script>", role="assistant")
+
+        assert ok is False
+        assert "<" not in doc.getText().getString()
+
+        doc = MockDoc()
+        calls = {"n": 0}
+
+        def _later_edit_inserts_foreign_text(_doc, _cursor, fragment):
+            del fragment
+            calls["n"] += 1
+            doc.getText().insertString(None, "NOT_IN_MESSAGES", False)
+            raise RuntimeError("later edit failed")
+
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_later_edit_inserts_foreign_text):
+            render_messages_to_hidden_doc(
+                doc,
+                [("user", "keep me"), ("assistant", "<p>second</p>")],
+            )
+
+        content = doc.getText().getString()
+        assert "NOT_IN_MESSAGES" not in content
+        assert "keep me" in content
+        assert "second" in content
+        assert "<p>" not in content
+        assert calls["n"] == 1
+
+    def test_render_rejects_an_edit_that_is_not_the_message(self):
+        """A later edit that returns success but wrote other text must not stay."""
+        from plugin.chatbot.rich_text import render_messages_to_hidden_doc
+
+        doc = MockDoc()
+
+        def _lie(target, text, role="assistant", style_window=None):
+            del text, role, style_window
+            target.getText().insertString(None, "NOT_IN_MESSAGES", False)
+            return True
+
+        with patch("plugin.chatbot.rich_text.append_rich_text", side_effect=_lie):
+            render_messages_to_hidden_doc(doc, [("assistant", "hello")])
+
+        content = doc.getText().getString()
+        assert "NOT_IN_MESSAGES" not in content
+        assert "hello" in content
 
 
 class TestTightenListIndent:
@@ -498,6 +619,60 @@ class TestHtmlDetectionRegex:
 
     def test_large_text_with_tag_at_end(self):
         assert (self._matches("x" * 1_000_000 + "<p>"))
+
+
+class TestContainsHtmlTag:
+    """Real tags, not every ``<Letter…>`` token."""
+
+    def test_generic_url_and_email_are_not_tags(self):
+        from plugin.chatbot.rich_text import contains_html_tag
+
+        assert contains_html_tag("Use List<String> here") is False
+        assert contains_html_tag("Write <user@example.com> today") is False
+        assert contains_html_tag("See <https://example.com/a>") is False
+        assert contains_html_tag("3 < 5") is False
+        assert contains_html_tag("<prevent>") is False
+
+    def test_formatting_script_and_declarations_are_tags(self):
+        from plugin.chatbot.rich_text import contains_html_tag
+
+        assert contains_html_tag("<b>bold</b>") is True
+        assert contains_html_tag("<i>italic</i>") is True
+        assert contains_html_tag("<script>alert(1)</script>") is True
+        assert contains_html_tag("<p>Hi</p>") is True
+        assert contains_html_tag("<!-- note -->") is True
+        assert contains_html_tag("<br/>") is True
+        assert contains_html_tag("<widget/>") is True
+
+
+class TestGenericTokensStayInTheTranscript:
+    def test_append_and_render_keep_tokens_and_still_import_formatting(self):
+        from plugin.chatbot.rich_text import append_rich_text, render_messages_to_hidden_doc
+
+        text = "Use List<String>, write <user@example.com>, see <https://example.com/a>."
+        doc = MockDoc()
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+            ok = append_rich_text(doc, text, role="assistant")
+        assert ok is True
+        mock_insert.assert_not_called()
+        content = doc.getText().getString()
+        assert "List<String>" in content
+        assert "<user@example.com>" in content
+        assert "<https://example.com/a>" in content
+
+        doc = MockDoc()
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+            render_messages_to_hidden_doc(doc, [("assistant", text)])
+        mock_insert.assert_not_called()
+        rendered = doc.getText().getString()
+        assert "List<String>" in rendered
+        assert "<user@example.com>" in rendered
+        assert "<https://example.com/a>" in rendered
+
+        doc = MockDoc()
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+            append_rich_text(doc, "<b>bold</b> and <i>italic</i> <script>x</script>", role="assistant")
+        mock_insert.assert_called_once()
 
 
 class TestChatTypography:

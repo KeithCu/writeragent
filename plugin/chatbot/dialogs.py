@@ -1053,10 +1053,13 @@ def get_optional(root_window: Any, name: str) -> Any:
         # Expected exception from UNO when an element is not found,
         # but catch Exception broadly since LibreOffice Python bridges
         # raise varying error types across platforms when missing names.
-        if "DisposedException" in str(type(e)):
+        # A disposed window is not a missing control name. Callers that must
+        # ignore teardown already use suppress_disposed. A bare RuntimeException
+        # stays "missing": some bridges use that for an unknown control id.
+        if "DisposedException" in type(e).__name__:
             log.warning("get_optional %s error: control disposed %s", name, e)
-        else:
-            log.debug("get_optional %s error: %s", name, e)
+            raise
+        log.debug("get_optional %s error: %s", name, e)
         return None
 
 

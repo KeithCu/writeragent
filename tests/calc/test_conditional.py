@@ -91,3 +91,59 @@ def test_list_conditional_formats_error_handling():
         assert res["status"] == "error"
         assert res["code"] == "CONDITIONAL_FORMAT_ERROR"
         assert "Failed to list conditional formats" in res["message"]
+
+
+def test_add_conditional_format_operator_path():
+    import types
+    import uno
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    formats = MagicMock()
+    formats.getCount.return_value = 1
+    cell_range.getPropertyValue.return_value = formats
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    tool = AddConditionalFormat()
+
+    with patch("plugin.calc.conditional.CalcBridge", return_value=bridge):
+        with patch.object(uno, "createUnoStruct", side_effect=lambda *a, **k: types.SimpleNamespace()):
+            with patch.object(uno, "Enum", side_effect=lambda t, v: types.SimpleNamespace(typeName=t, value=v)):
+                # 1. Standard operator -> uno.Enum
+                res_gt = tool.execute(ctx, range=["A1:A10"], operator="GREATER", formula1="5", style="Result")
+                assert res_gt["status"] == "ok"
+                added_props = formats.addNew.call_args[0][0]
+                prop_dict = {p.Name: p.Value for p in added_props}
+                assert prop_dict["Operator"].typeName == "com.sun.star.sheet.ConditionOperator"
+                assert prop_dict["Operator"].value == "GREATER"
+                assert prop_dict["Formula1"] == "5"
+                assert prop_dict["StyleName"] == "Result"
+
+            # 2. DUPLICATE operator -> integer 10
+            res_dup = tool.execute(ctx, range=["A1:A10"], operator="DUPLICATE", style="Result")
+            assert res_dup["status"] == "ok"
+            added_props_dup = formats.addNew.call_args[0][0]
+            prop_dict_dup = {p.Name: p.Value for p in added_props_dup}
+            assert prop_dict_dup["Operator"] == 10
+
+
+def test_entry_to_dict_logs_exceptions(caplog):
+    import logging
+    from plugin.calc.conditional import _entry_to_dict
+
+    entry = MagicMock()
+    entry.queryInterface.side_effect = RuntimeError("boom qi")
+    entry.getOperator.side_effect = RuntimeError("boom op")
+    entry.getFormula1.side_effect = RuntimeError("boom f1")
+    entry.getFormula2.side_effect = RuntimeError("boom f2")
+    entry.getStyleName.side_effect = RuntimeError("boom sn")
+
+    with caplog.at_level(logging.DEBUG, logger="writeragent.calc"):
+        d = _entry_to_dict(entry, 0)
+    assert d == {"index": 0}
+    assert any("Failed getting operator" in record.message for record in caplog.records)
+

@@ -27,7 +27,8 @@ from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
-from plugin.framework.errors import ToolExecutionError
+from plugin.calc.calc_utils import _formula_cell_result
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
@@ -112,7 +113,9 @@ class CellInspector:
     def _safe_prop(cell: Any, name: str, default: Any = None) -> Any:
         try:
             return cell.getPropertyValue(name)
-        except Exception:
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.debug("_safe_prop read failed for %s", name, exc_info=True)
             return default
 
@@ -175,7 +178,9 @@ class CellInspector:
             date_cells = cell_range.queryContentCells(_CELL_FLAG_DATETIME)
             if date_cells is not None:
                 date_addresses = tuple(date_cells.getRangeAddresses() or ())
-        except Exception:
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.debug("queryContentCells(DATETIME) preflight failed", exc_info=True)
         if not date_addresses:
             has_formula = any(isinstance(formula, str) and formula.startswith("=") for row in formula_array for formula in row)
@@ -255,7 +260,11 @@ class CellInspector:
             elif cell_type == TEXT:
                 value = cell.getString()
             elif cell_type == FORMULA:
-                value = cell.getValue() if cell.getValue() != 0 else cell.getString()
+                err = cell.getError()
+                if err != 0:
+                    value = cell.getString()
+                else:
+                    value = _formula_cell_result(cell)
             else:
                 value = cell.getString()
 
@@ -265,11 +274,15 @@ class CellInspector:
             if include_format_info:
                 try:
                     self._enrich_cell_format(info, cell)
-                except Exception:
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
                     # Format metadata must never turn a previously valid core read into an error.
                     log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address)
             return info
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Cell reading failed for %s", address)
             raise ToolExecutionError(str(e)) from e
 
@@ -302,7 +315,11 @@ class CellInspector:
             elif cell_type == TEXT:
                 value = cell.getString()
             elif cell_type == FORMULA:
-                value = cell.getValue() if cell.getValue() != 0 else cell.getString()
+                err = cell.getError()
+                if err != 0:
+                    value = cell.getString()
+                else:
+                    value = _formula_cell_result(cell)
             else:
                 value = cell.getString()
 
@@ -323,6 +340,8 @@ class CellInspector:
                 "wrap_text": self._safe_prop(cell, "IsTextWrapped"),
             }
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Cell detailed reading failed for %s", address)
             raise ToolExecutionError(str(e)) from e
 
@@ -359,7 +378,9 @@ class CellInspector:
             if include_format_info:
                 try:
                     format_rows, null_date = self._range_format_rows(cell_range, formula_array)
-                except Exception:
+                except Exception as e:
+                    if is_disposed_exception(e):
+                        raise
                     # Some older/embedded Calc builds may not expose format-range queries.
                     # Preserve the old raw response instead of failing read_cell_range.
                     log.exception("Date/time format enrichment failed for range %s; returning raw values", range_name)
@@ -409,6 +430,8 @@ class CellInspector:
 
             return result
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Range reading failed for %s", range_name)
             raise ToolExecutionError(str(e)) from e
 
@@ -453,7 +476,11 @@ class CellInspector:
                         cell_address = f"{col_letter}{cell_addr.Row + 1}"
 
                         formula = cell.getFormula()
-                        value = cell.getValue() if cell.getValue() != 0 else cell.getString()
+                        err = cell.getError()
+                        if err != 0:
+                            value = cell.getString()
+                        else:
+                            value = _formula_cell_result(cell)
 
                         refs = _FORMULA_REF_RE.findall(formula.upper())
                         precedents = list({f"{c}{r}" for c, r in refs})
@@ -462,5 +489,7 @@ class CellInspector:
 
             return formulas
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("Formula listing failed")
             raise ToolExecutionError(str(e)) from e

@@ -14,6 +14,7 @@ LIBREPY_CALC_FUNCTIONS_EXCLUDES: tuple[str, ...] = (
     "venv/calc_functions_i_m.py",
     "venv/calc_functions_n_s.py",
     "venv/calc_functions_t_z.py",
+    "venv/calc_functions_util.py",
 )
 
 # vendor/ package dirs copied into plugin/lib/ (WriterAgent ships full requirements-vendor.txt).
@@ -140,6 +141,8 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/__init__.py",
     "plugin/framework/client/errors.py",
     "plugin/framework/client/requests.py",
+    # sync_request is a URL adapter over LlmHttpTransport (stop, timeout, retry, redaction).
+    "plugin/framework/client/http_transport.py",
     # requests.py calls LocalHttpsCertificateFallback for local HTTPS retries.
     "plugin/framework/client/request_controls.py",
     "plugin/framework/client/ssl_helpers.py",

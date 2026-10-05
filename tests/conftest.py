@@ -1,9 +1,13 @@
 import os
+import sys
+
+# Ensure this worktree root takes precedence over editable installs in .venv
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
 # Layer A thread guard defaults on in non-release bundles; keep headless pytest stable.
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
-
-import sys
 import time
 import types
 from unittest.mock import MagicMock, patch
@@ -103,6 +107,16 @@ def _ensure_writeragent_logger_propagates():
     wa_logger.propagate = True
     yield
     wa_logger.propagate = old_propagate
+
+
+@pytest.fixture(autouse=True)
+def _suppress_unmocked_extension_update_checks(request):
+    """Headless unit tests outside test_extension_update_check must not spawn background update workers."""
+    if "test_extension_update_check" in getattr(request.module, "__name__", ""):
+        yield
+        return
+    with patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"):
+        yield
 
 
 

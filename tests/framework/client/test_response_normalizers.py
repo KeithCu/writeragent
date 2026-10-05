@@ -123,6 +123,8 @@ def test_anthropic_shim_parse_sync_response():
     assert len(tool_calls) == 1
     assert tool_calls[0]["function"]["name"] == "do_work"
     assert usage["input_tokens"] == 20
+    assert usage["prompt_tokens"] == 20
+    assert usage["completion_tokens"] == 10
 
 
 def test_anthropic_shim_skips_tool_block_without_name():

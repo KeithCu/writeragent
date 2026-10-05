@@ -14,6 +14,7 @@ from plugin.vision.vision_common import merge_vision_params
 from plugin.doc.doc_type import is_calc, is_writer
 from plugin.scripting.client import run_vision
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.i18n import _
 from plugin.vision.vision_common import HELPER_NAMES, IMPLEMENTED_HELPERS, VISION_IMAGE_MAX_BYTES
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object
@@ -118,27 +119,36 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
 
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
-    image_name = params_dict.get("image_name")
 
-    graphic_obj = None
-    if image_name:
-        graphic_obj = _get_graphic_object(doc, str(image_name))
-    else:
-        try:
-            selection = doc.CurrentController.Selection
-            if selection:
-                if hasattr(selection, "getCount") and selection.getCount() > 0:
-                    graphic_obj = selection.getByIndex(0)
-                else:
-                    graphic_obj = selection
-        except Exception as exc:
-            _reraise_if_disposed(exc)
-            pass
+    def _export_on_main_thread() -> tuple[bytes, dict[str, Any], dict[str, Any]]:
+        # Graphic lookup, locale, and PNG export are UNO. OCR itself is not.
+        local_params = dict(params_dict)
+        image_name = local_params.get("image_name")
+        graphic_obj = None
+        if image_name:
+            graphic_obj = _get_graphic_object(doc, str(image_name))
+        else:
+            try:
+                selection = doc.CurrentController.Selection
+                if selection:
+                    if hasattr(selection, "getCount") and selection.getCount() > 0:
+                        graphic_obj = selection.getByIndex(0)
+                    else:
+                        graphic_obj = selection
+            except Exception as exc:
+                _reraise_if_disposed(exc)
 
-    if not params_dict.get("lang"):
-        params_dict["lang"] = _resolve_locale_language(ctx, doc, graphic_obj)
+        if not local_params.get("lang"):
+            local_params["lang"] = _resolve_locale_language(ctx, doc, graphic_obj)
 
-    png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(image_name) if image_name is not None else None)
+        png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(image_name) if image_name is not None else None)
+        source = "graphic_name" if str(image_name or "").strip() else "selection"
+        context: dict[str, Any] = {"source": source}
+        if source == "graphic_name":
+            context["image_name"] = str(image_name).strip()
+        return png_bytes, local_params, context
+
+    png_bytes, params_out, context = execute_on_main_thread(_export_on_main_thread)
     if len(png_bytes) > VISION_IMAGE_MAX_BYTES:
         raise ToolExecutionError(
             _("Image is too large to send to the vision worker ({size} bytes; limit {limit}).").format(
@@ -147,24 +157,22 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             code="IMAGE_TOO_LARGE",
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
-    spec: dict[str, Any] = {"helper": name, "params": params_dict}
-    source = "graphic_name" if str(image_name or "").strip() else "selection"
-    context: dict[str, Any] = {"source": source}
-    if source == "graphic_name":
-        context["image_name"] = str(image_name).strip()
-    return run_vision(ctx, spec, png_bytes, context=context)
+    spec: dict[str, Any] = {"helper": name, "params": params_out}
+    stop_checker = getattr(ctx, "stop_checker", None)
+    # venv OCR (up to the long worker budget, ~120s) stays on this thread.
+    return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
 
 
-def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True) -> dict[str, Any]:
+def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, stop_checker: Any = None) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
     by ``image_name`` so a text-range selection is collapsed before any edit and
     intervening text is never replaced.
-    """
-    from plugin.doc.visual_helpers import graphic_objects_in_selection
-    from plugin.vision.vision_egress import insert_vision_result
 
+    UNO discovery and insert are marshaled to the main thread. The venv OCR call
+    inside ``run_trusted_vision`` is not.
+    """
     name = str(helper or "").strip()
     if not name:
         raise ToolExecutionError("helper is required", code="VISION_ERROR")
@@ -176,23 +184,47 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         # wasted the selection. Reject here.
         raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
 
+    if stop_checker is None:
+        stop_checker = getattr(ctx, "stop_checker", None)
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     explicit_name = str(params_dict.get("image_name") or "").strip()
 
-    if explicit_name:
-        target_names = [explicit_name]
-    else:
+    def _discover_names() -> list[str]:
+        if explicit_name:
+            return [explicit_name]
         # Capture names before any insert collapses/clears the selection.
+        from plugin.doc.visual_helpers import graphic_objects_in_selection
+
         pairs = graphic_objects_in_selection(doc)
-        target_names = [n for n, _unused in pairs if n]
-        if not target_names:
+        found = [n for n, _unused in pairs if n]
+        if not found:
             raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
+        return found
+
+    target_names = execute_on_main_thread(_discover_names)
+
+    from plugin.framework.queue_executor import SendCancelled
 
     results: list[dict[str, Any]] = []
     for image_name in target_names:
+        if stop_checker is not None and stop_checker():
+            if results:
+                # Prior images were already inserted into the document. Break loop
+                # and return completed results so the tool result matches what landed.
+                break
+            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+
         per_params = dict(params_dict)
         per_params["image_name"] = image_name
-        result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
+        try:
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
+        except SendCancelled:
+            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+        except Exception as exc:
+            if getattr(type(exc), "__name__", "") == "SendCancelled":
+                return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+            raise
+
         if result.get("status") == "error":
             # Image 1 may already be inserted. Keep status=error and stop the loop
             # (tests/writer/test_vision_ocr_mock_uno.py). Attach what landed so the
@@ -204,9 +236,24 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             failed["inserted"] = bool(insert_into_document and results)
             failed["partial"] = bool(results)
             return failed
+        # A finished OCR is a document mutation and is inserted. Stop is checked
+        # at the top of the loop, so the next image is not started.
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
-            insert_vision_result(ctx, doc, result, params=per_params)
+            def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:
+                from plugin.vision.vision_egress import insert_vision_result
+
+                insert_vision_result(ctx, doc, res, params=per_insert)
+
+            # What was wrong: execute_on_main_thread defaulted to binding to the send cancellation
+            # scope, which aborted this document mutation if Stop was clicked during/after OCR.
+            # Why this change: once bytes are in hand, marshal the insert unscoped (bound_scope=None).
+            execute_on_main_thread(_insert, bound_scope=None)
+        result["image_name"] = image_name
+        if "context" not in result or not isinstance(result["context"], dict):
+            result["context"] = {"image_name": image_name}
+        else:
+            result["context"]["image_name"] = image_name
         results.append(result)
 
     full_parts = [str(r.get("full_text") or "") for r in results]
@@ -237,6 +284,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         "inserted": inserted,
         "images_processed": len(results),
         "image_names": list(target_names),
+        "image_name": target_names[0] if target_names else None,
         "message": message,
         "results": results if len(results) > 1 else None,
     }

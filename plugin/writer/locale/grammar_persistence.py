@@ -6,9 +6,16 @@
 
 Per-document persistence stores sentence results in user-defined document properties
 and keeps a process-local map keyed by LibreOffice ``aDocumentIdentifier`` (often a
-small integer per open doc, not ``RuntimeUID``). ``get_persistence(ctx, doc_id, model=...)``
-binds that id to the Writer model on first ``doProofreading``; ``OnUnload`` / dispose
-removes map entries so instances can be garbage-collected.
+small integer per open doc, not ``RuntimeUID``). The first ``doProofreading`` resolves
+the Writer model from the desktop (current text component, or the open Writer this
+call is for) and passes it to ``get_persistence(ctx, doc_id, model=...)``. The model
+is not read back from this map. A later call does not replace a bound model or reload
+udprops over live edits. ``OnUnload`` / dispose removes map entries so instances can
+be garbage-collected.
+
+L2 rows are keyed by CharLocale and sentence fingerprint (schema v4). v2 and v3
+blobs have no locale; those rows load under a legacy bucket and adopt the first
+locale that reads them. Other locales miss. Unknown schema versions are cleared.
 """
 
 from __future__ import annotations
@@ -31,6 +38,21 @@ from .grammar_proofread_locale import GRAMMAR_CACHE_VERSION, GRAMMAR_DOC_CACHE_U
 # v2 blobs with LLM-style errors have no model id. First `llm:…` identity to
 # touch the document adopts the rows (young-codebase hack; avoids a full recheck).
 _V2_LLM_PENDING = "llm"
+
+# v2/v3 rows have no CharLocale. Empty cannot collide with a BCP-47 tag.
+# The first locale-specific read adopts the row; other locales miss.
+_LEGACY_LOCALE = ""
+
+
+def _blob_model_id(data: dict[str, Any]) -> str | None:
+    """Checker identity on a v3+ blob, or None when ``model`` is missing or not a string.
+
+    ``str([1, 2])`` would become a fake identity and silently drop or mis-bind the cache.
+    """
+    raw = data.get("model")
+    if isinstance(raw, str) and raw:
+        return raw
+    return None
 
 _SNIFF_PREFIXES: tuple[tuple[str, str], ...] = (
     ("harper||", "harper"),
@@ -216,11 +238,12 @@ class DocumentPersistence:
 
     def __init__(self, ctx: Any, doc_id: str, *, model: Any = None) -> None:
         self.ctx = ctx
-        self._session_accessed: set[str] = set()
+        self._session_accessed: set[tuple[str, str]] = set()
         self._ignored_rules: set[str] = set()
         self._lock = threading.Lock()
         self._doc_id = doc_id
-        self._entries: dict[str, list[dict[str, Any]]] = {}
+        # fingerprint -> locale -> errors. ``_LEGACY_LOCALE`` holds v2/v3 rows.
+        self._entries: dict[str, dict[str, list[dict[str, Any]]]] = {}
         self._blob_identity: str | None = None
         self._session_identity: str | None = None
         self._model: Any = model
@@ -232,10 +255,18 @@ class DocumentPersistence:
         else:
             log.debug("[grammar] DocumentPersistence: no model for doc_id=%s (in-memory only until resolved)", doc_id[:32] if doc_id else "")
 
-    def mark_accessed(self, fp: str) -> None:
-        """Record that this fingerprint was used this session (udprop save filter)."""
+    def mark_accessed(self, fp: str, locale: str | None = None) -> None:
+        """Record that this fingerprint was used this session (udprop save filter).
+
+        ``locale`` selects the L2 bucket. A legacy v2/v3 row is adopted to that
+        locale so a one-language document still round-trips on save.
+        """
         with self._lock:
-            self._session_accessed.add(fp)
+            if locale:
+                self._adopt_legacy_locked(fp, locale)
+                self._session_accessed.add((locale, fp))
+                return
+            self._session_accessed.add((_LEGACY_LOCALE, fp))
 
     def _bind_model(self, model: Any) -> None:
         """Attach the Writer model after init when ``get_persistence(..., model=...)`` runs."""
@@ -275,13 +306,54 @@ class DocumentPersistence:
             log.debug("[grammar] removeDocumentEventListener: %s", e)
         self._doc_listener = None
 
-    def _fill_entries_from_payload(self, data: dict[str, Any]) -> int:
-        """Populate ``_entries`` from good/bad maps. Caller holds ``_lock``."""
+    def _adopt_legacy_locked(self, fp: str, locale: str) -> None:
+        """Bind a locale-blind row to ``locale`` when it is the only bucket.
+
+        Caller holds ``_lock``. v2/v3 blobs have no CharLocale. Serving that
+        row to every locale returns the wrong errors (or a false "good" hit).
+        Adopting it on the first locale that asks keeps single-language
+        documents working; any other locale misses and is proofread.
+        """
+        if not locale:
+            return
+        by_locale = self._entries.get(fp)
+        if not by_locale or locale in by_locale:
+            return
+        if set(by_locale) != {_LEGACY_LOCALE}:
+            return
+        by_locale[locale] = by_locale.pop(_LEGACY_LOCALE)
+
+    def _clear_rows_for_identity_switch_locked(self) -> None:
+        """Drop sentence rows and ignore ids from the previous checker.
+
+        Caller holds ``_lock``. Ignore-rule ids belong to that checker's
+        errors. Keeping them after a switch re-persists rules for errors that
+        were just discarded. Recheck uses ``clear`` and keeps ignore rules.
+        """
+        self._entries.clear()
+        self._session_accessed.clear()
+        self._ignored_rules.clear()
+
+    def _reject_unknown_cache(self, version: object) -> None:
+        """Drop a blob whose schema this build does not know how to read."""
+        log.warning(
+            "[grammar] DocumentPersistence: unknown cache version %r on doc_id=%s; clearing",
+            version,
+            self._doc_id[:32] if self._doc_id else "",
+        )
+        with self._lock:
+            self._entries.clear()
+            self._ignored_rules.clear()
+            self._session_accessed.clear()
+            self._blob_identity = None
+
+    def _fill_entries_from_payload(self, data: dict[str, Any], locale: str) -> int:
+        """Populate ``_entries[fp][locale]`` from good/bad maps. Caller holds ``_lock``."""
         loaded_count = 0
         good = data.get("good")
         if isinstance(good, list):
             for fp in good:
-                self._entries[str(fp)] = []
+                self._entries.setdefault(str(fp), {})[locale] = []
                 loaded_count += 1
         bad = data.get("bad")
         if isinstance(bad, dict):
@@ -293,9 +365,21 @@ class DocumentPersistence:
                     for e in compressed_errors
                     if isinstance(e, dict)
                 ]
-                self._entries[str(fp)] = errs
+                self._entries.setdefault(str(fp), {})[locale] = errs
                 loaded_count += 1
         return loaded_count
+
+    def _fill_v4_locales(self, data: dict[str, Any]) -> int:
+        """Populate per-locale rows from a v4 ``locales`` map. Caller holds ``_lock``."""
+        locales = data.get("locales")
+        if not isinstance(locales, dict):
+            return 0
+        loaded = 0
+        for locale, bucket in locales.items():
+            if not isinstance(locale, str) or not locale or not isinstance(bucket, dict):
+                continue
+            loaded += self._fill_entries_from_payload(bucket, locale)
+        return loaded
 
     def _load_from_udprops(self) -> None:
         from plugin.doc.udprops import get_document_property
@@ -312,13 +396,23 @@ class DocumentPersistence:
                 return
 
             version = data.get("version", 1)
+            # Future schemas must not fall through into the v3/v4 reader.
+            # ``bool`` is an ``int`` subclass; reject it with other non-ints.
+            if type(version) is not int:
+                self._reject_unknown_cache(version)
+                return
             current = grammar_checker_identity()
             load_entries = False
             blob_identity: str | None = None
+            locale_aware = False
 
-            if version >= 3:
-                blob_identity = str(data.get("model") or "") or None
-                load_entries = bool(blob_identity) and blob_identity == current
+            if version == 4:
+                locale_aware = True
+                blob_identity = _blob_model_id(data)
+                load_entries = blob_identity is not None and blob_identity == current
+            elif version == 3:
+                blob_identity = _blob_model_id(data)
+                load_entries = blob_identity is not None and blob_identity == current
             elif version == 2:
                 sniffed = sniff_v2_cache_identity(data)
                 if sniffed == _V2_LLM_PENDING:
@@ -332,22 +426,33 @@ class DocumentPersistence:
                         "[grammar] DocumentPersistence: dropping unclassifiable v2 cache on doc_id=%s",
                         self._doc_id[:32] if self._doc_id else "",
                     )
-            else:
+            elif version < 2:
                 log.debug(
                     "[grammar] DocumentPersistence: ignoring old-version cache (v=%s) on doc_id=%s",
                     version,
                     self._doc_id[:32] if self._doc_id else "",
                 )
                 return
+            else:
+                self._reject_unknown_cache(version)
+                return
 
             loaded_count = 0
             with self._lock:
-                self._ignored_rules = set(data.get("ignored_rules") or [])
                 self._blob_identity = blob_identity
                 if load_entries:
-                    loaded_count = self._fill_entries_from_payload(data)
+                    # Same identity gate as entries. Loading ignore ids first
+                    # left them in place when the checker changed, and the next
+                    # save wrote those stale ids back into the document.
+                    raw_ignored = data.get("ignored_rules") or []
+                    self._ignored_rules = set(raw_ignored) if isinstance(raw_ignored, list) else set()
+                    if locale_aware:
+                        loaded_count = self._fill_v4_locales(data)
+                    else:
+                        loaded_count = self._fill_entries_from_payload(data, _LEGACY_LOCALE)
                 else:
                     self._entries.clear()
+                    self._ignored_rules.clear()
 
             log.debug(
                 "[grammar] DocumentPersistence: loaded %s sentences from udprop (doc_id=%s, v=%s, blob=%s, current=%s)",
@@ -374,8 +479,7 @@ class DocumentPersistence:
             if previous is None:
                 self._session_identity = identity
                 if blob and blob != _V2_LLM_PENDING and blob != identity:
-                    self._entries.clear()
-                    self._session_accessed.clear()
+                    self._clear_rows_for_identity_switch_locked()
                     self._blob_identity = identity
                 elif not blob:
                     self._blob_identity = identity
@@ -384,8 +488,7 @@ class DocumentPersistence:
             if previous == identity:
                 return None
 
-            self._entries.clear()
-            self._session_accessed.clear()
+            self._clear_rows_for_identity_switch_locked()
             self._session_identity = identity
             self._blob_identity = identity
             return previous
@@ -421,26 +524,39 @@ class DocumentPersistence:
                     )
                     return
                 model_id = self._session_identity or self._blob_identity or current
-                accessed_fps = set(self._session_accessed)
+                accessed_pairs = set(self._session_accessed)
                 ignored_rules_list = list(self._ignored_rules)
-                entries_snap = dict(self._entries)
+                entries_snap = {fp: dict(by_locale) for fp, by_locale in self._entries.items()}
 
-            good_fps: list[str] = []
-            bad_map: dict[str, list[dict[str, Any]]] = {}
-            for fp in accessed_fps:
-                errs = entries_snap.get(fp)
+            good_by_locale: dict[str, list[str]] = {}
+            bad_by_locale: dict[str, dict[str, list[dict[str, Any]]]] = {}
+            for locale, fp in accessed_pairs:
+                # Unadopted legacy rows have no CharLocale; rewriting them
+                # without one would bring the locale-blind bug back.
+                if not locale:
+                    continue
+                errs = entries_snap.get(fp, {}).get(locale)
                 if errs is None:
                     continue
                 if not errs:
-                    good_fps.append(fp)
+                    good_by_locale.setdefault(locale, []).append(fp)
                 else:
-                    bad_map[fp] = [grammar_proofread_json.compress_error(e) for e in errs]
+                    bad_by_locale.setdefault(locale, {})[fp] = [
+                        grammar_proofread_json.compress_error(e) for e in errs
+                    ]
+
+            locales_out: dict[str, dict[str, Any]] = {}
+            for locale in set(good_by_locale) | set(bad_by_locale):
+                locales_out[locale] = {
+                    "good": good_by_locale.get(locale, []),
+                    "bad": bad_by_locale.get(locale, {}),
+                }
+            n_saved = sum(len(bucket["good"]) + len(bucket["bad"]) for bucket in locales_out.values())
 
             payload_dict = {
                 "version": GRAMMAR_CACHE_VERSION,
                 "model": model_id,
-                "good": good_fps,
-                "bad": bad_map,
+                "locales": locales_out,
                 "ignored_rules": ignored_rules_list,
             }
             payload = json.dumps(payload_dict)
@@ -450,7 +566,7 @@ class DocumentPersistence:
             set_document_property(self._model, GRAMMAR_DOC_CACHE_UDPROP, payload)
             log.debug(
                 "[grammar] DocumentPersistence: saved %s sentences (%s bytes) to udprop (doc_id=%s, v=%s, model=%s)",
-                len(good_fps) + len(bad_map),
+                n_saved,
                 len(payload),
                 self._doc_id[:32] if self._doc_id else "",
                 GRAMMAR_CACHE_VERSION,
@@ -469,10 +585,27 @@ class DocumentPersistence:
             self._entries.clear()
             self._blob_identity = None
             self._session_identity = None
-        grammar_registry.remove_persistence(self._doc_id)
+        grammar_registry.clear_for_doc(self._doc_id)
         self._model = None
 
-    def get(self, fp: str) -> list[dict[str, Any]] | None:
+    def get(
+        self,
+        fp: str,
+        locale: str | None = None,
+        *,
+        adopt_legacy: bool = True,
+    ) -> list[dict[str, Any]] | None:
+        """Return errors for ``fp`` under ``locale``.
+
+        L1 keys are ``sent|locale|identity|fp``. L2 used to key on ``fp`` only,
+        so the same sentence under two CharLocales reused the other locale's
+        errors or a good (empty) row. Pass ``locale`` for a real lookup.
+
+        A single legacy v2/v3 bucket is adopted to ``locale`` when
+        ``adopt_legacy`` is true (proofreading). Probes pass false so a
+        language-detect check cannot retag that row. Without ``locale``,
+        return a row only when exactly one bucket exists.
+        """
         if self._teardown_done:
             return None
         with self._lock:
@@ -484,19 +617,35 @@ class DocumentPersistence:
                 and self._session_identity != self._blob_identity
             ):
                 return None
-            errs = self._entries.get(fp)
-            if errs is not None:
-                self._session_accessed.add(fp)
+            by_locale = self._entries.get(fp)
+            if not by_locale:
+                return None
+            if locale:
+                if adopt_legacy:
+                    self._adopt_legacy_locked(fp, locale)
+                errs = (self._entries.get(fp) or {}).get(locale)
+                if errs is None:
+                    return None
+                self._session_accessed.add((locale, fp))
                 return [dict(e) for e in errs]
-        return None
+            if len(by_locale) != 1:
+                return None
+            only_locale, errs = next(iter(by_locale.items()))
+            self._session_accessed.add((only_locale, fp))
+            return [dict(e) for e in errs]
 
     def put(self, fp: str, locale: str, errors: list[dict[str, Any]]) -> None:
-        del locale
+        """Store ``errors`` for this fingerprint under ``locale``."""
         if self._teardown_done:
             return
+        locale_key = locale or _LEGACY_LOCALE
         with self._lock:
-            self._session_accessed.add(fp)
-            self._entries[fp] = [dict(e) for e in errors]
+            by_locale = self._entries.setdefault(fp, {})
+            # A located write retires the blind row so another locale cannot adopt it.
+            if locale_key:
+                by_locale.pop(_LEGACY_LOCALE, None)
+            by_locale[locale_key] = [dict(e) for e in errors]
+            self._session_accessed.add((locale_key, fp))
 
     def clear(self) -> None:
         with self._lock:
@@ -603,7 +752,7 @@ def get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
         return ["en-US"]
 
 
-def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bcp47: str) -> None:
+def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bcp47: str, start_pos: int = 0) -> None:
     """Update CharLocale on the sentence text span inside the document when language mismatch occurs."""
     import uno
     from . import grammar_proofread_locale
@@ -630,7 +779,30 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
             search_desc.SearchCaseSensitive = True
 
         found_range = None
-        if view_cursor:
+        try:
+            # What was wrong: the paragraph-relative cursor was built only when
+            # start_pos > 0. n_start is the sentence offset inside the proofread
+            # paragraph, so 0 is its first sentence, not "search from the caret".
+            # findNext from the view cursor then retagged a different copy of the
+            # same sentence. How: the guard treated 0 as "no offset".
+            # Why: offset 0 still selects from the start of that paragraph.
+            # start_pos > 0 still moves, then expands, on the same cursor.
+            if view_cursor is not None and start_pos >= 0:
+                text_obj = model.getText()
+                doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())
+                if hasattr(doc_cursor, "gotoStartOfParagraph"):
+                    doc_cursor.gotoStartOfParagraph(False)
+                    if start_pos > 0:
+                        doc_cursor.goRight(start_pos, False)
+                    doc_cursor.goRight(len(sentence_text), True)
+                    if doc_cursor.getString() == sentence_text:
+                        found_range = doc_cursor
+        except Exception:
+            pass
+
+        # Caret-relative findNext is for a positive offset whose paragraph
+        # selection did not match. Offset 0 must not search forward from the caret.
+        if not found_range and view_cursor and start_pos > 0:
             found_range = model.findNext(view_cursor.getStart(), search_desc)
 
         if not found_range:

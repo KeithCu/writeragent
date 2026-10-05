@@ -643,3 +643,22 @@ def test_collect_xdl_load_diagnostics_reports_missing_file(tmp_path):
     assert "PythonScriptDialog" in detail
     assert "xdl_file_exists: no" in detail
     assert "OtherDialog.xdl" in detail
+
+
+def test_get_optional_reraises_disposed_and_returns_none_when_missing():
+    from plugin.chatbot.dialogs import get_optional
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    disposed = MagicMock()
+    disposed.getControl.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        get_optional(disposed, "send")
+
+    missing = MagicMock()
+    missing.getControl.side_effect = RuntimeException("no such control")
+    assert get_optional(missing, "send") is None

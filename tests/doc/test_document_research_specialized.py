@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.specialized import DelegateToSpecializedCalc
@@ -308,6 +310,23 @@ def test_document_research_chat_append_on_delegate_read_document(
     assert "delegate_read_document" in captured[0]
 
 
+def _accepted_peer_payload(kind: str) -> dict:
+    return {
+        "status": "ok",
+        "accepted": True,
+        "envelope_kind": kind,
+        "message": "Queued.",
+    }
+
+
+def _run_registered_peer_tool(mock_agent_class, tool_name: str, result: dict) -> None:
+    """Run the built smol adapter so delivery is taken from the tool return."""
+    tools = mock_agent_class.call_args.kwargs.get("tools") or []
+    adapter = next(t for t in tools if getattr(t, "name", None) == tool_name)
+    adapter._inner_tool.execute_safe = lambda ctx, **kwargs: result
+    adapter.forward(document_url="peer-uid", message="payload")
+
+
 @patch(
     "plugin.chatbot.smol_agent.get_config_int",
     side_effect=_mock_get_config_int_for_sub_agent,
@@ -325,10 +344,12 @@ def test_document_research_return_idles_outer_after_peer_send(
     mock_get_config,
     _mock_get_config_int,
 ):
-    """Host appends idle-after-send when an inner peer send ran."""
+    """Host appends idle-after-send when an inner peer send was accepted."""
+    from plugin.doc.peer_message import SendPeerWork
     from plugin.framework.prompts import PEER_OUTER_IDLE_AFTER_SEND
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        # A bare ToolCall is not delivery. The adapter must see accepted=true.
         if tool_call_handler:
             tool_call_handler(
                 ToolCall(
@@ -337,13 +358,19 @@ def test_document_research_return_idles_outer_after_peer_send(
                     id="peer-send-1",
                 )
             )
-        return "Message sent to the peer."
+        _run_registered_peer_tool(
+            mock_agent_class,
+            "send_peer_work",
+            _accepted_peer_payload("work"),
+        )
+        return "Ask handed off."
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
 
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
     r.register(DelegateReadDocument())
+    r.register(SendPeerWork())
     r.register(SpecializedWorkflowFinished())
     r.register(DelegateToSpecializedWriter())
 
@@ -358,11 +385,14 @@ def test_document_research_return_idles_outer_after_peer_send(
     ctx.stop_checker = lambda: False
 
     gw = r.get("delegate_to_specialized_writer_toolset")
+    peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
-        result = gw.execute_safe(ctx, domain="document_research", task="Get KPIs from the open sheet")
+        with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
+            result = gw.execute_safe(ctx, domain="document_research", task="Get KPIs from the open sheet")
     assert result["status"] == "ok"
     assert PEER_OUTER_IDLE_AFTER_SEND in result["message"]
     assert PEER_OUTER_IDLE_AFTER_SEND in result["result"]
+    assert "Ask handed off." in result["result"]
 
 
 @patch(
@@ -431,7 +461,8 @@ def test_document_research_send_peer_result_skips_delivery_pending(
     mock_get_config,
     _mock_get_config_int,
 ):
-    """send_peer_result on a Peer-work turn keeps idle-after-send, not delivery-pending."""
+    """Accepted send_peer_result on a Peer-work turn keeps idle-after-send, not delivery-pending."""
+    from plugin.doc.peer_message import SendPeerResult
     from plugin.framework.prompts import (
         PEER_OUTER_DELIVERY_STILL_REQUIRED,
         PEER_OUTER_IDLE_AFTER_SEND,
@@ -446,6 +477,11 @@ def test_document_research_send_peer_result_skips_delivery_pending(
                     id="peer-result-1",
                 )
             )
+        _run_registered_peer_tool(
+            mock_agent_class,
+            "send_peer_result",
+            _accepted_peer_payload("result"),
+        )
         return "Queued. You MUST call specialized_workflow_finished immediately."
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
@@ -455,6 +491,7 @@ def test_document_research_send_peer_result_skips_delivery_pending(
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
     r.register(DelegateReadDocument())
+    r.register(SendPeerResult())
     r.register(SpecializedWorkflowFinished())
     r.register(DelegateToSpecializedCalc())
 
@@ -466,14 +503,111 @@ def test_document_research_send_peer_result_skips_delivery_pending(
     ctx.stop_checker = lambda: False
 
     gw = r.get("delegate_to_specialized_calc_toolset")
+    peers = [{"name": "Memo.odt", "uid": "u1", "url": "", "type": "writer"}]
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
-        result = gw.execute_safe(
-            ctx, domain="document_research", task="Deliver sorted table to peer"
-        )
+        with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
+            result = gw.execute_safe(
+                ctx, domain="document_research", task="Deliver sorted table to peer"
+            )
     assert result["status"] == "ok"
     assert PEER_OUTER_IDLE_AFTER_SEND in result["message"]
     assert PEER_OUTER_DELIVERY_STILL_REQUIRED not in result["message"]
     assert result.get("instruction") != PEER_OUTER_DELIVERY_STILL_REQUIRED
+
+
+_PEER_SEND_FAILURE_CODES = (
+    "PEER_NOT_FOUND",
+    "PEER_SIDEBAR_NOT_OPEN",
+    "PEER_QUEUE_FULL",
+    "PEER_NOT_CHAT_MODE",
+)
+
+
+@patch(
+    "plugin.chatbot.smol_agent.get_config_int",
+    side_effect=_mock_get_config_int_for_sub_agent,
+)
+@patch("plugin.chatbot.smol_agent.get_api_config", create=True)
+@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
+@patch("plugin.chatbot.smol_agent.LlmClient")
+@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+@patch("plugin.doc.specialized_base._outer_turn_is_peer_work", return_value=True)
+def test_document_research_failed_send_peer_result_does_not_stamp_idle(
+    _mock_peer_work,
+    mock_executor_cls,
+    mock_llm,
+    mock_smol_model,
+    mock_agent_class,
+    mock_get_config,
+    _mock_get_config_int,
+):
+    """A failed send_peer_result is not delivery and must not idle-after-send.
+
+    The asking peer is still waiting. The outer turn stays on delivery-required
+    so the inner agent can retry or surface the error.
+    """
+    from plugin.doc.peer_message import SendPeerResult
+    from plugin.framework.prompts import (
+        PEER_OUTER_DELIVERY_STILL_REQUIRED,
+        PEER_OUTER_IDLE_AFTER_SEND,
+    )
+
+    failed_code = {"code": "PEER_QUEUE_FULL"}
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        # Calling the tool is not success. The return payload is.
+        if tool_call_handler:
+            tool_call_handler(
+                ToolCall(
+                    name="send_peer_result",
+                    arguments={"document_url": "u1", "message": "<table/>"},
+                    id="peer-result-fail",
+                )
+            )
+        _run_registered_peer_tool(
+            mock_agent_class,
+            "send_peer_result",
+            {
+                "status": "error",
+                "code": failed_code["code"],
+                "message": "peer send failed",
+            },
+        )
+        return "Could not deliver the peer result."
+
+    mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
+    mock_get_config.return_value = {}
+    mock_agent_class.return_value = MagicMock()
+
+    r = ToolRegistry(services={})
+    r.register(ListNearbyFiles())
+    r.register(DelegateReadDocument())
+    r.register(SendPeerResult())
+    r.register(SpecializedWorkflowFinished())
+    r.register(DelegateToSpecializedCalc())
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+    ctx.stop_checker = lambda: False
+
+    gw = r.get("delegate_to_specialized_calc_toolset")
+    peers = [{"name": "Memo.odt", "uid": "u1", "url": "", "type": "writer"}]
+    for code in _PEER_SEND_FAILURE_CODES:
+        failed_code["code"] = code
+        with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
+            with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
+                result = gw.execute_safe(
+                    ctx, domain="document_research", task="Deliver sorted table to peer"
+                )
+        assert result["status"] == "ok", code
+        assert PEER_OUTER_IDLE_AFTER_SEND not in result["message"], code
+        assert PEER_OUTER_IDLE_AFTER_SEND not in str(result.get("result") or ""), code
+        assert PEER_OUTER_DELIVERY_STILL_REQUIRED in result["message"], code
+        assert result.get("instruction") == PEER_OUTER_DELIVERY_STILL_REQUIRED, code
 
 
 @patch("plugin.doc.document_research_specialized.build_toolcalling_agent")
@@ -595,6 +729,45 @@ def test_delegate_read_document_skips_close_when_reusing_open_doc(
     result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
     assert result["status"] == "ok"
     mock_close.assert_called_once_with(reused_model, opened_for_document_research=False)
+
+
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_opens_file_url_from_listing(
+    mock_main,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    """A file URL returned by list_nearby_files / list_open_documents must open."""
+    from plugin.framework.url_utils import path_to_file_url
+
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget.ods")
+        with open(budget, "wb"):
+            pass
+        file_url = path_to_file_url(budget)
+        opened_model = MagicMock()
+        mock_open.return_value = (opened_model, "calc", None, True)
+
+        r = ToolRegistry(services={})
+        r.register(DelegateReadDocument())
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.services = {"tools": r}
+
+        with patch("plugin.doc.document_research.uno.fileUrlToSystemPath", return_value=budget):
+            result = r.get("delegate_read_document").execute_safe(ctx, path_or_name=file_url, task="Q4")
+
+    assert result["status"] == "ok"
+    assert result["result"] == "42"
+    target = mock_open.call_args.args[1]
+    assert target.startswith("file://")
+    assert target == path_to_file_url(os.path.normpath(budget))
+    mock_inner.assert_called_once()
 
 
 def test_get_open_documents():

@@ -3,43 +3,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trusted venv folder corpus maintenance: ODF extract + unified corpus.db (FTS + vec0)."""
+
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any, Callable, Literal
 
-from plugin.embeddings.embeddings_cache import (
-    clear_folder_cache,
-    corpus_db_path,
-    corpus_meta_path,
-    diff_chunk_rows,
-    ensure_corpus_meta,
-    file_is_stale,
-    index_is_empty,
-    mark_file_indexed,
-    maybe_upgrade_legacy_index,
-    needs_cold_rebuild,
-    sync_file_paragraph_state,
-    write_corpus_meta,
-)
-from plugin.embeddings.embeddings_fs import (
-    WriterFileEntry,
-    chunk_to_index_row,
-    guess_indexable_paths,
-    indexable_chunks_from_path,
-)
+from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, diff_chunk_rows, ensure_corpus_meta, file_is_stale, index_is_empty, mark_file_indexed, maybe_upgrade_legacy_index, needs_cold_rebuild, sync_file_paragraph_state, write_corpus_meta
+from plugin.embeddings.embeddings_fs import WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
-from plugin.embeddings.venv.embeddings_sqlite import (
-    connect_corpus_db,
-    corpus_chunk_count,
-    delete_paragraph_keys,
-    ensure_schema,
-    insert_paragraph_rows,
-    rebuild_fts_corpus_index,
-    model_slug,
-)
+from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema, insert_paragraph_rows, rebuild_fts_corpus_index, model_slug
 from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_INTERVAL_S, EMBEDDINGS_SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
@@ -81,40 +55,33 @@ def _build_flags(search_mode: str) -> tuple[bool, bool]:
     return build_fts, build_vectors
 
 
-def _resolve_mode(
-    listing_root: str,
-    embedding_model: str,
-    mode: MaintainMode,
-    *,
-    build_vectors: bool,
-) -> MaintainMode:
-    if mode != "auto":
-        return mode
+def _resolve_mode(listing_root: str, embedding_model: str, mode: MaintainMode, *, build_vectors: bool, search_mode: str = "") -> MaintainMode:
     meta_path = corpus_meta_path(listing_root, create_parent=False)
     db_path = corpus_db_path(listing_root, create_parent=False)
-    if index_is_empty(meta_path, db_path):
-        return "cold"
+    # Model change must cold-rebuild even when the caller asked for incremental.
+    # Staying incremental rewrites embedding_model onto a vec table that is
+    # empty, partial, or still the previous dimension.
     if build_vectors and needs_cold_rebuild(meta_path, embedding_model):
         return "cold"
-    meta = {}
-    if meta_path.is_file():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            meta = {}
-    if str(meta.get("schema_version", "")) != EMBEDDINGS_SCHEMA_VERSION:
+    if mode != "auto":
+        return mode
+    # corpus.db is absent for zvec/lancedb. Pass the backend so that absence
+    # is not read as an empty sqlite corpus (which cold-wipes the collection).
+    if index_is_empty(meta_path, db_path, search_mode=search_mode, listing_root=listing_root):
+        return "cold"
+    loaded = _load_meta_object(meta_path)
+    if loaded is None:
+        # Unreadable or non-object meta is not a schema mismatch. A mismatch
+        # here would cold-wipe the corpus. #1153 stopped the decode-error wipe;
+        # a JSON list still crashed on .get or looked like the wrong version.
+        return "incremental"
+    if str(loaded.get("schema_version", "")) != EMBEDDINGS_SCHEMA_VERSION:
         return "cold"
     return "incremental"
 
 
 def _write_row_count_meta(listing_root: str, row_count: int, *, embedding_model: str = "", dim: int = 0) -> None:
-    fields: dict[str, str] = {
-        "schema_version": EMBEDDINGS_SCHEMA_VERSION,
-        "storage_backend": "sqlite_vec",
-        "row_count": str(row_count),
-        "chunk_count": str(row_count),
-        "updated_at": str(time.time()),
-    }
+    fields: dict[str, str] = {"schema_version": EMBEDDINGS_SCHEMA_VERSION, "storage_backend": "sqlite_vec", "row_count": str(row_count), "chunk_count": str(row_count), "updated_at": str(time.time())}
     if embedding_model:
         fields["embedding_model"] = embedding_model
     if dim > 0:
@@ -123,39 +90,22 @@ def _write_row_count_meta(listing_root: str, row_count: int, *, embedding_model:
 
 
 def _ingest_rows(
-    listing_root: str,
-    embedding_model: str,
-    rows: list[dict[str, Any]],
-    *,
-    delete_keys: list[dict[str, Any]] | None = None,
-    build_fts: bool,
-    build_vectors: bool,
-    search_mode: str = "embeddings",
+    listing_root: str, embedding_model: str, rows: list[dict[str, Any]], *, delete_keys: list[dict[str, Any]] | None = None, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings", fill_vector_gaps: bool = False, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None
 ) -> dict[str, Any]:
     db_path = str(corpus_db_path(listing_root))
     meta_path = str(corpus_meta_path(listing_root))
+    if fill_vector_gaps:
+        # The gap is rows in sqlite chunks with no vec_chunks_<model> vector.
+        # LlamaIndex uses that same table. Its empty ingest returns before
+        # any embed, so this call always uses the sqlite graph.
+        return ingest_paragraphs(db_path, meta_path, embedding_model, rows, delete_keys=list(delete_keys or []), build_fts=build_fts, build_vectors=True, fill_vector_gaps=True, heartbeat_fn=heartbeat_fn)
     if str(search_mode).strip().lower() == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
-        return llama_index_ingest(
-            db_path,
-            meta_path,
-            embedding_model,
-            rows,
-            delete_keys=delete_keys,
-            build_fts=build_fts,
-            build_vectors=build_vectors,
-        )
+
+        return llama_index_ingest(db_path, meta_path, embedding_model, rows, delete_keys=delete_keys, build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
 
     if build_vectors:
-        return ingest_paragraphs(
-            db_path,
-            meta_path,
-            embedding_model,
-            rows,
-            delete_keys=list(delete_keys or []),
-            build_fts=build_fts,
-            build_vectors=True,
-        )
+        return ingest_paragraphs(db_path, meta_path, embedding_model, rows, delete_keys=list(delete_keys or []), build_fts=build_fts, build_vectors=True, heartbeat_fn=heartbeat_fn)
     conn = connect_corpus_db(db_path)
     try:
         ensure_schema(conn, with_fts=build_fts, with_vec=False)
@@ -168,22 +118,20 @@ def _ingest_rows(
         conn.close()
 
 
-def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any]]:
+def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any] | None]:
     """Return native passage count and embed chunk rows for one file."""
     return indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
 
 
-def _cold_build(
-    listing_root: str,
-    embedding_model: str,
-    files: list[WriterFileEntry],
-    hb: _HeartbeatThrottle,
-    *,
-    build_fts: bool,
-    build_vectors: bool,
-    search_mode: str = "embeddings",
-) -> dict[str, Any]:
+def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: _HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
     clear_folder_cache(listing_root)
+    try:
+        from plugin.embeddings.embeddings_cache import zvec_collection_path
+        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+
+        zvec_clear_cache(str(zvec_collection_path(listing_root)))
+    except ImportError:
+        pass
     if build_vectors:
         ensure_corpus_meta(corpus_meta_path(listing_root), embedding_model=embedding_model)
     db_path = corpus_db_path(listing_root)
@@ -193,40 +141,23 @@ def _cold_build(
 
     for index, entry in enumerate(files):
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"})
-        paragraph_count, chunks = _extract_file_chunks(entry)
+        try:
+            paragraph_count, chunks = _extract_file_chunks(entry)
+        except Exception:
+            log.warning("Extraction failed for %s", entry.name, exc_info=True)
+            continue
+        if chunks is None:
+            continue
         rows = [chunk_to_index_row(chunk) for chunk in chunks]
-        hb.force(
-            {
-                "phase": "extract",
-                "file": entry.name,
-                "paragraphs": paragraph_count,
-                "chunks": len(rows),
-                "mode": "cold",
-            }
-        )
+        hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "cold"})
         if not rows:
+            # Empty files still record paragraph/chunk state so subsequent incremental scans know they are up to date.
             sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
             continue
         phase = "embed" if build_vectors else "index"
-        result = _ingest_rows(
-            listing_root,
-            embedding_model,
-            rows,
-            build_fts=build_fts,
-            build_vectors=build_vectors,
-            search_mode=search_mode,
-        )
+        result = _ingest_rows(listing_root, embedding_model, rows, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
         file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
-        hb.force(
-            {
-                "phase": phase,
-                "file": entry.name,
-                "paragraphs": paragraph_count,
-                "chunks": file_upserted,
-                "upserted": file_upserted,
-                "mode": "cold",
-            }
-        )
+        hb.force({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "cold"})
         sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
         indexed += len(rows)
         upserted += file_upserted
@@ -241,38 +172,46 @@ def _cold_build(
             conn.close()
     _write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
 
-    return {
-        "mode": "cold",
-        "indexed_paragraphs": indexed,
-        "files": total,
-        "upserted": upserted,
-        "row_count": row_count,
-    }
+    return {"mode": "cold", "indexed_paragraphs": indexed, "files": total, "upserted": upserted, "row_count": row_count}
 
 
-def _incremental_refresh(
-    listing_root: str,
-    embedding_model: str,
-    files: list[WriterFileEntry],
-    hb: _HeartbeatThrottle,
-    *,
-    build_fts: bool,
-    build_vectors: bool,
-    search_mode: str = "embeddings",
-) -> dict[str, Any]:
+def _incremental_refresh(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: _HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
     db_path = corpus_db_path(listing_root)
     indexed = 0
     deleted = 0
     files_touched = 0
     total = len(files)
 
+    current_urls = {entry.url for entry in files}
+    from plugin.embeddings.embeddings_cache import get_all_indexed_urls, remove_file_from_index
+
+    indexed_urls = get_all_indexed_urls(db_path)
+
+    for url in indexed_urls:
+        if url in current_urls:
+            continue
+        to_index, to_delete = diff_chunk_rows(db_path, url, [])
+        if to_delete:
+            file_name = url.split("/")[-1] if "/" in url else url
+            hb.force({"phase": "delete", "file": file_name, "keys": len(to_delete)})
+            _ingest_rows(listing_root, embedding_model, [], delete_keys=to_delete, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
+            deleted += len(to_delete)
+        remove_file_from_index(db_path, url)
+        files_touched += 1
+
     for index, entry in enumerate(files):
         hb.ping({"phase": "scan", "file": entry.name, "index": index, "total": total})
         if not file_is_stale(db_path, entry.url, entry.modified):
             continue
         hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
-        paragraph_count, chunks = _extract_file_chunks(entry)
-        to_index, to_delete = diff_chunk_rows(db_path, chunks)
+        try:
+            paragraph_count, chunks = _extract_file_chunks(entry)
+        except Exception:
+            log.warning("Extraction failed for %s", entry.name, exc_info=True)
+            continue
+        if chunks is None:
+            continue
+        to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
         hb.force(
             {
                 "phase": "extract",
@@ -282,67 +221,40 @@ def _incremental_refresh(
                 "mode": "incremental",
             }
         )
-        if to_delete:
-            hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
-            _ingest_rows(
-                listing_root,
-                embedding_model,
-                [],
-                delete_keys=to_delete,
-                build_fts=build_fts,
-                build_vectors=build_vectors,
-                search_mode=search_mode,
-            )
-            deleted += len(to_delete)
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
-        if to_index:
-            phase = "embed" if build_vectors else "index"
-            result = _ingest_rows(
-                listing_root,
-                embedding_model,
-                to_index,
-                build_fts=build_fts,
-                build_vectors=build_vectors,
-                search_mode=search_mode,
-            )
-            file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
-            hb.force(
-                {
-                    "phase": phase,
-                    "file": entry.name,
-                    "paragraphs": paragraph_count,
-                    "chunks": file_upserted,
-                    "upserted": file_upserted,
-                    "mode": "incremental",
-                }
-            )
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
-            indexed += len(to_index)
+        if to_delete or to_index:
+            if to_delete:
+                hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
+                deleted += len(to_delete)
+
+            phase = "embed" if build_vectors and to_index else "index"
+            result = _ingest_rows(listing_root, embedding_model, to_index, delete_keys=to_delete, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
+            if to_index:
+                file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
+                hb.force({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "incremental"})
+                indexed += len(to_index)
             files_touched += 1
-        elif not to_delete:
+            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
+        else:
             mark_file_indexed(db_path, entry.url, entry.modified)
             files_touched += 1
 
-    # Vector alignment check: ensure all chunks in DB are embedded for the active model
+    # Same-model gaps only. A different embedding model never reaches here:
+    # _resolve_mode cold-rebuilds so search does not query a wrong-dim table.
     if build_vectors:
         has_missing = False
         conn = connect_corpus_db(db_path)
         try:
             from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
+
             _load_vec_extension(conn)
             slug = model_slug(embedding_model)
             tbl_name = f"vec_chunks_{slug}"
             # Check if table exists
-            has_table = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-                (tbl_name,),
-            ).fetchone()
+            has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl_name,)).fetchone()
             if not has_table:
                 has_missing = True
             else:
-                row = conn.execute(
-                    f"SELECT 1 FROM chunks WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name}) LIMIT 1"
-                ).fetchone()
+                row = conn.execute(f"SELECT 1 FROM chunks WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name}) LIMIT 1").fetchone()
                 if row is not None:
                     has_missing = True
         except Exception:
@@ -352,14 +264,9 @@ def _incremental_refresh(
             conn.close()
 
         if has_missing:
-            _ingest_rows(
-                listing_root,
-                embedding_model,
-                [],
-                build_fts=False,
-                build_vectors=True,
-                search_mode=search_mode,
-            )
+            # Empty rows alone never reach the embedder. fill_vector_gaps
+            # loads chunks that have no vector for this model and embeds them.
+            _ingest_rows(listing_root, embedding_model, [], build_fts=False, build_vectors=True, search_mode=search_mode, fill_vector_gaps=True, heartbeat_fn=hb.force)
 
     db_path_final = corpus_db_path(listing_root, create_parent=False)
     row_count = 0
@@ -371,24 +278,10 @@ def _incremental_refresh(
             conn.close()
     _write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
 
-    return {
-        "mode": "incremental",
-        "indexed_paragraphs": indexed,
-        "deleted_paragraphs": deleted,
-        "files_touched": files_touched,
-        "files": total,
-        "row_count": row_count,
-    }
+    return {"mode": "incremental", "indexed_paragraphs": indexed, "deleted_paragraphs": deleted, "files_touched": files_touched, "files": total, "row_count": row_count}
 
 
-def maintain_folder_corpus(
-    listing_root: str,
-    *,
-    embedding_model: str = "",
-    search_mode: str = "embeddings",
-    mode: MaintainMode = "auto",
-    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
-) -> dict[str, Any]:
+def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", search_mode: str = "embeddings", mode: MaintainMode = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Full folder corpus maintenance (ODF extract + corpus.db FTS and/or vec0)."""
     model = (embedding_model or "").strip()
     build_fts, build_vectors = _build_flags(search_mode)
@@ -399,32 +292,33 @@ def maintain_folder_corpus(
         raise ValueError("listing_root is required")
 
     maybe_upgrade_legacy_index(root)
-    resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors)
+    resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors, search_mode=search_mode)
     hb = _HeartbeatThrottle(heartbeat_fn)
     hb.force({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode})
 
-    if str(search_mode or "").strip().lower() == "zvec":
-        # Zvec is a full replacement store (dense + FTS + hybrid native). Side-by-side with sqlite corpus.
-        from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
+    backend = str(search_mode or "").strip().lower()
+    if backend in ("zvec", "lancedb"):
+        # These stores ignore MaintainMode and reopen the existing collection.
+        # Its vector dimension is fixed at create time. A cold resolution
+        # (model change, empty collection, schema) must delete that store
+        # first or the next query hits the previous dimension. Missing
+        # corpus.db is not a cold signal: zvec and lancedb never create it.
+        if resolved_mode == "cold":
+            clear_folder_cache(root)
+            try:
+                from plugin.embeddings.embeddings_cache import zvec_collection_path
+                from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
 
-        return maintain_folder_zvec(
-            root,
-            model,
-            mode=mode,
-            heartbeat_fn=heartbeat_fn,
-            hb=hb,
-        )
+                zvec_clear_cache(str(zvec_collection_path(root)))
+            except ImportError:
+                pass
+        if backend == "zvec":
+            from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 
-    if str(search_mode or "").strip().lower() == "lancedb":
+            return maintain_folder_zvec(root, model, mode=resolved_mode, heartbeat_fn=heartbeat_fn, hb=hb)
         from plugin.embeddings.venv.embeddings_lancedb import maintain_folder_lancedb
 
-        return maintain_folder_lancedb(
-            root,
-            model,
-            mode=mode,
-            heartbeat_fn=heartbeat_fn,
-            hb=hb,
-        )
+        return maintain_folder_lancedb(root, model, mode=resolved_mode, heartbeat_fn=heartbeat_fn, hb=hb)
 
     files = guess_indexable_paths(root)
     if resolved_mode == "cold":
@@ -446,19 +340,6 @@ def maintain_folder_corpus(
     return out
 
 
-def maintain_folder_index(
-    listing_root: str,
-    *,
-    embedding_model: str,
-    mode: MaintainMode = "auto",
-    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
-    search_mode: str = "embeddings",
-) -> dict[str, Any]:
+def maintain_folder_index(listing_root: str, *, embedding_model: str, mode: MaintainMode = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None, search_mode: str = "embeddings") -> dict[str, Any]:
     """Public helper/RPC name; implements via :func:`maintain_folder_corpus`."""
-    return maintain_folder_corpus(
-        listing_root,
-        embedding_model=embedding_model,
-        search_mode=search_mode,
-        mode=mode,
-        heartbeat_fn=heartbeat_fn,
-    )
+    return maintain_folder_corpus(listing_root, embedding_model=embedding_model, search_mode=search_mode, mode=mode, heartbeat_fn=heartbeat_fn)

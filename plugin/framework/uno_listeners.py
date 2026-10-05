@@ -18,15 +18,25 @@
 These base classes provide empty default implementations for standard event callbacks
 and apply try/except logging blocks around execution to prevent Python exceptions from
 leaking into PyUNO and causing LibreOffice to crash or segfault.
+
+``ListenerBoundary`` is the one signal a generic ``except Exception`` must not
+swallow. The listener base classifies the main-thread guard and real disposal
+into that type, and re-raises a close or termination veto as the original UNO
+exception. An ordinary runtime error stays a logged failure.
 """
 
 from __future__ import annotations
 
 import functools
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import Any, NoReturn, TYPE_CHECKING
+
+from plugin.framework.errors import _is_real_disposal
 
 log = logging.getLogger(__name__)
+
+# Same prefix as ``assert_main_thread``. A bare RuntimeError is not this.
+_THREAD_VIOLATION_MARK = "UNO thread violation"
 
 # Safe imports for optional PyUNO environment (ensures unit test compatibility outside of LO)
 _unohelper: Any = None
@@ -39,12 +49,15 @@ _XWindowListener: Any = None
 _XDocumentEventListener: Any = None
 _XActivationEventListener: Any = None
 _XContainerListener: Any = None
+_XMouseListener: Any = None
+_XFocusListener: Any = None
+_XMouseClickHandler: Any = None
 _HAVE_UNO = False
 
 try:
     import unohelper as _unohelper_impl
     from com.sun.star.lang import XEventListener as _XEventListener_impl
-    from com.sun.star.awt import XActionListener as _XActionListener_impl, XItemListener as _XItemListener_impl, XTextListener as _XTextListener_impl, XKeyListener as _XKeyListener_impl, XWindowListener as _XWindowListener_impl
+    from com.sun.star.awt import XActionListener as _XActionListener_impl, XItemListener as _XItemListener_impl, XTextListener as _XTextListener_impl, XKeyListener as _XKeyListener_impl, XWindowListener as _XWindowListener_impl, XMouseListener as _XMouseListener_impl, XFocusListener as _XFocusListener_impl, XMouseClickHandler as _XMouseClickHandler_impl
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
     from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
     from com.sun.star.container import XContainerListener as _XContainerListener_impl
@@ -59,6 +72,9 @@ try:
     _XDocumentEventListener = _XDocumentEventListener_impl
     _XActivationEventListener = _XActivationEventListener_impl
     _XContainerListener = _XContainerListener_impl
+    _XMouseListener = _XMouseListener_impl
+    _XFocusListener = _XFocusListener_impl
+    _XMouseClickHandler = _XMouseClickHandler_impl
     _HAVE_UNO = True
 except ImportError:
     pass
@@ -95,6 +111,15 @@ if TYPE_CHECKING:
 
     class _XContainerListenerParent:
         pass
+
+    class _XMouseListenerParent:
+        pass
+
+    class _XFocusListenerParent:
+        pass
+
+    class _XMouseClickHandlerParent:
+        pass
 else:
 
     class _DummyBase:
@@ -127,6 +152,15 @@ else:
     class _DummyContainerListener:
         pass
 
+    class _DummyMouseListener:
+        pass
+
+    class _DummyFocusListener:
+        pass
+
+    class _DummyMouseClickHandler:
+        pass
+
     _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
     _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener
     _XActionListenerParent = _XActionListener if _HAVE_UNO else _DummyActionListener
@@ -137,30 +171,179 @@ else:
     _XDocumentEventListenerParent = _XDocumentEventListener if _HAVE_UNO else _DummyDocumentEventListener
     _XActivationEventListenerParent = _XActivationEventListener if _HAVE_UNO else _DummyActivationListener
     _XContainerListenerParent = _XContainerListener if _HAVE_UNO else _DummyContainerListener
+    _XMouseListenerParent = _XMouseListener if _HAVE_UNO else _DummyMouseListener
+    _XFocusListenerParent = _XFocusListener if _HAVE_UNO else _DummyFocusListener
+    _XMouseClickHandlerParent = _XMouseClickHandler if _HAVE_UNO else _DummyMouseClickHandler
+
+
+# Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
+# collected wrapper cannot suppress wrapping a later override.
+_CATCH_LOGGED_ATTR = "_writeragent_catch_and_log"
+
+# UNO bridge entry points that subclasses sometimes override on the class dict
+# (skipping the @_catch_and_log base method). Keep in sync with Base* methods.
+_UNO_CALLBACK_NAMES = frozenset(
+    {
+        "disposing",
+        "actionPerformed",
+        "itemStateChanged",
+        "textChanged",
+        "keyPressed",
+        "keyReleased",
+        "mousePressed",
+        "mouseReleased",
+        "mouseEntered",
+        "mouseExited",
+        "focusGained",
+        "focusLost",
+        "windowResized",
+        "windowMoved",
+        "windowShown",
+        "windowHidden",
+        "elementInserted",
+        "elementRemoved",
+        "elementReplaced",
+        "documentEventOccured",
+        "activeSpreadsheetChanged",
+    }
+)
+
+
+class ListenerBoundary(BaseException):
+    """Signal that must leave a UNO listener. ``except Exception`` cannot catch it.
+
+    The listener base is the only classifier. Call sites do not keep a second
+    list of CloseVeto / TerminationVeto / DisposedException / thread-guard
+    names. ``kind`` keeps those cases from being mistaken for each other:
+
+    - ``thread``: main-thread guard. Not an empty document and not disposal.
+    - ``disposed``: the desktop or document is gone. Not an empty document.
+    - ``veto``: close or app-quit veto. The original UNO exception is what
+      the bridge must see; this wrapper only carries it across the classifier.
+
+    A bare ``RuntimeException`` / ``RuntimeError`` is none of these. It stays
+    a logged callback failure, not disposal and not "nothing is open".
+    """
+
+    kind: str
+    original: BaseException
+
+    def __init__(self, kind: str, original: BaseException) -> None:
+        self.kind = kind
+        self.original = original
+        super().__init__(str(original))
+
+
+def _is_thread_violation(exc: BaseException) -> bool:
+    return isinstance(exc, RuntimeError) and _THREAD_VIOLATION_MARK in str(exc)
+
+
+def _is_bridge_veto(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    return "CloseVetoException" in name or "TerminationVetoException" in name
+
+
+def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
+    """The one boundary for *exc*, or None when the callback may fail soft.
+
+    None is an ordinary Python or UNO runtime error. Real disposal uses
+    :func:`plugin.framework.errors._is_real_disposal`, so a ``RuntimeException``
+    name is not disposal.
+    """
+    if isinstance(exc, ListenerBoundary):
+        return exc
+    if _is_thread_violation(exc):
+        return ListenerBoundary("thread", exc)
+    if _is_bridge_veto(exc):
+        return ListenerBoundary("veto", exc)
+    if _is_real_disposal(exc):
+        return ListenerBoundary("disposed", exc)
+    return None
+
+
+def reraise_listener_boundary(exc: BaseException) -> NoReturn:
+    """Re-raise *exc* so a generic ``except Exception`` cannot hide the boundary.
+
+    A runtime error is re-raised as itself: not disposal, and not dropped as
+    an empty document. A close or termination veto is re-raised as the
+    original UNO exception so LibreOffice can still veto. The main-thread
+    guard and real disposal leave as :class:`ListenerBoundary`.
+    """
+    if isinstance(exc, ListenerBoundary):
+        if exc.kind == "veto":
+            raise exc.original
+        raise exc
+    boundary = listener_boundary(exc)
+    if boundary is None or boundary.kind == "veto":
+        raise exc
+    raise boundary from exc
+
+
+def _listener_failure_value(func: Any) -> Any:
+    """``sal_Bool`` methods must not return None or the bridge type-errors.
+
+    ``from __future__ import annotations`` stores the return annotation as
+    the string ``bool`` rather than the bool type.
+    """
+    ret = func.__annotations__.get("return")
+    if ret is bool or ret == "bool":
+        return False
+    return None
 
 
 def _catch_and_log(func: Any) -> Any:
     """Decorator to catch and log exceptions in UNO listener callbacks."""
+    failure = _listener_failure_value(func)
 
     @functools.wraps(func)
-    def wrapper(self: Any, ev: Any, *args: Any, **kwargs: Any) -> Any:
+    def wrapper(self: Any, ev: Any = None, *args: Any, **kwargs: Any) -> Any:
         try:
             return func(self, ev, *args, **kwargs)
-        except TypeError:
-            # Named branches so the log shows TypeError vs ValueError; both
-            # subclass Exception. The C++ bridge must not see Python exceptions.
-            log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
-        except ValueError:
-            log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
+        except ListenerBoundary as boundary:
+            # Already classified. A veto still has to be the UNO type.
+            if boundary.kind == "veto":
+                raise boundary.original
+            raise
         except Exception as exc:
-            # CloseVetoException must reach the bridge or the close cannot be vetoed.
-            # DisposedException is a UNO signal, not a Python bug to swallow.
-            name = type(exc).__name__
-            if "CloseVetoException" in name or "DisposedException" in name:
-                raise
-            # Base UNO listeners must not leak arbitrary Python exceptions into the C++ bridge.
+            # What was wrong: this handler grew a type-name allow-list
+            # (CloseVeto, then TerminationVeto, and DisposedException was
+            # added and removed). A bare except Exception also swallowed
+            # assert_main_thread's RuntimeError, and a disposed desktop
+            # became the failure return (None / False) — the same shape as
+            # "nothing is open". A RuntimeException name was easy to treat
+            # as that disposal, or the reverse. How: every one of those is
+            # an Exception, so each call site re-checked names. Why: one
+            # boundary. Vetoes are re-raised as the original UNO exception
+            # so the bridge can still veto. Thread violations and real
+            # disposal leave as ListenerBoundary, which except Exception
+            # cannot swallow. disposing() does not raise on disposal: a
+            # throw there stops the broadcaster from notifying the remaining
+            # listeners. Any other callback is a query, and a dead desktop
+            # must not look like an empty success. A runtime error is logged
+            # and returns the failure value; it is not disposal.
+            #
+            # TypeError and ValueError used to be their own except clauses
+            # above this one, so listener_boundary never saw them. A future
+            # disposal or veto that subclasses either type would have been
+            # logged and returned as a soft failure. Classify first. An
+            # ordinary TypeError or ValueError still logs under its type
+            # name and does not enter the bridge.
+            signal = listener_boundary(exc)
+            if signal is not None and signal.kind == "disposed" and func.__name__ == "disposing":
+                log.debug("%s disposing: source already disposed", self.__class__.__name__)
+                return failure
+            if signal is not None:
+                reraise_listener_boundary(exc)
+            if isinstance(exc, TypeError):
+                log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
+                return failure
+            if isinstance(exc, ValueError):
+                log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
+                return failure
             log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
+            return failure
 
+    setattr(wrapper, _CATCH_LOGGED_ATTR, True)
     return wrapper
 
 
@@ -170,6 +353,23 @@ def _catch_and_log(func: Any) -> Any:
 
 
 class BaseListener(_BaseParent, _XEventListenerParent):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # What was wrong: subclasses that override disposing() skip
+        # @_catch_and_log, so an exception before their own try enters the
+        # C++ bridge. How: UNO calls disposing, not on_disposing. Why: wrap
+        # that override once. The base method is already wrapped.
+        #
+        # Same hole for itemStateChanged / textChanged / etc.: Settings and
+        # MCP listeners inherit BaseListener and define those methods on the
+        # class dict, replacing the wrapped BaseItemListener / BaseTextListener
+        # methods. Wrap every UNO callback present on cls.__dict__.
+        for name in _UNO_CALLBACK_NAMES:
+            method = cls.__dict__.get(name)
+            if method is None or getattr(method, _CATCH_LOGGED_ATTR, False):
+                continue
+            setattr(cls, name, _catch_and_log(method))
+
     @_catch_and_log
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         self.on_disposing(Source)
@@ -297,3 +497,65 @@ class BaseActivationEventListener(BaseListener, _XActivationEventListenerParent)
 
     def on_active_spreadsheet_changed(self, aEvent: Any) -> None:
         pass
+
+
+class BaseMouseListener(BaseListener, _XMouseListenerParent):
+    @_catch_and_log
+    def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_pressed(e)
+
+    @_catch_and_log
+    def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_released(e)
+
+    @_catch_and_log
+    def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_entered(e)
+
+    @_catch_and_log
+    def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_mouse_exited(e)
+
+    def on_mouse_pressed(self, e: Any) -> None:
+        pass
+
+    def on_mouse_released(self, e: Any) -> None:
+        pass
+
+    def on_mouse_entered(self, e: Any) -> None:
+        pass
+
+    def on_mouse_exited(self, e: Any) -> None:
+        pass
+
+
+class BaseFocusListener(BaseListener, _XFocusListenerParent):
+    @_catch_and_log
+    def focusGained(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_focus_gained(e)
+
+    @_catch_and_log
+    def focusLost(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+        self.on_focus_lost(e)
+
+    def on_focus_gained(self, e: Any) -> None:
+        pass
+
+    def on_focus_lost(self, e: Any) -> None:
+        pass
+
+
+class BaseMouseClickHandler(BaseListener, _XMouseClickHandlerParent):
+    @_catch_and_log
+    def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_mouse_pressed(e))
+
+    @_catch_and_log
+    def mouseReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_mouse_released(e))
+
+    def on_mouse_pressed(self, e: Any) -> bool:
+        return False
+
+    def on_mouse_released(self, e: Any) -> bool:
+        return False

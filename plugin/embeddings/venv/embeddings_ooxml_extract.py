@@ -35,24 +35,29 @@ def extract_docx_paragraphs(path: str) -> list[str]:
     """Body paragraphs from a .docx file (python-docx)."""
     try:
         from docx import Document
-    except ImportError:
+    except ImportError as exc:
         log.debug("python-docx not installed — docx extract skipped for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"python-docx not installed — docx extract skipped for {path}") from exc
     try:
         document = Document(path)
-    except Exception:
+    except Exception as exc:
         log.debug("extract_docx_paragraphs failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_docx_paragraphs failed for {path}") from exc
     passages: list[str] = []
     for paragraph in document.paragraphs:
-        text = str(paragraph.text or "").strip()
+        try:
+            # Extract all text elements, including those nested in w:hyperlink
+            texts = [node.text for node in paragraph._element.xpath(".//w:t") if node.text]
+            text = "".join(texts).strip()
+        except Exception:
+            text = str(paragraph.text or "").strip()
         if text:
             passages.append(text)
     return passages
 
 
-def extract_spreadsheet_rows(path: str) -> list[str]:
-    """One passage per non-empty row from .xlsx/.xls (pandas + openpyxl/xlrd)."""
+def extract_spreadsheet_rows(path: str) -> list[str] | None:
+    """One passage per non-empty row from .xlsx/.xls (pandas + openpyxl/xlrd). Returns None on failure."""
     ext = Path(path).suffix.lower()
     if ext == ".xlsx":
         engine = "openpyxl"
@@ -64,15 +69,15 @@ def extract_spreadsheet_rows(path: str) -> list[str]:
         import pandas as pd
     except ImportError:
         log.debug("pandas not installed — spreadsheet extract skipped for %s", path, exc_info=True)
-        return []
+        return None
     try:
         sheets = pd.read_excel(path, engine=engine, sheet_name=None, header=None)
     except ImportError:
         log.debug("%s engine not installed — spreadsheet extract skipped for %s", engine, path, exc_info=True)
-        return []
+        return None
     except Exception:
         log.debug("extract_spreadsheet_rows failed for %s", path, exc_info=True)
-        return []
+        return None
 
     rows: list[str] = []
     for sheet_name, frame in sheets.items():
@@ -92,8 +97,9 @@ def extract_csv_rows(path: str) -> list[str]:
                 cells = [cell.strip() for cell in row if str(cell).strip()]
                 if cells:
                     rows.append("\t".join(cells))
-    except OSError:
+    except OSError as exc:
         log.debug("extract_csv_rows failed for %s", path, exc_info=True)
+        raise RuntimeError(f"extract_csv_rows failed for {path}") from exc
     return rows
 
 
@@ -101,9 +107,9 @@ def extract_plaintext_paragraphs(path: str) -> list[str]:
     """Plain .txt: blank-line paragraphs, else one passage per non-empty line."""
     try:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as exc:
         log.debug("extract_plaintext_paragraphs failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_plaintext_paragraphs failed for {path}") from exc
     parts = [part.strip() for part in text.split("\n\n") if part.strip()]
     if len(parts) > 1:
         return parts
@@ -121,9 +127,9 @@ def extract_rtf_paragraphs(path: str) -> list[str]:
     """Best-effort RTF paragraph text for cross-file routing (not a full RTF parser)."""
     try:
         raw = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as exc:
         log.debug("extract_rtf_paragraphs failed for %s", path, exc_info=True)
-        return []
+        raise RuntimeError(f"extract_rtf_paragraphs failed for {path}") from exc
     text = raw.replace("\\par", "\n").replace("\\line", "\n")
     text = _RTF_CONTROL.sub("", text)
     text = text.replace("{", "").replace("}", "")
@@ -131,35 +137,100 @@ def extract_rtf_paragraphs(path: str) -> list[str]:
 
 
 def _texts_from_ooxml_slide_xml(xml_bytes: bytes) -> str:
-    root = ET.fromstring(xml_bytes)
-    parts: list[str] = []
-    for node in root.iter(f"{_DRAWML_NS}t"):
-        if node.text and node.text.strip():
-            parts.append(node.text.strip())
-    return " ".join(parts)
+    try:
+        root = ET.fromstring(xml_bytes)
+    except Exception:
+        return ""
+    paras: list[str] = []
+    for p_node in root.iter(f"{_DRAWML_NS}p"):
+        parts: list[str] = []
+        for t_node in p_node.iter(f"{_DRAWML_NS}t"):
+            if t_node.text:
+                parts.append(t_node.text)
+        para_text = "".join(parts).strip()
+        if para_text:
+            paras.append(para_text)
+    return "\n".join(paras)
 
 
 def extract_pptx_passages(path: str) -> list[str]:
     """Slide body + speaker notes from .pptx (stdlib zip + DrawingML text nodes)."""
+    import posixpath
     passages: list[str] = []
     try:
         with zipfile.ZipFile(path) as zf:
-            slide_names = sorted(
-                name for name in zf.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")
-            )
+            namelist = zf.namelist()
+
+            slide_seq = []
+            if "ppt/presentation.xml" in namelist:
+                try:
+                    pres_xml = zf.read("ppt/presentation.xml")
+                    root = ET.fromstring(pres_xml)
+                    for sldId in root.findall(".//{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"):
+                        rid = sldId.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+                        if rid:
+                            slide_seq.append(rid)
+                except Exception:
+                    pass
+
+            rid_to_slide = {}
+            if "ppt/_rels/presentation.xml.rels" in namelist:
+                try:
+                    rels_xml = zf.read("ppt/_rels/presentation.xml.rels")
+                    root = ET.fromstring(rels_xml)
+                    for rel in root.findall(".//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                        if rel.get("Type", "").endswith("/slide"):
+                            target = rel.get("Target")
+                            if target:
+                                if target.startswith("/"):
+                                    target = target[1:]
+                                elif not target.startswith("ppt/"):
+                                    target = "ppt/" + target
+                                rid_to_slide[rel.get("Id")] = target
+                except Exception:
+                    pass
+
+            slide_names = []
+            for rid in slide_seq:
+                if rid in rid_to_slide and rid_to_slide[rid] in namelist:
+                    slide_names.append(rid_to_slide[rid])
+
+            if not slide_names:
+                def _slide_num(n: str) -> int:
+                    m = re.search(r'slide(\d+)\.xml$', n)
+                    return int(m.group(1)) if m else 999999
+                slide_names = sorted(
+                    (name for name in namelist if name.startswith("ppt/slides/slide") and name.endswith(".xml")),
+                    key=_slide_num
+                )
+
             for index, name in enumerate(slide_names, start=1):
                 body = _texts_from_ooxml_slide_xml(zf.read(name))
                 if body:
                     passages.append(f"[Slide: Slide{index}]\t{body}")
-            note_names = sorted(
-                name
-                for name in zf.namelist()
-                if name.startswith("ppt/notesSlides/notesSlide") and name.endswith(".xml")
-            )
-            for index, name in enumerate(note_names, start=1):
-                notes = _texts_from_ooxml_slide_xml(zf.read(name))
-                if notes:
-                    passages.append(f"[Notes: Slide{index}]\t{notes}")
-    except (OSError, zipfile.BadZipFile, ET.ParseError):
+
+                base = posixpath.basename(name)
+                dirname = posixpath.dirname(name)
+                slide_rel_path = posixpath.join(dirname, "_rels", base + ".rels")
+                if slide_rel_path in namelist:
+                    try:
+                        slide_rels_xml = zf.read(slide_rel_path)
+                        sroot = ET.fromstring(slide_rels_xml)
+                        for rel in sroot.findall(".//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                            if rel.get("Type", "").endswith("/notesSlide"):
+                                ntarget = rel.get("Target")
+                                if ntarget:
+                                    if ntarget.startswith("/"):
+                                        notes_path = ntarget[1:]
+                                    else:
+                                        notes_path = posixpath.normpath(posixpath.join(dirname, ntarget))
+                                    if notes_path in namelist:
+                                        notes = _texts_from_ooxml_slide_xml(zf.read(notes_path))
+                                        if notes:
+                                            passages.append(f"[Notes: Slide{index}]\t{notes}")
+                    except Exception:
+                        pass
+    except (OSError, zipfile.BadZipFile, ET.ParseError) as exc:
         log.debug("extract_pptx_passages failed for %s", path, exc_info=True)
+        raise RuntimeError(f"extract_pptx_passages failed for {path}") from exc
     return passages

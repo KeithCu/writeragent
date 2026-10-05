@@ -32,6 +32,70 @@ def _find_spec_without_writeragent_api(name: str, package=None):
     return _ORIGINAL_FIND_SPEC(name, package)
 
 
+def test_alias_importer_refuses_config_and_llm_client():
+    """Unauthorized writeragent aliases must not resolve, even if find_spec would."""
+    from plugin.framework.uno_bootstrap import AliasImporter
+
+    importer = AliasImporter()
+    with patch("importlib.util.find_spec") as mock_find:
+        assert importer.find_spec("writeragent.framework.config") is None
+        assert importer.find_spec("writeragent.framework.client.llm_client") is None
+        mock_find.assert_not_called()
+
+
+def test_alias_importer_ignores_blanket_writeragent_star():
+    """Re-adding writeragent.* to the list must not reopen the config import."""
+    from plugin.framework.uno_bootstrap import AliasImporter
+
+    importer = AliasImporter()
+    starred = ("writeragent.*", "duckdb", "duckdb.*", "plugin.scripting.analysis")
+    with patch("plugin.scripting.sandbox.VENV_AUTHORIZED_IMPORTS", starred), patch(
+        "importlib.util.find_spec"
+    ) as mock_find:
+        assert importer.find_spec("writeragent.framework.config") is None
+        assert importer.find_spec("writeragent.framework.client.llm_client") is None
+        mock_find.assert_not_called()
+        real = MagicMock()
+        real.submodule_search_locations = None
+        mock_find.return_value = real
+        spec = importer.find_spec("writeragent.scripting.analysis")
+    assert spec is not None
+    assert spec.name == "writeragent.scripting.analysis"
+    mock_find.assert_called_with("plugin.scripting.analysis")
+
+
+def test_alias_importer_resolves_allowlisted_module_via_mock():
+    from plugin.framework.uno_bootstrap import AliasImporter
+
+    importer = AliasImporter()
+    real = MagicMock()
+    real.submodule_search_locations = ["/tmp/analysis"]
+    with patch("importlib.util.find_spec", return_value=real) as mock_find:
+        spec = importer.find_spec("writeragent.scripting.viz")
+    assert spec is not None
+    assert spec.name == "writeragent.scripting.viz"
+    assert spec.submodule_search_locations == ["/tmp/analysis"]
+    mock_find.assert_called_once_with("plugin.scripting.viz")
+
+
+def test_executor_refuses_aliased_config_and_llm_client():
+    from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
+
+    executor = LocalPythonExecutor(additional_authorized_imports=list(VENV_AUTHORIZED_IMPORTS))
+    executor.send_tools({})
+    for code in (
+        "import writeragent.framework.config",
+        "from writeragent.framework.client.llm_client import LlmClient",
+    ):
+        try:
+            executor(code)
+        except InterpreterError as err:
+            assert "not allowed" in str(err)
+        else:
+            raise AssertionError(code)
+
+
 def test_alias_importer_redirects_writeragent():
     register_alias_importer()
 
@@ -136,6 +200,41 @@ def test_writeragent_namespace_fallback_when_api_missing():
 
         assert run_analysis is real_run_analysis
         assert "writeragent.scripting.analysis" in sys.modules
+
+
+def test_sandboxed_template_imports_run_vision():
+    """Built-in vision scripts import run_vision through the venv alias.
+
+    Calc and Writer image_name Run paths execute the template in the user venv
+    (``run_code_in_user_venv`` → ``run_sandboxed_code``). AliasImporter maps
+    ``writeragent.vision`` to ``plugin.vision``. This runs that import; mocking
+    the venv runner would hide a missing export. Writer selection still uses
+    the host RPC client, not this function.
+    """
+    from plugin.scripting.client import run_vision as client_run_vision
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from plugin.vision.venv.vision import run_vision as venv_run_vision
+    from plugin.vision.vision_runner import run_vision as host_run_vision
+    from plugin.vision.vision_templates import get_vision_script_templates
+
+    register_alias_importer()
+    _clear_writeragent_modules()
+    from writeragent.vision import run_vision
+
+    assert run_vision is venv_run_vision
+    assert host_run_vision is client_run_vision
+    assert host_run_vision is not venv_run_vision
+
+    lines: list[str] = []
+    for line in get_vision_script_templates()["extract_text"].splitlines():
+        if line.startswith("result = run_vision"):
+            # Call the dispatcher. Dunder reads are blocked in the sandbox.
+            lines.append('result = run_vision("not_a_helper", b"x")["code"]')
+        else:
+            lines.append(line)
+    response = run_sandboxed_code("\n".join(lines) + "\n", bindings={"image": b"png"})
+    assert response["status"] == "ok", response.get("message")
+    assert response["result"] == "UNKNOWN_HELPER"
 
 
 def test_sandboxed_code_writeragent_analysis_without_api():

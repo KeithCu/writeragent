@@ -65,8 +65,26 @@ except ImportError:
         "sys",
     )
 
+
+def _writeragent_alias_mirrors(entries: tuple[str, ...]) -> tuple[str, ...]:
+    """``writeragent.X`` spellings of plugin modules already on the allowlist.
+
+    AliasImporter maps ``writeragent.X`` to ``plugin.X``. A blanket
+    ``writeragent.*`` made that map every plugin module, so a sandboxed script
+    could import ``plugin.framework.config`` and ``LlmClient``. The vendored
+    checker cannot translate the alias, so each allowlisted ``plugin.`` entry
+    is repeated under ``writeragent.``.
+    """
+    mirrors: list[str] = []
+    for entry in entries:
+        if entry.startswith("plugin."):
+            mirrors.append("writeragent." + entry[len("plugin."):])
+    return tuple(mirrors)
+
+
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
-VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
+# No ``writeragent.*``: that wildcard is not an allow. See ``import_authorized``.
+_VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = (
     "platform",
     "numpy",
     "numpy.*",
@@ -109,7 +127,6 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     # webview / PyQt / jedi are editor-only. They are probed in a one-shot
     # subprocess (venv_diagnostics), not imported into the warm =PY() worker.
     "writeragent",
-    "writeragent.*",
     "plugin.scripting.writeragent_api",
     "plugin.scripting.writeragent_api.*",
     "plugin.scripting.writeragent_namespace",
@@ -130,8 +147,13 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "spacytextblob.*",
     "pint",
     "pint.*",
-    # Trusted helpers import these themselves; user code was getting the raw
-    # module, which skips GuardedDuckDBConnection.
+    # Bugfix: duckdb was removed from this allowlist, so `import duckdb` raised
+    # "Import of duckdb is not allowed" before get_safe_module could return the
+    # raw C module. User scripts need connect/execute/df on that module.
+    # session_duckdb() still returns GuardedDuckDBConnection for trusted SQL.
+    # import_policy keeps the name out of LLM blurbs.
+    "duckdb",
+    "duckdb.*",
     "sentence_transformers",
     "sentence_transformers.*",
     "transformers",
@@ -150,6 +172,54 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.calc_functions",
     "plugin.scripting.calc_functions.*",
 )
+
+# Script imports whose plugin path stays off the direct list.
+# vision: ``from writeragent.vision import run_vision`` (not plugin.vision.venv.vision).
+# duckdb_sql: SQL templates. ``plugin.scripting.duckdb_sql`` stays unlisted so
+# the LLM blurb and the import-policy test do not grow a direct plugin entry.
+# ``duckdb`` / ``duckdb.*`` above are unchanged.
+_ALIAS_ONLY_IMPORTS: tuple[str, ...] = (
+    "writeragent.vision",
+    "writeragent.scripting.duckdb_sql",
+)
+
+VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
+    _VENV_AUTHORIZED_IMPORT_BASE
+    + _writeragent_alias_mirrors(_VENV_AUTHORIZED_IMPORT_BASE)
+    + _ALIAS_ONLY_IMPORTS
+)
+
+
+def _alias_real_module(name: str) -> str | None:
+    """Plugin module a ``writeragent`` alias import loads, else ``None``."""
+    if name == "writeragent":
+        return "plugin.scripting.writeragent_api"
+    if name.startswith("writeragent."):
+        return "plugin" + name[len("writeragent"):]
+    return None
+
+
+def import_authorized(name: str, authorized_imports: list[str] | tuple[str, ...]) -> bool:
+    """Whether *name* is on the sandbox import allowlist.
+
+    A ``writeragent.*`` import is allowed only when the plugin module
+    AliasImporter would load is on the same list, or the alias itself is an
+    explicit entry. The blanket pattern ``writeragent.*`` is ignored: it
+    authorized every alias, and the hook then loaded ``plugin.framework.config``
+    and ``LlmClient``. Names that are not aliases, including ``duckdb`` and
+    ``duckdb.*``, use the vendored checker unchanged.
+    """
+    # crosshair: off
+    from plugin.contrib.smolagents.local_python_executor import check_import_authorized
+
+    allowed = list(authorized_imports)
+    real = _alias_real_module(name)
+    if real is None:
+        return check_import_authorized(name, allowed)
+    if check_import_authorized(real, allowed):
+        return True
+    without_blanket = [item for item in allowed if item != "writeragent.*"]
+    return check_import_authorized(name, without_blanket)
 
 
 # In-process LO embedded sandbox (execute_python_script) — stdlib-only extras beyond BASE_BUILTIN_MODULES.
@@ -193,6 +263,46 @@ _DEAL_SCRUB_DICT = 1 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
 _DEAL_SCRUB_KEY = 2 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 _DEAL_SCRUB_VAL = 4 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
 
+
+def _deal_scrub_env_ok_pytest(base: object) -> bool:
+    # os.environ values (PATH) exceed DEAL_MAX_ARGV and names can exceed
+    # a token. The old cap raised PreContractError before secrets were
+    # dropped. Values must stay str so the post (str→str) holds.
+    # CrossHair keeps the one-entry domain.
+    if base is None:
+        return True
+    return isinstance(base, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in base.items())
+
+
+def _deal_scrub_env_ok_crosshair(base: object) -> bool:
+    return base is None or (
+        isinstance(base, dict)
+        and len(base) <= _DEAL_SCRUB_DICT
+        and all(
+            isinstance(k, str)
+            and str_bounded(k, _DEAL_SCRUB_KEY)
+            and isinstance(v, str)
+            and str_bounded(v, _DEAL_SCRUB_VAL)
+            for k, v in base.items()
+        )
+    )
+
+
+_deal_scrub_env_ok = _deal_scrub_env_ok_crosshair if UNDER_CROSSHAIR else _deal_scrub_env_ok_pytest
+
+
+def _deal_path_ok_pytest(path: object) -> bool:
+    # Real venv and workspace paths are longer than DEAL_MAX_PATH (256).
+    # The cap raised PreContractError instead of the body's bool/strip.
+    return isinstance(path, str)
+
+
+def _deal_path_ok_crosshair(path: object) -> bool:
+    return str_bounded(path, DEAL_MAX_PATH)
+
+
+_deal_path_ok = _deal_path_ok_crosshair if UNDER_CROSSHAIR else _deal_path_ok_pytest
+
 # cover-all 35526755391: basename ~10m under str_bounded path. ASCII short under CrossHair.
 _DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 
@@ -214,20 +324,7 @@ def _env_name_is_credential(name: str) -> bool:
     return False
 
 
-@deal.pre(
-    lambda base: base is None
-    or (
-        isinstance(base, dict)
-        and len(base) <= _DEAL_SCRUB_DICT
-        and all(
-            isinstance(k, str)
-            and str_bounded(k, _DEAL_SCRUB_KEY)
-            and isinstance(v, str)
-            and str_bounded(v, _DEAL_SCRUB_VAL)
-            for k, v in base.items()
-        )
-    )
-)
+@deal.pre(lambda base: _deal_scrub_env_ok(base))
 @deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
 @inverse_ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
 @inverse_ensure(lambda base, result: all(not _env_name_is_credential(k) for k in result))
@@ -251,9 +348,15 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
         if _env_name_is_credential(k):
             continue
         out[k] = v
-    out.setdefault("PYTHONIOENCODING", "utf-8")
-    out.setdefault("PYTHONUTF8", "1")
-    out.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    # Bugfix: setdefault kept whatever the parent already had. Callers pass
+    # dict(os.environ) (venv worker, editor host, compute worker). A latin-1
+    # PYTHONIOENCODING, PYTHONUTF8=0, or PYTHONDONTWRITEBYTECODE=0 then failed
+    # the ensure in deal builds (the reported clause is the empty-base arm,
+    # not the value check) and spawned the child with that encoding once
+    # release builds strip deal. Force the values the postcondition requires.
+    out["PYTHONIOENCODING"] = "utf-8"
+    out["PYTHONUTF8"] = "1"
+    out["PYTHONDONTWRITEBYTECODE"] = "1"
     # Child processes should log to the same writeragent_debug.log. Read the
     # path at call time (logging may not be initialized at import). Use the
     # public getter; a private import plus bare ``except Exception`` hid
@@ -350,7 +453,7 @@ def _reset_cache() -> None:  # pyright: ignore[reportUnusedFunction]  # test hel
 # --- Interpreter resolution ---
 
 
-@deal.pre(lambda path: str_bounded(path, DEAL_MAX_PATH))
+@deal.pre(lambda path: _deal_path_ok(path))
 def _strip_surrounding_quotes(path: str) -> str:
     """Strip one layer of matching quotes (Windows Explorer \"Copy as path\")."""
     # crosshair: off
@@ -604,7 +707,7 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
     return _first_executable_python(candidates)
 
 
-@deal.pre(lambda target_path, root_dir: str_bounded(target_path, DEAL_MAX_PATH) and str_bounded(root_dir, DEAL_MAX_PATH))
+@deal.pre(lambda target_path, root_dir: _deal_path_ok(target_path) and _deal_path_ok(root_dir))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda target_path, root_dir, result: (

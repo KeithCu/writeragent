@@ -13,8 +13,6 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-import deal
-import pytest
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE
 from plugin.writer.word_diff_split import (
@@ -23,7 +21,6 @@ from plugin.writer.word_diff_split import (
     split_change,
     tokenize,
 )
-from tests.harness.strip_bundle import deal_pre_present
 from plugin.writer.xhtml_style_postprocess import (
     compact_lo_style_name,
     decode_lo_css_class_suffix,
@@ -58,14 +55,13 @@ def test_hypothesis_tokenize_reconstruction_invariant(text: str) -> None:
         assert text[token.start : token.end] == token.text
 
 
-def test_split_change_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(split_change):
-        pytest.skip("@deal.pre stripped in release bundle")
-    too_long = "x" * (DEAL_MAX_SOURCE + 1)
-    with pytest.raises(deal.PreContractError):
-        split_change(too_long, "a")
-    with pytest.raises(deal.PreContractError):
-        split_change("a", too_long)
+def test_split_change_longer_than_source_runs() -> None:
+    """Selection text past DEAL_MAX_SOURCE is a real diff, not a contract error."""
+    too_long = "x " * (DEAL_MAX_SOURCE + 1)
+    left = split_change(too_long, "a")
+    right = split_change("a", too_long)
+    assert left.fraction_changed >= 0.0
+    assert right.fraction_changed >= 0.0
 
 
 @given(old=_SAFE_TEXT, new=_SAFE_TEXT)

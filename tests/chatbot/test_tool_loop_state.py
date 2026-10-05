@@ -52,8 +52,29 @@ def test_stop_requested():
     assert new_state.status == "Stopped"
 
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
-    assert any(isinstance(e, AddMessageEffect) for e in effects)
+    assert not any(isinstance(e, AddMessageEffect) for e in effects)
     assert any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" and e.text == "Stopped" for e in effects)
+    assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "append" for e in effects)
+
+
+def test_stop_requested_does_not_emit_transcript_rows():
+    """The turn writes the open row, cancelled tool rows, and the stop line."""
+    state = create_base_state()
+    tr = next_state(state, create_event(EventKind.STOP_REQUESTED, content="  partial answer  "))
+    assert not any(isinstance(e, AddMessageEffect) for e in tr.effects)
+    assert tr.state.is_stopped is True
+
+
+def test_stop_requested_leaves_pending_tools_for_the_turn_to_close():
+    pending = [
+        {"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}},
+        {"id": "call_2", "type": "function", "function": {"name": "lookup", "arguments": "{}"}},
+    ]
+    state = create_base_state(pending_tools=pending)
+    tr = next_state(state, create_event(EventKind.STOP_REQUESTED, content="ignored while tools are open"))
+    assert not any(isinstance(e, AddMessageEffect) for e in tr.effects)
+    assert tr.state.pending_tools == pending
+    assert tr.state.is_stopped is True
 
 def test_final_done():
     state = create_base_state()
@@ -351,15 +372,14 @@ def test_next_tool_delegate_keeps_full_task_on_spawn():
     assert len(preview) <= DELEGATE_TASK_CHAT_MAX
 
 
-def test_truncate_delegate_task_pre_rejects_over_sanity_cap():
-    from plugin.chatbot.tool_loop_state import _truncate_delegate_task
+def test_truncate_delegate_task_past_source_cap_truncates():
+    """A specialize task longer than DEAL_MAX_SOURCE is previewed, not a contract error."""
+    from plugin.chatbot.tool_loop_state import DELEGATE_TASK_CHAT_MAX, _truncate_delegate_task
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from tests.harness.strip_bundle import deal_pre_present
 
-    if not deal_pre_present(_truncate_delegate_task):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        _truncate_delegate_task("A" * (DEAL_MAX_SOURCE + 1))
+    preview = _truncate_delegate_task("A" * (DEAL_MAX_SOURCE + 1))
+    assert preview.endswith("...")
+    assert len(preview) == DELEGATE_TASK_CHAT_MAX
 
 
 def test_truncate_delegate_task_crosshair_floors_stay_tiny():
@@ -502,17 +522,24 @@ def test_stopped_effects_exclude_tool_spawns_predicate():
     assert stopped_effects_exclude_tool_spawns(running, [spawn]) is True
     assert stopped_effects_exclude_tool_spawns(stopped, [spawn]) is False
     assert stopped_effects_exclude_tool_spawns(stopped, []) is True
+    llm = SpawnLLMWorkerEffect(round_num=1)
+    final = SpawnFinalStreamEffect()
+    assert stopped_effects_exclude_tool_spawns(running, [llm, final]) is True
+    assert stopped_effects_exclude_tool_spawns(stopped, [llm]) is False
+    assert stopped_effects_exclude_tool_spawns(stopped, [final]) is False
 
 
 def test_next_tool_when_stopped():
-    # If is_stopped=True but empty pending_tools, it shouldn't update status
-    state = create_base_state(is_stopped=True)
+    # Stop must leave the loop. Another LLM or final stream is a wasted HTTP round.
+    state = create_base_state(round_num=4, max_rounds=5, is_stopped=True)
     event = create_event(EventKind.NEXT_TOOL)
     tr = next_state(state, event)
-    _new_state, effects = tr.state, tr.effects
-    
-    assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" for e in effects)
-    assert any(isinstance(e, SpawnLLMWorkerEffect) for e in effects)
+
+    assert tr.state.round_num == 4
+    assert tr.state.is_stopped is True
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" for e in tr.effects)
+    assert not any(isinstance(e, (SpawnLLMWorkerEffect, SpawnFinalStreamEffect, SpawnToolWorkerEffect)) for e in tr.effects)
 
 
 def test_next_tool_when_stopped_with_pending_does_not_spawn_tool():
@@ -523,10 +550,13 @@ def test_next_tool_when_stopped_with_pending_does_not_spawn_tool():
     test_stream_done_after_stop_may_append_and_trigger_next); that is allowed.
     """
     tool_calls = [{"id": "call_1", "function": {"name": "test_tool", "arguments": "{}"}}]
-    state = create_base_state(pending_tools=tool_calls, is_stopped=True)
+    state = create_base_state(round_num=4, max_rounds=5, pending_tools=tool_calls, is_stopped=True)
     tr = next_state(state, create_event(EventKind.NEXT_TOOL))
     assert not any(isinstance(e, SpawnToolWorkerEffect) for e in tr.effects)
+    assert not any(isinstance(e, (SpawnLLMWorkerEffect, SpawnFinalStreamEffect)) for e in tr.effects)
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
     assert tr.state.pending_tools == tool_calls
+    assert tr.state.round_num == 4
     assert tr.state.is_stopped is True
 
 

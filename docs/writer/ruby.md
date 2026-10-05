@@ -26,6 +26,8 @@ StarWriter HTML import concatenates ruby children (`前漢字かんじ後`, no R
 
 becomes body `前漢字後` with Ruby marks, and a later get emits `<ruby>/<rt>` again.
 
+When the same base occurs more than once, the reading is applied at that `<ruby>` element's visible-text offset. A search from the start of the imported string used to paint the first copy (`漢字` before `<ruby>漢字</ruby>`).
+
 Format-preserving (plain-text) replace of the base does not drop existing ruby: `setString` is skipped when characters match, so the Ruby portions stay.
 
 ## Unchanged / out of scope

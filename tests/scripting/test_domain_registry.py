@@ -183,6 +183,11 @@ def test_picker_order_starts_with_vision_math_units_analysis():
 
 
 def test_picker_supports_logs_when_the_check_raises(caplog):
+    # What was wrong: logger.debug calls are stripped in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("log.debug stripped in release bundle")
     import logging
 
     from plugin.scripting.domain_registry import _picker_supports_fn

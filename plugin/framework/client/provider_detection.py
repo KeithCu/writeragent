@@ -51,6 +51,7 @@ import ipaddress
 import urllib.parse
 from typing import Optional
 
+from plugin.framework.errors import ConfigError
 from plugin.framework.url_utils import get_url_hostname, normalize_endpoint_url
 
 
@@ -68,7 +69,19 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
 
     url = normalize_endpoint_url(endpoint).lower()
     host = get_url_hostname(url).lower()
-    port = urllib.parse.urlparse(url).port
+    # What was wrong: ``ParseResult.port`` raises ValueError for ``:1a34``
+    # and for ports outside 0–65535. Settings and catalog code call this
+    # on the configured endpoint, so the raw ValueError escaped.
+    # How: urllib validates the port only when ``.port`` is read.
+    # ``urlparse`` itself also raises ValueError for an unmatched bracket
+    # (``http://[::1``, ``http://[]/v1``) before ``.port``; this same
+    # expression maps that to ConfigError.
+    # Why: a bad port or bracket URL is a config error, the same contract
+    # as other invalid settings, not an uncaught ValueError.
+    try:
+        port = urllib.parse.urlparse(url).port
+    except ValueError as exc:
+        raise ConfigError("Invalid URL port", code="CONFIG_INVALID_URL", details={"endpoint": url.split("?", 1)[0]}) from exc
 
     def _host_is(*names: str) -> bool:
         # Hostname equality, not a substring of the whole URL. "ollama" inside
@@ -80,7 +93,9 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
         return "openrouter"
     if _host_is("together.xyz"):
         return "together"
-    if _host_is("ollama") or (host in ("localhost", "127.0.0.1") and port == 11434):
+    # LAN addresses (``::1``, RFC1918) on the Ollama port are the app.
+    # A public host on 11434 stays custom. Hostname equality, not a substring.
+    if _host_is("ollama") or (is_local_host(host) and port == 11434):
         return "ollama"
     if _host_is("api.mistral.ai"):
         return "mistral"
@@ -100,7 +115,7 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
         return "anthropic"
     if _host_is("generativelanguage.googleapis.com"):
         return "google"
-    if host in ("localhost", "127.0.0.1") and port == 1234:
+    if is_local_host(host) and port == 1234:
         return "lmstudio"
     if _host_is("z.ai"):
         return "zai"
@@ -166,4 +181,7 @@ def is_openwebui_endpoint(endpoint: str, explicit_is_openwebui: bool | None = Fa
     if not endpoint:
         return False
     host = get_url_hostname(normalize_endpoint_url(endpoint)).lower()
-    return "openwebui" in host or "open-webui" in host
+    # A label, not a substring. ``notopenwebui.example`` is not this product.
+    # ``chat.openwebui.example`` still is.
+    labels = [part for part in host.split(".") if part]
+    return "openwebui" in labels or "open-webui" in labels

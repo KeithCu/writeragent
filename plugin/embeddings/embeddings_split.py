@@ -35,21 +35,13 @@ def _deal_sentence_locale_ok_crosshair(locale: object) -> bool:
 
 
 def _deal_chunk_base_meta_ok_pytest(base_meta: object) -> bool:
-    """Wide domain: production ``doc_url`` file:// paths exceed DEAL_MAX_TOKEN."""
-    return (
-        type(base_meta) is dict
-        and len(base_meta) <= DEAL_MAX_SHAPE_DIM
-        and all(
-            type(k) is str
-            and str_bounded(k, DEAL_MAX_TOKEN)
-            and (
-                v is None
-                or type(v) in (int, float, bool)
-                or (isinstance(v, str) and str_bounded(v, DEAL_MAX_SOURCE))
-            )
-            for k, v in base_meta.items()
-        )
-    )
+    """Any plain dict. Paths and titles are not DEAL_MAX_SOURCE-capped.
+
+    A long ``doc_url`` or an extra metadata key raised PreContractError
+    before chunking. The body copies the mapping. CrossHair keeps the
+    tiny ascii dict.
+    """
+    return type(base_meta) is dict and all(type(k) is str for k in base_meta)
 
 
 def _deal_chunk_base_meta_ok_crosshair(base_meta: object) -> bool:
@@ -101,7 +93,10 @@ _deal_sentence_locale_ok = (
 # NUL/controls are isascii() but ICU SentenceBreaker TypeErrors on them
 # (check-all 33928341275: split_passage_to_sentences('\x00', locale=DEFAULT)).
 def _deal_passage_text_ok_pytest(text: object) -> bool:
-    return str_bounded(text, DEAL_MAX_SOURCE)
+    # Documents are longer than DEAL_MAX_SOURCE. The cap raised
+    # PreContractError before the sentence splitter ran. CrossHair keeps
+    # the one-character printable domain.
+    return isinstance(text, str)
 
 
 def _deal_passage_text_ok_crosshair(text: object) -> bool:
@@ -116,6 +111,41 @@ def _deal_passage_text_ok_crosshair(text: object) -> bool:
 _deal_passage_text_ok = (
     _deal_passage_text_ok_crosshair if UNDER_CROSSHAIR else _deal_passage_text_ok_pytest
 )
+
+
+def _deal_passage_str_ok_pytest(passage: object) -> bool:
+    return isinstance(passage, str)
+
+
+def _deal_passage_str_ok_crosshair(passage: object) -> bool:
+    return str_bounded(passage, _DEAL_PASSAGE_LEN)
+
+
+_deal_passage_str_ok = _deal_passage_str_ok_crosshair if UNDER_CROSSHAIR else _deal_passage_str_ok_pytest
+
+
+def _deal_ws_passage_ok_pytest(passage: object) -> bool:
+    # Unicode prose is valid. ascii_bounded raised PreContractError on the
+    # whitespace splitter. CrossHair keeps the short ASCII passage.
+    return isinstance(passage, str)
+
+
+def _deal_ws_passage_ok_crosshair(passage: object) -> bool:
+    return ascii_bounded(passage, _DEAL_PASSAGE_LEN)
+
+
+_deal_ws_passage_ok = _deal_ws_passage_ok_crosshair if UNDER_CROSSHAIR else _deal_ws_passage_ok_pytest
+
+
+def _deal_span_list_ok_pytest(spans: object) -> bool:
+    return isinstance(spans, list)
+
+
+def _deal_span_list_ok_crosshair(spans: object) -> bool:
+    return isinstance(spans, list) and len(spans) <= _DEAL_SENT_LIST_LEN
+
+
+_deal_span_list_ok = _deal_span_list_ok_crosshair if UNDER_CROSSHAIR else _deal_span_list_ok_pytest
 
 
 def _embeddings_pip_install_hint() -> str:
@@ -175,9 +205,8 @@ def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE)
 
 
 @deal.pre(
-    lambda passage, spans, base_meta, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN)
-    and isinstance(spans, list)
-    and len(spans) <= _DEAL_SENT_LIST_LEN
+    lambda passage, spans, base_meta, *_unused, **__: _deal_passage_str_ok(passage)
+    and _deal_span_list_ok(spans)
 )
 @deal.post(lambda result: isinstance(result, list))
 def _meta_chunks_from_spans(
@@ -196,21 +225,51 @@ def _meta_chunks_from_spans(
     return chunks
 
 
-@deal.pre(
-    lambda sentences: type(sentences) is list
-    and len(sentences) <= _DEAL_SENT_LIST_LEN
-    and all(
-        type(s) is tuple
-        and len(s) == 3
-        and type(s[0]) is int
-        and type(s[1]) is int
-        and 0 <= s[0] <= _DEAL_SENT_SPAN
-        and 0 <= s[1] <= _DEAL_SENT_SPAN
-        and type(s[2]) is str
-        and ascii_bounded(s[2], _DEAL_SENT_TEXT_LEN)
-        for s in sentences
+def _deal_sentences_spans_pre_pytest(sentences: object) -> bool:
+    # Nested from the merge pre. A long or non-ASCII sentence list must
+    # make ``_sentences_spans_ok`` return False, not raise PreContractError.
+    return True
+
+
+def _deal_sentences_spans_pre_crosshair(sentences: object) -> bool:
+    return (
+        type(sentences) is list
+        and len(sentences) <= _DEAL_SENT_LIST_LEN
+        and all(
+            type(s) is tuple
+            and len(s) == 3
+            and type(s[0]) is int
+            and type(s[1]) is int
+            and 0 <= s[0] <= _DEAL_SENT_SPAN
+            and 0 <= s[1] <= _DEAL_SENT_SPAN
+            and type(s[2]) is str
+            and ascii_bounded(s[2], _DEAL_SENT_TEXT_LEN)
+            for s in sentences
+        )
     )
+
+
+_deal_sentences_spans_pre = (
+    _deal_sentences_spans_pre_crosshair if UNDER_CROSSHAIR else _deal_sentences_spans_pre_pytest
 )
+
+
+def _sentences_spans_shape_ok_pytest(sentences: object) -> bool:
+    # A real passage has more than DEAL_MAX_SHAPE_DIM sentences. The cap
+    # raised PreContractError inside the merge. Order checks stay.
+    return isinstance(sentences, list)
+
+
+def _sentences_spans_shape_ok_crosshair(sentences: object) -> bool:
+    return isinstance(sentences, list) and len(sentences) <= _DEAL_SENT_LIST_LEN
+
+
+_sentences_spans_shape_ok = (
+    _sentences_spans_shape_ok_crosshair if UNDER_CROSSHAIR else _sentences_spans_shape_ok_pytest
+)
+
+
+@deal.pre(lambda sentences: _deal_sentences_spans_pre(sentences))
 def _sentences_spans_ok(sentences: object) -> bool:
     """True when *sentences* is ordered ``(start, end, text)`` with ``0 <= start <= end``.
 
@@ -218,7 +277,7 @@ def _sentences_spans_ok(sentences: object) -> bool:
     """
     # crosshair: off
     # deal.pre predicate; covering it is circular (cover-all 33258921875: 267k lines). Doable later.
-    if not isinstance(sentences, list) or len(sentences) > DEAL_MAX_SHAPE_DIM:
+    if not isinstance(sentences, list) or not _sentences_spans_shape_ok(sentences):
         return False
     prev_end: int | None = None
     for item in sentences:
@@ -250,7 +309,7 @@ def _filter_ordered_sentence_spans(
 
 
 @deal.pre(
-    lambda passage, sentences, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN)
+    lambda passage, sentences, *_unused, **__: _deal_passage_str_ok(passage)
     and _sentences_spans_ok(sentences)
 )
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(s, tuple) and len(s) == 2 and 0 <= s[0] <= s[1] for s in result))
@@ -311,7 +370,7 @@ def _merge_small_sentences_to_spans(
     return spans
 
 
-@deal.pre(lambda passage: ascii_bounded(passage, _DEAL_PASSAGE_LEN))
+@deal.pre(lambda passage: _deal_ws_passage_ok(passage))
 def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int, str]]:
     # Regex splitter is engine-hostile under CrossHair (cover-all 33180040863 ~24m).
     # crosshair: off
@@ -325,7 +384,7 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
 
 
 @deal.pre(
-    lambda passage, locale_bcp47=None, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN)
+    lambda passage, locale_bcp47=None, *_unused, **__: _deal_passage_str_ok(passage)
     and (locale_bcp47 is None or ascii_bounded(locale_bcp47, DEAL_MAX_TOKEN))
 )
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
@@ -352,7 +411,7 @@ def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None)
     return _merge_small_sentences_to_spans(passage, sentences)
 
 
-@deal.pre(lambda passage, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN))
+@deal.pre(lambda passage, *_unused, **__: _deal_passage_str_ok(passage))
 def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
     if len(passage) <= CHUNK_SIZE:
         return [(0, len(passage))]
@@ -377,8 +436,7 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 
 @deal.pre(
     lambda text, runs, base_meta, *args, **kwargs: _deal_passage_text_ok(text)
-    and isinstance(runs, list)
-    and len(runs) <= _DEAL_SENT_LIST_LEN
+    and _deal_span_list_ok(runs)
     and _deal_chunk_base_meta_ok(base_meta)
     and all(_deal_locale_run_ok(r) for r in runs)
     and _deal_run_locale_ok(kwargs.get("doc_default_locale"))

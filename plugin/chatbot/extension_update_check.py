@@ -243,5 +243,8 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
         log.warning("extension update check failed (%s): %s", profile.display_name, e, exc_info=True)
     finally:
         if attempted:
-            set_config(profile.config_key_epoch, time.time())
-            log.info("extension update check: recorded %s in config (attempt finished)", profile.config_key_epoch)
+            try:
+                set_config(profile.config_key_epoch, time.time())
+                log.info("extension update check: recorded %s in config (attempt finished)", profile.config_key_epoch)
+            except Exception as e:
+                log.warning("extension update check: failed to record %s in config: %s", profile.config_key_epoch, e)

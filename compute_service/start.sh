@@ -26,5 +26,9 @@ else
     echo "Virtual environment not found at $VENV_PATH."
     echo "Please configure writeragent/.venv or set VENV_PATH environment variable."
     echo "Falling back to system python..."
-    exec python "$SCRIPT_DIR/server.py" "$@"
+    SYS_PYTHON="$(command -v python3 || command -v python || true)"
+    if [ -n "$SYS_PYTHON" ]; then
+        exec "$SYS_PYTHON" "$SCRIPT_DIR/server.py" "$@"
+    fi
+    exec python3 "$SCRIPT_DIR/server.py" "$@"
 fi

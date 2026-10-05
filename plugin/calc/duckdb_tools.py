@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.calc.address_utils import split_sheet_prefix
-from plugin.calc.base import ToolCalcAnalysisBase
+from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import FLAT_FILE_EXTS, unsupported_flat_type_message
@@ -29,7 +29,25 @@ log = logging.getLogger("writeragent.calc.duckdb")
 OFFICE_EXTS = (".xlsx", ".xls", ".ods")
 
 
-class QueryFolderSqlTool(ToolCalcAnalysisBase):
+def _reraise_if_disposed(exc: BaseException) -> None:
+    """Leave disposal alone so ``execute_safe`` can report DOCUMENT_DISPOSED.
+
+    What was wrong: a disposed document during a DuckDB grid read came back
+    as a generic tool error (``TOOL_EXECUTION_ERROR`` or ``DUCKDB_SQL_ERROR``).
+    How: the table-read loop, ``execute``, and the sibling-file reader caught
+    ``Exception`` and rewrote it, including ``DisposedException``. Named-range
+    and open-workbook probes did the same by swallowing the exception and
+    continuing, so the caller saw a missing name or a failed open instead.
+    Why: re-raise disposal. ``execute_safe`` maps ``DisposedException`` and
+    ``DocumentDisposedError`` to ``DOCUMENT_DISPOSED`` and stops the turn.
+    A live-document ``RuntimeException`` still fails as a normal tool error
+    because this does not wrap it as ``DocumentDisposedError``.
+    """
+    if is_disposed_exception(exc):
+        raise
+
+
+class QueryFolderSqlTool(ToolCalcPythonSqlBase):
     """Run read-only SQL (DuckDB) over folder files and/or live Calc table sources.
 
     ``tables`` catalog entries store a *stable identity* (sheet name, named /
@@ -40,6 +58,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
     """
 
     name: str | None = "query_folder_sql"
+    is_mutation: bool | None = False
     description: str = (
         "Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). "
         'Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) '
@@ -113,9 +132,11 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
 
         task_hint = str(kwargs.get("task_hint") or "") or None
 
+        from plugin.framework.thread_guard import on_main_thread
         from plugin.scripting.client import run_folder_sql
 
-        def _run() -> dict[str, Any]:
+        def _load_sql_inputs() -> dict[str, Any]:
+            # UNO and folder preload only. run_folder_sql stays on the caller.
             # Prefer listing dir (handles untitled -> Work) then fall back
             scoped = resolve_listing_directory(ctx.ctx, ctx.doc) or get_document_directory(ctx.doc)
 
@@ -134,6 +155,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                 except ToolExecutionError as exc:
                     return self._tool_error(f"Failed to read table '{tbl_name}': {exc}", code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
                 except Exception as e:
+                    _reraise_if_disposed(e)
                     return self._tool_error(f"Failed to read table '{tbl_name}': {e}")
 
             # Separate direct DuckDB-readable files from office files that need LO import.
@@ -189,14 +211,37 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                     if size_err:
                         return self._tool_error(f"Preloaded table {name} too large for DuckDB SQL: {size_err}")
 
-            # Pass flat_files for named direct flat files (Phase C), preloaded for grids (ranges + office)
-            return run_folder_sql(ctx.ctx, scoped, sql, None, preloaded=preloaded or None, flat_files=flat_files or None)
+            return {"scoped": scoped, "preloaded": preloaded or None, "flat_files": flat_files or None}
 
+        # What was wrong: this async tool pushed the SQL and the venv IPC onto
+        # the UI thread via execute_on_main_thread and froze Calc.
+        # How: one nested function both read the sheets and called run_folder_sql.
+        # Why: hop only the UNO preload when the caller is a worker; the IPC
+        # stays on this thread. Already-on-main callers (tests, sync entry)
+        # run the preload inline so they do not deadlock the UI thread.
         try:
-            result = execute_on_main_thread(_run)
+            if on_main_thread():
+                prepared = _load_sql_inputs()
+            else:
+                # execute_on_main_thread is typed Any; _load_sql_inputs returns this dict.
+                prepared = cast("dict[str, Any]", execute_on_main_thread(_load_sql_inputs))
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
         except Exception as exc:
+            _reraise_if_disposed(exc)
+            log.exception("query_folder_sql execute failed")
+            return self._tool_error(f"Failed to run folder SQL: {exc}")
+
+        if prepared.get("status") == "error":
+            return prepared
+
+        try:
+            # Pass flat_files for named direct flat files (Phase C), preloaded for grids (ranges + office)
+            result = run_folder_sql(ctx.ctx, prepared.get("scoped"), sql, None, preloaded=prepared.get("preloaded"), flat_files=prepared.get("flat_files"))
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
+        except Exception as exc:
+            _reraise_if_disposed(exc)
             log.exception("query_folder_sql execute failed")
             return self._tool_error(f"Failed to run folder SQL: {exc}")
 
@@ -289,7 +334,8 @@ def _container_element_names(container: Any) -> list[str]:
         return []
     try:
         return [str(n) for n in container.getElementNames()]
-    except Exception:
+    except Exception as exc:
+        _reraise_if_disposed(exc)
         return []
 
 
@@ -333,8 +379,8 @@ def _lookup_named_range_object(doc: Any, name: str) -> Any | None:
                     return local.getByName(name)
                 if local.hasByName(bare):
                     return local.getByName(bare)
-    except Exception:
-        pass
+    except Exception as exc:
+        _reraise_if_disposed(exc)
     return None
 
 
@@ -370,14 +416,16 @@ def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
     if hasattr(obj, "getReferredCells"):
         try:
             cells = obj.getReferredCells()
-        except Exception:
+        except Exception as exc:
+            _reraise_if_disposed(exc)
             cells = None
         if cells is not None and hasattr(cells, "getRangeAddress"):
             addr = cells.getRangeAddress()
     if addr is None and hasattr(obj, "getDataArea"):
         try:
             addr = obj.getDataArea()
-        except Exception:
+        except Exception as exc:
+            _reraise_if_disposed(exc)
             addr = None
     if addr is None:
         raise ToolExecutionError(f"{label} does not refer to a cell range", code="DUCKDB_SQL_ERROR")
@@ -459,9 +507,19 @@ def _sheet_qualified_a1(sheet_name: str, range_str: str) -> str:
 
     Hidden sibling opens often lack a usable controller; a sheet prefix is the
     same resolve path live-range tools already use (``CalcBridge.resolve``).
+
+    What was wrong: a sheet name containing an apostrophe was wrapped in
+    single quotes without doubling that apostrophe, so ``O'Brien`` became
+    ``'O'Brien'.C5:D6``. ``split_sheet_prefix`` ended the quoted name at the
+    first ``'``, the match failed, and the sheet was lost.
+    How: ``'`` was only a "needs quotes" character, not an escaped character.
+    Why: Calc and Excel escape an apostrophe by doubling it
+    (``'O''Brien'.C5:D6``). ``split_sheet_prefix`` unescapes that back to
+    ``O'Brien`` before the sheet lookup.
     """
     if any(ch in sheet_name for ch in " .!'"):
-        return f"'{sheet_name}'.{range_str}"
+        escaped = sheet_name.replace("'", "''")
+        return f"'{escaped}'.{range_str}"
     return f"{sheet_name}.{range_str}"
 
 
@@ -486,7 +544,8 @@ def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
         url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
         existing, _typ = resolve_document_by_url(ctx, url)
         return existing is not None
-    except Exception:
+    except Exception as exc:
+        _reraise_if_disposed(exc)
         return False
 
 
@@ -542,19 +601,23 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
     ``_source_is_open_workbook`` here — after a hidden open the source
     *is* loaded, which would skip every miss write.
     """
-    from plugin.calc.ods_cache import cache_entry_paths, is_cacheable_office_source, ods_cache_enabled, write_sidecar_meta
+    from plugin.calc.ods_cache import cache_key, is_cacheable_office_source, ods_cache_enabled, ods_cache_dir, write_sidecar_meta, source_stat
 
     if cache_hit or not opened_flag:
         return
     if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
         return
-    paths = cache_entry_paths(full_path)
-    if paths is None:
+    try:
+        abs_path, mtime_ns, size = source_stat(full_path)
+    except OSError:
         return
-    ods_path, meta_path = paths
+    key = cache_key(abs_path, mtime_ns, size)
+    folder = ods_cache_dir(full_path, create=False)
+    ods_path = folder / f"{key}.ods"
+    meta_path = folder / f"{key}.meta.json"
     try:
         _export_model_to_cached_ods(model, ods_path)
-        write_sidecar_meta(meta_path, full_path)
+        write_sidecar_meta(meta_path, abs_path, mtime_ns, size)
     except Exception:
         log.exception("Failed to write ODS cache for %s", full_path)
 
@@ -619,6 +682,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
     except ToolExecutionError:
         raise
     except Exception as exc:
+        _reraise_if_disposed(exc)
         log.exception("Failed to read sibling office file %s for DuckDB", full_path)
         raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:

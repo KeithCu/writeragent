@@ -92,18 +92,29 @@ def _visible_html_text(fragment: str) -> str:
     return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
 
 
-def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str, bool]]]:
+def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str, bool, int]]]:
     """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
 
-    Each span is ``(base, reading, is_above)`` in document order. StarWriter
-    concatenates ruby children, so the import must see base only; ``RubyText``
-    is painted afterwards via ``_apply_ruby_spans``.
+    Each span is ``(base, reading, is_above, visible_offset)`` in document order.
+    ``visible_offset`` is the base's index in the tag-stripped, entity-decoded
+    text of *html* (readings omitted). StarWriter concatenates ruby children,
+    so the import must see base only; ``RubyText`` is painted afterwards via
+    ``_apply_ruby_spans``, which starts at this offset instead of the first
+    copy of the base.
     """
     if not html or not isinstance(html, str) or "<ruby" not in html.lower():
         return html, []
-    spans = []
-
-    def _repl(match: re.Match[str]) -> str:
+    spans: list[tuple[str, str, bool, int]] = []
+    out: list[str] = []
+    visible_len = 0
+    pos = 0
+    for match in _RUBY_BLOCK_RE.finditer(html):
+        before = html[pos:match.start()]
+        out.append(before)
+        # Offset in the text StarWriter will keep, not in the HTML source.
+        # An earlier identical base (plain 漢字 before <ruby>漢字</ruby>) must
+        # not receive this reading.
+        visible_len += len(_visible_html_text(before))
         attrs = match.group(1) or ""
         inner = match.group(2) or ""
         rt_m = _RT_RE.search(inner)
@@ -113,10 +124,12 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str, bool]]]
         base = _visible_html_text(base_html)
         is_above = "under" not in attrs.lower()
         if base and reading:
-            spans.append((base, reading, is_above))
-        return base_html
-
-    return _RUBY_BLOCK_RE.sub(_repl, html), spans
+            spans.append((base, reading, is_above, visible_len))
+        out.append(base_html)
+        visible_len += len(base)
+        pos = match.end()
+    out.append(html[pos:])
+    return "".join(out), spans
 
 
 def _go_right(cursor: Any, n: int, expand: bool) -> bool:
@@ -174,12 +187,23 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     except Exception:
         log.debug("_apply_ruby_spans: could not read imported text", exc_info=True)
         return
-    pos = skip_chars if skip_chars > 0 else 0
+    # skip_chars is the imported suffix. Offsets from extract_and_strip_ruby
+    # are relative to that suffix, not to earlier document text.
+    anchor = skip_chars if skip_chars > 0 else 0
+    pos = anchor
     for item in spans:
         base, reading, is_above = item[0], item[1], item[2] if len(item) > 2 else True
         if not base or not reading:
             continue
-        idx = haystack.find(base, pos)
+        # What was wrong: haystack.find(base, pos) bound RubyText to the first
+        # copy of the base. 漢字 before <ruby>漢字<rt>…</rt></ruby> took the
+        # reading. How it happened: extract kept only the base string, so the
+        # later search had no position. Why this fixes it: the span's fourth
+        # item is that base's visible-text offset, and the search starts there.
+        start = pos
+        if len(item) > 3 and isinstance(item[3], int) and item[3] >= 0:
+            start = max(pos, anchor + item[3])
+        idx = haystack.find(base, start)
         if idx < 0:
             log.debug("_apply_ruby_spans: base %r not found in imported text", base)
             continue
@@ -415,18 +439,22 @@ def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
 def _ensure_html_linebreaks(content: str) -> str:
     """Convert newlines to ``<br>``/``<p>`` when content is plain text
     and the active format is HTML, so LO's filter preserves them.
+
+    Do not ``html.unescape`` here. Insert and replace already unescape once,
+    and the StarWriter filter unescapes entities itself. A second unescape
+    turned ``&amp;lt;p&amp;gt;`` / ``&amp;lt;b&amp;gt;`` inside real markup
+    into live tags.
     """
     if not isinstance(content, str) or not content:
         return content
     content = _normalize(content)
-    unescaped = html_mod.unescape(content)
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
-    if re.search(r"<!DOCTYPE\s+html|<html[\s>]", unescaped, re.IGNORECASE):
-        unescaped = format_mod._strip_html_boilerplate(unescaped)
+    if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
+        content = format_mod._strip_html_boilerplate(content)
     html_tags = ["<p>", "<br>", "<h1", "<h2", "<h3", "</ul>", "</li>", "</div>"]
-    has_html = any(tag in unescaped.lower() for tag in html_tags)
+    has_html = any(tag in content.lower() for tag in html_tags)
     if has_html:
-        return _wrap_html_fragment(unescaped)
+        return _wrap_html_fragment(content)
 
     content = re.sub(r"\n{3,}", "\n\n", content)
     paras = content.split("\n\n")
@@ -1101,6 +1129,24 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     return restored
 
 
+def _restore_xtext_string(text_obj: Any, original: str) -> None:
+    """Write *original* back into *text_obj* after a failed import.
+
+    What was wrong: ``replace_xtext_with_html`` cleared the header or footer
+    before StarWriter import. A failed ``insertDocumentFromURL`` left the
+    region empty. Why this fixes it: the previous characters are put back.
+    Direct formatting and live fields are not reconstructed; the region is
+    not left blank.
+    """
+    try:
+        cur = text_obj.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString(original)
+    except Exception:
+        log.exception("replace_xtext_with_html: could not restore text after a failed import")
+
+
 def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
@@ -1109,6 +1155,9 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
     (needed to create fields and to find placeholders). Do not pass it
     through to ``insert_html_fragment_at_cursor`` — that helper would
     then jump the cursor to the *body* end.
+
+    The clear happens only for the import attempt. If that import raises,
+    the previous text is written back (see ``_restore_xtext_string``).
     """
     if text_obj is None:
         raise ToolExecutionError("No text object to import into.")
@@ -1120,11 +1169,22 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
-    cursor.setString("")
-    cursor.gotoStart(False)
-    insert_html_fragment_at_cursor(
-        cursor, prepared, wrap=False, config_svc=config_svc, model=None,
-    )
+    try:
+        original = cursor.getString()
+    except Exception:
+        original = None
+    cleared = False
+    try:
+        cursor.setString("")
+        cleared = True
+        cursor.gotoStart(False)
+        insert_html_fragment_at_cursor(
+            cursor, prepared, wrap=False, config_svc=config_svc, model=None,
+        )
+    except Exception:
+        if cleared and original is not None:
+            _restore_xtext_string(text_obj, original)
+        raise
     _apply_ruby_spans(text_obj, ruby_spans)
     if model is not None:
         _restore_field_placeholders(model, text_obj)

@@ -533,6 +533,7 @@ def llama_index_ingest(
     delete_keys: list[dict[str, Any]] | None = None,
     build_fts: bool = False,
     build_vectors: bool = True,
+    heartbeat_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Index paragraphs/chunks using LlamaIndex VectorStoreIndex."""
     if not HAS_LLAMA_INDEX:
@@ -625,7 +626,12 @@ def llama_index_ingest(
     )
 
     index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
-    index.insert_nodes(nodes)
+
+    for i in range(0, len(nodes), EMBEDDINGS_INGEST_BATCH_SIZE):
+        chunk = nodes[i : i + EMBEDDINGS_INGEST_BATCH_SIZE]
+        index.insert_nodes(chunk)
+        if heartbeat_fn:
+            heartbeat_fn({"phase": "embed", "progress": min(i + EMBEDDINGS_INGEST_BATCH_SIZE, len(nodes)), "total": len(nodes)})
 
     conn = connect_corpus_db(db_path)
     try:

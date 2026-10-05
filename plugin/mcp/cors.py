@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_ORIGIN, ascii_bounded, deal, inverse_ensure
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_ORIGIN, UNDER_CROSSHAIR, ascii_bounded, deal, inverse_ensure
 
 MCP_CORS_ORIGINS_KEY = "mcp.cors_allowed_origins"
 
@@ -53,18 +53,63 @@ _HEADER_LIST_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV
 PREFLIGHT_MAX_AGE = "86400"
 
 
-def _deal_origin_ok(origin: object) -> bool:
+def _deal_origin_ok_pytest(origin: object) -> bool:
+    # Browser Origin headers are not limited to DEAL_MAX_ORIGIN or the
+    # URL-safe alphabet. A junk or huge Origin used to raise
+    # PreContractError out of send_cors_headers (HTTP 500). The body
+    # returns False / None. CrossHair keeps the closed alphabet.
+    return isinstance(origin, str)
+
+
+def _deal_origin_ok_crosshair(origin: object) -> bool:
     """Closed Origin domain: URL-safe alphabet, DEAL_MAX_ORIGIN length."""
     return isinstance(origin, str) and len(origin) <= DEAL_MAX_ORIGIN and all(c in _ORIGIN_CHARS for c in origin)
 
 
-def _deal_allow_headers_ok(value: object) -> bool:
+_deal_origin_ok = _deal_origin_ok_crosshair if UNDER_CROSSHAIR else _deal_origin_ok_pytest
+
+
+def _deal_allow_headers_ok_pytest(value: object) -> bool:
+    # Access-Control-Request-Headers from a browser can be long and can
+    # contain characters outside the token alphabet. The body unions them.
+    return isinstance(value, str)
+
+
+def _deal_allow_headers_ok_crosshair(value: object) -> bool:
     """Preflight header-list domain: ascii tokens, few commas (not 32-char junk)."""
     if not isinstance(value, str) or not ascii_bounded(value, DEAL_MAX_ORIGIN):
         return False
     if value.count(",") > DEAL_MAX_CMD_ARGS:
         return False
     return all(c in _HEADER_LIST_CHARS for c in value)
+
+
+_deal_allow_headers_ok = (
+    _deal_allow_headers_ok_crosshair if UNDER_CROSSHAIR else _deal_allow_headers_ok_pytest
+)
+
+
+def _deal_origins_config_ok_pytest(value: object) -> bool:
+    # User config may list more than DEAL_MAX_CMD_ARGS origins. The body
+    # drops entries it cannot normalize.
+    return value is None or isinstance(value, (str, list))
+
+
+def _deal_origins_config_ok_crosshair(value: object) -> bool:
+    return (
+        value is None
+        or (isinstance(value, str) and _deal_origin_ok(value))
+        or (
+            isinstance(value, list)
+            and len(value) <= DEAL_MAX_CMD_ARGS
+            and all(_deal_origin_ok(item) for item in value)
+        )
+    )
+
+
+_deal_origins_config_ok = (
+    _deal_origins_config_ok_crosshair if UNDER_CROSSHAIR else _deal_origins_config_ok_pytest
+)
 
 
 @deal.pre(lambda value: value is None or _deal_origin_ok(value))
@@ -89,7 +134,7 @@ def normalize_cors_origin(value: str | None) -> str | None:
 # Deep check-all run 32840960268 hung here at the 360-minute job wall (Prev 9:51
 # on the unique-length post, then the runner was still on this FQN at cancel).
 # Nested unique-length ensure is skipped under CrossHair; cheap list/str posts stay.
-@deal.pre(lambda value: value is None or (isinstance(value, str) and _deal_origin_ok(value)) or (isinstance(value, list) and len(value) <= DEAL_MAX_CMD_ARGS and all(_deal_origin_ok(item) for item in value)))
+@deal.pre(lambda value: _deal_origins_config_ok(value))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @inverse_ensure(lambda value, result: len(result) == len(set(result)))
 def normalize_origins_list(value: Any) -> list[str]:
@@ -141,7 +186,7 @@ def is_private_browser_origin(origin: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
-@deal.pre(lambda origins: origins is None or (isinstance(origins, str) and _deal_origin_ok(origins)) or (isinstance(origins, list) and len(origins) <= DEAL_MAX_CMD_ARGS and all(_deal_origin_ok(x) for x in origins)))
+@deal.pre(lambda origins: _deal_origins_config_ok(origins))
 def set_extra_allowed_origins(origins: Any) -> None:
     # crosshair: off  # frozenset(normalize_origins_list) leftover (cover-all 33569420452: ~4419s est / 6120 ex). Doable later.
     """Update explicit-origin cache used by is_safe_origin (HTTP threads, no ctx)."""

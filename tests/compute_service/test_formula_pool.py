@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import socket
 import threading
 import time
 import urllib.error
@@ -22,18 +21,15 @@ from compute_service.formula_pool import (
     shutdown_formula_pool,
 )
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-
-
-def get_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from tests.compute_service.conftest import get_free_port
 
 
 @pytest.fixture(autouse=True)
 def cleanup_formula_pool():
     yield
     shutdown_formula_pool()
+    os.environ.pop("WRITERAGENT_IS_WORKER", None)
+    os.environ.pop("WRITERAGENT_COMPUTE_WORKER", None)
 
 
 class TestFormulaPoolSupervisor:
@@ -150,6 +146,46 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_idle_death_drops_other_shared_sessions(self) -> None:
+        """A dead idle process must not keep its session map after respawn."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600)
+        try:
+            sid_a = "sess-a"
+            sid_b = "sess-b"
+            res_a = pool.execute(code="marker = 'a'\nresult = marker", session_id=sid_a, mode="shared")
+            res_b = pool.execute(code="marker = 'b'\nresult = marker", session_id=sid_b, mode="shared")
+            assert res_a.get("status") == "ok", res_a
+            assert res_b.get("status") == "ok", res_b
+            worker = pool._active_sessions[sid_a]
+            assert pool._active_sessions[sid_b] is worker
+            worker.kill()
+            assert not worker.is_alive()
+            again = pool.execute(code="result = marker", session_id=sid_a, mode="shared")
+            assert again.get("status") == "error"
+            assert sid_b not in pool._active_sessions
+            assert pool._active_sessions.get(sid_a) is worker
+            assert worker.is_alive()
+        finally:
+            pool.shutdown()
+
+    def test_formula_worker_blocks_document_tools(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            res = pool.execute(
+                code=(
+                    "from plugin.scripting.writeragent_api import _rpc_call\n"
+                    "try:\n"
+                    "    _rpc_call('list_open_documents')\n"
+                    "    result = 'called'\n"
+                    "except Exception as exc:\n"
+                    "    result = str(exc)\n"
+                )
+            )
+            assert res.get("status") == "ok", res
+            assert "compute service" in str(res.get("result"))
+        finally:
+            pool.shutdown()
+
     def test_stderr_flood_does_not_deadlock(self, tmp_path) -> None:
         """Child OS-stderr flood must not deadlock the parent pickle reader."""
         from compute_service.worker_base import BaseProcessWorker
@@ -239,8 +275,172 @@ class TestFormulaPoolSupervisor:
         finally:
             worker.kill()
 
+    def test_spawn_eof_before_ready_is_killed(self, tmp_path, caplog) -> None:
+        """A child that exits before any frame must not be marked ready."""
+        from compute_service.worker_base import BaseProcessWorker
+
+        script = tmp_path / "exit_worker.py"
+        script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+        t0 = time.monotonic()
+        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+            worker = BaseProcessWorker(1, str(script), worker_name="Exit worker")
+        try:
+            joined = "\n".join(r.getMessage() for r in caplog.records)
+            assert time.monotonic() - t0 < 3.0
+            assert "was not ready" in joined
+            assert "status=None" in joined
+            assert not worker.is_alive()
+        finally:
+            worker.kill()
+
+    def test_spawn_non_ready_status_is_killed(self, tmp_path, caplog) -> None:
+        """A live child whose first dict is not status=ready must be killed."""
+        from compute_service.worker_base import BaseProcessWorker
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "booting_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys, time",
+                    f"sys.path.insert(0, {root!r})",
+                    "from plugin.scripting.ipc import write_pickle_frame",
+                    "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})",
+                    "sys.stdout.buffer.flush()",
+                    "time.sleep(30)",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        t0 = time.monotonic()
+        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+            worker = BaseProcessWorker(1, str(script), worker_name="Booting worker")
+        try:
+            joined = "\n".join(r.getMessage() for r in caplog.records)
+            assert time.monotonic() - t0 < 3.0
+            assert "was not ready" in joined
+            assert "booting" in joined
+            assert not worker.is_alive()
+        finally:
+            worker.kill()
+
+    def test_spawn_reaps_exited_child(self, tmp_path) -> None:
+        """Replacing a dead Popen must wait() it so the pid is not a zombie."""
+        import signal
+
+        from compute_service.worker_base import BaseProcessWorker
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "reap_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys",
+                    f"sys.path.insert(0, {root!r})",
+                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "def handle(req):",
+                    "    return {'status': 'ok'}",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(run_worker_stdio_loop(handle))",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        worker = BaseProcessWorker(1, str(script), worker_name="Reap worker")
+        previous = worker.process
+        assert previous is not None
+        os.kill(previous.pid, signal.SIGKILL)
+        try:
+            worker.respawn()
+            assert previous.returncode is not None
+            assert worker.is_alive()
+            assert worker.process is not previous
+        finally:
+            worker.kill()
+
+    def test_spawn_scrubs_parent_env(self, tmp_path, monkeypatch) -> None:
+        from compute_service.worker_base import BaseProcessWorker
+
+        monkeypatch.setenv("PYTHONPATH", "/should-not-leak")
+        monkeypatch.setenv("PYTHON_COMPUTE_TEST_SECRET", "hidden")
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "env_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import os, sys",
+                    f"sys.path.insert(0, {root!r})",
+                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "def handle(req):",
+                    "    return {'status': 'ok', 'pythonpath': os.environ.get('PYTHONPATH'), 'secret': os.environ.get('PYTHON_COMPUTE_TEST_SECRET')}",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(run_worker_stdio_loop(handle))",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        worker = BaseProcessWorker(1, str(script), worker_name="Env worker")
+        try:
+            res = worker.execute({}, timeout_sec=10)
+            assert res.get("status") == "ok"
+            assert res.get("pythonpath") is None
+            assert res.get("secret") is None
+        finally:
+            worker.kill()
+
+    def test_slow_spawn_is_not_immediately_idle(self, tmp_path) -> None:
+        """last_active is taken after the handshake, not before the spawn loop."""
+        from compute_service.worker_base import BaseProcessPool
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        script = tmp_path / "slow_ready.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys, time",
+                    f"sys.path.insert(0, {root!r})",
+                    "time.sleep(0.35)",
+                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "def handle(req):",
+                    "    return {'status': 'ok'}",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(run_worker_stdio_loop(handle))",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        pool = BaseProcessPool(str(script), num_workers=1, idle_worker_ttl_sec=0.2, worker_name="Slow worker")
+        try:
+            worker = pool.workers[0]
+            pool._evict_idle_workers()
+            assert worker.is_alive()
+        finally:
+            pool.shutdown()
+
+    def test_formula_worker_import_skips_sandbox(self) -> None:
+        import subprocess
+        import sys
+
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        code = "\n".join(
+            [
+                "import sys",
+                "import compute_service.formula_worker",
+                "assert 'compute_service.executor' not in sys.modules",
+                "assert 'plugin.scripting.venv.venv_sandbox' not in sys.modules",
+            ]
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = root + os.pathsep + env.get("PYTHONPATH", "")
+        proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=False)
+        assert proc.returncode == 0, proc.stderr
+
     def test_shared_and_isolated_exclusive_occupancy(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        """Isolated work does not run on the process that owns a shared session."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
             sid = "occupancy-session"
             first = pool.execute(
@@ -250,22 +450,22 @@ class TestFormulaPoolSupervisor:
                 req_id="occ-1",
             )
             assert first.get("status") == "ok"
+            owner = pool.live_session_worker(sid)
+            assert owner is not None and owner.process is not None
+            shared_pid = owner.process.pid
 
-            isolated_holder: list[dict] = []
-
-            def _isolated() -> None:
-                isolated_holder.append(
-                    pool.execute(
-                        code="import time\ntime.sleep(0.2)\nresult = 99",
-                        mode="isolated",
-                        timeout_sec=10,
-                        req_id="occ-iso",
-                    )
-                )
-
-            thread = threading.Thread(target=_isolated)
-            thread.start()
-            time.sleep(0.05)
+            before = owner.tasks_executed
+            isolated = pool.execute(
+                code="result = 99",
+                mode="isolated",
+                timeout_sec=10,
+                req_id="occ-iso",
+            )
+            assert isolated.get("status") == "ok"
+            assert isolated.get("result") == 99
+            # The isolated cell did not run on the process that owns the session.
+            assert owner.tasks_executed == before
+            assert owner.process is not None and owner.process.pid == shared_pid
             shared = pool.execute(
                 code="result = x",
                 session_id=sid,
@@ -273,9 +473,6 @@ class TestFormulaPoolSupervisor:
                 timeout_sec=10,
                 req_id="occ-2",
             )
-            thread.join(timeout=10)
-            assert isolated_holder and isolated_holder[0].get("status") == "ok"
-            assert isolated_holder[0].get("result") == 99
             assert shared.get("status") == "ok"
             assert shared.get("result") == 5
         finally:
@@ -315,7 +512,7 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_shared_hang_does_not_wedge_pool(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=1)
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=1)
         try:
             hung = pool.execute(
                 code="import time\ntime.sleep(5)\nresult = 1",
@@ -328,6 +525,31 @@ class TestFormulaPoolSupervisor:
             iso = pool.execute(code="result = 3", mode="isolated", timeout_sec=10, req_id="sh-iso")
             assert iso.get("status") == "ok"
             assert iso.get("result") == 3
+        finally:
+            pool.shutdown()
+
+    def test_shared_timeout_keeps_other_session(self) -> None:
+        """A cell timeout must not SIGKILL the worker and drop other workbooks on it."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", mode="shared", req_id="keep-1")
+            assert kept.get("status") == "ok"
+            assert kept.get("result") == 7
+            worker = pool.workers[0]
+            pid = worker.process.pid if worker.process is not None else None
+            hung = pool.execute(
+                code="import time\ntime.sleep(30)\nresult = 1",
+                session_id="doc-hang",
+                mode="shared",
+                timeout_sec=1,
+                req_id="hang-1",
+            )
+            assert hung.get("status") == "error"
+            assert hung.get("code") != "EXECUTION_TIMEOUT"
+            assert worker.process is not None and worker.process.pid == pid
+            again = pool.execute(code="result = keep", session_id="doc-keep", mode="shared", req_id="keep-2")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 7
         finally:
             pool.shutdown()
 
@@ -505,9 +727,199 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_idle_reaper_skips_shared_session(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=3600.0, shared_kernel_ttl_sec=3600.0)
+        try:
+            res = pool.execute(code="keep = 4\nresult = keep", session_id="idle-shared", mode="shared", req_id="idle-s1")
+            assert res.get("status") == "ok"
+            worker = pool.workers[0]
+            with pool._cond:
+                pool._worker_last_active[worker] = time.monotonic() - 4000.0
+            pool._evict_idle_workers()
+            assert worker.is_alive()
+            again = pool.execute(code="result = keep", session_id="idle-shared", mode="shared", req_id="idle-s2")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 4
+        finally:
+            pool.shutdown()
+
+    def test_skip_idle_evict_tracks_worker_sessions(self) -> None:
+        """_skip_idle_evict returns True only while worker holds active shared sessions."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            worker = pool.workers[0]
+            # Initially no sessions attached
+            assert pool._skip_idle_evict(worker) is False
+
+            # Attach a shared session
+            sid = "skip-evict-sid"
+            res = pool.execute(code="val = 42\nresult = val", session_id=sid, mode="shared")
+            assert res.get("status") == "ok"
+            assert pool._skip_idle_evict(worker) is True
+
+            # Reset the session; _skip_idle_evict should return False again
+            reset_res = pool.reset_session(sid)
+            assert reset_res.get("status") == "ok"
+            assert pool._skip_idle_evict(worker) is False
+        finally:
+            pool.shutdown()
+
+    def test_reset_keeps_map_when_worker_is_busy(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "busy-reset"
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="busy-1")
+            assert ok.get("status") == "ok"
+            worker = pool._active_sessions[sid]
+            held = pool.lease_specific(worker, timeout_sec=1)
+            assert held is worker
+            try:
+                res = pool.reset_session(sid, timeout_sec=0.05)
+                assert res.get("code") == "WORKER_POOL_BUSY"
+                assert pool._active_sessions.get(sid) is worker
+            finally:
+                pool.release_worker(held)
+        finally:
+            pool.shutdown()
+
+    def test_reset_keeps_map_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A non-ok reset must not forget a namespace the worker still holds."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "reset-fail-keeps-map"
+            ok = pool.execute(code="x = 9\nresult = x", session_id=sid, mode="shared", req_id="rf-1")
+            assert ok.get("status") == "ok"
+            worker = pool._active_sessions[sid]
+            real_execute = worker.execute
+
+            def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
+                if payload.get("action") == "reset_session":
+                    return {"status": "error", "error": "namespace still held"}
+                return real_execute(payload, timeout_sec)
+
+            worker.execute = fail_reset  # type: ignore[method-assign]
+            with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
+                res = pool.reset_session(sid)
+            assert res.get("status") == "error"
+            assert pool._active_sessions.get(sid) is worker
+            assert sid in pool._worker_sessions.get(worker, ())
+            assert "keeping session map" in caplog.text
+            again = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="rf-2")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 9
+        finally:
+            pool.shutdown()
+
+    def test_ttl_keeps_session_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
+        """TTL eviction must not drop the map when the worker reset is not ok."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
+        try:
+            sid = "ttl-reset-fail"
+            ok = pool.execute(code="x = 4\nresult = x", session_id=sid, mode="shared", req_id="ttl-fail-1")
+            assert ok.get("status") == "ok"
+            worker = pool._active_sessions[sid]
+
+            def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
+                del timeout_sec
+                if payload.get("action") == "reset_session":
+                    return {"status": "error", "error": "namespace still held"}
+                raise AssertionError(payload)
+
+            worker.execute = fail_reset  # type: ignore[method-assign]
+            with pool._cond:
+                pool._session_last_activity[sid] = time.monotonic() - 4000.0
+            with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
+                pool._evict_stale_sessions()
+            assert pool._active_sessions.get(sid) is worker
+            assert sid in pool._worker_sessions.get(worker, ())
+            assert "keeping session map" in caplog.text
+        finally:
+            pool.shutdown()
+
+    def test_ttl_skips_session_refreshed_while_waiting(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
+        try:
+            sid = "ttl-race"
+            setx = pool.execute(code="x = 3\nresult = x", session_id=sid, mode="shared", req_id="ttl-race-1")
+            assert setx.get("status") == "ok"
+            original = pool.lease_specific
+
+            def _refresh(worker, timeout_sec=0.0):
+                with pool._cond:
+                    pool._session_last_activity[sid] = time.monotonic()
+                return original(worker, timeout_sec=timeout_sec)
+
+            pool.lease_specific = _refresh  # type: ignore[method-assign]
+            with pool._cond:
+                pool._session_last_activity[sid] = time.monotonic() - 4000.0
+            pool._evict_stale_sessions()
+            assert sid in pool._active_sessions
+            later = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-race-2")
+            assert later.get("status") == "ok"
+            assert later.get("result") == 3
+        finally:
+            pool.shutdown()
+
+    def test_reset_clears_init_companion(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "init-reset"
+            init = "items = [1]"
+            first = pool.execute(
+                code="items.append(2)\nresult = list(items)",
+                session_id=sid,
+                mode="shared",
+                init_script=init,
+                req_id="init-1",
+            )
+            assert first.get("status") == "ok"
+            assert first.get("result") == [1, 2]
+            reset = pool.reset_session(sid)
+            assert reset.get("status") == "ok"
+            second = pool.execute(
+                code="result = list(items)",
+                session_id=sid,
+                mode="shared",
+                init_script=init,
+                req_id="init-2",
+            )
+            assert second.get("status") == "ok"
+            assert second.get("result") == [1]
+        finally:
+            pool.shutdown()
+
+    def test_worker_rejects_pickle_payload_and_false_mode(self) -> None:
+        """Stdio must not run a payload or a mode the HTTP edge rejects.
+
+        ``data`` was the pickle/split_grid field. ``mode: false`` was rewritten
+        to isolated on the HTTP path and rejected here.
+        """
+        from compute_service.formula_worker import _handle_request
+
+        pickled = _handle_request({"id": "pk", "code": "result = data", "wire": "pickle", "data": [1, 2, 3]})
+        assert pickled.get("code") == "INVALID_REQUEST"
+        assert pickled.get("result") != [1, 2, 3]
+
+        plain = _handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]})
+        assert plain.get("result") != [1, 2, 3]
+
+        bad_mode = _handle_request({"id": "m", "code": "result = 1", "mode": False})
+        assert bad_mode.get("code") == "INVALID_REQUEST"
+        assert bad_mode.get("result") != 1
+
+    def test_worker_error_omits_traceback(self) -> None:
+        from compute_service.formula_worker import _handle_request
+
+        res = _handle_request({"id": "bad-json", "code": "result = 1", "wire": "json_forward", "data_json": b"not-json"})
+        raw = res.get("result_json")
+        assert isinstance(raw, (bytes, bytearray))
+        body = json.loads(bytes(raw))
+        assert body.get("status") == "error"
+        assert "traceback" not in body
+        assert "Traceback" not in body.get("error", "")
+
     def test_evicted_idle_worker_removed_from_idle_during_kill(self) -> None:
-        """Evicted workers must be removed from _idle during kill (race prevention)
-        and re-added dead so lease_any() can lazy-respawn them."""
+        """Evicted workers leave the idle set. The next execute respawns the cold slot."""
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15, idle_worker_ttl_sec=3600.0)
         try:
             # Execute a task on each worker to populate _idle with both
@@ -526,17 +938,242 @@ class TestFormulaPoolSupervisor:
 
             pool._evict_idle_workers()
 
-            # Worker process must be dead
+            # Worker process must be dead, and a dead pid is not idle.
+            # The next lease claims the cold slot and execute respawns it.
             assert not w0.is_alive(), "Evicted worker process must be killed"
-            # Worker re-added to _idle (dead) so lease_any() can lazy-respawn
             with pool._cond:
-                assert w0 in pool._idle, "Dead worker must be back in _idle for lazy re-spawn"
-                assert len(pool._idle) == 2, "Both workers should be in _idle"
+                assert w0 not in pool._idle, "Dead worker must not sit in the idle set"
+                assert len(pool._idle) == 1, "Only the live worker stays idle"
 
             # Verify lazy re-spawn works
             res = pool.execute(code="result = 999", req_id="respawn-1")
             assert res.get("status") == "ok"
             assert res.get("result") == 999
+        finally:
+            pool.shutdown()
+
+    def test_active_session_routes_to_mapped_worker(self) -> None:
+        """Shared session execution routes to _active_sessions[sid] if already mapped."""
+        pool = FormulaProcessPool(num_workers=3, default_timeout_sec=15)
+        try:
+            sid = "affinity-direct"
+            # Map session to worker #2 explicitly, including the owning pid.
+            # A map entry without that pid is a stale cache and is dropped.
+            target_worker = pool.workers[2]
+            assert target_worker.process is not None
+            with pool._cond:
+                pool._active_sessions[sid] = target_worker
+                pool._worker_sessions.setdefault(target_worker, set()).add(sid)
+                pool._session_last_activity[sid] = time.monotonic()
+                pool._session_pid[sid] = target_worker.process.pid
+
+            res = pool.execute(code="state = 42\nresult = state", session_id=sid, mode="shared")
+            assert res.get("status") == "ok"
+            assert res.get("result") == 42
+            with pool._cond:
+                assert pool._active_sessions.get(sid) is target_worker
+        finally:
+            pool.shutdown()
+
+    def test_pool_shutdown_signals_reaper_event(self) -> None:
+        """Pool shutdown sets _reaper_stop_event so reaper threads terminate promptly."""
+        pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=3600.0)
+        assert not pool._reaper_stop_event.is_set()
+        pool.shutdown()
+        assert pool._reaper_stop_event.is_set()
+
+    def test_defer_release_drained_state(self) -> None:
+        """When drain completes before release, defer_release transitions DRAINED -> IDLE and returns False."""
+        from compute_service.worker_base import _DrainState
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            worker = pool.lease_any(2)
+            assert worker is not None
+            with worker._drain_lock:
+                worker._drain_state = _DrainState.DRAINED
+            cb_called = False
+
+            def cb() -> None:
+                nonlocal cb_called
+                cb_called = True
+
+            deferred = worker.defer_release(cb)
+            assert deferred is False
+            assert cb_called is False
+            with worker._drain_lock:
+                assert worker._drain_state == _DrainState.IDLE
+            pool.release_worker(worker)
+        finally:
+            pool.shutdown()
+
+    def test_evict_idle_workers_skips_dead_worker(self) -> None:
+        """_evict_idle_workers must skip dead workers already in _idle via continue."""
+        pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0.01)
+        try:
+            worker = pool.lease_any(2)
+            assert worker is not None
+            worker.kill()
+            with pool._cond:
+                pool._idle.add(worker)
+                pool._leased.discard(worker)
+                pool._worker_last_active[worker] = time.monotonic() - 100.0
+            pool._evict_idle_workers()
+            with pool._cond:
+                assert worker not in pool._idle
+        finally:
+            pool.shutdown()
+
+    def test_convenience_data_that_is_not_strict_json_returns_error(self) -> None:
+        """json.dumps(allow_nan=False) used to raise out of execute().
+
+        HTTP always passes data_json. Those bytes are forwarded unchanged.
+        """
+        forwarded = FormulaProcessPool._build_execute_payload(
+            code="result = 1",
+            data={"x": float("nan")},
+            data_json=b'{"x": NaN}',
+            session_id=None,
+            mode="isolated",
+            timeout_sec=5,
+            init_script=None,
+            req_id="wire",
+        )
+        assert forwarded["data_json"] == b'{"x": NaN}'
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            nan_res = pool.execute(code="result = data", data={"x": float("nan")}, req_id="nan-data")
+            assert nan_res.get("status") == "error"
+            assert nan_res.get("code") == "INVALID_REQUEST"
+            assert nan_res.get("id") == "nan-data"
+            obj_res = pool.execute(code="result = data", data={"x": object()}, req_id="obj-data")
+            assert obj_res.get("status") == "error"
+            assert obj_res.get("code") == "INVALID_REQUEST"
+            assert obj_res.get("id") == "obj-data"
+        finally:
+            pool.shutdown()
+
+    def test_build_execute_payload_rejects_unknown_wire(self) -> None:
+        """Unknown wire is an error. It used to be rewritten to json_forward."""
+        from compute_service.json_forward import ExecuteRequestError
+
+        with pytest.raises(ExecuteRequestError, match="wire"):
+            FormulaProcessPool._build_execute_payload(
+                code="result = 1",
+                data=None,
+                data_json=None,
+                session_id=None,
+                mode="isolated",
+                timeout_sec=5,
+                init_script=None,
+                req_id="test-wire",
+                wire="bogus_wire",
+            )
+
+    def test_remaining_sec_helper(self) -> None:
+        from compute_service.worker_base import remaining_sec
+
+        future = time.monotonic() + 10.0
+        assert remaining_sec(future) > 0.0
+        past = time.monotonic() - 10.0
+        assert remaining_sec(past, floor=0.05) == 0.05
+
+    def test_shared_session_dies_with_its_process(self) -> None:
+        """Killing the pid drops the session. A respawn is not the same workbook."""
+        import signal
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "dies-with-pid"
+            created = pool.execute(code="keep = 5\nresult = keep", session_id=sid, mode="shared", req_id="die-1")
+            assert created.get("status") == "ok"
+            assert created.get("result") == 5
+            owner = pool.live_session_worker(sid)
+            assert owner is not None and owner.process is not None
+            pid = owner.process.pid
+            os.kill(pid, signal.SIGKILL)
+            owner.process.wait(timeout=2)
+            assert pool.live_session_worker(sid) is None
+            again = pool.execute(code="result = keep", session_id=sid, mode="shared", timeout_sec=15, req_id="die-2")
+            assert again.get("status") == "error"
+            assert again.get("result") != 5
+        finally:
+            pool.shutdown()
+
+    def test_sigkill_drops_every_session_on_the_pid(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            first = pool.execute(code="a = 1\nresult = a", session_id="sess-a", mode="shared")
+            second = pool.execute(code="b = 2\nresult = b", session_id="sess-b", mode="shared")
+            assert first.get("status") == "ok"
+            assert second.get("status") == "ok"
+            owner = pool.live_session_worker("sess-a")
+            assert owner is not None
+            assert owner is pool.live_session_worker("sess-b")
+            owner.kill()
+            assert pool.live_session_worker("sess-a") is None
+            assert pool.live_session_worker("sess-b") is None
+        finally:
+            pool.shutdown()
+
+    def test_timeout_does_not_sigkill_healthy_shared_kernel(self) -> None:
+        """A sleep past the cell budget returns an error frame. The pid stays.
+
+        The child used to be given the original timeout_sec while the host
+        read only the time left on the deadline, so this sleep was SIGKILL
+        and every other workbook on that process disappeared.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", mode="shared", req_id="budget-keep")
+            assert kept.get("status") == "ok"
+            owner = pool.live_session_worker("doc-keep")
+            assert owner is not None and owner.process is not None
+            pid = owner.process.pid
+            # timeout_sec is the original 30s budget. The deadline is only
+            # about a second from now, which is what the child must honor.
+            hung = pool.execute(
+                code="import time\ntime.sleep(8)\nresult = 1",
+                session_id="doc-hang",
+                mode="shared",
+                timeout_sec=30,
+                deadline=time.monotonic() + 1.2,
+                req_id="budget-hang",
+            )
+            assert hung.get("status") == "error"
+            assert hung.get("code") != "EXECUTION_TIMEOUT"
+            assert owner.process is not None and owner.process.pid == pid
+            assert owner.is_alive()
+            again = pool.execute(code="result = keep", session_id="doc-keep", mode="shared", timeout_sec=15, req_id="budget-again")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 7
+        finally:
+            pool.shutdown()
+
+    def test_bad_mode_does_not_run(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            res = pool.execute(code="result = 1", mode="Shared", req_id="bad-mode")
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_REQUEST"
+            assert res.get("result") != 1
+        finally:
+            pool.shutdown()
+
+    def test_isolated_leases_session_process_when_all_workers_have_sessions(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            created = pool.execute(code="keep = 1\nresult = keep", session_id="only-shared", mode="shared")
+            assert created.get("status") == "ok"
+            owner = pool.live_session_worker("only-shared")
+            assert owner is not None and owner.process is not None
+            pid = owner.process.pid
+            ran = pool.execute(code="result = 1", mode="isolated", timeout_sec=1, req_id="iso-blocked")
+            assert ran.get("status") == "ok"
+            assert ran.get("result") == 1
+            assert owner.is_alive()
+            assert owner.process is not None and owner.process.pid == pid
         finally:
             pool.shutdown()
 
@@ -694,3 +1331,60 @@ class TestFormulaHttpEndpoint:
         assert status2 == 200
         assert body2.get("status") == "error"
         assert "kept" in body2.get("error", "") or "NameError" in body2.get("error", "")
+
+    def test_shared_session_balances_across_least_loaded_worker(self) -> None:
+        """New shared sessions must be assigned to the worker holding the fewest active sessions."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            # First session lands on worker 0 or 1
+            res1 = pool.execute(code="result = 1", session_id="sess-1", mode="shared")
+            assert res1.get("status") == "ok"
+            w1 = pool._active_sessions["sess-1"]
+
+            # Second session should pick the other worker because it has 0 sessions
+            res2 = pool.execute(code="result = 2", session_id="sess-2", mode="shared")
+            assert res2.get("status") == "ok"
+            w2 = pool._active_sessions["sess-2"]
+
+            assert w1 is not w2, "Sessions must balance across distinct workers when both are available"
+        finally:
+            pool.shutdown()
+
+    def test_isolated_worker_lease_prefers_session_free_worker(self) -> None:
+        """Isolated workload lease must prefer idle workers that host zero shared sessions."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            # Register a shared session on one worker
+            res1 = pool.execute(code="x = 10; result = x", session_id="shared-worker-test", mode="shared")
+            assert res1.get("status") == "ok"
+            shared_worker = pool._active_sessions["shared-worker-test"]
+
+            # An isolated execution should prefer the session-free worker
+            with pool._cond:
+                picked = pool._pick_idle_worker()
+                assert picked is not None
+                assert picked is not shared_worker
+                # Put it back
+                pool._idle.add(picked)
+        finally:
+            pool.shutdown()
+
+    def test_isolated_worker_lease_falls_back_when_all_workers_have_sessions(self) -> None:
+        """When all idle workers hold shared sessions, _pick_idle_worker still picks an idle worker."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            res1 = pool.execute(code="result = 1", session_id="s1", mode="shared")
+            assert res1.get("status") == "ok"
+            res2 = pool.execute(code="result = 2", session_id="s2", mode="shared")
+            assert res2.get("status") == "ok"
+
+            with pool._cond:
+                # Both workers have sessions and both are idle
+                assert len(pool._idle) == 2
+                picked = pool._pick_idle_worker()
+                assert picked is not None
+                pool._idle.add(picked)
+        finally:
+            pool.shutdown()
+
+

@@ -377,3 +377,74 @@ def test_optimize_pipe_noop_on_macos(mock_fcntl: MagicMock) -> None:
     optimize_pipe(5)
     mock_fcntl.assert_not_called()
 
+
+def test_scrub_env_and_workspace_path_accept_long_values(tmp_path) -> None:
+    """PATH and workspace paths are longer than the old deal caps."""
+    from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_PATH
+    from plugin.scripting.sandbox import is_safe_workspace_path, scrub_subprocess_env
+
+    env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})
+    assert env["PATH"] == "p" * (DEAL_MAX_ARGV + 1)
+    assert env["PYTHONUTF8"] == "1"
+    root = tmp_path / ("d" * 40)
+    root.mkdir()
+    target = "t" * (DEAL_MAX_PATH + 1)
+    # A long relative name still resolves inside the root. The old pre
+    # raised before that check.
+    assert is_safe_workspace_path(target, str(root)) is True
+
+
+def test_import_authorized_alias_uses_plugin_allowlist() -> None:
+    """writeragent.X follows plugin.X. A blanket writeragent.* does not open config."""
+    from plugin.scripting.sandbox import import_authorized
+
+    allowed = [
+        "plugin.scripting.analysis",
+        "writeragent.*",
+        "duckdb",
+        "duckdb.*",
+    ]
+    assert import_authorized("writeragent.scripting.analysis", allowed) is True
+    assert import_authorized("plugin.scripting.analysis", allowed) is True
+    assert import_authorized("writeragent.framework.config", allowed) is False
+    assert import_authorized("writeragent.framework.client.llm_client", allowed) is False
+    assert import_authorized("plugin.framework.config", allowed) is False
+    assert import_authorized("plugin.framework.client.llm_client", allowed) is False
+    assert import_authorized("duckdb", allowed) is True
+    assert import_authorized("duckdb.duckdb", allowed) is True
+
+
+def test_import_authorized_explicit_alias_without_plugin_entry() -> None:
+    from plugin.scripting.sandbox import import_authorized
+
+    allowed = ["writeragent.vision", "writeragent.scripting.duckdb_sql", "writeragent.*"]
+    assert import_authorized("writeragent.vision", allowed) is True
+    assert import_authorized("writeragent.scripting.duckdb_sql", allowed) is True
+    assert import_authorized("writeragent.vision.venv.vision", allowed) is False
+    assert import_authorized("plugin.vision", allowed) is False
+    assert import_authorized("plugin.scripting.duckdb_sql", allowed) is False
+    assert import_authorized("writeragent.framework.config", allowed) is False
+
+
+def test_venv_allowlist_mirrors_plugin_entries_and_keeps_duckdb() -> None:
+    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+
+    assert "writeragent.*" not in VENV_AUTHORIZED_IMPORTS
+    assert "duckdb" in VENV_AUTHORIZED_IMPORTS
+    assert "duckdb.*" in VENV_AUTHORIZED_IMPORTS
+    assert "plugin.scripting.duckdb_sql" not in VENV_AUTHORIZED_IMPORTS
+    assert "plugin.vision.venv.vision" not in VENV_AUTHORIZED_IMPORTS
+    for entry in VENV_AUTHORIZED_IMPORTS:
+        if entry.startswith("plugin."):
+            mirror = "writeragent." + entry[len("plugin."):]
+            assert mirror in VENV_AUTHORIZED_IMPORTS
+    assert import_authorized("import-not-used", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("writeragent.framework.config", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("writeragent.framework.client.llm_client", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("writeragent.scripting.analysis", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("writeragent.vision", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("writeragent.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("duckdb", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("duckdb.functional", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("plugin.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is False
+

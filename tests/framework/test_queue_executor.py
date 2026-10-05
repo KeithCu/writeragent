@@ -79,6 +79,49 @@ def test_grammar_llm_request_gate_limit_1_uses_global_lane() -> None:
         lane.assert_called_once()
 
 
+def test_grammar_llm_request_gate_release_admits_one_waiter() -> None:
+    """One release opens one slot. The other waiter stays blocked until that holder leaves."""
+    first_in = threading.Event()
+    release_first = threading.Event()
+    second_in = threading.Event()
+    third_in = threading.Event()
+    release_rest = threading.Event()
+
+    def holder() -> None:
+        with lc.grammar_llm_request_gate(1):
+            first_in.set()
+            release_first.wait(timeout=2.0)
+
+    def waiter(flag: threading.Event) -> None:
+        with lc.grammar_llm_request_gate(1):
+            flag.set()
+            release_rest.wait(timeout=2.0)
+
+    threads = (
+        threading.Thread(target=holder),
+        threading.Thread(target=lambda: waiter(second_in)),
+        threading.Thread(target=lambda: waiter(third_in)),
+    )
+    threads[0].start()
+    assert first_in.wait(timeout=2.0)
+    threads[1].start()
+    threads[2].start()
+    time.sleep(0.05)
+    assert second_in.is_set() is False
+    assert third_in.is_set() is False
+    release_first.set()
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not (second_in.is_set() or third_in.is_set()):
+        time.sleep(0.01)
+    assert second_in.is_set() != third_in.is_set()
+    time.sleep(0.05)
+    assert second_in.is_set() != third_in.is_set()
+    release_rest.set()
+    for thread in threads:
+        thread.join(timeout=2.0)
+        assert thread.is_alive() is False
+
+
 def test_grammar_llm_request_gate_limit_2_allows_parallel() -> None:
     entered = threading.Barrier(2)
     inside: list[int] = []
@@ -212,6 +255,26 @@ def test_post_to_main_thread_fire_and_forget(mock_poke, mock_get_async):
     item = default_executor._work_queue.get_nowait()
     assert (item.fn is my_func)
     mock_poke.assert_called_once()
+
+
+def test_callable_is_scheduled_matches_fn_not_queue_depth() -> None:
+    """Unrelated queued work is not this callback; the pending list counts."""
+    from plugin.framework.queue_executor import QueueExecutor
+
+    def pump() -> None:
+        return None
+
+    queued = QueueExecutor()
+    queued._work_queue.put(object())
+    assert queued.callable_is_scheduled(pump) is False
+    queued._work_queue.put(_WorkItem("pump", pump, (), {}, blocking=False))
+    assert queued.callable_is_scheduled(pump) is True
+
+    pending = QueueExecutor()
+    pending._work_queue.put(object())
+    assert pending.callable_is_scheduled(pump) is False
+    pending._pending_posts.append((pump, (), {}, None))
+    assert pending.callable_is_scheduled(pump) is True
 
 @pytest.fixture(autouse=True)
 def reset_mt_globals():
@@ -544,6 +607,65 @@ def test_post_tagged_worker_under_testing_enqueues_not_inline(monkeypatch):
     assert ran_on == ["MainThread"]
 
 
+def test_post_pending_full_waits_until_a_slot_opens(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(mt, "_PENDING_POST_WAIT_SEC", 2.0)
+    executor = mt.QueueExecutor()
+    for _index in range(mt._PENDING_POST_CAP):
+        executor._pending_posts.append((lambda: None, (), {}, None))
+    errors: list[BaseException] = []
+    done = threading.Event()
+
+    def run_on_worker() -> None:
+        try:
+            with (
+                patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+                patch.object(executor, "_get_async_callback", return_value=None),
+                patch.object(executor, "_may_run_marshal_inline", return_value=False),
+            ):
+                executor.post(lambda: None)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=run_on_worker, name="bg-worker")
+    worker.start()
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and not done.is_set():
+        with executor._pending_lock:
+            if len(executor._pending_posts) >= mt._PENDING_POST_CAP:
+                # Still full and the poster has not returned: it is waiting.
+                break
+        time.sleep(0.01)
+    assert not done.is_set()
+    with executor._pending_lock:
+        executor._pending_posts.pop()
+        executor._pending_lock.notify()
+    assert done.wait(2.0)
+    worker.join(timeout=1.0)
+    assert errors == []
+    assert len(executor._pending_posts) == mt._PENDING_POST_CAP
+
+
+def test_post_pending_full_raises_when_callback_never_arrives(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(mt, "_PENDING_POST_WAIT_SEC", 5.0)
+    executor = mt.QueueExecutor()
+    executor._initialized = True
+    executor._async_callback_service = None
+    for _index in range(mt._PENDING_POST_CAP):
+        executor._pending_posts.append((lambda: None, (), {}, None))
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="pending list is full"):
+        with (
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+            patch.object(executor, "_get_async_callback", return_value=None),
+            patch.object(executor, "_may_run_marshal_inline", return_value=False),
+        ):
+            executor.post(lambda: None)
+    assert time.monotonic() - started < 1.0
+    assert len(executor._pending_posts) == mt._PENDING_POST_CAP
+
+
 def test_post_tagged_worker_under_testing_drops_without_async(monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     executor = mt.QueueExecutor()
@@ -657,6 +779,25 @@ def test_execute_refuses_fallback_during_agent_session():
     t.start()
     t.join()
     assert res_holder == []
+
+
+def test_execute_refusal_log_has_no_synthetic_traceback(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    def run_on_worker() -> None:
+        with (
+            patch.object(default_executor, "_get_async_callback", return_value=None),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+            pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
+        ):
+            default_executor.execute(lambda: None)
+
+    with caplog.at_level(logging.ERROR, logger="writeragent.framework.queue_executor"):
+        t = threading.Thread(target=run_on_worker)
+        t.start()
+        t.join()
+    assert "AsyncCallback unavailable" in caplog.text
+    assert "Traceback" not in caplog.text
 
 
 def test_execute_refuses_fallback_when_background_task_tagged():
@@ -965,6 +1106,39 @@ def test_cancel_drain_excludes_concurrent_enqueue():
     assert late.cancelled is False
 
 
+def test_cancel_after_claim_does_not_run():
+    """scope.cancel() after the item is claimed and before fn() must not run it."""
+    from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+
+    qe = QueueExecutor()
+    scope = SendCancellation()
+    ran: list[int] = []
+    item = _WorkItem("late", lambda: ran.append(1), (), {}, blocking=False, scope=scope)
+    qe._work_queue.put(item)
+
+    class _CancelOnFirstExit:
+        def __init__(self, inner: object, cancel_scope: SendCancellation) -> None:
+            self._inner = inner
+            self._scope = cancel_scope
+            self.exits = 0
+
+        def __enter__(self) -> object:
+            return self._inner.__enter__()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> object:
+            result = self._inner.__exit__(exc_type, exc, tb)
+            self.exits += 1
+            if self.exits == 1:
+                self._scope.cancel()
+            return result
+
+    qe._claim_lock = _CancelOnFirstExit(qe._claim_lock, scope)  # type: ignore[assignment]
+    qe.process_queue()
+    assert ran == []
+    assert item.cancelled is True
+    assert item._claimed is False
+
+
 def test_cancel_reput_pokes_kept_work():
     """Items kept for another send must be poked, or they sit until a later enqueue."""
     from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
@@ -1014,3 +1188,34 @@ def test_flush_pending_posts_keeps_original_scope():
     qe._pending_posts.append((lambda: None, (), {}, scope))
     qe._flush_pending_posts()
     assert seen == [scope]
+
+def test_execute_accepts_and_passes_bound_scope() -> None:
+    executor = mt.QueueExecutor()
+    scope = mt.SendCancellation()
+
+    # We must mock _enqueue_work to see if it received bound_scope.
+    # But execute is blocking, so we need _wait_for_result to return immediately.
+    # We'll just patch _wait_for_result and _enqueue_work, or mock _enqueue_work
+    # to return a dummy item and check what was passed.
+
+    with patch.object(executor, '_should_run_inline', return_value=False), \
+         patch.object(executor, '_is_logical_main_thread', return_value=False), \
+         patch.object(executor, '_get_async_callback', return_value=MagicMock()), \
+         patch('plugin.framework.queue_executor._force_marshal_mode', True), \
+         patch.object(executor, '_wait_for_result', return_value="dummy_result"), \
+         patch.object(executor, '_enqueue_work') as mock_enqueue:
+
+         # Mock enqueue to return a minimal WorkItem
+         mock_item = mt._WorkItem("id", lambda: None, (), {}, True, scope)
+         mock_enqueue.return_value = mock_item
+
+         # Note: _force_marshal_mode=True guarantees we don't return inline
+         def dummy_fn(): pass
+
+         executor.execute(dummy_fn, 1, 2, bound_scope=scope, timeout=5.0)
+
+         mock_enqueue.assert_called_once()
+         assert mock_enqueue.call_args.kwargs.get("bound_scope") is scope
+         assert mock_enqueue.call_args.kwargs.get("blocking") is True
+         assert mock_enqueue.call_args.args[0] is dummy_fn
+         assert mock_enqueue.call_args.args[1] == (1, 2)

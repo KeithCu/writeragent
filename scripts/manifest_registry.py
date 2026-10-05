@@ -388,26 +388,9 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
     if tab_marker not in content or page_marker not in content:
         return
 
-    # Calculate targets for inline configs
-    inline_targets = {}
-    for m in modules:
-        inline_val = m.get("config_inline")
-        if not inline_val:
-            continue
-        target = inline_val if isinstance(inline_val, str) else (m["name"].rsplit(".", 1)[0] if "." in m["name"] else None)
-        if target:
-            inline_targets[m["name"]] = target
+    from plugin.chatbot.settings_tab_order import _build_inline_maps, iter_settings_tab_modules
 
-    inline_set = set()
-    for name, target in inline_targets.items():
-        if target not in inline_targets:
-            inline_set.add(name)
-
-    by_name = {m["name"]: m for m in modules}
-    inline_map = {}
-    for name in inline_set:
-        target = inline_targets[name]
-        inline_map.setdefault(target, []).append((by_name[name], by_name[name].get("config", {})))
+    inline_map = _build_inline_maps(modules)[1]
 
     tabs = []
     pages = []
@@ -415,8 +398,6 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
     # LibrePy ships only module tabs (General/Image are hidden at runtime).
     tab_x = 5 if librepy_flavor else 131
     page_num = 3
-
-    from plugin.chatbot.settings_tab_order import iter_settings_tab_modules
 
     for m in iter_settings_tab_modules(modules):
         name = m["name"]

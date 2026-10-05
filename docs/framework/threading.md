@@ -14,7 +14,7 @@ Because WriterAgent connects to external LLM services and relies on streaming re
 
 This is the core concurrency bridge. Because background threads (like the HTTP server or AI streaming loop) cannot safely execute UNO commands, they use `execute_on_main_thread(fn, *args, **kwargs)` to offload UNO interactions back to the main thread.
 
-*   **Mechanism:** It pushes a `_WorkItem` containing the callable and arguments onto a `queue.Queue`. It then signals LibreOffice to wake up and process the queue using `com.sun.star.awt.AsyncCallback`.
+*   **Mechanism:** It pushes a `_WorkItem` containing the callable and arguments onto a `queue.Queue`. It then signals LibreOffice to wake up and process the queue using `com.sun.star.awt.AsyncCallback`. `post()` before that callback exists keeps a short pending list. A full list waits for a flush and then raises `TimeoutError`; it does not drop the callable. The grammar in-flight gate wakes one waiter per release (`notify`), because one slot opened.
 *   **Synchronization:** The calling background thread blocks on a `threading.Event()` (`_WorkItem.event.wait()`) until the main thread picks up the item, executes it, and sets the result or exception. This provides a synchronous feel to the caller while executing safely on the UI thread.
 *   **Safety:** A `threading.Lock` (`_init_lock`) protects the lazy initialization of the AsyncCallback UNO service.
 
@@ -23,39 +23,44 @@ This is the core concurrency bridge. Because background threads (like the HTTP s
 The plugin runs an embedded HTTP server to provide a local API and support the Model Context Protocol (MCP).
 
 *   **`server.py`:** The `HttpServer` wrapper (inner `_ThreadedHTTPServer`) runs in a dedicated daemon thread (`name="http-server"`) via `run_in_background(..., dedicated=True)`. This allows the server to perpetually listen for incoming requests without occupying the bounded background pool.
+*   **Route table:** `HttpRouteRegistry` (`plugin/mcp/routes.py`) guards its dict with a lock. Workers read routes while MCP toggle adds or removes them. `list_routes` copies the keys under that lock, so `GET /` cannot raise `RuntimeError: dictionary changed size during iteration`. Register and unregister hold the lock across the whole batch, so a request sees the previous set or the new set.
 *   **`mcp_protocol.py`:** Incoming HTTP requests land on the server's thread. Document resolution and UNO context lookup run on the main thread via `QueueExecutor`; tool bodies that touch the document either run entirely on the main thread (backpressure path) or on the HTTP worker with UNO work marshalled through `execute_on_main_thread` (long-running path).
 
 #### MCP tool execution paths
 
 MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), depending on the tool's `long_running` flag:
 
-| Path | Method | Thread | Global limit | Per-document gate |
-|------|--------|--------|--------------|-------------------|
-| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only |
-| Long-running | `_execute_long_running` | HTTP worker | None (by design) | Mutating tools only |
+| Path | Method | Tool body | Global limit | Per-document gate |
+|------|--------|-----------|--------------|-------------------|
+| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; **acquired on the HTTP worker** |
+| Long-running | `_execute_long_running` | HTTP worker (UNO marshalled) | None (by design) | Mutating tools only; acquired on the HTTP worker |
 
 ```mermaid
 flowchart TB
     subgraph backpressure [Backpressure path]
-        Sem["_tool_semaphore acquire"]
-        MainRun["_prepare_mcp_execution + execute on main thread"]
-        Sem --> MainRun
+        Sem["_tool_semaphore on HTTP worker"]
+        PrepBp["prepare on main thread"]
+        GateBp["gate acquire on HTTP worker"]
+        BodyBp["tool body on main thread"]
+        Sem --> PrepBp --> GateBp --> BodyBp
     end
     subgraph longrun [Long-running path]
-        HttpRun["tool body on HTTP thread"]
+        PrepLr["prepare on main thread"]
+        GateLr["gate acquire on HTTP worker"]
+        BodyLr["tool body on HTTP thread"]
+        PrepLr --> GateLr --> BodyLr
     end
-    MainRun --> Gate["_document_mutation_gate when mutating"]
-    HttpRun --> Gate
-    Gate --> Uno["UNO via main-thread dispatch"]
+    BodyBp --> Uno["UNO on the main thread"]
+    BodyLr --> Uno
 ```
 
 **Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Long-running tools (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
 
-**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`).
+**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`). Both paths acquire the gate on the HTTP worker. The backpressure path used to acquire it inside the main-thread dispatch, so a long-running mutator holding the gate froze the UI for up to the 30s timeout and stalled that mutator's own UNO marshal.
 
-**UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls.
+**UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls. `bypass_thread_guard` is an eval-harness switch on `ToolRegistry.execute`. MCP and the sidebar tool loop pass `False`. A JSON object spread into `execute` cannot set it: `True` counts only when the caller writes that keyword in the call.
 
-**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), and unknown-tool conservative locking.
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), unknown-tool conservative locking, and backpressure waiting for the gate off the main thread. [`tests/mcp/test_mcp_protocol.py`](../../tests/mcp/test_mcp_protocol.py) covers a client `bypass_thread_guard` argument. [`tests/chatbot/test_tool_loop_actions.py`](../../tests/chatbot/test_tool_loop_actions.py) covers a chat tool-call dict. [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py) covers an explicit keyword versus a spread dict.
 
 **Not covered by MCP gates (different models):**
 *   **Sidebar chat** ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)) — one tool per LLM round; async tools run on worker threads but the loop waits for `TOOL_RESULT` before spawning the next.
@@ -69,9 +74,9 @@ flowchart TB
 External agent binaries (Hermes, Claude, Grok, OpenCode, …) speak the Agent Communication Protocol over stdio JSON-RPC. Stdio I/O lives in one place; the `*_simple.py` / `builtin.py` / `registry.py` modules are backends, not extra reader threads.
 
 *   **`acp_connection.py` (`ACPConnection`):** Spawns the subprocess, then:
-    *   **Threads:** `run_in_background(..., name="acp-reader", dedicated=True)` parses JSON-RPC from stdout; `start_stderr_drain(..., name=f"acp-stderr-{pid}")` drains stderr so the kernel pipe cannot fill.
-    *   **Synchronization:** `threading.Lock` (`_lock`) guards `_pending` (request id → event + response dict). Each `send_request` waits on its own `threading.Event` until the reader stores the matching response.
-*   **`acp_backend.py`:** ACP client that uses `ACPConnection` for handshake, prompt sessions, and streaming notifications.
+    *   **Threads:** `run_in_background(..., name="acp-reader", dedicated=True)` parses JSON-RPC from stdout until `readline` returns EOF; `start_stderr_drain(..., name=f"acp-stderr-{pid}")` drains stderr so the kernel pipe cannot fill. The loop must not also require `Popen.poll() is None`: `poll()` is `waitpid(WNOHANG)` and reports the child exited while the last JSON-RPC line can still be buffered, and skipping that line fails the turn with "ACP process terminated". Each iteration snapshots `_proc` before reading stdout. `stop()` sets `_proc` to None between the loop check and `readline`; a second attribute read in that window raised `AttributeError` and logged a spurious Reader error. A stdout line that parses as JSON but is not an object (a number, boolean, string, or array) is logged and skipped; it must not raise and end the reader while the child is still writing later object lines. A JSON object whose `id` is not a JSON-RPC id (string, number, or null) — an array, object, or JSON boolean — is the same stray stdout: `pending.get` would raise `TypeError` on an unhashable key, or a boolean `true` would hash equal to request id `1` and steal the in-flight response. Those lines are logged and skipped too. After stdout is drained, unanswered waiters are still failed so a dead child cannot sit on the 600s prompt timeout.
+    *   **Synchronization:** `threading.Lock` (`_lock`) guards `_pending` (request id → event + response dict). Each `send_request` waits on its own `threading.Event` until the reader stores the matching response. `send_request` captures `_proc` under that lock before writing stdin; `send_notification` and `send_response` snapshot `_proc` once before the write. Re-reading `self._proc` in `if self._proc and self._proc.stdin` raised `AttributeError` when `stop()` cleared it between the two loads, and `send_request` does not catch `AttributeError`.
+*   **`acp_backend.py`:** ACP client that uses `ACPConnection` for handshake, prompt sessions, and streaming notifications. `send()` installs the notification callback after the subprocess is up and before `session/new`, so `session/update` and `session/request_permission` during session creation are dispatched instead of dropped. After `start()`, `_ensure_connection` polls the startup grace period (~0.5s, in ~50ms slices) and returns without `initialize` when `_stop_requested` is set or `stop_checker()` is true, so Stop during that window takes the same stopped path as a cancel before the prompt. Each `send()` calls `shutdown()` → `ACPConnection.stop()` when the turn ends (success, error, or cancel), so the CLI and its reader do not survive into the next chat message. `stop()` notifies `session/cancel`, answers pending `session/request_permission` with `outcome: cancelled`, then terminates the subprocess. Permission replies are `outcome.selected` plus an `optionId` from the request, or `outcome.cancelled`. `session/update` is dispatched on `sessionUpdate`: `agent_message_chunk` is assistant text, `agent_thought_chunk` is thinking (not the saved answer), and `tool_call` / `tool_call_update` are tool transcript lines.
 
 ### 4. Chatbot Streaming and Tool Execution (`plugin/chatbot/`)
 
@@ -86,15 +91,15 @@ The core chatbot interaction relies heavily on threads to handle streaming LLM r
 
 Modules that actually share threads or process-wide caches have a **Concurrency:** paragraph in the module docstring: what is shared, who owns it, and what we deliberately do not lock. This section is the map. Pure helpers and UNO-on-main modules have no such paragraph on purpose.
 
-*   **`plugin/framework/async_stream.py`:** `run_async_worker_with_drain` / `run_stream_drain_loop` run streaming work on a background worker (`run_in_background`) and drain the queue on the main thread. The worker consumes the stream; the drain loop applies UI updates. A second `run_stream_drain_loop` while any drain owner is active raises `NestedDrainOwnerError` (same-name nesting would skip `processEventsToIdle`). Peer execute under an existing scope still uses `drain_owner_scope` directly.
+*   **`plugin/framework/async_stream.py`:** `run_async_worker_with_drain` / `run_stream_drain_loop` run streaming work on a background worker (`run_in_background`) and drain the queue on the main thread. The worker consumes the stream; the drain loop applies UI updates. Idle diagnostics read `QueueExecutor.pending_work_count()` rather than the marshal queue object. A second `run_stream_drain_loop` while any drain owner is active raises `NestedDrainOwnerError` (same-name nesting would skip `processEventsToIdle`). Peer execute under an existing scope still uses `drain_owner_scope` directly. `run_stream_drain_loop` does not take a UNO context. When the worker queue is a `BatchingStreamQueue`, Stop flushes it the same way the chat tool loop does, so already-produced text is not left until the worker `finally`. Stop also applies CHUNK and THINKING already pulled into the current drain batch, including when Stop is the first item of that batch; other kinds in that tail are not dispatched. The drain `get` timeout stays 0.1s. `run_blocking_in_thread` re-raises `queue.Empty` from the worker; only the waiting `get` catches an empty queue, so `pump_idle=False` cannot swallow that exception and block on the next `get`. Done callbacks are invoked once: arity comes from the signature, so a `TypeError` inside the body is not a second call. A flush that raises is logged; the error terminal is still queued and the queue `put` wrapper is removed.
 *   **`plugin/main.py`:** Uses `run_in_background` to pre-load icons into the `ImageManager` (`_update_menu_icons`) and dispatch menu updates (`notify_menu_update`) without freezing the startup or dispatch sequence.
-*   **`plugin/mcp/tunnel.py`:** Optional cloudflared quick tunnel for public MCP access. Uses `AsyncProcess` to parse the `*.trycloudflare.com` URL from subprocess stdout/stderr, with a `threading.Lock()` around process lifecycle.
+*   **`plugin/mcp/tunnel.py`:** Optional cloudflared quick tunnel for public MCP access. Uses `AsyncProcess` to parse the `*.trycloudflare.com` URL from subprocess stdout/stderr, with a `threading.Lock()` around process lifecycle. `binary_available` (provider `--version`, up to 10s) runs **outside** that lock. Settings `config:changed` starts the tunnel on a dedicated background thread so the probe does not freeze the UI. `HttpServer.stop` closes SSE keepalive sockets tracked on that listener (`server.py`); `shutdown()` alone does not join those request threads.
 *   **`plugin/framework/logging.py`:** Spawns a background thread (`_watchdog_loop`) to periodically flush status logs or monitor system health without interrupting document flow. Uses `_init_lock` and `_activity_lock` to protect logging state.
 *   **`plugin/chatbot/dialogs.py`:** Spawns a probe update thread (`run_in_background(_probe_update)`) to dynamically update dialog UI elements in the background.
-*   **`plugin/framework/worker_pool.py`:** `run_in_background` is the only allowed birthplace for background work (Opengrep `raw-uno-thread-ban`). Short jobs share a daemon pool with a fixed worker count (unbounded submit queue); long-lived or joined work passes `dedicated=True` (details in consolidations §3 below). The caller’s `contextvars` are copied into the worker so a send’s Stop scope is visible to marshal items enqueued from that job. `join()` of a pooled future from a `wa-bg-*` thread raises immediately instead of deadlocking the two-worker pool.
-*   **`plugin/framework/worker_pool.py` (`AsyncProcess`):** Standardizes how external processes are started and how their `stdout`, `stderr`, and exit callbacks are handled safely without blocking. Stream and wait threads are dedicated.
-*   **`plugin/framework/config.py`:** `set_config` / `remove_config` and GET-path persists (JSON repair, out-of-range coerce, `calc_prompt_max_tokens` upgrade) share `_config_write_lock` (`RLock`). `config:changed` is emitted after the lock is released so handlers may `get_config` / `set_config` without nesting under a write.
-*   **`plugin/framework/event_bus.py`:** Synchronous pub/sub. `emit` copies the subscriber list, then invokes; a `subscribe` that happens during that emit is not in the current fan-out. `unsubscribe` and weakref `_cleanup` **replace** the dict entry, so an in-flight emit keeps the previous list (a just-removed handler may still run once). There is **no** mutex across callbacks: a lock held while handlers run would deadlock UI vs workers and would serialize concurrent same-name emits that the thread-local re-entrancy guard is designed to **allow**. Snapshotting listeners is **not** UNO safety — handlers still run on the emitter’s thread and must marshal document/UI work as in [UNO thread safety](uno-thread-safety.md). Same-thread nested `config:changed` is dropped separately (thread-local dispatch set; see §12 of that doc).
+*   **`plugin/framework/worker_pool.py`:** `run_in_background` is the only allowed birthplace for background work (Opengrep `raw-uno-thread-ban`). Short jobs share a daemon pool with a fixed worker count (unbounded submit queue); long-lived or joined work passes `dedicated=True` (details in consolidations §3 below). The caller’s `contextvars` are copied into the worker so a send’s Stop scope is visible to marshal items enqueued from that job. `join()` of a pooled future from a `wa-bg-*` thread raises immediately instead of deadlocking the two-worker pool. Self-join checks use `BackgroundHandle.is_current_thread()`; a pooled handle has no thread, so that check is false and the deadlock guard still runs.
+*   **`plugin/framework/worker_pool.py` (`AsyncProcess`):** Standardizes how external processes are started and how their `stdout`, `stderr`, and exit callbacks are handled safely without blocking. Stream and wait threads are dedicated. Each `start()` gives its wait thread that child and those readers, so a second `start()` cannot make the first wait report the new child's exit. After `process.wait()`, the wait thread joins those readers for at most 1s so a trailing line that had no newline is delivered before the exit callback when the readers finish in time. A grandchild that inherited the pipe never signals EOF; the join stays bounded and `on_exit_cb` still runs. The terminate reaper still joins with a 1s timeout. Pipes are binary (`text=True` is ignored; the reader decodes UTF-8). Line callbacks split on `\n`, `\r\n`, and a lone `\r` only.
+*   **`plugin/framework/config.py`:** One `ConfigStore` writes `writeragent.json`. `update_config(key, fn)` holds `_config_write_lock` (`RLock`) across the read, `fn`, and a patch of only the keys that changed. `set_config` / `set_configs` / `remove_config` and GET-path repairs (JSON repair, out-of-range coerce, `calc_prompt_max_tokens` upgrade) go through that store. A `set_configs` value for `api_keys_by_endpoint` is merged into the map just read under that lock (only the slots in the patch change), so Settings OK does not replace the map with a copy taken outside the lock. `config:changed` is emitted after the lock is released so handlers may `get_config` / `set_config` without nesting under a write.
+*   **`plugin/framework/event_bus.py`:** Synchronous pub/sub. `emit` copies the subscriber list, then invokes; a `subscribe` that happens during that emit is not in the current fan-out. The subscriber-list lock is an `RLock`. Weakref cleanup is queued and applied when the outermost critical section exits, so a cyclic subscriber collected while that lock is held (the copy allocates) cannot deadlock by taking the lock again. `unsubscribe` and weakref `_cleanup` **replace** the dict entry, so an in-flight emit keeps the previous list (a just-removed handler may still run once). There is **no** mutex across callbacks: a lock held while handlers run would deadlock UI vs workers and would serialize concurrent same-name emits that the thread-local re-entrancy guard is designed to **allow**. Snapshotting listeners is **not** UNO safety — handlers still run on the emitter’s thread and must marshal document/UI work as in [UNO thread safety](uno-thread-safety.md). Same-thread nested `config:changed` is dropped separately (thread-local dispatch set; see §12 of that doc). `get_event_bus` reuses the bus on `sys` when that object's class has the same `__module__` and `__qualname__` as `EventBus`, so a second import of this file (a new class object) does not replace `sys._writeragent_event_bus` and orphan the first bus's subscriptions. `subscribe(..., weak=True)` uses `WeakMethod` for Python methods. When `WeakMethod` raises `TypeError` (builtin bound methods, or methods of instances that cannot be weak-referenced), the callback is stored strongly. `weakref.ref` of those callables targets a temporary bound-method object, so an inline subscription disappears on the next garbage collection. Plain functions still use `weakref.ref`, then a strong reference if that fails.
 
 ---
 
@@ -134,7 +139,8 @@ Each job calls `thread_guard.set_background_task(name)` at start and clears it i
 CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would block soffice exit. The host uses an unbounded stdlib queue plus a fixed set of daemon threads named `wa-bg-0` … (`_DaemonWorkPool`). Load **queues**; it does not spawn extra native threads. The pool is bounded in **worker count**, not queue length.
 
 - Size: [`BACKGROUND_POOL_MAX_WORKERS`](../../plugin/framework/constants.py) (2), overridable with `WRITERAGENT_BG_POOL_WORKERS`.
-- Lazy singleton. No production `shutdown()` (lifetime = soffice). Tests use `reset_background_pool_for_tests()`.
+- Lazy singleton. No production `shutdown()` (lifetime = soffice). Tests use `reset_background_pool_for_tests()`, which swaps the pool out under `_pool_lock` and joins it after releasing the lock. Joining while the lock was held deadlocked a job that called `run_in_background` (`_get_pool` needs the same lock).
+- `shutdown(wait=True)` joins each worker until it has exited. A single 5s `join` used to return while the in-flight job was still running, leaving a `wa-bg-retired-*` thread beside the next pool. Joins are sliced so they stay interruptible; a job that never returns blocks shutdown instead of being abandoned.
 
 #### Dedicated vs pooled
 
@@ -151,7 +157,7 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 | `plugin/embeddings/embeddings_periodic.py` | `embeddings_periodic_indexer` |
 | `plugin/framework/async_stream.py` | `stream-completion`, `stream-async`, `async-worker`, `blocking-thread` |
 | `plugin/chatbot/tool_loop.py` | `llm-worker-*`, `llm-worker-final` |
-| `plugin/chatbot/tool_loop_actions.py` | `tool-async-*` |
+| `plugin/chatbot/tool_loop_actions.py` | `tool-async-*`, `tool-sync-*` |
 | `plugin/framework/tool.py` `_execute_with_timeout` | `tool-timeout-*` (caller `join(timeout)`) |
 | `plugin/writer/locale/harper.py` | `harper-ensure-ready` (download + LSP start) |
 | `plugin/embeddings/search_ui.py`, `plugin/scripting/python_runner_ui.py`, `plugin/scripting/editor_host.py` | `warm-venv-worker` |
@@ -164,6 +170,8 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 **Not on this pool:** Opengrep-excluded raw threads (`grammar_work_queue.py`, `venv_worker.py` IPC, `harper.py` stdout, CDP `browser_supervisor`). Local `ThreadPoolExecutor` in `web_research_deep.py` and jedi (`editor_main.py`) stay local.
 
 Never `join()` a **pooled** job from another **pooled** job (pool-join deadlock). Anything joined with a timeout from a context that might itself be pooled must be dedicated.
+
+`tool-timeout-*` joins with the tool's timeout and then abandons the worker only when the queue is still empty. A result already queued is returned even while that thread is still unwinding. `SystemExit`, `KeyboardInterrupt`, and `GeneratorExit` are queued before the dedicated thread unwinds and come back as `TOOL_WORKER_EXIT`, so the caller does not block on an empty queue. The timeout length is unchanged. A timeout returns `TOOL_TIMEOUT` and does not cancel the send: the drain has to deliver that dict as `TOOL_DONE`. Cancelling `send_cancellation` from inside the tool made the stop checker discard the error and left the turn waiting for `TOOL_DONE`.
 
 #### Startup marshal
 
@@ -210,7 +218,7 @@ flowchart TD
 2. **Approved pump entry points only:**
    - [`pump_ui_idle`](../../plugin/framework/queue_executor.py): Drains the `QueueExecutor` work queue **then** pumps VCL (only when called by the active owner or when no owner is active).
    - [`process_events_to_idle`](../../plugin/framework/uno_context.py): Pumps VCL only when permitted (no active owner or called by owner).
-   - [`wait_while_pumping`](../../plugin/framework/uno_context.py): Secondary **wait** loops (Harper READY lint). On VCL, calls `process_events_to_idle(force=False)` each tick; off-main (Writer `doProofreading` is a `Dummy-*` worker) **posts** PE2I to the main thread — never pump on the waiter. The post is skipped while `default_executor._work_queue` is non-empty (one outstanding marshal is enough). That queue is process-wide, so a unit test that leaves an item queued makes a later off-main wait on the same pytest-xdist worker time out. Drain the item before the test returns. Do not copy a local PE2I `while` into feature modules. Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`.
+   - [`wait_while_pumping`](../../plugin/framework/uno_context.py): Secondary **wait** loops (Harper READY lint). On VCL, calls `process_events_to_idle(force=False)` each tick; off-main (Writer `doProofreading` is a `Dummy-*` worker) **posts** PE2I to the main thread — never pump on the waiter. Repeated ticks coalesce to one outstanding secondary-idle pump (`callable_is_scheduled` on that callable, including the pre-AsyncCallback pending list). Unrelated marshal items do not suppress the post: the queue is process-wide, and a leftover item used to skip PE2I for the whole linguistic wait. A dropped post is not sticky. Do not copy a local PE2I `while` into feature modules. Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`.
    - Direct calls to `toolkit.processEventsToIdle()` outside these helpers are forbidden and enforced via Opengrep rule `raw-process-events-to-idle`.
 3. **Secondary pump suppression:** When a drain owner is active, secondary callers (document research grep progress, Harper status pump, dialog probes, `wait_while_pumping`) become no-ops for VCL pumping to prevent double-pumping and listener re-entry.
 4. **`post_to_main_thread` execution behavior:** [`QueueExecutor.post`](../../plugin/framework/queue_executor.py) can execute inline under `WRITERAGENT_TESTING=1` or when `AsyncCallback` is unavailable. Do not assume `post_to_main_thread` strictly defers without an explicit enqueue-only boundary.
@@ -250,7 +258,7 @@ flowchart TD
    - One-time retry is permitted **only** for the initial request frame on crash/EOF (`BrokenPipeError`, empty stdout, `OSError`).
    - Host **read** timeouts (hung user code or C extensions) terminate without replay so Calc/Writer does not double-wait.
    - PPT-Master intermediate turns are non-replayable; write timeouts terminate the worker without replaying the turn because host-side UNO mutations may already have occurred.
-6. **One serialized writer per child:** All stdin writes to a subprocess share a serialization lock (`_io_lock`).
+6. **One serialized writer per child:** All stdin writes to a subprocess share a serialization lock (`_io_lock`). The UI thread does not block on that lock: if it is held, the caller gets `WORKER_REENTRY`. Other threads wait a bounded time and leave if the holder enters a tool RPC, so a host callback that needs the waiting thread cannot sit in `acquire()` forever.
 
 ---
 

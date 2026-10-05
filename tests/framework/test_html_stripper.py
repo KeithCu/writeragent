@@ -38,6 +38,14 @@ def test_strip_html_tags_math_comparison():
     assert strip_html_tags(text) == "If 3 < 5 and y > 2, then success."
 
 
+def test_strip_html_tags_unquoted_url_slash_still_drops_script_body():
+    # A trailing slash inside an unquoted attribute is not an empty element.
+    # Treating it as ``<script/>`` used to keep alert(1).
+    assert strip_html_tags("<script src=https://cdn.example.com/>alert(1)</script>ok") == "ok"
+    assert strip_html_tags("<script/>alert(1)") == "alert(1)"
+    assert strip_html_tags("<script />alert(1)") == "alert(1)"
+
+
 def test_strip_html_tags_drops_script_and_style_bodies():
     # Tag bytes used to be dropped but element text survived.
     assert strip_html_tags("<script>alert(1)</script><p>ok</p>") == "ok"
@@ -70,12 +78,29 @@ def test_strip_html_tags_comparison_stays_text():
 def test_strip_html_tags_unescapes_entities():
     assert strip_html_tags("a &amp; b") == "a & b"
     assert strip_html_tags("<p>3 &lt; 5</p>") == "3 < 5"
+    assert strip_html_tags("&lt;b&gt;bold&lt;/b&gt;") == "<b>bold</b>"
+    assert strip_html_tags("&#60;p&#62;3 &#60; 5&#60;/p&#62;") == "<p>3 < 5</p>"
+    assert strip_html_tags("&#x3c;p&#x3e;3 &#x3c; 5&#x3c;/p&#x3e;") == "<p>3 < 5</p>"
 
 
 def test_streaming_html_stripper_holds_split_entity():
     stripper = StreamingHTMLStripper()
     assert stripper.feed("a &am") == "a "
     assert stripper.feed("p; b") + stripper.finalize() == "& b"
+
+
+def test_strip_html_tags_newline_after_entity():
+    """An ampersand entity or token followed by a newline must preserve the newline."""
+    assert strip_html_tags("Hello &\nWorld") == "Hello &\nWorld"
+    assert strip_html_tags("Hello &amp;\nWorld") == "Hello &\nWorld"
+    assert strip_html_tags("a & b\nc") == "a & b\nc"
+
+    # Streaming API must also preserve the newline
+    stripper = StreamingHTMLStripper()
+    assert stripper.feed("Hello &\n") + stripper.feed("World") + stripper.finalize() == "Hello &\nWorld"
+
+    stripper2 = StreamingHTMLStripper()
+    assert stripper2.feed("Hello &amp") + stripper2.feed(";\n") + stripper2.finalize() == "Hello &\n"
 
 
 def test_streaming_html_stripper_chunks():
@@ -135,6 +160,92 @@ def test_streaming_html_stripper_feed_over_deal_max_chunk():
     out = stripper.feed(body) + stripper.finalize()
     assert out == "Hello " + ("x" * (DEAL_MAX_HTML_CHUNK + 10)) + " world"
     assert out == strip_html_tags(body)
+
+
+def test_generic_and_autolink_tokens_are_not_stripped():
+    """A letter after ``<`` is not enough to delete the token.
+
+    What was wrong: ``<String>``, ``<https://…>``, and ``<user@host>`` matched
+    the same rule as ``<b>``. The live stripper and the committed plain
+    fallback both dropped them. Chunks must agree with the whole string.
+    """
+    samples = (
+        "Use List<String> here",
+        "Write <user@example.com> today",
+        "See <https://example.com/a>",
+        "Map<String, Integer> values",
+        "See <script> List<String>",
+    )
+    expected = {
+        "See <script> List<String>": "See  List<String>",
+    }
+    for sample in samples:
+        want = expected.get(sample, sample)
+        assert strip_html_tags(sample) == want
+        stripper = StreamingHTMLStripper()
+        streamed = "".join(stripper.feed(sample[i : i + 3]) for i in range(0, len(sample), 3))
+        assert streamed + stripper.finalize() == want
+
+
+def test_element_named_prose_tokens_are_not_stripped():
+    """A known element name glued to a non-delimiter is prose.
+
+    What was wrong: the name run stopped at ``@`` or ``,``, then any name in
+    ``_HTML_ELEMENTS`` was deleted. ``<a@b.com>``, ``<b, c>``, and ``<em@x>``
+    disappeared. ``<user@example.com>`` already stayed, because ``user`` is
+    not an element name. Whole-string and 3-character streaming must agree.
+    Real tags in the same string are still removed.
+    """
+    samples = (
+        "<a@b.com>",
+        "Mail <a@b.com> today",
+        "<b, c>",
+        "See <b, c> now",
+        "<em@x>",
+        "Keep <em@x> please",
+        "<A@b.com>",
+        "<B, c>",
+        "<EM@x>",
+        "<user@example.com>",
+        "Mail <a@b.com> then <b>bold</b> and <em@x>",
+        "See <b, c> plus <i>italic</i>.",
+        '<a href="https://example.com">link</a> <a@b.com>',
+        "<b >spaced</b> <b, c>",
+        "<em>real</em> <em@x>",
+        "<a/> <a@b.com>",
+        "<br/> <em@x>",
+        "<script>alert(1)</script><em@x>",
+    )
+    expected = {
+        "Mail <a@b.com> then <b>bold</b> and <em@x>": "Mail <a@b.com> then bold and <em@x>",
+        "See <b, c> plus <i>italic</i>.": "See <b, c> plus italic.",
+        '<a href="https://example.com">link</a> <a@b.com>': "link <a@b.com>",
+        "<b >spaced</b> <b, c>": "spaced <b, c>",
+        "<em>real</em> <em@x>": "real <em@x>",
+        "<a/> <a@b.com>": " <a@b.com>",
+        "<br/> <em@x>": " <em@x>",
+        "<script>alert(1)</script><em@x>": "<em@x>",
+    }
+    for sample in samples:
+        want = expected.get(sample, sample)
+        assert strip_html_tags(sample) == want
+        stripper = StreamingHTMLStripper()
+        streamed = "".join(stripper.feed(sample[i : i + 3]) for i in range(0, len(sample), 3))
+        assert streamed + stripper.finalize() == want
+
+
+def test_formatting_and_script_tags_are_still_stripped():
+    assert strip_html_tags("<b>bold</b>") == "bold"
+    assert strip_html_tags("<i>italic</i>") == "italic"
+    assert strip_html_tags("<em>z</em>") == "z"
+    assert strip_html_tags("<b >x</b>") == "x"
+    assert strip_html_tags('<a href="https://example.com">link</a>') == "link"
+    assert strip_html_tags("<script>alert(1)</script>ok") == "ok"
+    assert strip_html_tags("<!-- secret -->ok") == "ok"
+    assert strip_html_tags("<br/>next") == "next"
+    assert strip_html_tags("<a/>next") == "next"
+    assert strip_html_tags("a<widget/>b") == "ab"
+    assert strip_html_tags('<notatag alt="a>b">keep') == '<notatag alt="a>b">keep'
 
 
 def test_streaming_html_stripper_feed_tag_spans_deal_slice():

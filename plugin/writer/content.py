@@ -1049,6 +1049,8 @@ class ApplyDocumentContent(ToolBase):
                       if _use_opts else search_mod.find_all_ranges(doc, search_string))
             if not ranges:
                 return search_mod.build_search_not_found_response(all_matches=True), session
+            from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
+            max_limit_hit = len(ranges) >= _MAX_SEARCH_REPLACEMENTS
             # Decide before any replace. An empty replacement that is the last text
             # in a table deletes the table instead of leaving an empty shell; those
             # matches are not also cleared as text (that would add a second redline).
@@ -1111,6 +1113,9 @@ class ApplyDocumentContent(ToolBase):
                 resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
             else:
                 resp = search_mod.build_search_replace_response(count, use_preserve=use_preserve)
+                from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
+                if max_limit_hit:
+                    resp["message"] += f" Note: Replacement stopped at the safety limit of {_MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
                 if count > 1:
                     resp["message"] += " edited_context shows the first occurrence's neighborhood."
                 if doomed:

@@ -178,7 +178,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `images_scale` | `float` | `1.0` | `0.5`–`3.0` | Upscale before OCR/layout. Try 2.0 for small screenshots. |
 | `worker_timeout_sec` | `int` | `300` | `30`–`600` | Host subprocess limit for Vision Helpers (first model download). |
 | `artifacts_path` | `string` | `""` |  | Optional folder from docling-tools models download (offline use). |
-| `text_score` | `float` | `0.5` | `0.0`–`1.0` | RapidOCR minimum text score. Raise to reduce garbage text. |
+| `text_score` | `float` | `0.5` | `0.0`–`1.0` | RapidOCR minimum text score. 0.0 is a real threshold (not the default). Raise to reduce garbage text. |
 | `force_full_page_ocr` | `boolean` | `true` |  | Recommended for embedded graphics exported from LibreOffice. |
 | `table_mode` | `string` | `"accurate"` |  | Table extraction mode Options: accurate (Accurate (default)), fast (Fast) |
 | `do_cell_matching` | `boolean` | `true` |  | Align detected table cells with content (extract_structure). |

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -116,6 +117,29 @@ def test_delete_paragraphs_removes_from_corpus(tmp_path):
                         [{"doc_url": "file:///a.odt", "para_index": 0}],
                     )
     assert result["deleted"] == 1
+    saved = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert saved["chunk_count"] == "0"
+    assert saved["dim"] == "384"
+
+
+def test_delete_paragraphs_non_dict_meta_becomes_object(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text("[1, 2, 3]", encoding="utf-8")
+    db_path = tmp_path / "corpus.db"
+
+    with patch("plugin.embeddings.venv.embeddings_sqlite.connect_corpus_db") as mock_connect:
+        conn = MagicMock()
+        mock_connect.return_value = conn
+        with patch("plugin.embeddings.venv.embeddings_sqlite.ensure_schema"):
+            with patch("plugin.embeddings.venv.embeddings_sqlite.delete_paragraph_keys", return_value=1):
+                with patch("plugin.embeddings.venv.embeddings_sqlite.corpus_chunk_count", return_value=0):
+                    result = embeddings_index.delete_paragraphs(
+                        str(db_path),
+                        str(meta_path),
+                        [{"doc_url": "file:///a.odt", "para_index": 0}],
+                    )
+    assert result["deleted"] == 1
+    assert json.loads(meta_path.read_text(encoding="utf-8")) == {"chunk_count": "0"}
 
 
 def test_is_garbage_hit():

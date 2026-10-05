@@ -693,9 +693,80 @@ def test_injected_run_sql_ignores_caller_scoped_dir(tmp_path, monkeypatch):
     bound = executor.custom_tools["run_sql"]
     bound("select 1", scoped_dir="/etc", files=["passwd"])
     assert seen["scoped_dir"] == str(tmp_path)
-    executor.state = {"scoped_dir": None}
-    bound("select 1", scoped_dir="/etc")
-    assert seen["scoped_dir"] is None
+    # Assignment after inject must not replace the host folder.
+    executor.state["scoped_dir"] = "/tmp/not-the-host"
+    bound("select 1", scoped_dir="/etc", files=["passwd"])
+    assert seen["scoped_dir"] == str(tmp_path)
+
+
+def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions):
+    """A cell must not open another workbook's catalog by passing its session id."""
+    from plugin.scripting.venv.duckdb_sql import session_duckdb
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    other = "calc:file:///other-workbook"
+    seed = _execute_request(
+        "import pandas as pd\n"
+        "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
+        "result = 1",
+        None,
+        session_id=other,
+    )
+    assert seed["status"] == "ok", seed
+    stolen = _execute_request(
+        "result = session_duckdb('calc:file:///other-workbook').execute("
+        "'SELECT x FROM secret').fetchone()[0]",
+        None,
+        session_id="calc:file:///this-workbook",
+    )
+    assert stolen["status"] == "error", stolen
+    direct = _execute_request(
+        "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
+        "result = raw('calc:file:///other-workbook').execute('SELECT x FROM secret').fetchone()[0]",
+        None,
+        session_id="calc:file:///this-workbook",
+    )
+    assert direct["status"] == "error", direct
+    # Host callers outside the sandbox still name a workbook.
+    host = session_duckdb(session_id=other)
+    assert host.execute("SELECT x FROM secret").fetchone()[0] == 7
+
+
+def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions, monkeypatch):
+    """SIGALRM fallback thread must not open another workbook's catalog."""
+    import signal
+
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    other = "calc:file:///other-workbook-timeout"
+    seed = _execute_request(
+        "import pandas as pd\n"
+        "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
+        "result = 1",
+        None,
+        session_id=other,
+    )
+    assert seed["status"] == "ok", seed
+
+    real_signal = signal.signal
+
+    def _refuse_alarm(signum, handler):
+        if signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", _refuse_alarm)
+    stolen = _execute_request(
+        "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
+        "result = raw('calc:file:///other-workbook-timeout').execute("
+        "'SELECT x FROM secret').fetchone()[0]",
+        None,
+        session_id="calc:file:///this-workbook-timeout",
+    )
+    assert stolen["status"] == "error", stolen
+    assert stolen.get("result") != 7
+    message = str(stolen.get("message") or "")
+    assert "secret" in message.lower() or "catalog" in message.lower()
 
 
 def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
@@ -879,3 +950,28 @@ def test_format_sql_for_calc_shows_truncation_note():
     err = format_sql_for_calc({"status": "error", "code": "READONLY_VIOLATION", "message": "SQL contains write"})
     assert err[0][0].startswith("SQL error")
     assert "write" in err[1][0]
+
+
+def test_is_sql_result_long_message_is_bool():
+    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+    from plugin.scripting.duckdb_sql import is_sql_result, parse_sql_script_header
+
+    message = "Catalog Error: " + ("x" * (DEAL_MAX_TOKEN + 1))
+    assert is_sql_result({"status": "error", "code": "DUCKDB_ERROR", "message": message}) is True
+    header = "SELECT 1;\n" * 400
+    assert parse_sql_script_header(header) is None
+
+
+def test_insert_sql_result_into_calc() -> None:
+    from unittest.mock import MagicMock, patch
+    from plugin.scripting.duckdb_sql import insert_sql_result_into_calc
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    result = {"status": "ok", "tables": [{"columns": ["a"], "rows": [[1]]}]}
+
+    with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
+        res = insert_sql_result_into_calc(doc, ctx, result)
+        assert res == 1
+        mock_insert.assert_called_once()
+

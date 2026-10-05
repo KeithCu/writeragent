@@ -33,9 +33,9 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 
 | Symbol | Purpose |
 |--------|---------|
-| `set_fallback_ctx` / `get_ctx` | Store / return the extension bootstrap component context (prefer this over `uno.getComponentContext()`). |
+| `set_fallback_ctx` / `get_ctx` | Store / return the extension bootstrap component context (prefer this over `uno.getComponentContext()`). Repeat calls return the same object: one guard proxy per target when the dev thread guard is on, the raw context in release. |
 | `get_service_manager` | `ctx.ServiceManager` or `ctx.getServiceManager()`. |
-| `get_desktop` | `com.sun.star.frame.Desktop` from the extension context. |
+| `get_desktop` | `com.sun.star.frame.Desktop` from the extension context. Skips create when `desktop_create_is_unsafe()` (no-VCL `uno.bin` / `unopkg`). That answer is cached; process identity does not change. Tests call `reset_desktop_create_is_unsafe_for_tests()`. |
 | `get_toolkit` | `com.sun.star.awt.Toolkit` (event pump / focus). |
 | `process_events_to_idle` | Drain VCL via the approved toolkit pump (skips when a chat/MCP drain owner is active). |
 | `wait_while_pumping` | Secondary wait loop: PE2I (`force=False`) on the VCL thread, else **post** PE2I to main (Writer linguistic `Dummy-*` waiters). Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`. |
@@ -48,9 +48,11 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 | `product_display_name` / `is_libreharper` | User-visible product name / LibreHarper probe. |
 | `get_active_document` | `desktop.getCurrentComponent()` (Start Center possible when nothing is open). |
 | `get_document_from_frame` | Model from a sidebar frame controller (preferred over Desktop for panels). |
-| `focus_preserved` / stream-focus helpers | Sidebar query-field focus restore after RichTextControl; **UI-specific, not generic UNO**. |
+| `focus_preserved` | Restore an explicit control after RichTextControl steals focus. No process-wide pin. |
 
 `get_toolkit` / `get_ctx` are also the drain chokepoint for [`plugin/framework/async_stream.py`](../../plugin/framework/async_stream.py). Thread-affinity wrappers live in [`plugin/framework/thread_guard.py`](../../plugin/framework/thread_guard.py) (`guard_uno`, `main_thread_only`) — see [uno-thread-safety.md](uno-thread-safety.md).
+
+Sidebar focus pins, page-click handlers, and the chat panel are per frame, not per process. [`plugin/framework/frame_session.py`](../../plugin/framework/frame_session.py) `FrameSession` is created when the sidebar factory is given a frame and destroyed when that frame closes. The panel is constructed with that session's document id. Clicks, stream restore, and focus restore close over the session. Do not use `getCurrentComponent()`, `get_active_document()`, or `panels[0]` to find the document when the caller already has the frame.
 
 ### 1.2 Document resolve-by-URL-or-uid
 
@@ -60,11 +62,11 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 |--------|--------|---------|
 | `normalize_doc_url` | `uno_context` | Strip + drop a trailing `/` so URL identity compares. |
 | `get_runtime_uid` | `uno_context` | Per-session id (`getRuntimeUID` / attribute / property); works for untitled docs. |
-| `uno_same` | `uno_context` | UNO object identity: `is` → `==` → `uno.isSame` (unwrap viral proxy first). PyUNO wrappers, not a thread-proxy requirement. |
-| `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. |
+| `uno_same` | `uno_context` | UNO object identity: `is` → `==` → `uno.isSame` (unwrap viral proxy first). PyUNO wrappers, not a thread-proxy requirement. Calc shapes canvas uses it to match the active sheet to `getByIndex` (distinct wrappers). |
+| `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. A failed `nextElement` ends the walk (the enumeration may not advance). A fetched element that then raises is skipped. The walk also stops at 200000 elements. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept). |
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
-| `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL`, or reuse an already-open component. |
+| `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL`, or reuse an already-open component. A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close only if this call loaded a hidden sibling (not a user-visible doc). |
 | `list_open_documents` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
@@ -91,7 +93,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
 | `_writer_char_count` / `_read_writer_text_slice` | O(1) `CharacterCount` when possible; slice reads for chat excerpts. |
 
-Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented.
+Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot.
 
 ### 1.4 Chat `DocumentService` and full-text dispatch
 
@@ -100,8 +102,8 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | Symbol | Purpose |
 |--------|---------|
 | `get_full_document_text` | Dispatch: Writer → `text_helpers`; Calc → lazy `plugin.calc.analyzer`; Draw/Impress → `plugin.draw.bridge`. |
-| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler (Writer start/end + selection markers; Calc/Draw delegated). |
-| `resolve_locator` | `paragraph:` / `heading:` / `chapter_number:` / `bookmark:` → paragraph index. `heading:` is sibling-ordinal; `chapter_number:` matches the paint label. |
+| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Selection markers. |
+| `resolve_locator` | `paragraph:`, `heading:` (sibling-ordinal), and `chapter_number:` (paint label) resolve here. Every `bookmark:`, plus `heading_text:`, `section:`, and `page:`, goes to `TreeService.resolve_writer_locator`. A missing bookmark, or a bookmark whose anchor does not land on a paragraph, raises `ToolExecutionError` (it does not become paragraph 0). |
 | `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, type flags, full text, length, chat context, page helpers, paragraph ranges. |
 
 `DocumentService` methods that are **wrappers**, not new logic:
@@ -126,14 +128,14 @@ Module: [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py)
 | Symbol | Purpose |
 |--------|---------|
 | `DocumentType` | `UNKNOWN` / `WRITER` / `CALC` / `DRAW` / `IMPRESS`. |
-| `get_document_type` | `supportsService` against the four canonical document services. |
+| `get_document_type` | First `supportsService` hit in `_DOCUMENT_SERVICE_MAP` order. PresentationDocument is before DrawingDocument because Impress supports both; Draw-only stays DRAW. |
 | `is_writer` / `is_calc` / `is_draw` | Enum predicates (`is_draw` includes Impress). |
 | `get_document_uno_services` | Live `supportsService` set for tool filtering. |
 | `uno_services_for_doc_type_label` / `uno_services_for_document` | Label → services without (or with) a live model. |
 | `doc_type_label_for_enum` | Lowercase label; `impress_as_draw=True` for research/visual family. |
 | `doc_type_title_for_label` | Sidebar title (`impress` displays as Draw). |
 
-Canonical service strings are `_DOCUMENT_SERVICE_MAP`. `visual_helpers` duplicates those strings plus `WebDocument` (must be checked first).
+Canonical service strings are `_DOCUMENT_SERVICE_MAP`. Map order is the classification priority (`get_document_type` returns the first match). `visual_helpers` duplicates those strings plus `WebDocument` (must be checked first).
 
 ### 1.6 User-defined document properties
 
@@ -200,7 +202,7 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `has_uno_property` / `safe_set_property` / `safe_get_property` | PropertySetInfo probes (never `hasattr` on UNO attrs). |
 | `safe_try_method` | Call a method if present; log and continue. |
 | `parse_color_to_uno_int` | Hex / name / `rgb()` / int / tuple → 24-bit UNO RGB. |
-| `apply_character_properties` | Batch Char* on a shape/cell/style. |
+| `apply_character_properties` | Batch Char* on a shape/cell/style. Italic sets `CharPosture` to `FontSlant.ITALIC` (IDL value 2). Integer 1 is `OBLIQUE`. |
 | `mm_to_units` / `px_to_units` / `units_to_px` / `mm_to_px` | 1/100 mm ↔ 96-DPI px. |
 | `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
@@ -220,13 +222,13 @@ Module: [`plugin/framework/errors.py`](../../plugin/framework/errors.py) — UNO
 | `DocumentDisposedError` | Disposed object (`DISPOSED_OBJECT`). |
 | `is_disposed_exception` | `DisposedException` / `RuntimeException` name heuristic + UNO types (UI lifecycle). |
 | `is_tool_document_disposed` | `execute_safe` mapping: live-doc bare `RuntimeException` is not `DOCUMENT_DISPOSED`. |
-| `suppress_disposed` (`ignore_disposed`) | UI lifecycle: swallow disposal (and optionally other) exceptions. |
+| `suppress_disposed` (`ignore_disposed`) | UI lifecycle: swallow disposal (and optionally other `Exception`s). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate. |
 | `check_not_none` (`check_disposed`) | Null guard only — does **not** probe live disposal. |
 | `is_document_disposed` | Best-effort `getImplementationName` probe. |
 | `safe_uno_call` | Decorator: probes return `default`; re-raise only real disposal. |
 | `safe_call` | Call a UNO method; wrap failures in `UnoObjectError` / `DocumentDisposedError`. |
 | `handle_errors` | Decorator: wrap unexpected exceptions for real operations. |
-| `_resolve_exception_message` | Prefer UNO `.Message` over empty `str(exc)`. |
+| `resolve_exception_message` | Prefer UNO `.Message` over empty `str(exc)`. |
 
 `dialogs.format_exception_detail` is the **printable nested** formatter; `errors.format_error_payload` is the **JSON tool-error** formatter. Different jobs.
 
@@ -256,7 +258,7 @@ There is **no** single shared converter. Live implementations:
 | (inline) | `styles.py`, `get_image.py`, `duckdb_tools.py`, `calc/python/image_egress.py`, `librepy/sidebar_menus.py` | path → URL | Raw `uno.systemPathToFileUrl`. |
 | `normalize_file_url` | `text_helpers` | URL repair | `file:/path` → `file:///path`. Shared by `get_document_path` and research. **Landed.** |
 | `get_document_path` | `text_helpers` | URL → path | Repair then `file://` prefix; `uno.fileUrlToSystemPath`. |
-| `_system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. |
+| `_system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
 | `get_extension_path` | `uno_context` | URL → path | `file://` → `fileUrlToSystemPath`; else returns the URL string (`vnd.sun.star.extension://…`). |
 | `_path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
 | `_system_dir_from_file_url` | `scripting/session_manager.py` | URL → parent dir | **stdlib, no UNO** (off-main `=PY()`); Windows drive letter. |
@@ -307,7 +309,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 
 `plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `list_open_documents`”.
 
-Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, Calc workbook lifecycle, formula locator cache. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`.
+Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, Calc workbook lifecycle, formula locator cache. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`. Notebook `_doc_key` is the exception: File Open `XFilter.filter` runs on Dummy-2 (detect reload on Dummy-3), so it calls `_read_runtime_uid` (same ladder, no `@main_thread_only`). Calling the guarded getter there makes `filter()` return false and `loadComponentFromURL` return None.
 
 ### 2.4 PathSettings / work-directory vs config user-profile paths
 
@@ -401,7 +403,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | `uno_context.normalize_doc_url` vs `document_scripts._normalize_doc_url` | Trailing-slash strip | **Landed.** Script identity imports `normalize_doc_url`; the document_scripts copy is gone. |
 | `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | **Landed.** Shared `url_utils.path_to_file_url` (filesystem section). Old copies deleted; no aliases. |
 | `text_helpers.normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | **Landed for UNO callers** (`get_document_path` + research). Sandbox / session_manager stay stdlib. |
-| Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. GHA 34593327841: leftover HTML-paste Writers must be skipped per-component (`getController` / `getURL` can raise PyUNO traceback-conversion); do not abort the whole nearby listing. |
+| Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. GHA 34593327841: leftover HTML-paste Writers must be skipped per-component (`getController` / `getURL` can raise PyUNO traceback-conversion); do not abort the whole nearby listing. `resolve_document_by_url` still skips that fetched element, and stops when `nextElement` itself fails. |
 
 ### 3.2 Intentional splits (do not collapse)
 
@@ -461,7 +463,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 **Desktop / GraphicProvider duplication (lower value)**
 
-- `uno_context._current_document_controller` uses `get_desktop` (no-VCL fail-soft, issue #768).
+- Document click handlers use the sidebar frame's controller. They do not call `get_desktop` / `getCurrentComponent()`.
 - `main.py._load_icon_graphic` vs `librepy/sidebar_menus.py` GraphicProvider-from-URL (LibrePy also tries filesystem).
 - `create_property_value` (`writer/format.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
 
@@ -471,9 +473,11 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 ### 3.5 `uno_context.py` scope creep
 
-The module mixes (1) true UNO globals (ctx, desktop, toolkit, package URL, resolve-by-url) with (2) sidebar stream-focus tracking (`install_stream_focus_tracker`, `note_user_left_query`, …). Focus helpers are real bugfixes; they are not generic utilities. Future work should **not** add more UI here. An optional later split is listed below; it is not required to fix overlap.
+`uno_context` keeps the UNO globals (ctx, desktop, toolkit, package URL, resolve-by-url) and `focus_preserved` (explicit control, no process pin). Sidebar listeners, the focus pin, and the panel live on [`FrameSession`](../../plugin/framework/frame_session.py). Do not put them back in process globals.
 
-Each open sidebar gets its own query `focusGained` listener. `install_stream_focus_tracker` does not replace the process-wide restore pin (`set_default_focus_restore` owns that). Stream scroll passes that panel's Ask field into `restore_query_if_user_still_there`, so a second window does not `setFocus` the first. Leave-query listeners (Stop/Clear/Send) remove themselves on `disposing` and are not attached twice to the same control.
+Each open frame has one session. Its query `focusGained`, leave-query, and page-click listeners close over that session. A control's own `disposing` forgets the Python binding and does not call `remove*`. Frame close releases this session's query, leave, and click listeners so those closures cannot keep the session alive, and does not remove the frame listener itself (that broadcaster is already walking its list). A dead control's `remove*` is ignored. Explicit panel release removes listeners only when the disposed panel is the one currently bound to that session. A late dispose of a previous sidebar on the same frame clears that control's focus pin when it is still the pin, and leaves the rebound sidebar's listeners in place. A second frame's dispose or click does not touch the first.
+
+The session stays in the open list only when the frame-close listener attached. If that attach fails, nothing would call `dispose`, so the session is not left tracked. `dispose` itself runs only from that callback. `getController`, `addFocusListener`, `addMouseListener`, and `addMouseClickHandler` re-raise a `UNO thread violation` instead of logging it at debug and returning as if the listener were installed. Other attach failures stay a debug log. `install` runs on the main thread. The sidebar caller (`panel_wiring._install_frame_session_listeners`) lets that thread violation propagate and still logs other install failures at debug.
 
 ---
 
@@ -505,11 +509,11 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 5. **Shared PathSettings locator** (`_path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
 6. **`DocumentService.detect_doc_type`** → `doc_type_label_for_enum(..., impress_as_draw=True)` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
 7. **`get_active_document_for_scripts`** → `get_active_document` + type filter (drop the second Desktop create).
-8. **`_current_document_controller`** → `get_desktop` / `get_active_document` instead of a third Desktop create.
+8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.
 
 ### P3 — optional / low value
 
-9. Stop adding UI to `uno_context`; optional extract of stream-focus helpers.
+9. Stop adding UI to `uno_context`. **Landed:** stream-focus listeners and the pin are `FrameSession`, not process globals. `focus_preserved` stays, and takes the panel's Ask field explicitly.
 10. GraphicProvider icon load: `main.py` vs `librepy/sidebar_menus.py` (LibrePy’s filesystem fallback is the extra behavior).
 11. Point remaining `uno.systemPathToFileUrl` image/math sites at the P1 helper **after** a Windows smoke check.
 12. Notebook `file://` strip fallback → same URL→path helper.

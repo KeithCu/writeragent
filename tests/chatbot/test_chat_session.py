@@ -46,6 +46,15 @@ def test_set_system_context_clears_document_block():
     assert session.document_context == ""
 
 
+def test_add_assistant_message_replaces_open_transcript_row():
+    """The streamed paint row is not a second copy of the committed answer."""
+    session = ChatSession(system_prompt="Sys")
+    session.messages.append({"role": "assistant", "content": "stream", "_open_transcript": True})
+    session.add_assistant_message(content="<p>final</p>")
+    assistant = [message for message in session.messages if message["role"] == "assistant"]
+    assert assistant == [{"role": "assistant", "content": "<p>final</p>"}]
+
+
 def test_add_message_shapes():
     session = ChatSession(system_prompt="Sys")
     session.add_user_message("hello")
@@ -126,11 +135,17 @@ def test_clear_resets_messages_and_document_context():
     mock_db.reset_mock()
 
     session.compaction = object()
+    session.active_specialized_domain = "tables"
+    session.python_tool_domain = "numpy"
+    session.tool_streamed_texts = {"call": ["chunk"]}
     session.clear()
 
     mock_db.clear.assert_called_once()
     assert session.document_context == ""
     assert session.compaction is None
+    assert session.active_specialized_domain is None
+    assert session.python_tool_domain is None
+    assert session.tool_streamed_texts == {}
     assert len(session.messages) == 1
     assert session.messages[0] == {"role": "system", "content": "Sys"}
     mock_db.add_message.assert_called_with("system", "Sys")

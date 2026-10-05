@@ -22,91 +22,55 @@ def _vision_params_for(helper: str) -> dict:
 
 
 @patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.scripting.python_runner.run_code_in_user_venv")
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_execute_and_insert_vision_venv_path(mock_resolve, mock_venv, mock_insert):
+@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+def test_execute_and_insert_vision_venv_path(mock_orchestrator, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_resolve.return_value = b"png-bytes"
-        mock_venv.return_value = {
-            "status": "ok",
-            "result": {
-                "status": "ok",
-                "helper": "extract_text",
-                "html": "<p>line1</p><p>line2</p>",
-                "metrics": {"line_count": 2},
-            },
-        }
+        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}}]}
         code = get_vision_script_templates()["extract_text"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
     assert "extract_text" in outcome["status_ok_text"]
     assert "HTML" in outcome["status_ok_text"]
-    mock_resolve.assert_called_once()
-    mock_venv.assert_called_once()
-    assert mock_venv.call_args.kwargs["bindings"] == {"image": b"png-bytes"}
+    mock_orchestrator.assert_called_once()
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs["params"] is not None
 
 
 @patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.scripting.python_runner.run_code_in_user_venv")
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_execute_and_insert_vision_venv_path_calc(mock_resolve, mock_venv, mock_insert):
+@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+def test_execute_and_insert_vision_venv_path_calc(mock_orchestrator, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=False), patch(
         "plugin.scripting.python_runner.is_calc", return_value=True
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_resolve.return_value = b"png-bytes"
-        mock_venv.return_value = {
-            "status": "ok",
-            "result": {
-                "status": "ok",
-                "helper": "extract_text",
-                "html": "<p>line1</p><p>line2</p>",
-                "metrics": {"line_count": 2},
-            },
-        }
+        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}}]}
         code = get_vision_script_templates()["extract_text"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
     assert "extract_text" in outcome["status_ok_text"]
-    mock_resolve.assert_called_once()
-    mock_venv.assert_called_once()
+    mock_orchestrator.assert_called_once()
     mock_insert.assert_called_once()
 
 
 @patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.scripting.python_runner.run_code_in_user_venv")
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_execute_and_insert_vision_structure_writer(mock_resolve, mock_venv, mock_insert):
+@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+def test_execute_and_insert_vision_structure_writer(mock_orchestrator, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_resolve.return_value = b"png-bytes"
-        mock_venv.return_value = {
-            "status": "ok",
-            "result": {
-                "status": "ok",
-                "helper": "extract_structure",
-                "html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>",
-                "metrics": {"block_count": 2, "table_count": 1},
-                "tables": [{"name": "table_1", "columns": ["A", "B"], "rows": [["1", "2"]]}],
-                "blocks": [],
-                "warnings": [],
-            },
-        }
+        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_structure", "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>", "metrics": {"block_count": 2, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A", "B"], "rows": [["1", "2"]]}], "blocks": [], "warnings": []}]}
         code = get_vision_script_templates()["extract_structure"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
@@ -118,40 +82,26 @@ def test_execute_and_insert_vision_structure_writer(mock_resolve, mock_venv, moc
 
 
 @patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.scripting.python_runner.run_code_in_user_venv")
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_execute_and_insert_vision_structure_calc(mock_resolve, mock_venv, mock_insert):
+@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+def test_execute_and_insert_vision_structure_calc(mock_orchestrator, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=False), patch(
         "plugin.scripting.python_runner.is_calc", return_value=True
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_resolve.return_value = b"png-bytes"
-        mock_venv.return_value = {
-            "status": "ok",
-            "result": {
-                "status": "ok",
-                "helper": "extract_structure",
-                "html": "<table><tr><td>1</td></tr></table>",
-                "metrics": {"block_count": 0, "table_count": 1},
-                "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}],
-                "blocks": [],
-                "warnings": [],
-            },
-        }
+        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_structure", "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<table><tr><td>1</td></tr></table>", "metrics": {"block_count": 0, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}], "blocks": [], "warnings": []}]}
         code = get_vision_script_templates()["extract_structure"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
-    mock_resolve.assert_called_once()
-    mock_venv.assert_called_once()
+    mock_orchestrator.assert_called_once()
     params = mock_insert.call_args.kwargs["params"]
     assert params.get("image_name") is None
 
 
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_execute_and_insert_vision_forwards_image_name(mock_resolve):
+@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+def test_execute_and_insert_vision_forwards_image_name(mock_orchestrator):
     ctx = MagicMock()
     doc = MagicMock()
 
@@ -160,7 +110,7 @@ def test_execute_and_insert_vision_forwards_image_name(mock_resolve):
     ), patch("plugin.scripting.python_runner.run_code_in_user_venv", return_value={"status": "ok", "result": None}), patch(
         "plugin.vision.vision_egress.insert_vision_result"
     ):
-        mock_resolve.return_value = b"png-bytes"
+        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p>", "metrics": {"line_count": 1}}]}
         code = (
             'from writeragent.vision import run_vision\n'
             'result = run_vision({"helper": "extract_text", "params": {"image_name": "Photo1"}}, image, {})\n'
@@ -168,8 +118,8 @@ def test_execute_and_insert_vision_forwards_image_name(mock_resolve):
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
-    mock_resolve.assert_called_once()
-    assert mock_resolve.call_args.kwargs["image_name"] == "Photo1"
+    mock_orchestrator.assert_called_once()
+    assert mock_orchestrator.call_args.kwargs["params"]["image_name"] == "Photo1"
 
 
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
@@ -220,9 +170,8 @@ _REAL_IMPORT = builtins.__import__
 
 
 @patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.scripting.python_runner.run_code_in_user_venv")
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_resolve, mock_venv, mock_insert):
+@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
+def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_orchestrator, mock_insert):
     """Run Python Script vision path must not require framework.prompts (LibrePy)."""
     sys.modules.pop("plugin.framework.prompts", None)
     ctx = MagicMock()
@@ -232,22 +181,12 @@ def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_resolve
         with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
             "plugin.scripting.python_runner.is_calc", return_value=False
         ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-            mock_resolve.return_value = b"png-bytes"
-            mock_venv.return_value = {
-                "status": "ok",
-                "result": {
-                    "status": "ok",
-                    "helper": "extract_text",
-                    "html": "<p>line1</p>",
-                    "metrics": {"line_count": 1},
-                },
-            }
+            mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p>", "metrics": {"line_count": 1}}]}
             code = get_vision_script_templates()["extract_text"]
             outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
-    mock_resolve.assert_called_once()
-    mock_venv.assert_called_once()
+    mock_orchestrator.assert_called_once()
 
 
 @patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
@@ -269,14 +208,24 @@ def test_execute_and_insert_vision_multi_image_host_loop(mock_pairs, mock_orches
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve:
-        outcome = execute_and_insert_result(ctx, doc, code)
+    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+        "plugin.scripting.client.run_vision"
+    ) as mock_run_vision:
+        mock_resolve.return_value = b"png"
+        mock_run_vision.return_value = {
+            "status": "ok",
+            "html": "<p>mock</p>",
+            "full_text": "mock",
+            "context": {"image_name": "A"}
+        }
+
+        with patch("plugin.vision.vision_egress.insert_vision_result"):
+            outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
     assert "2 images" in outcome["status_ok_text"]
     mock_orchestrator.assert_called_once()
-    mock_venv.assert_not_called()
-    mock_resolve.assert_not_called()
+    mock_run_vision.assert_not_called()
 
 
 @patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
@@ -299,12 +248,22 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
         "plugin.scripting.python_runner.is_calc", return_value=False
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True), patch(
         "plugin.scripting.python_runner.run_code_in_user_venv"
-    ) as mock_venv, patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve:
-        outcome = execute_and_insert_result(ctx, doc, code)
+    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as mock_resolve, patch(
+        "plugin.scripting.client.run_vision"
+    ) as mock_run_vision:
+        mock_resolve.return_value = b"png"
+        mock_run_vision.return_value = {
+            "status": "ok",
+            "html": "<p>mock</p>",
+            "full_text": "mock",
+            "context": {"image_name": "OnlyImg"}
+        }
+
+        with patch("plugin.vision.vision_egress.insert_vision_result"):
+            outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
     assert "Inserted formatted HTML" in outcome["status_ok_text"]
     assert "2 images" not in outcome["status_ok_text"]
     mock_orchestrator.assert_called_once()
-    mock_venv.assert_not_called()
-    mock_resolve.assert_not_called()
+    mock_run_vision.assert_not_called()

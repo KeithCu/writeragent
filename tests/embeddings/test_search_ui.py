@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for SearchDialog."""
 
+import json
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
@@ -46,15 +47,23 @@ class TestSearchDialog:
 
         show_search_dialog(mock_ctx)
 
+    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
     @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
     @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
-    @patch("plugin.framework.client.embeddings_service.maintain_folder_index")
-    @patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index")
-    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg):
+    @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
+    @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
+    def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg, mock_get_model):
+
+        # Capture the heartbeat_fn to test the exception guard
+        hb_capture = []
+        def _mock_maintain(*args, **kwargs):
+            if "heartbeat_fn" in kwargs:
+                hb_capture.append(kwargs["heartbeat_fn"])
+        mock_maintain.side_effect = _mock_maintain
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
         
@@ -79,6 +88,24 @@ class TestSearchDialog:
 
         assert mock_clear.called
         assert mock_maintain.called
+
+        # Test heartbeat callback exception handling
+        if hb_capture:
+            hb = hb_capture[0]
+            # Emit extract phase
+            hb({"file": "test.txt", "phase": "extract", "paragraphs": 5, "chunks": 10})
+
+            # Make the results control throw when accessed
+            mock_results_ctrl = MagicMock()
+            mock_dlg.getControl.side_effect = lambda name: mock_results_ctrl if name == "ResultsEdit" else MagicMock()
+            mock_results_ctrl.getModel.side_effect = Exception("UI Disposed")
+
+            # Emit index phase which should trigger UI update that throws
+            try:
+                hb({"file": "test.txt", "phase": "index", "paragraphs": 5, "chunks": 10})
+            except Exception as e:
+                import pytest
+                pytest.fail(f"Heartbeat callback raised exception: {e}")
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 
     def test_query_edit_enter_triggers_search(self):
@@ -112,13 +139,14 @@ class TestSearchDialog:
         dialog._run_search.assert_called_with(mock_dlg)
         assert dialog._run_search.call_count == 2
 
+    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
     @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
     @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
-    @patch("plugin.framework.client.embeddings_service.maintain_folder_index")
-    @patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index")
+    @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
+    @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
     def test_rebuild_untitled_doc_uses_my_documents_listing(
         self,
         mock_search_mode,
@@ -128,6 +156,7 @@ class TestSearchDialog:
         mock_get_desktop,
         _mock_execute,
         _mock_bg,
+        mock_get_model,
         tmp_path,
     ):
         mock_ctx = MagicMock()
@@ -230,6 +259,72 @@ class TestSearchDialog:
         assert doc_calls_during_marshal, "get_active_document should run during search"
         assert all(doc_calls_during_marshal), "get_active_document must be marshaled to main thread"
 
+    def test_search_refuses_wrong_model_index(self, tmp_path):
+        meta = tmp_path / "corpus_meta.json"
+        db = tmp_path / "corpus.db"
+        db.write_text("sqlite", encoding="utf-8")
+        meta.write_text(
+            json.dumps(
+                {
+                    "schema_version": "6",
+                    "embedding_model": "old-model",
+                    "chunk_count": "2",
+                    "dim": "384",
+                }
+            ),
+            encoding="utf-8",
+        )
+        mock_ctx = MagicMock()
+        dialog = SearchDialog.__new__(SearchDialog)
+        dialog._ctx = mock_ctx
+        mock_dlg = MagicMock()
+        query_ctrl = MagicMock()
+        resp_ctrl = MagicMock()
+        results_ctrl = MagicMock()
+        btn_search = MagicMock()
+        mock_dlg.getControl.side_effect = lambda name: {
+            "QueryEdit": query_ctrl,
+            "RespEdit": resp_ctrl,
+            "ResultsEdit": results_ctrl,
+            "BtnSearch": btn_search,
+        }.get(name)
+        query_ctrl.getModel().Text = "test query"
+        resp_ctrl.getModel().Text = "7"
+
+        def _call(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+            with patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=_call):
+                with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call):
+                    with patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()):
+                        with patch(
+                            "plugin.embeddings.embeddings_cache.resolve_index_context",
+                            return_value=("folder_key", db, meta, str(tmp_path)),
+                        ):
+                            with patch(
+                                "plugin.embeddings.search_ui.run_in_background",
+                                side_effect=lambda fn, *args, **kwargs: fn(*args),
+                            ):
+                                with patch(
+                                    "plugin.embeddings.embeddings_service._folder_search_mode",
+                                    return_value="hybrid",
+                                ):
+                                    with patch(
+                                        "plugin.embeddings.embedding_client.get_embedding_model",
+                                        return_value="new-model",
+                                    ):
+                                        with patch(
+                                            "plugin.embeddings.embeddings_service.hybrid_search"
+                                        ) as hybrid_mock:
+                                            with patch(
+                                                "plugin.embeddings.embeddings_indexer.ensure_index_wakeup"
+                                            ) as wakeup_mock:
+                                                dialog._run_search(mock_dlg)
+
+        hybrid_mock.assert_not_called()
+        wakeup_mock.assert_called_once()
+
     @pytest.mark.parametrize(
         ("mode", "listing_root", "populated", "empty_index", "expected", "create_parent_calls"),
         [
@@ -306,7 +401,7 @@ class TestSearchDialog:
         with patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
             with patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()):
                 with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", Path("/db"), Path("/meta"), "/root")):
-                    with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="sqlite"):
+                    with patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="sqlite"):
                         with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
                             with patch("plugin.embeddings.embeddings_cache.read_corpus_meta", return_value={"updated_at": str(two_days_ago)}):
                                 dialog._refresh_cache_status(mock_dlg)

@@ -102,6 +102,39 @@ def test_disposed_element_does_not_hide_a_later_match():
     assert doc_type == "writer"
 
 
+def test_stuck_next_element_does_not_spin():
+    """A nextElement that raises without advancing must not spin the walk.
+
+    The old mock popped before it raised, so hasMoreElements() went false
+    and never saw a UNO enumeration that stays true after a failed fetch.
+    """
+    class StuckEnumException(Exception):
+        pass
+
+    calls = {"next": 0, "more": 0}
+
+    def has_more():
+        calls["more"] += 1
+        # Bound the mock. Production must stop; this only keeps a regression
+        # from hanging the suite if the walk continues forever.
+        if calls["more"] > 8:
+            raise AssertionError("resolve_document_by_url did not stop")
+        return True
+
+    def next_elem():
+        calls["next"] += 1
+        raise StuckEnumException("stuck frame")
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = has_more
+    enum.nextElement.side_effect = next_elem
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert resolve_document_by_url(MagicMock(), "file:///docs/a.odt") == (None, None)
+    assert calls["next"] == 1
+
+
 def test_resolve_reraises_when_desktop_is_disposed():
     class DisposedException(Exception):
         pass
@@ -130,6 +163,44 @@ def test_empty_inputs_never_match():
     assert _resolve([blank], "anything") == (None, None)
 
 
+def test_resolve_reraises_when_enumeration_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = DisposedException("enum dead")
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
+
+
+def test_get_runtime_uid_off_main_thread_raises_when_guard_on():
+    # What was wrong: thread_guard is replaced by no-op stubs in release builds.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("GUARD_ON thread guard proxy stripped in release bundle")
+    import threading
+
+    import plugin.framework.thread_guard as tg
+
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    tg.set_designated_main_thread(threading.Thread())
+    try:
+        with pytest.raises(RuntimeError):
+            get_runtime_uid(object())
+    finally:
+        tg.GUARD_ON = was
+        tg.set_designated_main_thread(None)
+        # The raise notifies on this thread. Leave the one-popup slot clear
+        # so a later test on the same xdist worker can still post.
+        with tg._violation_ui_lock:
+            tg._violation_ui_threads.discard(threading.get_ident())
+
+
 def test_get_runtime_uid_present_missing_and_error():
     present = type("M", (), {"RuntimeUID": "abc"})()
     assert get_runtime_uid(present) == "abc"
@@ -143,3 +214,27 @@ def test_get_runtime_uid_present_missing_and_error():
             raise RuntimeError("disposed")
 
     assert get_runtime_uid(Boom()) == ""
+
+def test_resolve_reraises_when_next_element_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    calls = {"next": 0, "more": 0}
+
+    def has_more():
+        calls["more"] += 1
+        return True
+
+    def next_elem():
+        calls["next"] += 1
+        raise DisposedException("com.sun.star.lang.DisposedException: frame dead")
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = has_more
+    enum.nextElement.side_effect = next_elem
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///docs/a.odt")
+    assert calls["next"] == 1

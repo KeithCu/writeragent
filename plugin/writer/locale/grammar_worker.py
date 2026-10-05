@@ -216,7 +216,10 @@ def run_grammar_check(
     try:
         from plugin.framework.config import get_grammar_provider, user_config_dir
 
-        provider = (chunk[0][0].provider if chunk and chunk[0][0].provider else "") or get_grammar_provider()
+        # Always use the job's explicit provider if present, even if it is not
+        # the current default config, so that background retry and cache
+        # identity don't desync with the UI check that enqueued it.
+        provider = chunk[0][0].provider if chunk and chunk[0][0].provider else get_grammar_provider()
         spec = _SINGLE_SENTENCE_PROVIDERS.get(provider)
         if spec is not None:
             cfg_dir = user_config_dir() or ""
@@ -263,7 +266,7 @@ def run_grammar_check(
         grammar_obs("worker_grammar_done", chunk_len=len(chunk), results_len=len(results), elapsed_ms=elapsed_ms, bcp47=bcp47)
         if completion.apply_locale_after_success:
             for item, text in chunk:
-                grammar_persistence.apply_language_change(ec.ctx, item.doc_id, text, bcp47)
+                grammar_persistence.apply_language_change(ec.ctx, item.doc_id, text, bcp47, start_pos=getattr(item, 'n_start', 0))
 
 
     except Exception as e:
@@ -271,19 +274,26 @@ def run_grammar_check(
         emit_grammar_status("failed", "Grammar check", result=str(e))
 
 
-def persisted_grammar_skip_lang_detect(ctx: Any, doc_id: str, text: str) -> bool:
-    """True if persistence already stores grammar for this sentence (fingerprint).
+def persisted_grammar_skip_lang_detect(
+    ctx: Any,
+    doc_id: str,
+    text: str,
+    locale: str | None = None,
+) -> bool:
+    """True if persistence already stores grammar for this sentence in ``locale``.
 
-    Heuristic to skip redundant language-detect LLM on reopen: any stored row (including
-    empty errors for 'good' sentences) implies prior proofreading — good enough to treat
-    as language-resolved for this session. Wrong-locale clean rows could skip redetect.
+    Heuristic to skip redundant language-detect LLM on reopen: a stored row (including
+    empty errors for 'good' sentences) implies prior proofreading. The lookup is
+    locale-specific so another CharLocale's clean row does not skip detection.
     """
     try:
         if not doc_id:
             return False
         fp = grammar_proofread_cache.sentence_identity_fp(text)
         p = grammar_persistence.get_persistence(ctx, doc_id)
-        return p is not None and p.get(fp) is not None
+        # Do not adopt a v2/v3 row here. That probe would retag an unknown
+        # locale as this chunk's CharLocale before proofreading reads it.
+        return p is not None and p.get(fp, locale, adopt_legacy=False) is not None
     except Exception as e:
         log.debug("[grammar] persisted grammar heuristic lookup failed: %s", e, exc_info=True)
         return False
@@ -371,6 +381,9 @@ def call_grammar_llm(
     ec: Any,
 ) -> tuple[list[Any], int]:
     """Run grammar LLM for one sentence or a batch; return parsed results and elapsed ms."""
+    from . import grammar_proofread_locale
+    max_chars = grammar_proofread_locale.grammar_max_chars(ec.ctx)
+    chunk = [(item, text[:max_chars] if len(text) > max_chars else text) for item, text in chunk]
     batch = len(chunk) > 1
     doc_id = chunk[0][0].doc_id
     ignored_reasons = get_active_ignored_reasons(ec.ctx, doc_id)
@@ -426,7 +439,7 @@ def _fill_from_cache_and_persistence(
             canon = grammar_proofread_locale.normalize_detected_bcp47(cached) or cached
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "cache", cached, canon, text)
-        elif trust_persisted and persisted_grammar_skip_lang_detect(ec.ctx, item.doc_id, text):
+        elif trust_persisted and persisted_grammar_skip_lang_detect(ec.ctx, item.doc_id, text, ec.grammar_bcp47):
             grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32] if item.doc_id else "")
             canon = grammar_proofread_locale.normalize_detected_bcp47(ec.grammar_bcp47) or ec.grammar_bcp47
             grammar_persistence.grammar_registry.put_cached_language(text, canon)
@@ -443,7 +456,7 @@ def _detect_languages_via_langdetect(
     ec: Any,
 ) -> None:
     """Fill pending slots via PyPI langdetect in the embeddings venv worker."""
-    from plugin.framework.client.langdetect_service import detect_languages
+    from plugin.writer.locale.langdetect_service import detect_languages
 
     pending = [idx for idx, lang in enumerate(detected_langs) if lang is None]
     if not pending:
@@ -703,7 +716,15 @@ def _run_language_validation(
         _obs_language_validation_decision(chunk, target_bcp47, detected, decision)
         for rq in decision.requeues:
             log.info("[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", rq.new_bcp47, rq.original_bcp47)
-            requeue_individual_item(rq.item, rq.text, rq.new_bcp47, rq.original_bcp47, ec)
+            # What was wrong: the default placeholder stored a clean row for the
+            # CharLocale just rejected. The next doProofreading cache-hit that
+            # empty result and never requeued, so the sentence was never retagged.
+            # How: cache_put_sentence(original_bcp47, text, []) ran before the
+            # detected-locale check. Why: still requeue under the detected locale,
+            # and do not record the rejected locale as a good sentence.
+            requeue_individual_item(
+                rq.item, rq.text, rq.new_bcp47, rq.original_bcp47, ec, cache_placeholder=False
+            )
         if len(chunk) == 1 and decision.target_bcp47 != target_bcp47:
             log.info("[grammar] Single item language mismatch: %s -> %s. Proceeding with new locale.", target_bcp47, decision.target_bcp47)
         return decision
@@ -720,9 +741,14 @@ def requeue_individual_item(
     original_bcp47: str,
     ec: GrammarWorkerContext,
     *,
-    cache_placeholder: bool = True,
+    cache_placeholder: bool = False,
 ) -> None:
-    """Requeue one item after language mismatch or grammar batch count mismatch."""
+    """Requeue one item after language mismatch or grammar batch count mismatch.
+
+    Do not store a clean sentence for a locale this call just rejected.
+    ``cache_placeholder`` remains for an explicit caller; the default is off
+    so a CharLocale cache hit cannot skip the retag.
+    """
     sent_complete = (not item.partial_sentence) and grammar_proofread_locale.looks_complete_sentence(text)
     requeue_inflight_key = grammar_proofread_locale.grammar_inflight_key(item.doc_id, new_bcp47, text, sent_complete)
 
@@ -802,15 +828,12 @@ def _worker_build_chunks(
         locales_in_use = _get_cached_document_locales(ctx, valid_items[0][0].doc_id)
         detect_lang_instruction = f" Choose from the following locales currently used in the document, or provide a new one if none match: {', '.join(locales_in_use)}."
 
-    truncated: list[tuple[GrammarWorkItem, str]] = [
-        (item, text[:max_chars] if len(text) > max_chars else text) for item, text in valid_items
-    ]
     chunks: list[list[tuple[GrammarWorkItem, str]]] = []
-    if len(truncated) > 1 and batch_size > 1:
-        for i in range(0, len(truncated), batch_size):
-            chunks.append(truncated[i : i + batch_size])
+    if len(valid_items) > 1 and batch_size > 1:
+        for i in range(0, len(valid_items), batch_size):
+            chunks.append(valid_items[i : i + batch_size])
     else:
-        for item, text in truncated:
+        for item, text in valid_items:
             chunks.append([(item, text)])
     return chunks, detect_lang_instruction
 
@@ -849,9 +872,32 @@ def _worker_process_chunk(
             updated_chunk = []
             for item, text in current_chunk:
                 new_key = grammar_proofread_locale.grammar_inflight_key(item.doc_id, current_bcp47, text, not item.partial_sentence)
-                new_item = replace(item, grammar_bcp47=current_bcp47, inflight_key=new_key)
+                # What was wrong: the in-place locale change kept enqueue_seq and
+                # never published the new inflight key. A newer enqueue of that
+                # sentence under the detected locale could not supersede this item.
+                # How: replace() updated grammar_bcp47 and inflight_key only.
+                # Why: mint a seq the way requeue_individual_item does, and record
+                # the new key. An older generation is dropped; a newer one still
+                # wins via inflight_superseded. Do not clobber a newer seq.
+                new_seq = next_enqueue_seq()
+                if ec.gq is not None and ec.gq.note_inflight_generation(new_key, new_seq) is True:
+                    grammar_obs(
+                        "worker_skip",
+                        reason="superseded_before_process",
+                        enqueue_seq=new_seq,
+                        inflight_key=new_key,
+                    )
+                    continue
+                new_item = replace(
+                    item,
+                    grammar_bcp47=current_bcp47,
+                    enqueue_seq=new_seq,
+                    inflight_key=new_key,
+                )
                 updated_chunk.append((new_item, text))
             current_chunk = updated_chunk
+            if not current_chunk:
+                return
 
     run_grammar_check(current_chunk, current_bcp47, grammar_bcp47, ec)
 

@@ -49,17 +49,12 @@ def test_create_conditional_style_uno(ctx, doc):
     tool = StyleCreate()
     res = tool.execute(tool_ctx, style=style_name, conditional_rules=rules)
     
-    assert res["status"] == "ok", f"Tool failed: {res.get('message') or res}"
-    assert res["service"] == "com.sun.star.style.ConditionalParagraphStyle"
-    
-    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-    assert para_styles.hasByName(style_name)
-    
-    style = para_styles.getByName(style_name)
-    # Note: ParaStyleConditions is a read-only property (attribute = 1) in PyUNO 
-    # and cannot be modified programmatically in a real Writer instance. 
-    # We verify the style was created and registered successfully.
-    assert style.getParentStyle() == "Standard"
+    # In PyUNO, ParaStyleConditions is a read-only property (attribute = 1)
+    # and cannot be modified programmatically in a real Writer instance.
+    # Therefore, the execution should fail with an error because we explicitly
+    # enforce that conditional styles shouldn't be silently dropped.
+    assert res["status"] == "error", f"Tool should have failed: {res}"
+    assert "Failed to apply conditional rules" in res["message"]
 
 
 @native_test

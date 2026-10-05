@@ -27,7 +27,7 @@ from typing import Any, Callable
 
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
-from plugin.framework.errors import UnoObjectError
+from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.uno_context import get_desktop, normalize_doc_url
@@ -160,8 +160,8 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None:
         # and do not write My Scripts.
         return _("Document is read-only or properties cannot be written.")
     try:
-        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, _envelope_to_json(scripts))
-        return None
+        payload = _envelope_to_json(scripts)
+        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
     except (UnoObjectError, Exception) as exc:
         # A disposed document is not "read-only". Callers that swallow the
         # message used to keep writing as if the file were still open.
@@ -172,6 +172,14 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None:
         log.exception("document_scripts: failed to persist on document")
         # Same false My Scripts claim as the read-only return above.
         return _("Document is read-only or properties cannot be written.")
+    # set_document_property returns None after a real write and also when the
+    # document has no UserDefinedProperties bag (that path does not raise).
+    # The missing bag used to look like success while the next read was empty.
+    stored = get_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, default=None)
+    if stored != payload:
+        log.error("document_scripts: persist did not store %s", DOCUMENT_SCRIPTS_UDPROP)
+        return _("Document is read-only or properties cannot be written.")
+    return None
 
 
 def get_calc_init_script(doc: Any, *, default: str = "") -> str:
@@ -192,15 +200,105 @@ def set_calc_init_script(doc: Any, code: str) -> str | None:
         scripts.pop("Init", None)
     res = set_document_scripts(doc, scripts)
     try:
-        from plugin.scripting.session_manager import record_active_calc_session
+        from plugin.scripting.session_manager import calc_workbook_base_session_id, record_active_calc_session
 
-        record_active_calc_session(None, build_python_eval_init_kwargs(doc))
+        # Bugfix: record_active_calc_session(None, kwargs) stored the snapshot
+        # on _LAST_ACTIVE_CALC_SESSION_ID. Clearing INIT on workbook A while B
+        # was focused wiped B (build_python_eval_init_kwargs returns {} before
+        # it records A's id). Pass A's shared-kernel session explicitly.
+        record_active_calc_session(
+            calc_workbook_base_session_id(doc),
+            build_python_eval_init_kwargs(doc),
+            doc=doc,
+        )
     except Exception:
-        # The document property is already updated. Swallowing this left the
-        # next off-main =PY() on the previous init script.
+        # What was wrong: this returned None after the cache refresh raised, so
+        # the editor treated the save as success while off-main =PY() kept the
+        # previous init script.
+        # How: set_document_scripts had already written the property; the
+        # shared-kernel cache is a second call and was only logged.
+        # Why this works: a failed refresh returns an error string (unless the
+        # property write already failed) so the caller does not assume =PY()
+        # sees the new script.
         log.exception("document_scripts: failed to refresh the shared-kernel init cache")
+        if res is not None:
+            return res
+        return _(
+            "Initialization script was saved on the document, but the shared-kernel cache did not update. =PY() may still run the previous script."
+        )
     return res
 
+
+
+def _enumerate_calc_documents(desktop: Any) -> list[Any]:
+    """Calc models from desktop.getComponents(), in enumeration order."""
+    matches: list[Any] = []
+    try:
+        comps = desktop.getComponents()
+        if not comps:
+            return matches
+        enum = comps.createEnumeration()
+        while enum:
+            try:
+                has_more = enum.hasMoreElements()
+            except Exception:
+                break
+            # Local enumeration stop for MagicMock (always-truthy hasMoreElements).
+            if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
+                break
+            elem = enum.nextElement()
+            model = None
+            if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                model = elem
+            elif hasattr(elem, "getController") and elem.getController():
+                model = elem.getController().getModel()
+            if model and is_calc(model):
+                matches.append(model)
+    except Exception:
+        log.debug("document_scripts: Calc component enumeration failed", exc_info=True)
+    return matches
+
+
+def _select_enumerated_calc_document(matches: list[Any]) -> Any | None:
+    """One Calc model, or the cached session when several workbooks are open.
+
+    What was wrong: the first enumerated Calc workbook was returned. UNO
+    component order is not the focused file, so the picker could attach,
+    save, or run against a different open workbook.
+    How: ``getComponents().createEnumeration()`` has no defined order.
+    Why this works: one match is unambiguous. Several matches use the same
+    session-id cache tiebreak as ``session_manager._find_document_by_predicate``.
+    If that cache does not name exactly one of them, return None. The
+    predicate helper's last-match fallback would still be an arbitrary workbook.
+    """
+    from plugin.framework.thread_guard import guard_uno
+
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return guard_uno(matches[0])
+
+    from plugin.scripting.session_manager import (
+        _cached_calc_session_matches,
+        get_cached_calc_session_id,
+    )
+
+    cached_sid = get_cached_calc_session_id()
+    if not cached_sid:
+        return None
+    chosen: Any | None = None
+    for model in matches:
+        try:
+            if not _cached_calc_session_matches(model, cached_sid):
+                continue
+        except Exception:
+            continue
+        if chosen is not None:
+            return None
+        chosen = model
+    if chosen is None:
+        return None
+    return guard_uno(chosen)
 
 
 def get_calc_document_from_ctx(ctx: Any) -> Any | None:
@@ -215,31 +313,7 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         # desktop bound that Calc. The Python deck already refuses this.
         return None
     if doc is None or not is_calc(doc):
-        try:
-            comps = desktop.getComponents()
-            if comps:
-                enum = comps.createEnumeration()
-                while enum:
-                    try:
-                        has_more = enum.hasMoreElements()
-                    except Exception:
-                        break
-                    # Local enumeration stop for MagicMock (always-truthy hasMoreElements).
-                    if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
-                        break
-                    elem = enum.nextElement()
-                    model = None
-                    if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-                        model = elem
-                    elif hasattr(elem, "getController") and elem.getController():
-                        model = elem.getController().getModel()
-                    if model and is_calc(model):
-                        from plugin.framework.thread_guard import guard_uno
-
-                        return guard_uno(model)
-        except Exception:
-            pass
-        return None
+        return _select_enumerated_calc_document(_enumerate_calc_documents(desktop))
     from plugin.framework.thread_guard import guard_uno
 
     return guard_uno(doc)
@@ -277,6 +351,11 @@ def attach_document_script(doc: Any, name: str, code: str, *, overwrite: bool = 
 
 
 def delete_document_script(doc: Any, name: str) -> str | None:
+    # INIT shares this property map with named scripts. The picker hides it,
+    # but deleting the storage name used to pop the entry and wipe the
+    # workbook init script. attach_document_script already rejects this name.
+    if is_calc_init_script_name(name):
+        return _("'{0}' is reserved for the workbook init script.").format(name)
     scripts = dict(get_document_scripts(doc))
     scripts.pop(name, None)
     return set_document_scripts(doc, scripts)
@@ -412,6 +491,12 @@ def resolve_run_script_selection(
     name_config_key = resolve_run_script_name_config_key(doc)
     last_name = get_config_str(name_config_key)
     names, merged_scripts, _unused_origin_map = build_xdl_script_picker_state(ctx, doc, saved_scripts)
+    # A raw document name from an older list still selects that script when
+    # the picker key is the [Doc] display name and no user script uses the raw name.
+    if last_name and last_name not in merged_scripts:
+        display = document_script_display_name(last_name)
+        if display in merged_scripts:
+            last_name = display
     if not last_name or last_name not in merged_scripts:
         if names:
             last_name = names[0]
@@ -451,7 +536,15 @@ def build_scripts_list_message(
 
     doc_scripts: dict[str, str] = {}
     if doc is not None and not document_stale:
-        doc_scripts = picker_document_scripts(get_document_scripts(doc))
+        # Same keys as build_xdl_script_picker_state. Raw names collided with
+        # My Scripts and did not match selected_script_name ([Doc] …), so
+        # reopen loaded the wrong row and Save wrote a different script.
+        # scripts_manager.js documentScriptListKey must probe these keys for
+        # the New / Save As overwrite check. The typed name is not a key.
+        doc_scripts = {
+            document_script_display_name(name): code
+            for name, code in picker_document_scripts(get_document_scripts(doc)).items()
+        }
 
     sections: list[dict[str, Any]] = [
         {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": user_scripts},
@@ -507,6 +600,11 @@ def _script_code_from_message(msg: dict[str, Any]) -> str:
     return raw if isinstance(raw, str) else ""
 
 
+def _document_script_storage_name(name: str) -> str:
+    """Property key for a picker label. ``[Doc] Regional`` stores as ``Regional``."""
+    return parse_document_script_display_name(name) or name
+
+
 def get_user_scripts() -> dict[str, str]:
     from plugin.framework.config import get_config
 
@@ -532,6 +630,22 @@ def delete_user_script(name: str) -> None:
     set_config("saved_python_scripts", scripts)
 
 
+def _closed_document_scripts_list(status_error_text: str) -> dict[str, Any]:
+    """Script list when the document is already gone and cannot be read again."""
+    return {
+        "type": "scripts_list",
+        "sections": [
+            {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": {}},
+            {"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": {}},
+        ],
+        "document_available": False,
+        "document_readonly": True,
+        "document_stale": True,
+        "selected_script_name": "",
+        "status_error_text": status_error_text,
+    }
+
+
 def handle_editor_script_message(
     kind: str,
     msg: dict[str, Any],
@@ -542,6 +656,58 @@ def handle_editor_script_message(
     send: Callable[[dict[str, Any]], None],
 ) -> bool:
     """Apply a Monaco script-picker IPC message. Return True if *kind* was handled."""
+
+    def _send_list(*, status_ok_text: str | None = None, status_error_text: str | None = None) -> None:
+        send(
+            build_scripts_list_message(
+                ctx,
+                session_doc=session_doc,
+                session_doc_url=session_doc_url,
+                status_ok_text=status_ok_text,
+                status_error_text=status_error_text,
+            )
+        )
+
+    try:
+        return _apply_script_picker_message(
+            kind,
+            msg,
+            ctx=ctx,
+            session_doc=session_doc,
+            session_doc_url=session_doc_url,
+            send=send,
+        )
+    except DocumentDisposedError:
+        # What was wrong: a disposed untitled document raised out of save/list.
+        # How: set_document_scripts and get_active_document_for_scripts re-raise
+        # DocumentDisposedError, and this handler had no top-level catch. The
+        # pipe reader treats that as a dead child and terminate()s Monaco.
+        # Why this works: save/close in editor_host swallow handler failures
+        # and answer the webview. Disposal becomes a script-list error and
+        # this message stays handled. A second disposal while rebuilding the
+        # list uses a payload that does not touch the document.
+        if kind not in SCRIPT_PICKER_MESSAGE_TYPES:
+            return False
+        log.exception("scripts picker: document disposed during %s", kind)
+        closed = _("The document was closed.")
+        try:
+            _send_list(status_error_text=closed)
+        except DocumentDisposedError:
+            log.exception("scripts picker: list refresh failed after the document closed")
+            send(_closed_document_scripts_list(closed))
+        return True
+
+
+def _apply_script_picker_message(
+    kind: str,
+    msg: dict[str, Any],
+    *,
+    ctx: Any,
+    session_doc: Any | None,
+    session_doc_url: str | None,
+    send: Callable[[dict[str, Any]], None],
+) -> bool:
+    """Picker message body. Disposal is caught by ``handle_editor_script_message``."""
     if kind not in SCRIPT_PICKER_MESSAGE_TYPES:
         return False
 
@@ -599,18 +765,37 @@ def handle_editor_script_message(
             if session_doc is None:
                 _send_list(status_error_text=_("No document is open to save scripts."))
                 return True
-            err = save_document_script(session_doc, name, script_code)
+            storage_name = _document_script_storage_name(name)
+            err = save_document_script(session_doc, storage_name, script_code)
             if err:
-                save_user_script(name, script_code)
-                set_config(name_config_key, name)
+                # What was wrong: a failed document save always wrote My Scripts,
+                # replacing a user script of the same name. The save message has
+                # no overwrite flag (copy and attach do). How: save_user_script
+                # assigns by name. Why this works: create the My Scripts copy
+                # only when that name is free, or when overwrite is explicit.
+                if storage_name in get_user_scripts() and not bool(msg.get("overwrite")):
+                    _send_list(
+                        status_error_text=_(
+                            "A script named '{0}' already exists in My Scripts. {1}"
+                        ).format(storage_name, err)
+                    )
+                    return True
+                save_user_script(storage_name, script_code)
+                set_config(name_config_key, storage_name)
+                # What was wrong: the fallback sent status_ok_text and
+                # status_error_text together. The script manager paints ok,
+                # then error, so a successful My Scripts write looked failed.
+                # How: a document save error still stored the script under
+                # My Scripts and attached both strings to one scripts_list.
+                # Why this works: one success string includes the migration
+                # note, and the error field is left unset.
                 _send_list(
-                    status_ok_text=_("Saved script '{0}' to My Scripts.").format(name),
-                    status_error_text=err,
+                    status_ok_text=_("Saved script '{0}' to My Scripts. {1}").format(storage_name, err),
                 )
                 return True
-            display_name = document_script_display_name(name)
+            display_name = document_script_display_name(storage_name)
             set_config(name_config_key, display_name)
-            _send_list(status_ok_text=_("Saved script '{0}' to this document.").format(name))
+            _send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
             return True
         save_user_script(name, script_code)
         set_config(name_config_key, name)
@@ -632,11 +817,13 @@ def handle_editor_script_message(
                 )
             )
             return True
-        err = attach_document_script(session_doc, name, script_code, overwrite=overwrite)
+        # Same property key as save. ``[Doc] Regional`` must store as ``Regional``.
+        storage_name = _document_script_storage_name(name)
+        err = attach_document_script(session_doc, storage_name, script_code, overwrite=overwrite)
         if err:
             _send_list(status_error_text=err)
             return True
-        _send_list(status_ok_text=_("Attached script '{0}' to this document.").format(name))
+        _send_list(status_ok_text=_("Attached script '{0}' to this document.").format(storage_name))
         return True
 
     if kind == "copy_script_to_user":
@@ -685,11 +872,12 @@ def handle_editor_script_message(
                     )
                 )
                 return True
-            err = delete_document_script(session_doc, name)
+            storage_name = _document_script_storage_name(name)
+            err = delete_document_script(session_doc, storage_name)
             if err:
                 _send_list(status_error_text=err)
                 return True
-            _send_list(status_ok_text=_("Deleted document script '{0}'.").format(name))
+            _send_list(status_ok_text=_("Deleted document script '{0}'.").format(storage_name))
             return True
         delete_user_script(name)
         log.info("scripts picker: delete_script '%s' (user)", name)

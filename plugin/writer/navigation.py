@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.errors import ToolExecutionError
+
 from .specialized_base import ToolWriterStructuralBase
 
 if TYPE_CHECKING:
@@ -48,7 +50,7 @@ class NavHeading(ToolWriterStructuralBase):
             if "error" in result:
                 return self._tool_error(result["error"])
             return {"status": "ok", **result}
-        except ValueError as e:
+        except (ValueError, ToolExecutionError) as e:
             return self._tool_error(str(e))
 
 
@@ -72,7 +74,7 @@ class NavSurroundings(ToolWriterStructuralBase):
         try:
             result = prox_svc.get_surroundings(ctx.doc, kwargs["locator"], radius=kwargs.get("radius", 10), include=kwargs.get("include"))
             return {"status": "ok", **result}
-        except ValueError as e:
+        except (ValueError, ToolExecutionError) as e:
             return self._tool_error(str(e))
 
 
@@ -101,5 +103,5 @@ class NavHeadingChildren(ToolWriterStructuralBase):
         try:
             result = tree_svc.get_heading_children(ctx.doc, heading_para_index=para_index, heading_bookmark=bookmark, locator=kwargs.get("locator"), content_strategy=strategy, depth=kwargs.get("depth", 1))
             return {"status": "ok", **result}
-        except ValueError as e:
+        except (ValueError, ToolExecutionError) as e:
             return self._tool_error(str(e))

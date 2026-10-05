@@ -675,7 +675,7 @@ def cluster_numeric(
     # n_init="auto" is a single k-means++ start on current sklearn, which can
     # lock onto a high-range column even after scaling. A few restarts find
     # the standardized groups.
-    model = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    model = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)  # pyright: ignore[reportArgumentType]
     labels = model.fit_predict(fitted)
     counts: dict[int, int] = {}
     for label in labels:

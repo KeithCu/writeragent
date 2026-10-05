@@ -1,6 +1,6 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
-# Copyright (c) 2026 KeithCu (modifications and relicensing
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,7 +31,6 @@ from plugin.acp.base import AgentBackend
 
 log = logging.getLogger(__name__)
 
-_LOG = "MCPACP"
 
 from plugin.mcp.server import mcp_endpoint_url
 
@@ -41,14 +40,13 @@ class MCPACPProxy(AgentBackend):
 
     backend_id: ClassVar[str] = "mcp_acp"
     display_name: ClassVar[str] = "WriterAgent MCP (ACP)"
-    _ctx: Any | None
     _mcp_url: str
     _stop_requested: bool
     _prompt_done: threading.Event
     _tools_cache_ttl: int
 
     def __init__(self, ctx: Any | None = None) -> None:
-        self._ctx = ctx
+        del ctx
         self._mcp_url = ""
         self._session_id: str | None = None
         self._stop_requested = False
@@ -61,6 +59,13 @@ class MCPACPProxy(AgentBackend):
     def _load_config(self) -> None:
         """Read MCP server URL from WriterAgent config (port from mcp.mcp_port schema default)."""
         from plugin.framework.config import get_config, get_config_int_safe
+        from plugin.framework.config_schema import as_bool
+
+        # What was wrong: self._mcp_url was populated even when mcp.mcp_enabled was False.
+        # Why this change: clear self._mcp_url when MCP is disabled in configuration.
+        if not as_bool(get_config("mcp.mcp_enabled")):
+            self._mcp_url = ""
+            return
 
         path = ""
         try:

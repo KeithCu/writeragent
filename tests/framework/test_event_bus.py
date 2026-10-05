@@ -267,3 +267,167 @@ def test_weakref_subscribe_callable():
     bus.emit("test:event", event_data="second")
     assert received == ["first"]
 
+
+def test_get_event_bus_reuses_bus_with_same_qualified_name():
+    """Two EventBus classes with the same qualified name must share one bus.
+
+    A second import defines a new class object. isinstance against the class
+    from this import used to miss the stored bus and overwrite it.
+    """
+    import sys
+
+    class FirstBus:
+        pass
+
+    class SecondBus:
+        pass
+
+    # Same qualified name as EventBus, different class objects. Assigning
+    # these is what a second import of this module produces.
+    FirstBus.__module__ = EventBus.__module__
+    FirstBus.__qualname__ = EventBus.__qualname__
+    SecondBus.__module__ = EventBus.__module__
+    SecondBus.__qualname__ = EventBus.__qualname__
+    saved = getattr(sys, "_writeragent_event_bus", None)
+    first_cls = FirstBus
+    second_cls = SecondBus
+    assert first_cls is not second_cls
+    assert (first_cls.__module__, first_cls.__qualname__) == (EventBus.__module__, EventBus.__qualname__)
+    assert (second_cls.__module__, second_cls.__qualname__) == (first_cls.__module__, first_cls.__qualname__)
+    stored = first_cls()
+    assert not isinstance(stored, EventBus)
+    try:
+        setattr(sys, "_writeragent_event_bus", stored)
+        assert get_event_bus() is stored
+        assert get_event_bus() is stored
+    finally:
+        if saved is None:
+            delattr(sys, "_writeragent_event_bus")
+        else:
+            setattr(sys, "_writeragent_event_bus", saved)
+
+
+
+def test_subscribe_weak_builtin_inline_survives_gc():
+    """Inline ``items.append`` with ``weak=True`` must still run after GC.
+
+    What was wrong: WeakMethod rejects the builtin, and ``weakref.ref``
+    kept the temporary bound method. The test that stashed
+    ``method = items.append`` kept that object alive, so the drop never
+    showed up. Callers subscribe inline and do not keep the method.
+    """
+    bus = EventBus()
+    items: list[int] = []
+    bus.subscribe("test:event", items.append, weak=True)
+    gc.collect()
+    stored, is_weak = bus._subscribers["test:event"][0]
+    assert is_weak is False
+    # emit() passes keywords; append is positional-only, so call the
+    # resolved subscriber the same way emit resolves it.
+    resolved = bus._resolve(stored, is_weak)
+    assert resolved == items.append
+    resolved(1)
+    assert items == [1]
+
+
+def test_subscribe_weak_slots_method_inline_survives_gc():
+    """A method on an instance with no ``__weakref__`` must still run after GC.
+
+    WeakMethod cannot reference the instance. ``weakref.ref`` of the
+    temporary bound method dies even while the caller still holds the instance.
+    """
+    bus = EventBus()
+    received = []
+
+    class Slotted:
+        __slots__ = ()
+
+        def handler(self, event_data=None):
+            received.append(event_data)
+
+    target = Slotted()
+    bus.subscribe("test:event", target.handler, weak=True)
+    gc.collect()
+    bus.emit("test:event", event_data="ok")
+    assert received == ["ok"]
+
+
+def test_unsubscribe_builtin_does_not_drop_sibling():
+    """``append`` and ``clear`` on one list are different callbacks.
+
+    Both have ``__self__`` and neither has ``__func__``. Treating the
+    missing ``__func__`` as equal used to remove both.
+    """
+    bus = EventBus()
+    items: list[int] = []
+    bus.subscribe("test:event", items.append, weak=True)
+    bus.subscribe("test:event", items.clear, weak=True)
+    bus.unsubscribe("test:event", items.append)
+    remaining = [bus._resolve(cb, is_weak) for cb, is_weak in bus._subscribers["test:event"]]
+    assert remaining == [items.clear]
+
+
+def test_subscribe_weak_method_wrapper_falls_back_to_strong_ref():
+    """method-wrapper has __self__, and neither WeakMethod nor weakref.ref accepts it."""
+    bus = EventBus()
+    number = 5
+    method = number.__add__
+    bus.subscribe("test:event", method, weak=True)
+    stored, is_weak = bus._subscribers["test:event"][0]
+    assert is_weak is False
+    assert stored is method
+
+
+def test_weakref_cleanup_while_lock_held_does_not_deadlock():
+    """GC of a cyclic weak subscriber must not hang on the bus lock.
+
+    What was wrong: emit/subscribe allocate while holding a non-reentrant
+    Lock. Collecting the subscriber ran ``_cleanup``, which took that lock
+    again on the same thread and never returned.
+    """
+    import threading
+
+    bus = EventBus()
+
+    class Cyclic:
+        def handler(self, **_kwargs):
+            pass
+
+    node = Cyclic()
+    node.cycle = node
+    bus.subscribe("gone", node.handler, weak=True)
+    del node
+
+    done = threading.Event()
+
+    def _collect_while_held():
+        with bus._lock:
+            gc.collect()
+        done.set()
+
+    worker = threading.Thread(target=_collect_while_held, daemon=True)
+    worker.start()
+    assert done.wait(2.0), "weakref cleanup deadlocked on the bus lock"
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    # Cleanup ran on the thread that held the lock. A skipped callback would
+    # leave the dead weakref in the list.
+    assert bus._subscribers.get("gone") == []
+    bus.emit("gone")
+
+
+def test_subscribe_weak_python_method_stays_weakmethod():
+    import weakref
+
+    bus = EventBus()
+
+    class Target:
+        def handler(self, event_data=None):
+            return event_data
+
+    target = Target()
+    bus.subscribe("test:event", target.handler, weak=True)
+    stored, is_weak = bus._subscribers["test:event"][0]
+    assert is_weak is True
+    assert isinstance(stored, weakref.WeakMethod)
+

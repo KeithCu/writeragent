@@ -111,3 +111,87 @@ def get_cell_geometry_target(sheet: Any, cell: Any) -> Any:
     except Exception:
         pass
     return cell
+
+
+# Used when FormulaResult.VALUE cannot be read (unit tests, or a mock enum).
+# Live builds disagree: some expose VALUE as 0, some as 1.
+_FORMULA_RESULT_VALUE_FALLBACK = 1
+_formula_result_value_code: int | None = None
+
+
+def _numeric_formula_value(numeric: Any) -> float | None:
+    """Float for a real number from ``getValue()``. Booleans are not numbers here."""
+    if isinstance(numeric, bool) or not isinstance(numeric, (int, float)):
+        return None
+    return float(numeric)
+
+
+def _runtime_formula_result_value() -> int:
+    """``FormulaResult.VALUE`` on this LibreOffice, else 1.
+
+    What was wrong: a hardcoded ``1`` missed builds where ``VALUE`` is ``0``.
+    The enum module is not in the type stubs, so a ``from com.sun.star...``
+    import fails ``ty``. ``uno.getConstantByName`` is the string lookup other
+    Calc code uses for the same constants.
+    """
+    global _formula_result_value_code
+    if _formula_result_value_code is not None:
+        return _formula_result_value_code
+    try:
+        import uno
+
+        # String name, not an import: FormulaResult is absent from the type
+        # stubs, and ty rejects int() on the untyped constant. The runtime
+        # value is a plain int (0 on some builds, 1 on others).
+        raw = uno.getConstantByName("com.sun.star.sheet.FormulaResult.VALUE")
+        if type(raw) is not int:
+            raise TypeError("FormulaResult.VALUE is not an int")
+        code = raw
+    except Exception:
+        return _FORMULA_RESULT_VALUE_FALLBACK
+    _formula_result_value_code = code
+    return code
+
+
+def _formula_result_is_value(kind: Any) -> bool:
+    if kind is None:
+        return False
+    try:
+        val = int(kind)
+        runtime_val = _runtime_formula_result_value()
+        # On all LibreOffice builds, FormulaResult.VALUE is 0 or 1.
+        # If the runtime constant is 0 or 1, match that. If uno returned
+        # an invalid code (e.g. from an untyped mock), fall back to 0 or 1.
+        if runtime_val in (0, 1):
+            return val == runtime_val
+        return val in (0, 1)
+    except (TypeError, ValueError):
+        return False
+
+
+def formula_cell_result(cell: Any) -> Any:
+    """Return a formula cell's result, keeping numbers as floats.
+
+    What was wrong: ``=2+3`` came back as the text ``"5"`` (and ``=1-1`` as
+    ``"0"``). The previous contract for a numeric formula is ``getValue()``,
+    which is a float (``5.0``).
+    How: ``FormulaResultType`` was compared to a hardcoded ``1``. Where
+    ``FormulaResult.VALUE`` is ``0``, that check failed and ``getString()``
+    won. Zero also used to take ``getString()`` because ``getValue() != 0``
+    is false.
+    Why: any non-zero ``getValue()`` is a number. Numeric zero is
+    ``FormulaResult.VALUE`` from this runtime; text stays ``getString()``.
+    """
+    numeric = cell.getValue()
+    as_float = _numeric_formula_value(numeric)
+    # Non-zero does not need the enum. A mismatched VALUE code must not
+    # replace the float with the display string.
+    if as_float is not None and as_float != 0.0:
+        return as_float
+    if _formula_result_is_value(getattr(cell, "FormulaResultType", None)) and as_float is not None:
+        return as_float
+    text = cell.getString()
+    return text
+
+
+_formula_cell_result = formula_cell_result

@@ -140,7 +140,10 @@ class BaseProviderShim:
         api_path = self.client._api_path()
         url = endpoint + api_path + "/chat/completions"
 
-        data: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens, "top_p": 0.9, "stream": stream}
+        # top_p used to be hardcoded to 0.9 on every OpenAI-compatible chat.
+        # Models that reject temperature and top_p together returned HTTP 400,
+        # and there is no top_p setting. Omit it, same as a missing temperature.
+        data: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = temperature
         if model_name:
@@ -148,6 +151,8 @@ class BaseProviderShim:
         if tools:
             data["tools"] = tools
             data["tool_choice"] = "auto"
+            # Always false until the tool loop can apply parallel calls. The
+            # config key is stored but not read here; do not send True.
             data["parallel_tool_calls"] = False
         if response_format:
             data["response_format"] = response_format

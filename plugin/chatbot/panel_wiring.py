@@ -19,13 +19,21 @@ def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool) -> int |
     with suppress_disposed("measure send button width", logger=log):
         m = send_ctrl.getModel()
         saved = m.Label
-        labels = ["Send", "Record", "Stop Rec", "Accept"] if has_recording else ["Send", "Accept"]
-        wmax = send_ctrl.getPosSize().Width
-        for lab in labels:
-            m.Label = lab
-            wmax = max(wmax, send_ctrl.getPosSize().Width)
-        m.Label = saved
-        return wmax if wmax > 0 else None
+        try:
+            labels = ["Send", "Record", "Stop Rec", "Accept"] if has_recording else ["Send", "Accept"]
+            wmax = send_ctrl.getPosSize().Width
+            for lab in labels:
+                # Live labels are _(effect.send_label). Measuring the English
+                # string let a longer translation change width before the pin.
+                m.Label = _(lab)
+                wmax = max(wmax, send_ctrl.getPosSize().Width)
+            return wmax if wmax > 0 else None
+        finally:
+            # What was wrong: a failed width read left the button showing the
+            # last candidate label. How: Label was restored only after the
+            # loop, and suppress_disposed swallows the error. Why: finally
+            # puts the original label back before that swallow.
+            m.Label = saved
     return None
 
 
@@ -36,13 +44,46 @@ def _measure_aux_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
     with suppress_disposed("measure aux button width", logger=log):
         m = ctrl.getModel()
         saved = m.Label
-        wmax = ctrl.getPosSize().Width
-        for lab in labels:
-            m.Label = lab
-            wmax = max(wmax, ctrl.getPosSize().Width)
-        m.Label = saved
-        return wmax if wmax > 0 else None
+        try:
+            wmax = ctrl.getPosSize().Width
+            for lab in labels:
+                m.Label = _(lab)
+                wmax = max(wmax, ctrl.getPosSize().Width)
+            return wmax if wmax > 0 else None
+        finally:
+            # Same as send-width measurement: restore Label even when the
+            # width read raises and suppress_disposed swallows it.
+            m.Label = saved
     return None
+
+
+def _install_frame_session_listeners(
+    session: Any,
+    ctx: Any,
+    query: Any,
+    leave_query_controls: Any,
+) -> None:
+    """Pin Ask and attach this frame's focus and click listeners.
+
+    What was wrong: the only caller of ``FrameSession.install`` wrapped it
+    in ``except Exception`` and logged at debug. How: ``install`` re-raises
+    a ``UNO thread violation`` ``RuntimeError`` from ``getController``,
+    ``addFocusListener``, ``addMouseListener``, and ``addMouseClickHandler``
+    so a missed attach is not a successful return. This wrapper caught that
+    error, so the contract never left the sidebar. Why: re-raise the thread
+    boundary. Any other attach failure stays a debug log. The other
+    ``except Exception`` blocks in this module are unchanged.
+    """
+    try:
+        session.set_focus_pin(query)
+        session.install(ctx, query=query, leave_query_controls=leave_query_controls)
+    except Exception as exc:
+        from plugin.framework.uno_listeners import listener_boundary
+
+        boundary = listener_boundary(exc)
+        if boundary is not None and boundary.kind == "thread":
+            raise
+        log.debug("frame session focus install: %s", exc)
 
 
 def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_extension_on_path: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
@@ -101,10 +142,33 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     extra_instructions = ""
     model = self._get_document_model()
     initial_mode = "chat"
-    mode_flags = None
+    # What was wrong: mode_flags stayed None when the try below raised.
+    # How: _wire_buttons then read include_brainstorming, and that
+    # AttributeError was inside the Send/Stop try, so the broad except
+    # skipped addActionListener. Why: a real flags object lets Send/Stop
+    # attach even when the mode dropdown fails to wire.
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-    def toggle_image_ui(_is_image: bool) -> None:
-        return None
+    mode_flags: SidebarModeFlags = SidebarModeFlags()
+
+    def toggle_image_ui(is_image: bool) -> None:
+        # What was wrong: this stub no-op'd when mode UI wiring raised, so
+        # the XDL-visible image controls never hid and later mode changes
+        # could not swap them. How: the real closure is local to
+        # _wire_chat_mode_ui and is only returned on success.
+        # Why: _apply_sidebar_mode still calls this function.
+        set_control_visible(controls["model_label"], not is_image)
+        set_control_visible(controls["model_selector"], not is_image)
+        set_control_visible(controls["image_model_selector"], is_image)
+        set_control_visible(controls["aspect_ratio_selector"], is_image)
+        set_control_visible(controls["base_size_input"], is_image)
+        set_control_visible(controls["base_size_label"], is_image)
+        tp = getattr(self, "toolpanel", None)
+        root = getattr(self, "m_panelRootWindow", None)
+        rl = getattr(tp, "resize_listener", None) if tp else None
+        if rl and root:
+            with suppress_disposed("relayout after toggling image UI", logger=log):
+                rl.relayout_now(root)
 
     # 1. Config, Models, and UI
     try:
@@ -198,9 +262,12 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     r = c.getPosSize()
                     c.setPosSize(r.X, r.Y, aw, r.Height, 15)
 
+    _frame_session = getattr(self, "frame_session", None)
+    _restore_focus = _frame_session.restore_focus if _frame_session is not None else None
     try:
         log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
         _tp = getattr(self, "toolpanel", None)
+
         def _release_sidebar_on_window_dispose() -> None:
             # Same send-cancel and live-panel drop as ChatPanelElement.disposing.
             # That method is not called when the deck closes. Do not resolve the
@@ -210,7 +277,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
             release_live_sidebar(self, controls.get("query"))
 
-        _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose)
+        _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose, restore_focus=_restore_focus)
         _resize._root_window = root_window
         _resize._parent_window = getattr(_tp, "parent_window", None)
         root_window.addWindowListener(_resize)
@@ -277,19 +344,22 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
             def on_rich_control_ready(rich_control: Any) -> None:
                 log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
-                widget = RichTextChatWidget(self.ctx, rich_control, style_window=root_window, query=controls.get("query"))
+                session = getattr(self, "frame_session", None)
+                restore_focus = session.restore_focus if session is not None else None
+                widget = RichTextChatWidget(
+                    self.ctx,
+                    rich_control,
+                    style_window=root_window,
+                    query=controls.get("query"),
+                    restore_focus=restore_focus,
+                )
                 self.rich_text_widget = widget
-                try:
-                    from plugin.framework.uno_context import (
-                        install_stream_focus_tracker,
-                        set_default_focus_restore,
-                    )
-
-                    set_default_focus_restore(controls.get("query"))
-                    install_stream_focus_tracker(
+                if session is not None:
+                    _install_frame_session_listeners(
+                        session,
                         self.ctx,
-                        query=controls.get("query"),
-                        leave_query_controls=(
+                        controls.get("query"),
+                        (
                             controls.get("stop"),
                             controls.get("clear"),
                             controls.get("send"),
@@ -302,8 +372,6 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                             controls.get("model_selector"),
                         ),
                     )
-                except Exception as e:
-                    log.debug("set_default_focus_restore: %s", e)
                 controls["response_rich"] = rich_control
                 if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
                     self._panel_resize_listener._c["response_rich"] = rich_control
@@ -375,6 +443,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                 root_window,
                 controls["response"],
                 on_rich_control_ready,
+                restore_focus=_restore_focus,
                 placeholder_rect_fn=lambda: (
                     self._panel_resize_listener.last_response_rect
                     if getattr(self, "_panel_resize_listener", None)

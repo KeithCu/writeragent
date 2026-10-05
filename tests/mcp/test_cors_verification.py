@@ -26,7 +26,6 @@ from plugin.mcp.cors import (
     set_extra_allowed_origins,
 )
 from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
-from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/mcp/cors.py"
@@ -148,23 +147,15 @@ def test_normalize_origins_list_is_off_cover_all() -> None:
         assert not any(f.endswith(f".{name}") for f in fqns), name
 
 
-def test_cors_origin_overflow_pre_fails_closed() -> None:
-    import deal
-
-    if not deal_pre_present(is_safe_origin):
-        pytest.skip("@deal.pre stripped in release bundle")
+def test_cors_origin_overflow_returns_body_result() -> None:
+    """A long or odd Origin is not safe. It must not raise PreContractError."""
     too_long = "h" * (DEAL_MAX_ORIGIN + 1)
-    with pytest.raises(deal.PreContractError):
-        is_safe_origin(too_long)
-    with pytest.raises(deal.PreContractError):
-        normalize_cors_origin(too_long)
-    with pytest.raises(deal.PreContractError):
-        merge_allow_headers(too_long)
-    with pytest.raises(deal.PreContractError):
-        is_safe_origin("http://example.com/?x")
-    with pytest.raises(deal.PreContractError):
-        merge_allow_headers("Content-Type; X-Evil")
-    # Pytest keeps the 256-char product domain.
+    assert is_safe_origin(too_long) is False
+    assert normalize_cors_origin(too_long) is None
+    merged = merge_allow_headers(too_long)
+    assert isinstance(merged, str) and "Content-Type" in merged
+    assert is_safe_origin("http://example.com/?x") is False
+    assert "Content-Type" in merge_allow_headers("Content-Type; X-Evil")
     assert is_safe_origin("http://localhost:3000") is True
     assert "Content-Type" in merge_allow_headers("X-Custom")
 

@@ -12,15 +12,16 @@ Forward the raw ``data`` JSON to the formula worker, and forward the worker's
 ``result_json`` bytes back to coolwsd — no host ``json.loads`` of the grid,
 no ``host_pack_data``, no second ``json.dumps`` of the result.
 
-Worker stdio still uses the existing length-prefixed Pickle5 envelope so we do
-not add a second IPC protocol. Large payloads travel as ``bytes`` fields
-(``data_json`` / ``result_json``); pickle copies those buffers, it does not
-re-encode the JSON tree.
+Worker stdio still uses the length-prefixed Pickle5 envelope as framing.
+There is one payload on that envelope: raw ``data_json`` / ``result_json``
+bytes. Pickle copies those buffers; it does not re-encode the JSON tree and
+there is no second ``split_grid`` payload field.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,7 +39,11 @@ _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
 _BOUNDARY_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'()+_,-./:=?")
 
 WIRE_JSON_FORWARD = "json_forward"
-WIRE_PICKLE = "pickle"
+VALID_EXECUTE_MODES = frozenset({"isolated", "shared"})
+# One payload wire. ``pickle`` used to mean host_pack_data / split_grid on
+# the same stdio envelope, and a value the host rejected was rewritten and run.
+VALID_WIRES = frozenset({WIRE_JSON_FORWARD})
+VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 
 # Peel-walker only (single-JSON ingress). Transitional Collabora contract;
 # delete with peel_execute_request after kit ships multipart.
@@ -48,7 +53,57 @@ _BOM = b"\xef\xbb\xbf"
 
 
 class ExecuteRequestError(ValueError):
-    """Raised when the HTTP body is not a peelable JSON object or multipart kit body."""
+    """Raised when an execute request or response does not match the one schema."""
+
+
+def require_execute_mode(mode: Any) -> str:
+    """Return ``isolated`` or ``shared``.
+
+    Any other value used to be rewritten to isolated and executed, so a
+    typo looked like a successful cell that kept no workbook state. Callers
+    share this check; there is no second, looser interpretation on the worker.
+    """
+    if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
+        return mode
+    raise ExecuteRequestError("mode must be 'isolated' or 'shared'.")
+
+
+def canonical_execute_mode(mode: Any) -> str:
+    """Missing mode is isolated. Every other value must be a real mode.
+
+    ``mode or "isolated"`` treated ``false`` and ``0`` as missing, so the
+    HTTP handler ran an isolated cell that the worker would have rejected.
+    Only ``None`` and ``""`` are the omitted mode. Peel and multipart both
+    call this; the pool and the worker call it too.
+    """
+    if mode is None or mode == "":
+        return require_execute_mode("isolated")
+    return require_execute_mode(mode)
+
+
+def require_execute_wire(wire: Any) -> str:
+    """Return the one stdio payload wire. Unknown values are not rewritten."""
+    if isinstance(wire, str) and wire in VALID_WIRES:
+        return wire
+    raise ExecuteRequestError(f"wire must be {WIRE_JSON_FORWARD!r}.")
+
+
+def validate_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
+    """The one execute response shape, checked once before the worker dumps it.
+
+    ``status`` is ``ok`` (with ``result``) or ``error`` (with ``error`` text).
+    The HTTP host forwards the dumped bytes and does not interpret them again.
+    """
+    if not isinstance(payload, dict):
+        raise ExecuteRequestError("execute response must be an object")
+    status = payload.get("status")
+    if status not in VALID_RESPONSE_STATUSES:
+        raise ExecuteRequestError("execute response status must be 'ok' or 'error'")
+    if status == "error" and not payload.get("error") and not payload.get("message"):
+        raise ExecuteRequestError("execute error response requires error")
+    if status == "ok" and "result" not in payload:
+        raise ExecuteRequestError("execute ok response requires result")
+    return payload
 
 
 @dataclass(frozen=True)
@@ -286,7 +341,15 @@ def _scan_multipart_parts(body: bytes, boundary: bytes) -> dict[str, bytes]:
         nxt_at, nxt_kind = nxt
         payload_end = _payload_end_before_delimiter(body, nxt_at)
         if payload_end < header_end:
-            raise ExecuteRequestError("malformed multipart body")
+            # RFC 2046 attaches the CRLF before --boundary to the delimiter.
+            # An empty part is headers\r\n\r\n--boundary: that CRLF is also
+            # the blank line that ended the headers, so dropping it landed
+            # before the body and the part was rejected as malformed.
+            # The body is empty. A longer gap is still a broken framing.
+            if nxt_at == header_end and body[payload_end:header_end] in (b"\r\n", b"\n"):
+                payload_end = header_end
+            else:
+                raise ExecuteRequestError("malformed multipart body")
         parts[name] = body[header_end:payload_end]
         pos, kind = nxt_at, nxt_kind
     if kind != "close":
@@ -471,11 +534,20 @@ def _disposition_name(value: str) -> str:
     return found
 
 
+def _reject_json_constant(token: str) -> None:
+    """``json.loads`` accepts NaN/Infinity. The peel walker does not.
+
+    ``timeout_ms: Infinity`` then raised OverflowError outside the execute
+    try, and ``id: NaN`` failed the kit dump. Reject the tokens here.
+    """
+    raise ValueError(token)
+
+
 def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     if len(meta_bytes) > MAX_META_BYTES:
         raise ExecuteRequestError("meta part exceeds size cap")
     try:
-        obj = json.loads(meta_bytes.decode("utf-8"))
+        obj = json.loads(meta_bytes.decode("utf-8"), parse_constant=_reject_json_constant)
     except Exception as exc:
         raise ExecuteRequestError("invalid meta JSON") from exc
     if not isinstance(obj, dict):
@@ -483,7 +555,13 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     for key in _FORBIDDEN_META_KEYS:
         if key in obj:
             raise ExecuteRequestError(f"meta part must not include a {key!r} field")
-    return obj.get("id"), obj.get("mode"), obj.get("timeout_ms"), "session_id" in obj
+    req_id = obj.get("id")
+    timeout_ms = obj.get("timeout_ms")
+    # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
+    # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
+    _reject_nonfinite_number(req_id)
+    _reject_nonfinite_number(timeout_ms)
+    return req_id, obj.get("mode"), timeout_ms, "session_id" in obj
 
 
 def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteRequestParts:
@@ -596,15 +674,29 @@ def _coerce_data_json_field(value_slice: bytes) -> bytes:
 
 
 # --- peel walker (single-JSON only) ---
+# TODO(kit-multipart): delete peel_execute_request and all helpers below when kit ships multipart.
 # Transitional Collabora contract. Keep until kit ships multipart; then
 # delete this whole helper block. Multipart is the long-term ingress.
 
 
+def _reject_nonfinite_number(value: Any) -> None:
+    """Reject ``inf`` from numeric overflow, not only NaN/Infinity tokens.
+
+    ``json.loads`` turns ``1e9999`` into ``inf`` without calling
+    ``parse_constant``. The HTTP 400 path then echoed that ``id`` through
+    ``allow_nan=False`` and the WSGI callable crashed.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ExecuteRequestError("non-finite JSON number")
+
+
 def _loads_small(value_slice: bytes) -> Any:
     try:
-        return json.loads(value_slice.decode("utf-8"))
+        value = json.loads(value_slice.decode("utf-8"), parse_constant=_reject_json_constant)
     except Exception as exc:
         raise ExecuteRequestError("Invalid JSON value") from exc
+    _reject_nonfinite_number(value)
+    return value
 
 
 def _skip_ws(buf: bytes, i: int) -> int:

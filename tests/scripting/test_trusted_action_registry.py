@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.scripting.trusted_action_registry import TrustedActionWiring, get_trusted_action_wiring
 
 
@@ -31,6 +33,12 @@ def test_get_trusted_action_wiring_known_domains() -> None:
 
 def test_get_trusted_action_wiring_unknown_domain() -> None:
     assert get_trusted_action_wiring("not_a_domain") is None
+
+
+def test_dispatch_rejects_handler_without_colon() -> None:
+    wiring = TrustedActionWiring("t", "plugin.scripting.venv.trusted_dispatch")
+    with pytest.raises(ValueError, match="module:attr"):
+        wiring.dispatch({})
 
 
 def test_dispatch_passes_heartbeat_only_when_supported() -> None:

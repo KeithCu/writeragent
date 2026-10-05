@@ -31,9 +31,11 @@ _log = logging.getLogger("writeragent.grammar")
 # ---------------------------------------------------------------------------
 
 # Persistence constants
-# Schema version for user-defined properties storage (embedded in document metadata).
-# Current value: 3 (v2 good/bad plus a checker ``model`` identity string).
-GRAMMAR_CACHE_VERSION = 3
+# Schema version written into the document user-defined property.
+# 4: per-locale good/bad maps plus the v3 checker ``model`` string.
+# Loaders accept exactly 2, 3, and 4. v3 is locale-blind (adopted on first
+# locale read). Any other version is rejected rather than parsed as v3.
+GRAMMAR_CACHE_VERSION = 4
 
 # Name of the user-defined string property under which the document-embedded cache is stored inside the ODT file.
 # Default: "WriterAgentGrammarCache"

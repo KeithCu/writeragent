@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.draw.shapes import (
+    AlignShapes,
+    GetDrawSummary,
     GroupShapes,
     UpsertShape,
     _ENHANCED_CUSTOM_SHAPE_ENGINE,
@@ -397,3 +401,137 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
         )
         assert [c.args[0] for c in collection.add.call_args_list] == shapes
         page.group.assert_called_once_with(collection)
+
+
+def test_shape_upsert_line_allows_zero_width_or_height():
+    """Axis-aligned LineShape has one zero side. Rectangles still do not."""
+    from plugin.draw.shapes import DrawShapes
+
+    draw_shapes = DrawShapes()
+
+    class _Size:
+        def __init__(self, width, height):
+            self.Width = width
+            self.Height = height
+
+    class _Pos:
+        def __init__(self):
+            self.X = 100
+            self.Y = 200
+
+    def _make(shape_type, width, height):
+        shape = MagicMock()
+        doc = MagicMock()
+        doc.createInstance.return_value = shape
+        page = MagicMock()
+        return draw_shapes.safe_create_shape(doc, page, shape_type, _Pos(), _Size(width, height)), shape, page
+
+    (created, _geom, _err), shape, page = _make("LineShape", 4000, 0)
+    assert created is shape
+    page.add.assert_called_once_with(shape)
+    shape.setSize.assert_called_once()
+    assert shape.setSize.call_args[0][0].Height == 0
+
+    (created, _geom, _err), shape, page = _make("com.sun.star.drawing.LineShape", 0, 2500)
+    assert created is shape
+    page.add.assert_called_once_with(shape)
+
+    from plugin.draw.shapes import DrawError
+
+    for shape_type, width, height in (
+        ("LineShape", 0, 0),
+        ("LineShape", -1, 100),
+        ("RectangleShape", 4000, 0),
+        ("RectangleShape", 0, 2500),
+        ("com.sun.star.drawing.ConnectorShape", 0, 100),
+    ):
+        try:
+            _make(shape_type, width, height)
+        except DrawError as exc:
+            assert exc.code == "DRAW_INVALID_SIZE"
+        else:
+            raise AssertionError("%s %s x %s should be invalid" % (shape_type, width, height))
+
+
+def test_shape_upsert_execute_line_zero_height():
+    events: list = []
+    shape = _RecordingShape(events)
+    page = MagicMock()
+    page_shapes: list = []
+
+    def page_add(added):
+        page_shapes.append(added)
+
+    page.add.side_effect = page_add
+    page.getCount.side_effect = lambda: len(page_shapes)
+    page.getByIndex.side_effect = lambda i: page_shapes[i]
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.return_value = shape
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages
+        bridge.get_active_page_index.return_value = 0
+        ok = UpsertShape().execute(ctx, action="create", shape_type="line", x=100, y=200, width=4000, height=0)
+        rejected = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=200, width=4000, height=0)
+    assert ok["status"] == "ok", ok
+    assert rejected["status"] == "error", rejected
+    doc.createInstance.assert_called_once_with("com.sun.star.drawing.LineShape")
+    assert ("setSize", 4000, 0) in events
+
+
+class DisposedException(Exception):
+    """Type name matches is_disposed_exception."""
+
+
+def test_shape_upsert_disposed_page_is_not_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=0)
+
+
+def test_shape_upsert_bad_page_stays_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=3)
+    assert out["status"] == "error"
+    assert "Invalid page index" in out["message"]
+
+
+def test_shape_summary_disposed_page_is_not_missing_page():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.resolve_slide.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            GetDrawSummary().execute(ctx, page=0)
+
+
+def test_align_shapes_disposed_page_is_not_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        with pytest.raises(DisposedException):
+            AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=0)
+
+
+def test_align_shapes_bad_page_stays_invalid_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
+        out = AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=9)
+    assert out["status"] == "error"
+    assert "Invalid page index" in out["message"]

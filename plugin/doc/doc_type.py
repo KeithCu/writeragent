@@ -28,11 +28,18 @@ class DocumentType(Enum):
 
 # Canonical UNO service names for Writer/Calc/Draw/Impress (visual_helpers
 # duplicates the strings plus WebDocument, which must be checked first).
+# Insertion order is get_document_type's priority: it returns the first
+# supportsService hit. Impress also supports DrawingDocument, so
+# PresentationDocument must precede DrawingDocument or every Impress model
+# is classified DRAW and doc_type_label_for_enum(..., impress_as_draw=False)
+# can never return "impress" (sidebar cached_doc_type stayed "draw").
+# Draw-only models do not support PresentationDocument and stay DRAW.
+# Same order as v1_peer_type_label.
 _DOCUMENT_SERVICE_MAP = {
     DocumentType.WRITER: "com.sun.star.text.TextDocument",
     DocumentType.CALC: "com.sun.star.sheet.SpreadsheetDocument",
-    DocumentType.DRAW: "com.sun.star.drawing.DrawingDocument",
     DocumentType.IMPRESS: "com.sun.star.presentation.PresentationDocument",
+    DocumentType.DRAW: "com.sun.star.drawing.DrawingDocument",
 }
 
 # Lowercase doc_type labels (ToolContext / sidebar) -> UNO services for tool compatibility

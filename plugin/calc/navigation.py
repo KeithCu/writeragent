@@ -26,7 +26,7 @@ _CELL_HREF_RE = re.compile(r"""href\s*=\s*(["'])(?:cell://|writeragent-cell://)(
 _CELL_LINK_ANCHOR_RE = re.compile(r"""<a\s+[^>]*href\s*=\s*(["'])(?:cell://|writeragent-cell://)([^"']+)\1[^>]*>(.*?)</a>""", re.IGNORECASE | re.DOTALL)
 # Plain cell address (optional sheet prefix): Sheet1.B2, Excel Sheet1!B2, or B2.
 # Canonical form is always the Calc dot (Sheet1.B2).
-_CELL_ADDRESS_RE = re.compile(r"^(?:([A-Za-z0-9_]+)[.!])?([A-Z]{1,3})(\d{1,7})$", re.IGNORECASE)
+_CELL_ADDRESS_RE = re.compile(r"^(?:(?:'([^']+)'|([^.!]+))[.!])?([A-Z]{1,3})(\d{1,7})$", re.IGNORECASE)
 WRITERAGENT_CELL_URL_PREFIX = "writeragent-cell://"
 
 _CELL_LINK_LISTENERS: dict[int, Any] = {}
@@ -91,7 +91,9 @@ def normalize_cell_address(raw: str) -> str | None:
     match = _CELL_ADDRESS_RE.match(text.strip())
     if not match:
         return None
-    sheet, col, row = match.group(1), match.group(2), match.group(3)
+    sheet = match.group(1) or match.group(2)
+    col = match.group(3)
+    row = match.group(4)
     addr = f"{col.upper()}{row}"
     if sheet:
         return f"{sheet}.{addr}"
@@ -306,6 +308,7 @@ def attach_calc_cell_link_listener(ctx: Any, control: Any, get_calc_doc: Callabl
     class _CalcCellLinkMouseListener(unohelper.Base, XMouseListener):  # type: ignore[misc]
         def disposing(self, Source: Any) -> None:
             _CELL_LINK_LISTENERS.pop(ctrl_id, None)
+            cell_link_registry.clear(Source)
 
         def mousePressed(self, e: Any) -> None:
             pass

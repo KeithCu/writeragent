@@ -24,6 +24,10 @@ APP_REFERER = "https://github.com/KeithCu/writeragent"
 APP_TITLE = "WriterAgent"
 USER_AGENT = f"{APP_TITLE} ({APP_REFERER})"
 
+# DNS/TCP/TLS connect budget for LLM HTTP. Settings ``request_timeout`` is the
+# read/stall budget only — a hung open must not wait the full 120s stream stall.
+LLM_CONNECT_TIMEOUT_SEC = 15
+
 # OXT package identifiers (description.xml). Single source for product/package identity.
 EXTENSION_ID_LIBREPY = "org.extension.librepy"
 EXTENSION_ID_WRITERAGENT = "org.extension.writeragent"

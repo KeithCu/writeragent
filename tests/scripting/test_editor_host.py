@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -32,6 +34,114 @@ def test_editor_save_timeout_clears_the_token_and_reports():
     assert pe._save_token is None
     assert sent and "timed out" in sent[0]["message"]
     assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
+
+
+def test_editor_script_picker_uses_marshal_timeout():
+    """A hung script picker must use the same UI deadline as save and close."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = TimeoutError()
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(message)
+
+    pe.send = _send  # type: ignore[method-assign]
+    with patch("plugin.scripting.config_limits.configured_python_exec_timeout", return_value=30):
+        pe._dispatch_incoming({"type": "request_scripts"})
+    assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
+    assert sent and "timed out" in sent[0]["message"]
+
+
+def test_editor_script_picker_exception_sends_error_frame():
+    """A picker failure must be an error frame, not a dead reader."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+    with patch(
+        "plugin.scripting.editor_host.handle_editor_script_message",
+        side_effect=ValueError("payload exceeds 16MB"),
+    ):
+        pe._dispatch_incoming({"type": "request_scripts"})
+    assert sent and sent[0]["type"] == "error"
+    assert "payload exceeds 16MB" in sent[0]["message"]
+    assert "ValueError" in sent[0]["traceback"]
+
+
+def test_editor_script_picker_error_send_failure_stays_in_dispatch():
+    """If the error frame itself cannot be sent, the reader must still survive."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+
+    def _send(message, *, session=None):
+        raise ValueError("payload exceeds 16MB")
+
+    pe.send = _send  # type: ignore[method-assign]
+    with patch(
+        "plugin.scripting.editor_host.handle_editor_script_message",
+        side_effect=RuntimeError("document disposed"),
+    ):
+        pe._dispatch_incoming({"type": "request_scripts"})
+    assert pe.executor.execute.called
+
+
+def test_editor_save_exception_sends_error_frame():
+    """A save failure must still be reported when the error frame can be sent."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.register_session(
+        launch_mod.EditorSessionState(
+            session_id="s1",
+            mode="calc_cell",
+            target={"cell": "A1"},
+            on_save=MagicMock(side_effect=RuntimeError("document disposed")),
+        )
+    )
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+    pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert sent and sent[0]["type"] == "error"
+    assert "document disposed" in sent[0]["message"]
+    assert "RuntimeError" in sent[0]["traceback"]
+
+
+def test_editor_save_error_send_failure_stays_in_dispatch():
+    """A failed save error frame must not escape and tear down the reader."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.register_session(
+        launch_mod.EditorSessionState(
+            session_id="s1",
+            mode="calc_cell",
+            target={"cell": "A1"},
+            on_save=MagicMock(side_effect=RuntimeError("document disposed")),
+        )
+    )
+
+    def _send(message, *, session=None):
+        raise ValueError("payload exceeds 16MB")
+
+    pe.send = _send  # type: ignore[method-assign]
+    pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert pe.executor.execute.called
 
 
 def test_launch_monaco_editor_reuses_running_process():
@@ -127,6 +237,87 @@ def test_monaco_editor_available_false_without_venv():
     assert ok is False
 
 
+def test_probe_webview_import_timeout_returns_diagnostic():
+    """A probe timeout must return the traceback Monaco shows, not raise under deal."""
+    exe = "/tmp/writeragent-probe-timeout-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+    timeout = subprocess.TimeoutExpired(cmd=[exe, "-c", "import webview"], timeout=30)
+    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=timeout) as run:
+        ok, detail = launch_mod.probe_webview_import(exe)
+        ok2, detail2 = launch_mod.probe_webview_import(exe)
+    assert ok is False
+    assert ok2 is False
+    assert detail2 == detail
+    assert "TimeoutExpired" in detail
+    assert exe not in launch_mod._PROBE_CACHE
+    assert exe in launch_mod._PROBE_FAILURE_CACHE
+    assert run.call_count == 1
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_probe_webview_import_oserror_returns_diagnostic():
+    exe = "/tmp/writeragent-probe-oserror-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=OSError("boom")):
+        ok, detail = launch_mod.probe_webview_import(exe)
+    assert ok is False
+    assert "OSError" in detail
+    assert "boom" in detail
+    assert exe not in launch_mod._PROBE_CACHE
+    assert exe in launch_mod._PROBE_FAILURE_CACHE
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_probe_webview_import_failure_expires_after_ttl():
+    """A cached failure must be re-probed once the short TTL has passed."""
+    exe = "/tmp/writeragent-probe-ttl-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+    calls = {"n": 0}
+
+    def boom(*_args, **_kwargs):
+        calls["n"] += 1
+        raise OSError("boom")
+
+    try:
+        with patch("plugin.scripting.editor_host.subprocess.run", side_effect=boom):
+            with patch("plugin.scripting.editor_host.time.monotonic", return_value=1000.0):
+                first_ok, _first_detail = launch_mod.probe_webview_import(exe)
+                second_ok, _second_detail = launch_mod.probe_webview_import(exe)
+            assert first_ok is False
+            assert second_ok is False
+            assert calls["n"] == 1
+            with patch(
+                "plugin.scripting.editor_host.time.monotonic",
+                return_value=1000.0 + launch_mod._PROBE_FAILURE_TTL_SEC,
+            ):
+                launch_mod.probe_webview_import(exe)
+            assert calls["n"] == 2
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_probe_webview_import_nonzero_exit_is_cached_failure():
+    exe = "/tmp/writeragent-probe-exit-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+    completed = subprocess.CompletedProcess(args=[exe], returncode=1, stdout="", stderr="no webview")
+    try:
+        with patch("plugin.scripting.editor_host.subprocess.run", return_value=completed) as run:
+            ok, detail = launch_mod.probe_webview_import(exe)
+            ok2, _detail2 = launch_mod.probe_webview_import(exe)
+        assert ok is False
+        assert ok2 is False
+        assert "no webview" in detail
+        assert exe not in launch_mod._PROBE_CACHE
+        assert run.call_count == 1
+    finally:
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
 def test_monaco_editor_available_false_when_webview_missing():
     ctx = MagicMock()
     with patch.object(launch_mod, "resolve_editor_python", return_value=("/venv/bin/python", "")):
@@ -192,6 +383,28 @@ def test_append_stderr_line_ring_buffer():
     assert "aaaa" not in tail
     assert "bbbb" in tail
     assert "cccc" in tail
+    assert editor._stderr_tail_chars == sum(len(s) + 1 for s in editor._stderr_tail)
+
+
+def test_append_stderr_line_char_count_matches_budget():
+    editor = PersistentEditor()
+    editor._stderr_tail_max_chars = 50
+    for i in range(40):
+        editor._append_stderr_line(f"line-{i:02d}-xxxx")
+    assert editor._stderr_tail
+    assert editor._stderr_tail_chars == sum(len(s) + 1 for s in editor._stderr_tail)
+    assert editor._stderr_tail_chars <= editor._stderr_tail_max_chars
+
+
+def test_start_clears_stderr_char_count():
+    editor = PersistentEditor()
+    editor._append_stderr_line("hello")
+    assert editor._stderr_tail_chars == len("hello") + 1
+    proc = _FakeProc(stderr=None)
+    with patch("plugin.scripting.editor_host.run_in_background", return_value=MagicMock()):
+        editor.start(proc)  # type: ignore[arg-type]
+    assert editor._stderr_tail_chars == 0
+    assert editor.read_stderr_tail() == ""
 
 
 
@@ -264,6 +477,402 @@ def test_same_target_reuses_session_id():
     assert len(pe.sessions) == 1
     pe.sessions.clear()
     pe.focused_id = None
+
+
+def test_same_target_reuse_clears_pending_save_then_load():
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+    on_save = MagicMock(return_value={"type": "saved", "ok": True})
+    try:
+        state, _stamped = launch_mod._register_load_session(
+            {"type": "load", "mode": "calc_cell", "cell_address": "A1", "code": "1"},
+            on_save,
+            lambda: None,
+        )
+        state.dirty = True
+        state.extra["replace_confirmed"] = True
+        state.pending_load = {"type": "load", "code": "stale"}
+        state.pending_on_save = MagicMock()
+        state.pending_on_closed = MagicMock()
+        reused, _stamped_again = launch_mod._register_load_session(
+            {"type": "load", "mode": "calc_cell", "cell_address": "A1", "code": "2"},
+            on_save,
+            lambda: None,
+        )
+        assert reused is state
+        assert reused.dirty is False
+        assert reused.pending_load is None
+        assert reused.pending_on_save is None
+        assert reused.pending_on_closed is None
+    finally:
+        pe.sessions.clear()
+        pe.focused_id = None
+
+
+def _reset_persistent_editor() -> None:
+    pe = launch_mod._PERSISTENT_EDITOR
+    launch_mod.set_active_session(None)
+    pe.sessions.clear()
+    pe.focused_id = None
+    pe._proc = None
+    pe.run_script_doc = None
+    pe.run_script_doc_url = None
+    # Tests assign pe.send. That instance attribute would shadow the real
+    # method for every later test that shares this singleton.
+    if "send" in pe.__dict__:
+        del pe.send
+
+
+def test_monaco_session_needs_flush_any_mode():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    try:
+        for mode in ("calc_cell", "run_script", "init_script", "latex"):
+            pe.sessions.clear()
+            state = launch_mod.EditorSessionState("sid", mode, {"resource": "buf"})
+            state.dirty = True
+            pe.register_session(state)
+            assert launch_mod.monaco_session_needs_flush() is True
+            assert launch_mod.calc_cell_session_needs_flush() is True
+            state.dirty = False
+            assert launch_mod.monaco_session_needs_flush() is False
+    finally:
+        _reset_persistent_editor()
+
+
+def test_register_refuses_dirty_buffer_until_discard():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    on_save = MagicMock(return_value={"type": "saved", "ok": True})
+    try:
+        state, _stamped = launch_mod._register_load_session(
+            {"type": "load", "mode": "run_script", "script_name": "Demo"},
+            on_save,
+            lambda: None,
+        )
+        state.dirty = True
+        state.pending_load = {"type": "load", "code": "keep"}
+        try:
+            launch_mod._register_load_session(
+                {"type": "load", "mode": "calc_cell", "cell_address": "B2", "code": "new"},
+                on_save,
+                lambda: None,
+            )
+            raised = False
+        except launch_mod.DirtyBufferError:
+            raised = True
+        assert raised is True
+        assert pe.focused() is state
+        assert state.dirty is True
+        assert state.pending_load == {"type": "load", "code": "keep"}
+        assert len(pe.sessions) == 1
+    finally:
+        _reset_persistent_editor()
+
+
+def test_launch_cancel_keeps_dirty_run_script_buffer():
+    """Opening a cell must not drop unsaved Run Script edits when the user cancels."""
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    state = launch_mod.EditorSessionState(
+        "sid-run",
+        "run_script",
+        {"script_name": "Demo", "resource": "run_script"},
+        on_save=MagicMock(),
+    )
+    state.dirty = True
+    pe.register_session(state)
+    sent: list[dict] = []
+
+    def _send(message: dict, session: object = None) -> None:
+        sent.append(message)
+
+    pe.send = _send  # type: ignore[method-assign]
+    try:
+        with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="cancel") as confirm:
+            ok = launch_mod.launch_monaco_editor(
+                MagicMock(),
+                exe="/venv/bin/python",
+                load_message={"type": "load", "mode": "calc_cell", "cell_address": "A1", "code": "x = 1"},
+                on_save=MagicMock(),
+            )
+        confirm.assert_called_once()
+        assert "Demo" in confirm.call_args.args[1]
+        assert ok is True
+        assert sent == []
+        assert pe.focused() is state
+        assert state.dirty is True
+        assert "replace_confirmed" not in state.extra
+    finally:
+        _reset_persistent_editor()
+
+
+def test_launch_save_queues_request_save_for_dirty_cell():
+    """Run Python Script must flush a dirty cell instead of replacing it."""
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    state = launch_mod.EditorSessionState(
+        "sid-cell",
+        "calc_cell",
+        {"cell_address": "C3"},
+        on_save=MagicMock(),
+    )
+    state.dirty = True
+    pe.register_session(state)
+    sent: list[dict] = []
+
+    def _send(message: dict, session: object = None) -> None:
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+    try:
+        with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="save"):
+            ok = launch_mod.launch_monaco_editor(
+                MagicMock(),
+                exe="/venv/bin/python",
+                load_message={
+                    "type": "load",
+                    "mode": "run_script",
+                    "script_name": "Demo",
+                    "code": "print(1)",
+                    "run_script_doc": object(),
+                },
+                on_save=MagicMock(),
+            )
+        assert ok is True
+        assert [msg["type"] for msg in sent] == ["request_save"]
+        assert state.pending_load is not None
+        assert state.pending_load["mode"] == "run_script"
+        assert "run_script_doc" in state.pending_load
+        assert state.dirty is True
+        assert pe.focused() is state
+        assert pe.run_script_doc is None
+    finally:
+        _reset_persistent_editor()
+
+
+def test_launch_discard_replaces_dirty_init_script():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    closed: list[str] = []
+    state = launch_mod.EditorSessionState(
+        "sid-init",
+        "init_script",
+        {"resource": "init"},
+        on_save=MagicMock(),
+        on_closed=lambda: closed.append("init"),
+    )
+    state.dirty = True
+    pe.register_session(state)
+    try:
+        with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="discard"):
+            with patch.object(launch_mod, "EditorSession") as mock_session_cls:
+                session = MagicMock()
+                session.is_running = True
+                mock_session_cls.return_value = session
+                ok = launch_mod.launch_monaco_editor(
+                    MagicMock(),
+                    exe="/venv/bin/python",
+                    load_message={"type": "load", "mode": "latex", "resource": "insert", "code": "x"},
+                    on_save=MagicMock(),
+                )
+        assert ok is True
+        assert closed == ["init"]
+        assert "sid-init" not in pe.sessions
+        sent = session.send.call_args[0][0]
+        assert sent["mode"] == "latex"
+        assert sent["type"] == "load"
+    finally:
+        _reset_persistent_editor()
+
+
+def test_finish_keeps_dirty_running_session():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+
+    def on_save(*_args: object, **_kwargs: object) -> dict:
+        return {"type": "saved", "ok": True}
+
+    state = launch_mod.EditorSessionState("sid", "latex", {"resource": "F1"}, on_save=on_save)
+    state.dirty = True
+    pe.register_session(state)
+    wrapper = launch_mod.EditorSession(proc, on_save=on_save, on_closed=lambda: None, session_id="sid")
+    try:
+        launch_mod.set_active_session(wrapper)
+        other = launch_mod.EditorSession(proc, on_save=MagicMock(), on_closed=lambda: None)
+        launch_mod.set_active_session(other)
+        assert pe.lookup("sid") is state
+        assert state.dirty is True
+    finally:
+        _reset_persistent_editor()
+
+
+def test_deferred_run_sends_result_later_and_keeps_pending_load():
+    """Monaco Run must not block the save handler, and must not consume a queued switch."""
+    editor = PersistentEditor()
+    delivered: dict = {}
+
+    def on_save(code: str, save_as_plain: bool, data_binding: str | None, action: str):
+        del code, save_as_plain, data_binding, action
+
+        def _start(deliver):
+            delivered["deliver"] = deliver
+
+        return launch_mod.DeferredEditorResult(_start)
+
+    state = launch_mod.EditorSessionState("sid", "run_script", {"script_name": "Demo"}, on_save=on_save)
+    state.dirty = True
+    state.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(dict(message))
+
+    editor.send = _send  # type: ignore[method-assign]
+    editor._dispatch_incoming({"type": "save", "session_id": "sid", "code": "print(1)", "action": "run"})
+    assert sent == []
+    assert state.dirty is True
+    assert state.pending_load is not None
+    assert "deliver" in delivered
+    delivered["deliver"]({"type": "saved", "ok": True, "status_ok_text": "done"})
+    assert sent[0]["type"] == "saved"
+    assert sent[0]["status_ok_text"] == "done"
+    assert state.dirty is False
+    assert state.pending_load is not None
+    assert "sid" in editor.sessions
+
+
+def test_deferred_stale_deliver_does_not_clear_dirty():
+    """A Run that finishes after a newer save must not mark the buffer clean."""
+    editor = PersistentEditor()
+    delivered: dict = {}
+
+    def on_save(*_args: object, **_kwargs: object):
+        def _start(deliver):
+            delivered["deliver"] = deliver
+
+        return launch_mod.DeferredEditorResult(_start)
+
+    state = launch_mod.EditorSessionState("sid", "run_script", {"script_name": "Demo"}, on_save=on_save)
+    state.dirty = True
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    sent: list[dict] = []
+    editor.send = lambda message, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+    editor._dispatch_incoming({"type": "save", "session_id": "sid", "code": "print(1)", "action": "run"})
+    # A later save replaces the token. The late frame must be a no-op.
+    editor._save_token = object()
+    state.dirty = True
+    delivered["deliver"]({"type": "saved", "ok": True, "status_ok_text": "late"})
+    assert sent == []
+    assert state.dirty is True
+
+
+def test_deferred_start_failure_sends_error_and_keeps_pending_load():
+    editor = PersistentEditor()
+
+    def on_save(*_args: object, **_kwargs: object):
+        def _start(_deliver):
+            raise RuntimeError("venv missing")
+
+        return launch_mod.DeferredEditorResult(_start)
+
+    state = launch_mod.EditorSessionState("sid", "run_script", {"script_name": "Demo"}, on_save=on_save)
+    state.dirty = True
+    state.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
+    editor.register_session(state)
+    editor.executor = MagicMock()
+    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    sent: list[dict] = []
+    editor.send = lambda message, session=None: sent.append(dict(message))  # type: ignore[method-assign]
+    editor._dispatch_incoming({"type": "save", "session_id": "sid", "code": "print(1)", "action": "run"})
+    assert sent and sent[0]["type"] == "error"
+    assert "venv missing" in sent[0]["message"]
+    assert state.dirty is True
+    assert state.pending_load is not None
+
+
+def test_queue_save_send_failure_clears_pending():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    state = launch_mod.EditorSessionState("sid", "calc_cell", {"cell_address": "A1"})
+    state.dirty = True
+    pe.register_session(state)
+
+    def _send(_message: dict, session: object = None) -> None:
+        del session
+        raise RuntimeError("pipe closed")
+
+    pe.send = _send  # type: ignore[method-assign]
+    try:
+        raised = False
+        try:
+            launch_mod.queue_save_then_load(
+                {"type": "load", "mode": "run_script", "script_name": "Demo", "code": "print(1)"},
+                MagicMock(),
+                lambda: None,
+            )
+        except RuntimeError:
+            raised = True
+        assert raised is True
+        assert state.pending_load is None
+        assert state.pending_on_save is None
+        assert state.pending_on_closed is None
+        assert state.dirty is True
+    finally:
+        _reset_persistent_editor()
+
+
+def test_dead_editor_does_not_block_a_dirty_replace():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = 1
+    pe._proc = proc
+    try:
+        state, _stamped = launch_mod._register_load_session(
+            {"type": "load", "mode": "run_script", "script_name": "Demo"},
+            MagicMock(),
+            lambda: None,
+        )
+        state.dirty = True
+        replacement, _again = launch_mod._register_load_session(
+            {"type": "load", "mode": "calc_cell", "cell_address": "B2", "code": "x = 1"},
+            MagicMock(),
+            lambda: None,
+        )
+        assert replacement is not state
+        assert state.session_id not in pe.sessions
+        assert pe.focused() is replacement
+        assert replacement.mode == "calc_cell"
+    finally:
+        _reset_persistent_editor()
 
 
 def test_different_target_replaces_focused_session():
@@ -371,4 +980,206 @@ def test_mode_switch_from_run_script_to_calc_cell_dispatches_save():
     assert len(sent) == 1
     assert sent[0][0]["type"] == "saved"
     assert sent[0][0]["status_ok_text"] == "Saved."
+
+
+def _reader_method_name() -> str:
+    return "_read_loop_blocking" if sys.platform == "win32" else "_read_loop_select"
+
+
+def test_reader_clean_eof_terminates_live_child():
+    """Stdout EOF with the child still alive must not leave a reader-less process."""
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    order: list[str] = []
+
+    def _disconnect() -> None:
+        order.append("disconnect")
+
+    def _terminate() -> None:
+        order.append("terminate")
+
+    with patch.object(editor, "_handle_disconnect", side_effect=_disconnect):
+        with patch.object(editor, "terminate", side_effect=_terminate):
+            with patch.object(editor, _reader_method_name(), return_value=None):
+                editor._read_loop()
+    assert order == ["disconnect", "terminate"]
+
+
+def test_reader_exception_terminates_live_child():
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    with patch.object(editor, "_handle_disconnect"):
+        with patch.object(editor, "terminate") as terminate:
+            with patch.object(editor, _reader_method_name(), side_effect=ValueError("bad frame")):
+                editor._read_loop()
+    terminate.assert_called_once()
+
+
+def test_reader_finished_leaves_exited_child():
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = 0
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    with patch.object(editor, "_handle_disconnect") as disconnect:
+        with patch.object(editor, "terminate") as terminate:
+            with patch.object(editor, _reader_method_name(), return_value=None):
+                editor._read_loop()
+    disconnect.assert_called_once()
+    terminate.assert_not_called()
+
+
+def test_reader_finished_ignores_superseded_process():
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    replacement = MagicMock()
+
+    def _swap(_proc, _stdout) -> None:
+        editor._proc = replacement
+
+    with patch.object(editor, "_handle_disconnect") as disconnect:
+        with patch.object(editor, "terminate") as terminate:
+            with patch.object(editor, _reader_method_name(), side_effect=_swap):
+                editor._read_loop()
+    disconnect.assert_not_called()
+    terminate.assert_not_called()
+    assert editor._proc is replacement
+
+
+def test_spawn_editor_process_starts_new_session_without_preexec():
+    with patch("plugin.scripting.editor_host.subprocess.Popen", return_value=MagicMock()) as popen:
+        launch_mod.spawn_editor_process("/venv/bin/python")
+    kwargs = popen.call_args.kwargs
+    assert "preexec_fn" not in kwargs
+    if sys.platform == "win32":
+        assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
+    else:
+        assert kwargs.get("start_new_session") is True
+
+
+def test_terminate_persistent_editor_resets_run_script_doc_under_lock():
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+    pe.run_script_doc = None
+    pe.run_script_doc_url = None
+    pe.sessions["sid"] = launch_mod.EditorSessionState("sid", "run_script", {"script_name": "demo"})
+    pe.focused_id = "sid"
+    pe.run_script_doc = object()
+    pe.run_script_doc_url = "file:///demo"
+    entered = {"n": 0}
+
+    class _LockProbe:
+        def __enter__(self) -> "_LockProbe":
+            entered["n"] += 1
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            return None
+
+    try:
+        with patch.object(pe, "terminate") as term:
+            with patch.object(launch_mod, "_SESSION_LOCK", _LockProbe()):
+                launch_mod.terminate_persistent_editor()
+        term.assert_called_once()
+        assert entered["n"] == 1
+        assert pe.sessions == {}
+        assert pe.focused_id is None
+        assert pe.run_script_doc is None
+        assert pe.run_script_doc_url is None
+    finally:
+        pe.sessions.clear()
+        pe.focused_id = None
+        pe.run_script_doc = None
+        pe.run_script_doc_url = None
+
+
+def test_handle_disconnect_clears_run_script_document():
+    """Unexpected editor exit must drop the launch document the picker targets."""
+    editor = PersistentEditor()
+    editor.ctx = MagicMock()
+    editor.executor = MagicMock()
+    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    closed: list[str] = []
+    editor.register_session(
+        launch_mod.EditorSessionState(
+            "sid",
+            "run_script",
+            {"script_name": "demo"},
+            on_closed=lambda: closed.append("closed"),
+        )
+    )
+    editor.run_script_doc = object()
+    editor.run_script_doc_url = "file:///demo"
+
+    with patch.object(launch_mod, "set_active_session") as set_active:
+        editor._handle_disconnect()
+
+    assert closed == ["closed"]
+    assert editor.sessions == {}
+    assert editor.focused_id is None
+    assert editor.run_script_doc is None
+    assert editor.run_script_doc_url is None
+    set_active.assert_called_once_with(None)
+
+
+def test_handle_disconnect_keeps_replacement_launch_document():
+    """A session registered from on_closed keeps the launch document it set."""
+    editor = PersistentEditor()
+    editor.ctx = MagicMock()
+    editor.executor = MagicMock()
+    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    replacement_doc = object()
+
+    def _closed() -> None:
+        editor.register_session(
+            launch_mod.EditorSessionState("new", "run_script", {"script_name": "other"})
+        )
+        editor.run_script_doc = replacement_doc
+        editor.run_script_doc_url = "file:///new"
+
+    editor.register_session(
+        launch_mod.EditorSessionState(
+            "old",
+            "run_script",
+            {"script_name": "demo"},
+            on_closed=_closed,
+        )
+    )
+    editor.run_script_doc = object()
+    editor.run_script_doc_url = "file:///old"
+
+    with patch.object(launch_mod, "set_active_session") as set_active:
+        editor._handle_disconnect()
+
+    assert "old" not in editor.sessions
+    assert "new" in editor.sessions
+    assert editor.focused_id == "new"
+    assert editor.run_script_doc is replacement_doc
+    assert editor.run_script_doc_url == "file:///new"
+    set_active.assert_not_called()
+
+
+def test_venv_path_change_clears_webview_probe_failure_cache():
+    exe = "/tmp/writeragent-probe-config-python"
+    launch_mod._PROBE_CACHE[exe] = (True, "ok")
+    launch_mod._PROBE_FAILURE_CACHE[exe] = (10**12, (False, "no"))
+    try:
+        with patch.object(launch_mod, "terminate_persistent_editor"):
+            with patch("plugin.vision.vision_availability.invalidate_vision_availability_cache"):
+                launch_mod._on_config_changed(key="scripting.python_venv_path")
+        assert exe not in launch_mod._PROBE_CACHE
+        assert exe not in launch_mod._PROBE_FAILURE_CACHE
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
 

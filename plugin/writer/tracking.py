@@ -291,18 +291,14 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             redlines = ctx.doc.getRedlines()
             enum = redlines.createEnumeration()
 
-            # Find the target redline
-            target_redline = None
-            current_idx = 0
+            redline_objs = []
             while enum.hasMoreElements():
-                redline = enum.nextElement()
-                if current_idx == index:
-                    target_redline = redline
-                    break
-                current_idx += 1
+                redline_objs.append(enum.nextElement())
 
-            if not target_redline:
+            if index < 0 or index >= len(redline_objs):
                 return self._tool_error(f"No tracked change found at index {index}.")
+
+            target_redline = redline_objs[index]
 
             # Guard: refuse to resolve the agent's OWN edit (a wa-review change). Those are recorded
             # for the human to accept/reject in the review UI; the agent must not do it itself.
@@ -326,17 +322,65 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
             # getAnchor() call meant every real change died here with "Failed to select".
             try:
+                # Count agent changes before dispatch
+                enum_before = redlines.createEnumeration()
+                agent_changes_before = 0
+                while enum_before.hasMoreElements():
+                    r = enum_before.nextElement()
+                    is_agent_r, _ = redline_is_agent_change(r)
+                    if is_agent_r:
+                        agent_changes_before += 1
+
                 start = target_redline.getPropertyValue("RedlineStart")
                 cur = start.getText().createTextCursorByRange(start)
+                end = start
                 try:
-                    end = target_redline.getPropertyValue("RedlineEnd")
-                    if end is not None:
+                    end_val = target_redline.getPropertyValue("RedlineEnd")
+                    if end_val is not None:
+                        end = end_val
                         cur.gotoRange(end, True)
                 except Exception:
                     pass  # collapsed span (e.g. a deletion) — selecting the start point suffices
+
+                # Guard: Overlapping or sibling changes clobber check.
+                # If there's another tracked change that intersects with the one we're resolving,
+                # the dispatcher resolve will break the UNO text model or clobber the other change.
+                text = start.getText()
+                for i, r in enumerate(redline_objs):
+                    if i == index:
+                        continue
+                    try:
+                        r_start = r.getPropertyValue("RedlineStart")
+                        r_end = r.getPropertyValue("RedlineEnd") or r_start
+
+                        # Overlap logic: Two ranges [start, end] and [r_start, r_end] overlap if
+                        # start < r_end AND r_start < end.
+                        # For compareRegionStarts: 1 means left < right, 0 means left == right.
+                        # For compareRegionEnds: -1 means left > right.
+                        # They do NOT overlap if they are completely distinct or strictly adjacent:
+                        # end <= r_start (i.e. compareRegionStarts(end, r_start) in (1, 0)) OR
+                        # start >= r_end (i.e. compareRegionStarts(r_end, start) in (1, 0))
+                        if text.compareRegionStarts(end, r_start) in (1, 0) or text.compareRegionStarts(r_end, start) in (1, 0):
+                            pass # No overlap
+                        else:
+                            return self._tool_error(
+                                f"Tracked change at index {index} overlaps with another change. "
+                                "Resolving it via the agent may clobber adjacent changes. "
+                                "Please resolve it manually in LibreOffice."
+                            )
+                    except Exception as rb_err:
+                        # Fail closed: if we cannot read the bounds of another redline, we cannot prove
+                        # it doesn't overlap.
+                        return self._tool_error(
+                            f"Failed to read bounds of tracked change at index {i} during overlap check. "
+                            f"Please resolve tracked changes manually in LibreOffice. Error: {rb_err}"
+                        )
+
                 ctx.doc.getCurrentController().select(cur)
             except Exception as e:
                 return self._tool_error(f"Failed to select tracked change for processing: {e}")
+
+            initial_count = redlines.getCount()
 
             smgr = ctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
@@ -344,6 +388,25 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
             cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
             dispatcher.executeDispatch(frame, cmd, "", 0, ())
+
+            if redlines.getCount() == initial_count:
+                return self._tool_error("Failed to resolve tracked change: operation silently failed.")
+
+            # Enforce self-resolve invariant
+            enum_after = redlines.createEnumeration()
+            agent_changes_after = 0
+            while enum_after.hasMoreElements():
+                r = enum_after.nextElement()
+                is_agent_r, _ = redline_is_agent_change(r)
+                if is_agent_r:
+                    agent_changes_after += 1
+
+            if agent_changes_after < agent_changes_before:
+                try:
+                    ctx.doc.getUndoManager().undo()
+                except Exception:
+                    pass
+                return self._tool_error("Agent edit was resolved, which is forbidden.")
 
             action_str = "Accepted" if is_accept else "Rejected"
             return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}

@@ -31,18 +31,15 @@ import tempfile
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from plugin.framework.deal_shim import (
-    DEAL_MAX_ARGV,
     DEAL_MAX_COL_INDEX,
     DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
     DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
     UNDER_CROSSHAIR,
     ascii_bounded,
     deal,
     inverse_ensure,
-    str_bounded,
 )
 
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
@@ -401,11 +398,21 @@ def _deal_product_grid_ok(grid: object) -> bool:
     return True
 
 
-def _deal_numeric_cell_ok(value: object) -> bool:
-    """CrossHair domain for ``is_numeric_coercible`` / ``is_numeric_grid`` cells.
+def _deal_numeric_cell_ok_pytest(value: object) -> bool:
+    """Pytest/production: the detector is total.
 
-    Numpy scalars stay allowed in the body (``type(value).__name__``) for
-    production; the pre keeps SMT off ``Any`` + ``startswith``.
+    A list, a long string, or non-ASCII text used to raise PreContractError
+    instead of False. The body already returns a bool. CrossHair keeps the
+    scalar/ascii domain. ``value`` is unused.
+    """
+    return True
+
+
+def _deal_numeric_cell_ok_crosshair(value: object) -> bool:
+    """CrossHair domain for ``is_numeric_coercible``.
+
+    Numpy scalars stay allowed in the body (``type(value).__name__``);
+    the pre keeps SMT off ``Any`` + ``startswith``.
     """
     if value is None:
         return True
@@ -419,56 +426,40 @@ def _deal_numeric_cell_ok(value: object) -> bool:
     return False
 
 
-def _deal_envelope_value_ok(val: object, *, depth: int) -> bool:
-    """Size-capped nests; leaves (scalars, bytes, numpy, dates) are not expanded.
-
-    Detectors must still return False on garbage dicts, so values are not
-    restricted to ascii tokens — only nested list/dict size is capped.
-    """
-    if depth > 10:
-        return False
-    if type(val) is str:
-        return str_bounded(val, DEAL_MAX_SOURCE)
-    if type(val) is list:
-        return len(val) <= DEAL_MAX_SHAPE_DIM and all(
-            _deal_envelope_value_ok(item, depth=depth + 1) for item in val
-        )
-    if type(val) is dict:
-        return _deal_dict_ok_at(val, depth=depth + 1)
-    return True
+_deal_numeric_cell_ok = (
+    _deal_numeric_cell_ok_crosshair if UNDER_CROSSHAIR else _deal_numeric_cell_ok_pytest
+)
 
 
-def _deal_dict_ok_at(obj: object, *, depth: int) -> bool:
-    if not isinstance(obj, dict):
-        return True
-    if len(obj) > DEAL_MAX_SHAPE_DIM:
-        return False
-    for k, v in obj.items():
-        if type(k) is str:
-            if not str_bounded(k, DEAL_MAX_TOKEN):
-                return False
-        elif type(k) is int:
-            if abs(k) > DEAL_MAX_ARGV:
-                return False
-        else:
-            return False
-        if not _deal_envelope_value_ok(v, depth=depth):
-            return False
-    return True
+def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
+    """Short top-level key cap for the CrossHair table only.
 
-
-def _deal_wire_dict_ok(obj: object) -> bool:
-    """Shallow deal domain for live wire envelope detectors (is_split_grid, etc).
-
-    _deal_dict_ok_at deep-walks nested dicts and caps them at DEAL_MAX_SHAPE_DIM.
     Real split_grid.strings maps have thousands of cell entries (Gemini AFC: 7588);
-    worker is_split_grid(data) raised PreContractError after host pack succeeded.
-    Top-level envelope key count stays small; do not deep-walk.
-    Detectors are already crosshair: off.
+    do not deep-walk. Detectors are already crosshair: off. The short table still
+    rejects a dict wider than SHAPE_DIM (4) so the domain stays closed.
     """
     if not isinstance(obj, dict):
         return True
     return len(obj) <= DEAL_MAX_SHAPE_DIM
+
+
+def _deal_wire_dict_ok_pytest(obj: object) -> bool:
+    """Pytest and production, including compute_service where deal stays installed.
+
+    Envelope detectors are total predicates. The body returns False for a
+    plain dict. The old shallow cap (len <= DEAL_MAX_SHAPE_DIM) raised
+    PreContractError, which subclasses AssertionError, so ValueError handlers
+    never saw it. host_unpack_data's @deal.pre calls the deal-wrapped
+    _is_any_payload_envelope, so a word-frequency dict (>256 keys) died before
+    the isinstance(dict) arm. json_egress is_* calls failed the same way.
+    Release OXTs strip deal and already accepted these dicts. Do not deep-walk.
+    ``obj`` is unused: every value, including a huge plain dict, is in domain.
+    """
+    return True
+
+
+# Import-time pick. Do not branch inside @deal.pre — CrossHair would explore both.
+_deal_wire_dict_ok = _deal_wire_dict_ok_crosshair if UNDER_CROSSHAIR else _deal_wire_dict_ok_pytest
 
 
 def _is_multi_data_envelope(envelope: object) -> bool:
@@ -711,7 +702,10 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
 @deal.pre(
     lambda envelope, *_unused, ncols=0, **__: _deal_wire_dict_ok(envelope)
     and isinstance(ncols, int)
-    and 0 <= ncols <= DEAL_MAX_SHAPE_DIM
+    # Same Calc column cap as ``_deal_product_grid_ok`` (pack). SHAPE_DIM (256)
+    # rejected a wide sheet after pack succeeded: PreContractError on unpack.
+    # Release strips deal, so the body already accepts this width; the pre must too.
+    and 0 <= ncols <= DEAL_MAX_COL_INDEX + 1
 )
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
     """Per-column unpack kinds from wire ``column_kinds``."""
@@ -1098,7 +1092,7 @@ def _flatten_append_cell_slow(
                     column_states[c] = 1
             else:
                 buf_append(nan)
-                strings[idx] = cast("str", val) if t is str else str(val)
+                strings[idx] = cast("str", val) if isinstance(val, str) else str(val)
             return
         tname = t.__name__
         if tname.startswith("bool"):
@@ -1112,9 +1106,27 @@ def _flatten_append_cell_slow(
         elif tname.startswith("float"):
             buf_append(float(cast("Any", val)))
             column_states[c] = 3
+        elif not isinstance(val, str):
+            # Bugfix: the fast path and Cython ``_flatten_cell`` float() a
+            # Decimal or Fraction. This branch runs only after an earlier cell
+            # set has_non_numeric, and it used to str() those values, so the
+            # same number became 1.25 or the text "1.25" / "1/4" depending on
+            # position. decimal and fractions are on the venv import whitelist,
+            # and a pandas object column reaches this flatten without the
+            # pickle-leaf coerce. Strings stay text (zip codes). Overflow
+            # still propagates, matching the fast path's except clause.
+            try:
+                fval = float(cast("Any", val))
+            except (TypeError, ValueError):
+                buf_append(nan)
+                strings[idx] = str(val)
+            else:
+                buf_append(fval)
+                if column_states[c] != 3:
+                    _flatten_update_column_state(column_states, c, val)
         else:
             buf_append(nan)
-            strings[idx] = cast("str", val) if t is str else str(val)
+            strings[idx] = cast("str", val)
 
 
 def _validate_rectangular_grid(grid_2d: list[list[Any]], ncols: int) -> None:
@@ -1206,7 +1218,7 @@ def _flatten_grid_to_components(
             if val is None:
                 buf_append(nan)
                 column_has_none[c] = True
-            elif t is str:
+            elif isinstance(val, str):
                 has_non_numeric = True
                 _append_cell_slow(val, c, idx)
             elif not has_non_numeric:
@@ -1241,7 +1253,9 @@ def _flatten_grid_to_components(
         use_stdlib = True
         if fast_flatten_grid_2d is not None:
             try:
-                buf, strings, column_states, column_has_none, has_non_numeric = fast_flatten_grid_2d(grid_2d, ncols)
+                buf, strings, column_states, column_has_none, has_non_numeric = fast_flatten_grid_2d(
+                    [list(row) if type(row) is tuple else row for row in grid_2d], ncols
+                )
                 use_stdlib = False
             except Exception as e:
                 log.debug("payload_codec: Cython accelerator failed, falling back to stdlib: %s", e)
@@ -1451,6 +1465,11 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
     # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
     raw_strings = envelope.get("strings", {})
+    # What was wrong: a non-dict strings value (a list, for example) is
+    # truthy, so this called .items() and raised AttributeError mid-unpack.
+    # Why this works: only a dict is a strings map; anything else is a bad envelope.
+    if not isinstance(raw_strings, dict):
+        raise ValueError("split_grid strings must be a dict")
     strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
     uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
 
@@ -1485,13 +1504,35 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
 
-@deal.pre(
-    lambda wire, *_unused, **__: _is_any_payload_envelope(wire)
-    or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-    or wire is None
-    or _is_ndarray(wire)
-    or getattr(type(wire), "__module__", "") == "numpy"
+def _deal_host_unpack_wire_ok_pytest(wire: object) -> bool:
+    """Any worker result is in domain.
+
+    What was wrong: datetime, Decimal, bytes, and other ordinary values
+    failed the type list. PreContractError (an AssertionError) fired on
+    the recursive call inside an accepted dict, before ``return wire``.
+    How: the pre enumerated JSON scalars plus numpy. Why: the body already
+    returns unrecognized objects unchanged. CrossHair keeps that type list.
+    ``wire`` is unused.
+    """
+    return True
+
+
+def _deal_host_unpack_wire_ok_crosshair(wire: object) -> bool:
+    return (
+        _is_any_payload_envelope(wire)
+        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
+        or wire is None
+        or _is_ndarray(wire)
+        or getattr(type(wire), "__module__", "") == "numpy"
+    )
+
+
+_deal_host_unpack_wire_ok = (
+    _deal_host_unpack_wire_ok_crosshair if UNDER_CROSSHAIR else _deal_host_unpack_wire_ok_pytest
 )
+
+
+@deal.pre(lambda wire, *_unused, **__: _deal_host_unpack_wire_ok(wire))
 @deal.raises(ValueError, TypeError, AttributeError, KeyError)
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, dataframe, calc_range)."""
@@ -1572,6 +1613,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         raw_strings = envelope.get("strings", {})
+        # Same non-dict guard as host_unpack_split_grid: .items() is dict-only.
+        if not isinstance(raw_strings, dict):
+            raise ValueError("split_grid strings must be a dict")
         strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
 
         if not strings:
@@ -1608,6 +1652,17 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # vectorized boolean masks to perform C-level bulk modifications, bypassing
         # slow cell-by-cell loops, modulo operations, and manual type-coercion in Python.
         arr = np.frombuffer(raw, dtype=np.float64)
+        # What was wrong: the numeric path above rejects a buffer whose float
+        # count is not nrows*ncols, but this mixed-string path reshaped only
+        # for 2D. A truncated 1D buffer became a shorter list (the cells the
+        # shape still advertised were dropped). A long buffer kept the extra
+        # floats. Why this works: the same check, before reshape, so a corrupt
+        # envelope raises instead of changing the grid.
+        expected_cells = int(nrows) * int(ncols)
+        if arr.size != expected_cells:
+            raise ValueError(
+                f"split_grid buffer has {arr.size} values but shape {list(shape)} needs {expected_cells}"
+            )
         if not is_1d:
             arr = arr.reshape((nrows, ncols))
 
@@ -1708,12 +1763,31 @@ def _child_unpack_single_data(wire: Any) -> Any:
     return unpacked
 
 
-@deal.pre(
-    lambda wire, *_unused, **__: _is_any_payload_envelope(wire)
-    or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-    or wire is None
-    or (hasattr(wire, "__class__") and wire.__class__.__name__ == "ndarray")
+def _deal_child_unpack_wire_ok_pytest(wire: object) -> bool:
+    """Child wire ingest is total on the pytest profile.
+
+    Same class of bug as ``host_unpack_data``: an odd but real payload
+    raised PreContractError instead of the body's ValueError/passthrough.
+    CrossHair keeps the closed type list. ``wire`` is unused.
+    """
+    return True
+
+
+def _deal_child_unpack_wire_ok_crosshair(wire: object) -> bool:
+    return (
+        _is_any_payload_envelope(wire)
+        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
+        or wire is None
+        or (hasattr(wire, "__class__") and wire.__class__.__name__ == "ndarray")
+    )
+
+
+_deal_child_unpack_wire_ok = (
+    _deal_child_unpack_wire_ok_crosshair if UNDER_CROSSHAIR else _deal_child_unpack_wire_ok_pytest
 )
+
+
+@deal.pre(lambda wire, *_unused, **__: _deal_child_unpack_wire_ok(wire))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
 @deal.raises(ValueError, TypeError, AttributeError)
 def child_unpack_data(wire: Any) -> Any:
@@ -1846,7 +1920,16 @@ def child_pack_result(
         if np is not None:
             if isinstance(result, np.ndarray):
                 shape = tuple(int(x) for x in result.shape)
-                if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
+                kind = getattr(result.dtype, "kind", None)
+                # Bugfix: child_pack_split_grid does ascontiguousarray(..., float64).
+                # A unicode/bytes/object ndarray at or above BINARY_MIN_CELLS raised
+                # ValueError and dropped a successful cell. Lists of those strings
+                # already go through host_pack_split_grid's strings map. Numeric
+                # kinds (and datetime64, which must not be rewritten here) stay
+                # on the float64 path.
+                if kind not in ("U", "S", "O") and should_use_binary_envelope(
+                    shape, min_cells=min_cells, force=force
+                ):
                     return child_pack_split_grid(result)
                 # Bugfix: the log said json_list egress, then the ndarray was returned
                 # unchanged. A DataFrame under 100 cells kept an ndarray body, and
@@ -1854,7 +1937,8 @@ def child_pack_result(
                 # became one Calc string. Recurse on tolist() so the list path
                 # (grid_from_nested_list) is what actually goes on the wire.
                 log.debug(
-                    "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
+                    "payload_codec child_pack ndarray via list kind=%s shape=%s",
+                    kind,
                     shape,
                 )
                 return child_pack_result(result.tolist(), min_cells=min_cells, force=force)

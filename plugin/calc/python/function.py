@@ -289,6 +289,15 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # Do not use getActiveSheet(): full recalc's active sheet is not the formula cell
     # (XAddIn has no calling cell). Unique locate fills sheet+origin; otherwise
     # callers must not share WorkerResultSession.
+    from plugin.framework.thread_guard import on_main_thread
+
+    # Bugfix: off-main finalize hands scalar_for_list_result the cached spill
+    # model (the object a deferred write posts to the UI thread). The guard
+    # below only ran when doc was None, so getURL and locate_formula_cell_in_doc
+    # ran on that model from a Yellow thread. Skip UNO off-main; the key stays
+    # ambiguous and WorkerResultSession is not shared until the UI thread locates.
+    if not on_main_thread():
+        return ("", "", "", code, "")
     doc_url = ""
     sheet_name = ""
     sid = ""
@@ -360,10 +369,14 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
 
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
-# Key: (doc_url, sheet_name, formula_row, formula_col)
+# Key: (doc identity, sheet_name, formula_row, formula_col)
+# Identity is the file URL when the workbook has one. Every unsaved book
+# reports getURL()==""; those use workbook_lifecycle._lifecycle_key
+# (RuntimeUID), never "". LOADED_DOCUMENTS uses the same identity.
 # Value: list of (spilled_row, spilled_col) coordinates
 SPILL_REGISTRY: dict[tuple[str, str, int, int], list[tuple[int, int]]] = {}
 LOADED_DOCUMENTS: set[str] = set()
+_SPILL_REGISTRY_LOCK = threading.Lock()
 _PENDING_SPILL_LOCK = threading.Lock()
 _PENDING_SPILL_TIMERS: list[tuple[str, threading.Timer]] = []
 
@@ -372,6 +385,8 @@ from com.sun.star.util import XModifyListener
 
 # One listener per sheet — SheetModifyDispatcher (Phase 3) or the legacy
 # CalcSpillModifyListener when a test constructs it directly.
+# First element is the workbook lifecycle id (RuntimeUID). Legacy spill
+# listeners still pop a file-URL key from ``disposing``.
 SHEET_MODIFY_LISTENERS: dict[tuple[str, str], Any] = {}
 
 
@@ -456,16 +471,37 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             if sheet is None:
                 return
 
-            doc = _get_calc_doc(self.ctx)
+            # Bugfix: orphan cleanup locked undo and saved WriterAgentSpillRegistry
+            # on the focused workbook. The cells it cleared belong to the sheet
+            # that fired, which may be a background file.
+            # How: ``_get_calc_doc`` is ``desktop.getCurrentComponent()``.
+            # Why: walk to the spreadsheet that owns the sheet. A parent-less
+            # MagicMock still falls back to the active model so direct tests
+            # keep their stub.
+            from plugin.calc.python.sheet_modify import _owning_calc_doc
+
+            doc = _owning_calc_doc(sheet)
+            if doc is None:
+                doc = _get_calc_doc(self.ctx)
+            # Bugfix: ``"PY" in formula`` is true for =PYMT and any text that
+            # merely contains those letters, so replacing =PY() with an
+            # unrelated formula left the spilled block. is_py_formula_text is
+            # the =PY( / =PYTHON( (and qualified add-in) check.
+            from plugin.calc.python.cell_discovery import is_py_formula_text
+
             with _undo_lock(doc):
                 to_remove = []
                 for key, value in list(SPILL_REGISTRY.items()):
                     doc_url, sheet_name, frow, fcol = key
-                    if doc_url == self.doc_url and sheet_name == self.sheet_name:
+                    # Bugfix: "" matched every unsaved workbook, so a modify on
+                    # one untitled book cleared the other's spill cells when
+                    # the sheet names matched. Callers pass the file URL or the
+                    # lifecycle id. "" is not an identity.
+                    if self.doc_url and doc_url == self.doc_url and sheet_name == self.sheet_name:
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
-                            if not formula or not ("PYTHON" in formula or "PY" in formula):
+                            if not formula or not is_py_formula_text(str(formula)):
                                 # Clear previously spilled cells
                                 for r, c in value:
                                     if (r, c) != (frow, fcol):
@@ -490,6 +526,53 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
         SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
 
 
+def _spill_registry_doc_key(doc: Any) -> str:
+    """Key the spill registry and LOADED_DOCUMENTS by RuntimeUID, not URL.
+
+    Migrate existing URL keys when the uid is read.
+    """
+    if doc is None:
+        return ""
+    uid = ""
+    try:
+        if hasattr(doc, "getPropertyValue"):
+            val = doc.getPropertyValue("RuntimeUID")
+            if val:
+                uid = str(val)
+    except Exception:
+        uid = ""
+
+    url = ""
+    try:
+        url_raw = getattr(doc, "getURL", lambda: "")()
+        url = str(url_raw) if isinstance(url_raw, str) else ""
+    except Exception:
+        url = ""
+
+    if uid:
+        key = uid
+        if url and url != key:
+            if url in LOADED_DOCUMENTS:
+                LOADED_DOCUMENTS.discard(url)
+                LOADED_DOCUMENTS.add(key)
+            with _SPILL_REGISTRY_LOCK:
+                for k in list(SPILL_REGISTRY.keys()):
+                    if k[0] == url:
+                        SPILL_REGISTRY[(key, k[1], k[2], k[3])] = SPILL_REGISTRY.pop(k)
+        return key
+
+    if url:
+        return url
+
+    try:
+        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+        return str(_lifecycle_key(doc) or "")
+    except Exception:
+        log.debug("spill registry identity failed", exc_info=True)
+        return ""
+
+
 def load_spill_registry_for_doc(doc: Any) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
@@ -500,7 +583,11 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         if not isinstance(raw, str) or not raw.strip():
             return
         data = json.loads(raw)
-        doc_url = getattr(doc, "getURL", lambda: "")() or ""
+        doc_key = _spill_registry_doc_key(doc)
+        # UD JSON stays ``sheet:row,col`` inside this document. The in-memory
+        # key is per workbook. Do not file those rows under "" (every untitled book).
+        if not doc_key:
+            return
         for key, value in data.items():
             parts = key.split(":")
             if len(parts) == 2:
@@ -509,7 +596,7 @@ def load_spill_registry_for_doc(doc: Any) -> None:
                 if len(row_col) == 2:
                     frow, fcol = int(row_col[0]), int(row_col[1])
                     spill_coords = [(int(r), int(c)) for r, c in value]
-                    SPILL_REGISTRY[(doc_url, sheet_name, frow, fcol)] = spill_coords
+                    SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = spill_coords
     except Exception:
         log.exception("Failed to load spill registry from document property")
 
@@ -517,16 +604,22 @@ def load_spill_registry_for_doc(doc: Any) -> None:
 def save_spill_registry_for_doc(doc: Any) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
-        from plugin.doc.udprops import set_document_property
+        from plugin.doc.udprops import set_document_property, get_document_property
         import json
 
-        doc_url = getattr(doc, "getURL", lambda: "")() or ""
+        doc_key = _spill_registry_doc_key(doc)
+        if not doc_key:
+            return
         doc_spills = {}
         for key, value in SPILL_REGISTRY.items():
             k_url, sheet_name, frow, fcol = key
-            if k_url == doc_url:
+            if k_url == doc_key:
                 doc_spills[f"{sheet_name}:{frow},{fcol}"] = value
-        set_document_property(doc, "WriterAgentSpillRegistry", json.dumps(doc_spills))
+        new_val = json.dumps(doc_spills)
+        set_document_property(doc, "WriterAgentSpillRegistry", new_val)
+        actual = get_document_property(doc, "WriterAgentSpillRegistry", "")
+        if actual != new_val:
+            log.warning("Spill registry write back mismatch: expected %r, got %r", new_val, actual)
     except Exception:
         log.exception("Failed to save spill registry to document property")
 
@@ -641,9 +734,25 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
             return
 
         with _undo_lock(doc):
-            current_url = getattr(doc, "getURL", lambda: "")() or ""
-            if current_url != doc_url:
-                return
+            # Bugfix: ``current_url != doc_url`` is false when both are "".
+            # Two unsaved books then shared one spill write. The scheduled
+            # token is the file URL, or the lifecycle id captured when the
+            # URL was empty. A blank token is the legacy getURL() of an
+            # untitled book (UNO callers); the registry still uses this
+            # document's lifecycle id, and a saved book rejects the blank.
+            live_key = _spill_registry_doc_key(doc)
+            scheduled = doc_url or ""
+            if scheduled:
+                if scheduled != live_key:
+                    return
+            else:
+                current_url = ""
+                try:
+                    current_url = getattr(doc, "getURL", lambda: "")() or ""
+                except Exception:
+                    current_url = ""
+                if current_url or not live_key:
+                    return
             if lifecycle_key:
                 try:
                     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
@@ -669,7 +778,7 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
                     log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
                     return
 
-            reg_key = (doc_url, sheet_name, formula_row, formula_col)
+            reg_key = (live_key, sheet_name, formula_row, formula_col)
 
             # 1. Clear previously spilled cells
             previous_spills = SPILL_REGISTRY.get(reg_key, [])
@@ -873,12 +982,16 @@ def _off_main_may_auto_spill(doc: Any | None) -> bool:
 def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> str | tuple[str, str, int, int] | None:
     """Locate the unique formula origin and check spill collisions (UNO / UI thread).
 
-    Returns ``"#SPILL!"`` on collision, ``(doc_url, sheet_name, row, col)`` when the
+    Returns ``"#SPILL!"`` on collision, ``(doc identity, sheet_name, row, col)`` when the
     neighbor write should proceed, or ``None`` when the origin is not unique.
+    The identity is the file URL, or the lifecycle id when ``getURL()`` is empty.
     """
-    doc_url = getattr(target_doc, "getURL", lambda: "")() or ""
     located = locate_formula_cell_in_doc(ctx, target_doc, code)
     if located is None:
+        return None
+    doc_key = _spill_registry_doc_key(target_doc)
+    if not doc_key:
+        # No file URL and no lifecycle id: refuse the shared "" key.
         return None
     sheet = located[0]
     formula_coord = located[2]
@@ -886,9 +999,9 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     log.debug("Spill: located formula cell at %r on sheet %r for code %r", formula_coord, sheet_name, code)
     formula_row, formula_col = formula_coord
 
-    if doc_url not in LOADED_DOCUMENTS:
+    if doc_key not in LOADED_DOCUMENTS:
         load_spill_registry_for_doc(target_doc)
-        LOADED_DOCUMENTS.add(doc_url)
+        LOADED_DOCUMENTS.add(doc_key)
 
     try:
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
@@ -899,7 +1012,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
 
     num_rows = len(grid_to_spill)
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
-    reg_key = (doc_url, sheet_name, formula_row, formula_col)
+    reg_key = (doc_key, sheet_name, formula_row, formula_col)
     previous_spills = SPILL_REGISTRY.get(reg_key, [])
     prev_spill_set = set(previous_spills)
 
@@ -928,7 +1041,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
-    return (doc_url, sheet_name, formula_row, formula_col)
+    return (doc_key, sheet_name, formula_row, formula_col)
 
 
 def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: tuple[str, str, int, int]) -> None:
@@ -942,7 +1055,7 @@ def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[An
     def _deferred_spill_on_main() -> None:
         post_to_main_thread(lambda: perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, code=code, lifecycle_key=spill_lifecycle))
 
-    t = threading.Timer(0.1, _deferred_spill_on_main)
+    t = _new_spill_timer(0.1, _deferred_spill_on_main)
     _register_spill_timer(spill_lifecycle, t)
     t.start()
 
@@ -984,8 +1097,14 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     def _deferred() -> None:
         post_to_main_thread(_on_main)
 
-    t = threading.Timer(0.1, _deferred)
-    _register_spill_timer("", t)
+    # Bugfix: registering under "" meant unload's cancel (keyed by RuntimeUID
+    # or the workbook session id) never saw this timer, so the closure kept
+    # ctx, code, the grid, and the cached document after the book closed.
+    # The key was cached on the UI thread; do not call _lifecycle_key here.
+    lkey = _off_main_spill_lifecycle_key(doc)
+    t = _new_spill_timer(0.1, _deferred)
+    if lkey:
+        _register_spill_timer(lkey, t)
     t.start()
 
 
@@ -1054,7 +1173,12 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                 return f"Error: index {idx} out of range (result length {len(flat)})"
             return to_calc_compatible(flat[idx])
 
-        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=doc)
+        from plugin.framework.thread_guard import on_main_thread
+
+        # Cached spill model is for the deferred UI write only. Passing it
+        # into session_key off-main calls getURL / locate (see session_key).
+        scalar_doc = doc if on_main_thread() else None
+        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc)
 
     return to_calc_compatible(result)
 
@@ -1136,12 +1260,8 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
             if on_main_thread():
                 target = get_calc_document_from_ctx(ctx)
             else:
-                from plugin.scripting.session_manager import off_main_calc_session_is_unambiguous
-
-                # Two open workbooks: cached init belongs to the last focused file, not
-                # the one Calc is recalculating (add-in has no calling document).
-                if not off_main_calc_session_is_unambiguous():
-                    return {}
+                # One lock: {} unless exactly one workbook is recorded.
+                # A separate unambiguity check raced with record_active_calc_session.
                 return get_cached_calc_init_kwargs()
         if target is not None:
             try:
@@ -1182,8 +1302,68 @@ def clear_python_addin_cache() -> None:
         _MATRIX_SCALAR_SESSIONS.clear()
 
 
+def _spill_timer_finished(timer: Any) -> bool:
+    """True once a ``threading.Timer`` has fired or been cancelled.
+
+    Test doubles omit ``finished``; those stay until fire/cancel drops them
+    by identity.
+    """
+    finished = getattr(timer, "finished", None)
+    is_set = getattr(finished, "is_set", None)
+    if not callable(is_set):
+        return False
+    try:
+        return bool(is_set())
+    except Exception:
+        return False
+
+
+def _prune_finished_spill_timers_locked() -> None:
+    """Drop fired/cancelled timers. Caller holds ``_PENDING_SPILL_LOCK``."""
+    _PENDING_SPILL_TIMERS[:] = [(key, timer) for key, timer in _PENDING_SPILL_TIMERS if not _spill_timer_finished(timer)]
+
+
+def _forget_spill_timer(timer: threading.Timer) -> None:
+    """Remove *timer* when its callback starts so the closure can be collected."""
+    with _PENDING_SPILL_LOCK:
+        _PENDING_SPILL_TIMERS[:] = [(key, existing) for key, existing in _PENDING_SPILL_TIMERS if existing is not timer and not _spill_timer_finished(existing)]
+
+
+def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
+    """Timer that leaves ``_PENDING_SPILL_TIMERS`` as soon as it fires.
+
+    Bugfix: the registry was append-only. After ``run()`` the Timer, its
+    callback, and everything that callback closed over (ctx, code, grid,
+    UNO document) stayed reachable until process exit.
+    """
+    pending: list[threading.Timer] = []
+
+    def _fire(*args: Any, **kwargs: Any) -> None:
+        _forget_spill_timer(pending[0])
+        callback(*args, **kwargs)
+
+    timer = threading.Timer(delay_sec, _fire)
+    pending.append(timer)
+    return timer
+
+
+def _off_main_spill_lifecycle_key(doc: Any | None) -> str:
+    """Workbook key for an off-main spill timer, without UNO off the UI thread."""
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.calc.python.workbook_lifecycle import _lifecycle_key, lifecycle_key_if_known
+
+    if doc is not None and on_main_thread():
+        try:
+            return _lifecycle_key(doc) or ""
+        except Exception:
+            log.debug("off-main spill lifecycle key failed", exc_info=True)
+    return lifecycle_key_if_known(doc)
+
+
 def _register_spill_timer(lifecycle_key: str, timer: threading.Timer) -> None:
     with _PENDING_SPILL_LOCK:
+        _prune_finished_spill_timers_locked()
+        _PENDING_SPILL_TIMERS[:] = [(key, existing) for key, existing in _PENDING_SPILL_TIMERS if existing is not timer]
         _PENDING_SPILL_TIMERS.append((lifecycle_key, timer))
 
 
@@ -1194,7 +1374,7 @@ def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key
     ``perform_deferred_spill``. The timer thread only ``post_to_main_thread``;
     UNO writes run on the UI thread.
     """
-    timer = threading.Timer(delay_sec, callback)
+    timer = _new_spill_timer(delay_sec, callback)
     if lifecycle_key:
         _register_spill_timer(lifecycle_key, timer)
     timer.start()
@@ -1202,24 +1382,41 @@ def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key
 
 
 def cancel_pending_spill_timers(lifecycle_key: str) -> None:
-    """Cancel deferred spill timers for a workbook that is unloading."""
+    """Cancel deferred spill timers for a workbook that is unloading.
+
+    Also drops timers that already fired or were cancelled under some other
+    key. Those entries kept their closures after the callback returned.
+    """
     with _PENDING_SPILL_LOCK:
         keep: list[tuple[str, threading.Timer]] = []
         for key, timer in _PENDING_SPILL_TIMERS:
-            if key == lifecycle_key:
-                try:
-                    timer.cancel()
-                except Exception:
-                    pass
-            else:
-                keep.append((key, timer))
+            finished = _spill_timer_finished(timer)
+            if key == lifecycle_key or finished:
+                if key == lifecycle_key and not finished:
+                    try:
+                        timer.cancel()
+                    except Exception:
+                        pass
+                continue
+            keep.append((key, timer))
         _PENDING_SPILL_TIMERS[:] = keep
 
 
 def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -> None:
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
+    cancel_pending_spill_timers(lifecycle_key)
     if lifecycle_key:
-        cancel_pending_spill_timers(lifecycle_key)
+        # Sheet listeners are keyed by lifecycle id, not the file URL, so an
+        # unload that only matched doc_url left the dispatcher registered.
+        for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
+            SHEET_MODIFY_LISTENERS.pop(skey, None)
+        # Bugfix: unsaved spill rows are keyed by lifecycle id because
+        # getURL() is "". ``doc_url=""`` used to skip the registry sweep, and
+        # sweeping on "" would drop every other untitled book. Exact match
+        # on this lifecycle id only.
+        LOADED_DOCUMENTS.discard(lifecycle_key)
+        for key in [k for k in SPILL_REGISTRY if k[0] == lifecycle_key]:
+            SPILL_REGISTRY.pop(key, None)
     if doc_url:
         LOADED_DOCUMENTS.discard(doc_url)
         for key in [k for k in SPILL_REGISTRY if k[0] == doc_url]:

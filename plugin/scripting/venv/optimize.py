@@ -24,6 +24,28 @@ from plugin.scripting.venv.coerce import (
 log = logging.getLogger(__name__)
 
 
+def _constraint_bounds(b: Any, n_constraints: int) -> Any:
+    """One RHS per constraint column, or None when ``b`` cannot be aligned.
+
+    ``b`` is a column on the same grid as the variables, so its length is the
+    row count. That equals the constraint count only for a square tableau.
+    The template default ``a_cols=["a1"]`` is one constraint on many variable
+    rows: those rows repeat the same bound, and that number is the RHS.
+
+    When the lengths differed, the old fallback transposed the coefficient
+    matrix and set ``b_ub`` to zeros, discarding the user's bounds. ``linprog``
+    then failed with ``OPTIMIZATION_FAILED``.
+    """
+    import numpy as np
+
+    values = np.asarray(b, dtype=float).reshape(-1)
+    if values.shape[0] == n_constraints:
+        return values
+    if n_constraints == 1 and values.size > 0 and bool(np.allclose(values, values[0])):
+        return values[:1].copy()
+    return None
+
+
 def linear_programming(
     data: Any,
     *,
@@ -36,8 +58,13 @@ def linear_programming(
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Solve a linear programming problem using scipy.optimize.linprog.
-    
+    """Solve a linear program with ``scipy.optimize.linprog``.
+
+    Each row is a variable (``c`` is its objective coefficient). Each name in
+    ``a_cols`` is one ``A_ub x <= b`` constraint across those variables.
+    ``b`` must supply one bound per constraint column. A single constraint
+    column may repeat that same bound on every row.
+
     Future: Consider pulp for more complex formulations.
     """
     import numpy as np
@@ -50,20 +77,41 @@ def linear_programming(
     if df.empty:
         return _error_result("INSUFFICIENT_DATA", "No data for linear programming", helper="linear_programming")
 
-    # Objective function coefficients
+    # Objective coefficients, one per variable row.
     c = df[c_col].values.astype(float)
     if maximize:
         c = -c
 
-    # Inequality constraints matrix (A_ub * x <= b_ub)
-    A_ub = df[a_cols].values.astype(float).T
-    b_ub = df[b_col].values.astype(float)
-    
-    # Needs to match dimensions
-    if len(b_ub) != A_ub.shape[0]:
-        # Assume A is provided such that each column is a variable, each row a constraint
-        A_ub = df[a_cols].values.astype(float)
-        b_ub = np.zeros(A_ub.shape[0]) # if b isn't correctly dimensioned
+    # a-columns are constraints, so transpose to linprog's (constraints, variables).
+    coeff = df[a_cols].values.astype(float)
+    if getattr(coeff, "ndim", 0) != 2 or coeff.shape[1] == 0:
+        return _error_result(
+            "SHAPE_MISMATCH",
+            "linear_programming needs at least one constraint column in a_cols.",
+            helper="linear_programming",
+        )
+    n_constraints = int(coeff.shape[1])
+    A_ub = coeff.T
+    b_ub = _constraint_bounds(df[b_col].values.astype(float), n_constraints)
+    if b_ub is None or A_ub.shape[1] != len(c) or A_ub.shape[0] != len(b_ub):
+        return _error_result(
+            "SHAPE_MISMATCH",
+            (
+                "linear_programming constraint shapes do not match: "
+                f"{len(c)} variable rows and {n_constraints} constraint column(s) "
+                f"({', '.join(str(name) for name in a_cols)}). "
+                "Each row is a variable and each a-column is a <= constraint, so b "
+                "needs one bound per constraint column. A single constraint column "
+                "may repeat that same bound on every row. Mismatched b is rejected "
+                "instead of being replaced with zeros."
+            ),
+            helper="linear_programming",
+            details={
+                "n_variables": int(len(c)),
+                "n_constraints": n_constraints,
+                "b_len": int(len(df)),
+            },
+        )
 
     try:
         res = scipy_optimize.linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=(bounds,) * len(c) if bounds else None)

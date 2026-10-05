@@ -107,7 +107,10 @@ def on_main_thread() -> bool:
     return current is threading.main_thread()
 
 
-# At most one modal alert per job on a given OS thread (proxy can fire on every UNO access).
+# In-flight violation dialogs, keyed by OS thread ident. The proxy can fire on
+# every UNO access; a second post is skipped while one dialog is still up.
+# The ident is removed when that dialog returns so a recycled thread id cannot
+# suppress a later popup and the set cannot grow without bound.
 _violation_ui_threads: set[int] = set()
 _violation_ui_lock = threading.Lock()
 
@@ -170,6 +173,16 @@ def _notify_thread_violation(msg: str) -> None:
             msgbox_with_report(get_ctx(), _("UNO Thread Violation"), full_msg, box_type=3, reportable=True, report_title="UNO thread violation", report_extra=full_msg)
         except Exception:
             log.exception("Failed to show thread violation message box")
+        finally:
+            # What was wrong: the ident stayed until set_background_task(None).
+            # A thread that exited without that clear left its id in the set,
+            # so a recycled OS thread id suppressed the next dialog and the
+            # set grew without bound. How: only the job-end clear removed it.
+            # Why: drop the ident when the dialog returns. A later violation
+            # on that id can post again. set_background_task(None) still
+            # clears an in-flight id when the job ends first.
+            with _violation_ui_lock:
+                _violation_ui_threads.discard(tid)
 
     try:
         from plugin.framework.queue_executor import post_to_main_thread
@@ -178,6 +191,8 @@ def _notify_thread_violation(msg: str) -> None:
         post_to_main_thread(_show_popup)
     except Exception:
         log.exception("Failed to post thread violation message box on main thread")
+        with _violation_ui_lock:
+            _violation_ui_threads.discard(tid)
 
 
 def assert_main_thread(what: str) -> None:
@@ -315,12 +330,25 @@ class _UnoThreadGuardProxy:
         except Exception:
             return "<UNOProxy>"
 
-    # --- Common protocols used by enumeration walks etc. (explicit methods are covered by __getattr__) ---
+    # --- Protocols. Implicit dunders skip __getattr__, so they are declared here. ---
     def __iter__(self) -> Iterator[Any]:  # type: ignore[override]
+        # What was wrong: the assert ran once here, then next() walked the
+        # raw UNO iterator with no check. A later edit asserted inside
+        # ``for item in it``, and that loop calls next() before the body.
+        # Why: assert on every pull, before the raw iterator advances.
         assert_main_thread("UNO iter")
         it = iter(self._target)
-        # Yield wrapped items lazily
-        return (_wrap_uno(x) for x in it)
+
+        def _guarded() -> Iterator[Any]:
+            while True:
+                assert_main_thread("UNO iter")
+                try:
+                    item = next(it)
+                except StopIteration:
+                    return
+                yield _wrap_uno(item)
+
+        return _guarded()
 
     def __bool__(self) -> bool:
         assert_main_thread("UNO bool")
@@ -334,11 +362,66 @@ class _UnoThreadGuardProxy:
         assert_main_thread("UNO getitem")
         return _wrap_uno(self._target[key])
 
+    def __next__(self) -> Any:
+        # What was wrong: next(proxy) raised TypeError in dev. Release
+        # _wrap_uno returns the raw object, so next() on an iterator succeeds.
+        # How: implicit special methods do not use __getattr__. __iter__
+        # guards the for-loop path; it is not __next__.
+        # Why: assert, then delegate, and wrap a PyUNO item the same way
+        # __getitem__ does.
+        assert_main_thread("UNO next")
+        return _wrap_uno(next(self._target))
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        assert_main_thread("UNO setitem")
+        self._target[_unwrap_uno(key)] = _unwrap_uno(value)
+
+    def __delitem__(self, key: Any) -> None:
+        assert_main_thread("UNO delitem")
+        del self._target[_unwrap_uno(key)]
+
+    def __contains__(self, item: object) -> bool:
+        assert_main_thread("UNO contains")
+        return _unwrap_uno(item) in self._target
+
+    def __enter__(self) -> Any:
+        assert_main_thread("UNO enter")
+        entered = self._target.__enter__()
+        # ``with raw as x`` is ``x is raw`` when __enter__ returns self.
+        # A fresh proxy here would make dev identity disagree with release.
+        if entered is self._target:
+            return self
+        return _wrap_uno(entered)
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> Any:
+        assert_main_thread("UNO exit")
+        return self._target.__exit__(exc_type, exc, tb)
+
     def __eq__(self, other: object) -> bool:
         # Dev-only proxy must not break ``doc is active``-style equality:
         # without this, ``proxy == unwrapped`` is False for the same UNO object.
         assert_main_thread("UNO eq")
         return self._target == _unwrap_uno(other)
+
+    def __ne__(self, other: object) -> bool:
+        assert_main_thread("UNO ne")
+        return self._target != _unwrap_uno(other)
+
+    def __lt__(self, other: object) -> bool:
+        assert_main_thread("UNO lt")
+        return self._target < _unwrap_uno(other)
+
+    def __le__(self, other: object) -> bool:
+        assert_main_thread("UNO le")
+        return self._target <= _unwrap_uno(other)
+
+    def __gt__(self, other: object) -> bool:
+        assert_main_thread("UNO gt")
+        return self._target > _unwrap_uno(other)
+
+    def __ge__(self, other: object) -> bool:
+        assert_main_thread("UNO ge")
+        return self._target >= _unwrap_uno(other)
 
     def __hash__(self) -> int:
         # __eq__ asserts because it compares UNO objects. Hash must use the

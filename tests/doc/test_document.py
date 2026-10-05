@@ -24,11 +24,13 @@ def test_is_document_disposed():
 
     assert is_document_disposed(None) is True
 
-    try:
-        from com.sun.star.lang import DisposedException
-        disposed_exc = DisposedException("Document disposed")
-    except ImportError:
-        disposed_exc = Exception("Mock disposed")
+    class DisposedExceptionMock(Exception):
+        pass
+
+    # Ensure the type name is EXACTLY 'DisposedException' for the check
+    DisposedExceptionMock.__name__ = "DisposedException"
+
+    disposed_exc = DisposedExceptionMock("Document disposed")
 
     class MockDisposedDoc:
         def getImplementationName(self):

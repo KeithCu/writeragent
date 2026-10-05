@@ -104,6 +104,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         query_control=query_control,
         _in_librarian_mode=in_librarian_mode,
         _terminal_status="Ready",
+        _stt_inflight=False,
         _set_status=MagicMock(),
         _get_document_model=MagicMock(return_value=object()),
         _append_response=MagicMock(),
@@ -449,6 +450,51 @@ def test_smol_tool_adapter_handles_positional_arguments():
         mock_main.assert_called_once()
 
 
+def test_smol_tool_adapter_read_only_target_rejects_mutation():
+    """forward skips ToolRegistry.execute, so the read-only flag must be checked here."""
+    ctx = SimpleNamespace(read_only_target=True, caller="document_research", doc_type="writer")
+
+    class AsyncMutator(_StubTool):
+        name = "get_document_content"
+        is_mutation = True
+
+        def is_async(self):
+            return True
+
+    for tool_cls in (_StubTool, AsyncMutator):
+        tool = tool_cls()
+        tool.execute = MagicMock(return_value={"status": "ok"})
+        tool.execute_safe = MagicMock(return_value={"status": "ok"})
+        adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
+        with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+            out = adapter.forward(p="v")
+        mock_main.assert_not_called()
+        tool.execute.assert_not_called()
+        tool.execute_safe.assert_not_called()
+        assert (out["status"]) == ("error")
+        assert (out["code"]) == ("READ_ONLY_TARGET")
+        assert ("read-only") in (out["message"])
+        assert (out["details"]["tool_name"]) == (tool.name)
+        assert (out["details"]["caller"]) == ("document_research")
+        assert (out["details"]["doc_type"]) == ("writer")
+
+
+def test_smol_tool_adapter_read_only_target_allows_non_mutation():
+    class FlaggedRead(_StubTool):
+        name = "apply_fake"
+        is_mutation = False
+
+    ctx = SimpleNamespace(read_only_target=True, caller=None, doc_type="writer")
+    tool = FlaggedRead()
+    tool.execute = MagicMock(return_value={"status": "ok"})
+    adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
+    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        out = adapter.forward(p="v")
+    tool.execute.assert_called_once()
+    assert (out["status"]) == ("ok")
+
+
 def test_smol_tool_adapter_resolves_dynamic_parameters():
     class DynamicTool(_StubTool):
         def get_parameters(self, doc_type):
@@ -718,6 +764,30 @@ class TestLibrarianSmol:
             assert ("instructions") in (kwargs)
             assert ("[USER PROFILE / MEMORY]") in (kwargs["instructions"])
             assert ('{"favorite_color": "blue", "name": "Alice"}') in (kwargs["instructions"])
+
+    def test_librarian_onboarding_caps_long_user_memory(self, mock_get_api, mock_get_int):
+        from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+        from plugin.framework.prompts import _INJECTED_BLOB_TRUNCATION_MARKER
+
+        ctx = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.stop_checker.return_value = False
+        long_mem = "U" * (CHAT_DOCUMENT_CONTEXT_MAX_CHARS + 500)
+        fa = FinalAnswerStep(output="Hello")
+
+        with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
+            "plugin.chatbot.smol_agent.ToolCallingAgent"
+        ) as mock_agent_class:
+            mock_store_class.return_value.read.return_value = long_mem
+            mock_agent_class.return_value.run.return_value = [fa]
+
+            LibrarianOnboardingTool().execute(ctx, query="hi")
+
+            instructions = mock_agent_class.call_args.kwargs["instructions"]
+            assert "[USER PROFILE / MEMORY]" in instructions
+            assert long_mem not in instructions
+            assert "U" * CHAT_DOCUMENT_CONTEXT_MAX_CHARS in instructions
+            assert _INJECTED_BLOB_TRUNCATION_MARKER in instructions
 
     def test_librarian_onboarding_includes_suggested_user_name_in_instructions(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
@@ -996,6 +1066,61 @@ def test_do_send_uses_document_chat_when_selector_is_chat():
     listener._do_send_chat_with_tools.assert_called_once()
 
 
+def test_do_send_agent_backend_exception_does_not_start_builtin():
+    """A failed external agent must not continue into the builtin chat turn."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_listener()
+    listener._do_send_via_agent_backend.side_effect = RuntimeError("acp down")
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="hermes"
+    ), patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._do_send_via_agent_backend.assert_called_once()
+    listener._do_send_chat_with_tools.assert_not_called()
+    assert listener._terminal_status == "Error"
+    assert listener._set_status.call_args[0][0] == "Error"
+    shown = listener._append_response.call_args[0][0]
+    assert "Agent backend error" in shown
+    assert "acp down" in shown
+
+
+def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
+    """An exception while reading the agent backend must not start builtin chat."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patch(
+        "plugin.framework.config.get_config", side_effect=RuntimeError("config boom")
+    ), patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._do_send_via_agent_backend.assert_not_called()
+    listener._do_send_chat_with_tools.assert_not_called()
+    assert listener._terminal_status == "Error"
+    shown = listener._append_response.call_args[0][0]
+    assert "config boom" in shown
+
+
+def test_do_send_agent_backend_success_skips_builtin():
+    """A completed external-agent send stays on that path."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="hermes"
+    ), patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._do_send_via_agent_backend.assert_called_once()
+    listener._do_send_chat_with_tools.assert_not_called()
+    listener._append_response.assert_not_called()
+
+
 def test_on_librarian_session_finished_applies_chat_mode():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, SidebarModeFlags
     from plugin.chatbot.panel import SendButtonListener
@@ -1239,20 +1364,22 @@ class TestRunSubagentTool:
         assert (result) == ({"status": "ok", "result": "done"})
         runner.assert_called_once_with(ctx, query="Draft essay", history_text="hi", topic="AI")
 
-    def test_run_subagent_tool_catches_exception_and_formats_error(self):
+    def test_run_subagent_tool_catches_exception_and_formats_error(self, caplog):
         ctx = MagicMock()
 
         def failing_runner(c, **kwargs):
             raise RuntimeError("API timeout")
 
-        result = run_subagent_tool("Brainstorming", failing_runner, ctx, query="Brainstorm ideas")
+        with caplog.at_level("ERROR", logger="writeragent.smol_agent"):
+            result = run_subagent_tool("Brainstorming", failing_runner, ctx, query="Brainstorm ideas")
 
         assert (result.get("status")) == ("error")
         message = result.get("message", "")
         assert ("Brainstorming failed: API timeout") in (message)
-        assert ("RuntimeError") in (message)
-        assert ("Traceback") in (message)
+        assert ("Traceback") not in (message)
+        assert ("RuntimeError") not in (message)
         assert (result.get("details")) == ({"query": "Brainstormideas".replace("Brainstormideas", "Brainstorm ideas")})
+        assert any(r.exc_info is not None and "Brainstorming execution failed" in r.message for r in caplog.records)
 
     def test_run_subagent_tool_with_no_query_in_kwargs(self):
         ctx = MagicMock()

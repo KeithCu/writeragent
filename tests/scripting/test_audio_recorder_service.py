@@ -152,3 +152,40 @@ def test_audio_record_main_accepts_json_and_legacy_stop_commands():
     assert _is_stop_command(json.dumps({"command": "stop"}))
     assert _is_stop_command("stop\n")
     assert not _is_stop_command(json.dumps({"command": "continue"}))
+
+
+def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
+    """Stop during fallback STT ends the drain without a no-speech banner."""
+    from plugin.scripting.audio_recorder_service import try_native_audio_stt_fallback
+
+    host = MagicMock()
+    host.audio_wav_path = "/fake/a.wav"
+    host._terminal_status = "Ready"
+    host._active_query_text = "hello"
+    host._active_client = MagicMock()
+    host._turn.alive = True
+    host._turn.batcher = None
+    host._turn.queue = MagicMock()
+
+    def _stopped(_path, _model):
+        host._terminal_status = "Stopped"
+        return ""
+
+    host._transcribe_audio.side_effect = _stopped
+    with (
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
+        patch("plugin.framework.client.model_fetcher.set_native_audio_support"),
+        patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
+        patch("plugin.scripting.audio_recorder_service.os.remove") as mock_remove,
+    ):
+        recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
+
+    assert recovered is None
+    host._spawn_llm_worker.assert_not_called()
+    mock_remove.assert_not_called()
+    assert host.audio_wav_path == "/fake/a.wav"
+    texts = [str(call.args[0]) for call in host._append_response.call_args_list]
+    assert any("Falling back to STT" in text for text in texts)
+    assert not any("No speech detected" in text for text in texts)

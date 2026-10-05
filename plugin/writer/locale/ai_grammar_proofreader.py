@@ -16,6 +16,7 @@ import importlib
 import logging
 import os
 import sys
+import threading
 
 # Minimal stdlib-only bootstrap (must run before the "from plugin..." import below)
 # because unopkg writeRegistryInfo loads this file before the OXT root is on sys.path.
@@ -60,6 +61,9 @@ except ImportError:
     uno_mod = None
 
 # INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
+# Several Linguistic workers can enter doProofreading together. The lock makes that
+# notice exact-once for a disabled stretch; a concurrent enable still clears it.
+_GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
@@ -88,6 +92,23 @@ from plugin.writer.locale.grammar_work_queue import (
 )
 
 
+def _mark_grammar_disabled_notice() -> bool:
+    """Return True the first time grammar is seen disabled; later callers stay quiet."""
+    global _GRAMMAR_DISABLED_NOTICE_EMITTED
+    with _GRAMMAR_DISABLED_NOTICE_LOCK:
+        if _GRAMMAR_DISABLED_NOTICE_EMITTED:
+            return False
+        _GRAMMAR_DISABLED_NOTICE_EMITTED = True
+        return True
+
+
+def _clear_grammar_disabled_notice() -> None:
+    """Allow the disabled notice again after grammar is turned back on."""
+    global _GRAMMAR_DISABLED_NOTICE_EMITTED
+    with _GRAMMAR_DISABLED_NOTICE_LOCK:
+        _GRAMMAR_DISABLED_NOTICE_EMITTED = False
+
+
 def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
     """Run *fn* on the LO UI thread (XProofreader hooks run on linguistic workers)."""
     from plugin.framework.queue_executor import execute_on_main_thread
@@ -98,17 +119,154 @@ def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
     return execute_on_main_thread(fn, *args, **kwargs)
 
 
+_TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
+
+
+def _is_text_document(model: Any) -> bool:
+    """True only when UNO reports a Writer model.
+
+    ``supportsService`` on a ``MagicMock`` is truthy but not ``True``. Treating
+    that as a document would bind a fake model during unit tests.
+    """
+    if model is None:
+        return False
+    try:
+        supports = getattr(model, "supportsService", None)
+        if not callable(supports):
+            return False
+        return supports(_TEXT_DOCUMENT_SERVICE) is True
+    except Exception:
+        return False
+
+
+def _writer_from_desktop_element(elem: Any) -> Any | None:
+    """Writer model for a desktop component or the frame that holds one."""
+    if _is_text_document(elem):
+        return elem
+    try:
+        get_controller = getattr(elem, "getController", None)
+        if not callable(get_controller):
+            return None
+        controller = get_controller()
+        if controller is None:
+            return None
+        get_model = getattr(controller, "getModel", None)
+        if not callable(get_model):
+            return None
+        model = get_model()
+    except Exception:
+        return None
+    return model if _is_text_document(model) else None
+
+
+def _open_writer_models(desktop: Any) -> list[Any]:
+    """Open Writer models. Stops if the enumeration is not a real boolean."""
+    writers: list[Any] = []
+    try:
+        comps = desktop.getComponents()
+        enum = comps.createEnumeration() if comps is not None else None
+    except Exception:
+        return writers
+    if enum is None:
+        return writers
+    # Real ``hasMoreElements()`` is bool (or 1). A MagicMock stays truthy forever
+    # and would spin the main thread, same guard as ``resolve_document_by_url``.
+    seen = 0
+    while seen < 64:
+        try:
+            more = enum.hasMoreElements()
+        except Exception:
+            break
+        if more is not True and more != 1:
+            break
+        seen += 1
+        try:
+            elem = enum.nextElement()
+        except Exception:
+            break
+        model = _writer_from_desktop_element(elem)
+        if model is not None:
+            writers.append(model)
+    return writers
+
+
+def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
+    """Writer model this proofreading call is for, or None.
+
+    ``aDocumentIdentifier`` is the persistence map key. It is often a small
+    integer, not ``RuntimeUID``, so the model cannot be loaded from that map.
+    Prefer the desktop's current text component. Otherwise use the open Writer
+    whose ``RuntimeUID`` is *doc_id*, or the only open Writer. Several Writers
+    and no id match is not a guess.
+    """
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return None
+    from plugin.framework.uno_context import get_desktop, get_runtime_uid
+
+    try:
+        desktop = get_desktop(ctx)
+    except Exception:
+        log.debug("[grammar] persistence bind: desktop unavailable", exc_info=True)
+        return None
+    if desktop is None:
+        return None
+    try:
+        writers = _open_writer_models(desktop)
+    except Exception:
+        log.debug("[grammar] persistence bind: open Writer scan failed", exc_info=True)
+        writers = []
+
+    for model in writers:
+        try:
+            uid = get_runtime_uid(model)
+        except Exception:
+            uid = ""
+        if uid and uid == doc_id:
+            return model
+
+    try:
+        current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+    except Exception:
+        log.debug("[grammar] persistence bind: current component unavailable", exc_info=True)
+        current = None
+    if _is_text_document(current):
+        return current
+
+    if len(writers) == 1:
+        return writers[0]
+    return None
+
+
 def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
-    """Bind ``DocumentPersistence`` to the Writer model (loads udprops when available)."""
+    """Bind ``DocumentPersistence`` to the Writer model being proofread.
+
+    What was wrong: this asked ``get_document_model_for_id`` for the model.
+    That helper only returns ``p._model`` when a ``DocumentPersistence`` for
+    the id is already in the map, so the first ``doProofreading`` always got
+    None and returned. Udprops never loaded and save listeners never
+    registered. ``doProofreading`` calls this only when the map has no model,
+    so that lookup cannot succeed.
+    How: nothing else passed the open Writer into ``get_persistence``. The
+    linguistic id stayed an unbound map key.
+    Why: resolve the Writer on this main thread and pass that model in. A
+    second call sees a bound model and does not replace it or reload udprops
+    over live edits. No model → return without raising.
+    """
     if not doc_id:
         return
-    from plugin.framework.uno_context import get_active_document
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
-    model = get_document_model_for_id(ctx, doc_id)
-    if model is None:
-        model = get_active_document(ctx)
-    get_persistence(ctx, doc_id, model=model)
+    if get_document_model_for_id(ctx, doc_id) is not None:
+        return
+    try:
+        model = _resolve_proofread_writer_model(ctx, doc_id)
+        if model is None:
+            return
+        get_persistence(ctx, doc_id, model=model)
+    except Exception:
+        log.exception("[grammar] persistence bind failed")
 
 
 def _add_doc_ignored_rule(p: Any, value: str) -> None:
@@ -428,7 +586,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del args
         super().__init__()
         self.ctx = ctx
-        self._last_doc_id: str | None = None
+        self._doc_id_for_ignore: dict[str, str] = {}
         self._lingu_listeners: list[Any] = []
         # First-session Harper: ensure-ready can broadcast before Writer hooks
         # XLinguServiceEventListener. Remember the miss and recover once.
@@ -491,14 +649,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         grammar_bcp47 = self._normalize_locale(a_locale)
 
         if not enabled:
-            global _GRAMMAR_DISABLED_NOTICE_EMITTED
-            if not _GRAMMAR_DISABLED_NOTICE_EMITTED:
-                _GRAMMAR_DISABLED_NOTICE_EMITTED = True
+            if _mark_grammar_disabled_notice():
                 log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
             # do_proofreading_skip for grammar_disabled omitted to avoid log noise
             return None
 
-        _GRAMMAR_DISABLED_NOTICE_EMITTED = False
+        _clear_grammar_disabled_notice()
         if grammar_bcp47 is None:
             grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
             return None
@@ -616,9 +772,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             emit_grammar_status("done", last_text, result=f"{issue_count} {iw}")
         return True
 
-    def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]]) -> None:
+    def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]], ident: str) -> None:
         """Enqueue uncached sentences for background processing."""
-        provider = getattr(self, "_provider", "")
+        provider = ident
         for sent_start, sent_end, sent_text in uncached_spans:
             seq = next_enqueue_seq()
             complete_sentence = looks_complete_sentence(sent_text)
@@ -635,6 +791,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     inflight_key=inflight_key,
                     enqueue_seq=seq,
                     provider=provider,
+                    n_start=sent_start,
                 )
             )
 
@@ -643,22 +800,43 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         return False
 
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
-        self._last_doc_id = aDocumentIdentifier
-        from plugin.writer.locale.grammar_persistence import get_document_model_for_id
-
-        if get_document_model_for_id(self.ctx, aDocumentIdentifier) is None:
-            _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
         if uno_mod is None:
             log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
             raise RuntimeError("uno not available")
 
-        a_res: Any = None
+        # Build the empty result before the try. ``_create_empty_result`` already
+        # logs and re-raises (missing ``uno``, ``createUnoStruct`` failure). The
+        # handler used to call it again with the same arguments when ``a_res``
+        # was still None. That second failure left the Linguistic worker with an
+        # unhandled exception and could crash or hang Writer.
+        a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
         try:
-            a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+            from plugin.writer.locale.grammar_persistence import get_document_model_for_id
+
+            if get_document_model_for_id(self.ctx, aDocumentIdentifier) is None:
+                _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
 
             loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             if not loc_key:
                 return a_res
+
+            # In Writer, grammar ignore receives the doc_id and stores rules per doc.
+            # In Draw, ignoreRule only gets the locale, and no aDocumentIdentifier.
+            # Thus, we store the known doc_id by a resolved model UID, avoiding
+            # the focused desktop guess.
+            model = get_document_model_for_id(self.ctx, aDocumentIdentifier)
+            if model is not None:
+                from plugin.framework.uno_context import get_runtime_uid
+                try:
+                    uid = get_runtime_uid(model)
+                    if uid:
+                        if not hasattr(self, "_doc_id_for_ignore"):
+                            self._doc_id_for_ignore = {}
+                        self._doc_id_for_ignore[uid] = aDocumentIdentifier
+                except Exception:
+                    pass
+
+            ident = getattr(self, "_checker_identity", self._active_grammar_provider())
 
             # 1. One BreakIterator + dialogue-merge pass for the whole paragraph.
             paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
@@ -746,7 +924,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
                     result_source = "harper_fast"
                 else:
-                    self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans)
+                    self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans, ident)
                     log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
                     result_source = "enqueue"
 
@@ -764,26 +942,53 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
         except Exception as e:
             log.exception("[grammar] doProofreading failed: %s", e)
-            if a_res is not None:
-                return a_res
+            return a_res
 
-            # Absolute fallback: try to return a fresh empty result if possible
-            return _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+    def _resolve_doc_id_for_ignore(self) -> str | None:
+        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.uno_context import get_desktop, get_runtime_uid
+
+        if not on_main_thread():
+            return None
+
+        try:
+            desktop = get_desktop(self.ctx)
+            if desktop is None:
+                return None
+            current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+            if current is not None:
+                uid = get_runtime_uid(current)
+                if uid and hasattr(self, "_doc_id_for_ignore") and uid in self._doc_id_for_ignore:
+                    return self._doc_id_for_ignore[uid]
+
+                # If current UID matches a known persistence job, we map to its doc ID.
+                # In Writer, uid and aDocumentIdentifier might be different.
+        except Exception:
+            pass
+        return None
 
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
             del aLocale
-            doc_id = getattr(self, "_last_doc_id", None)
+            doc_id = _run_on_main_thread(self._resolve_doc_id_for_ignore)
+            if not doc_id:
+                log.warning("[grammar] ignoreRule: failed to resolve doc_id; cannot ignore rule")
+                raise RuntimeError("ignoreRule failed: no active document found")
             _run_on_main_thread(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier)
         except Exception as e:
             log.warning("[grammar] ignoreRule: %s", e, exc_info=True)
+            raise
 
     def resetIgnoreRules(self) -> None:
         try:
-            doc_id = getattr(self, "_last_doc_id", None)
+            doc_id = _run_on_main_thread(self._resolve_doc_id_for_ignore)
+            if not doc_id:
+                log.warning("[grammar] resetIgnoreRules: failed to resolve doc_id; cannot reset")
+                raise RuntimeError("resetIgnoreRules failed: no active document found")
             _run_on_main_thread(_reset_ignore_rules_on_main, self.ctx, doc_id)
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
+            raise
 
     def addLinguServiceEventListener(self, xLstnr: Any) -> bool:
         if xLstnr is None:

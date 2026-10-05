@@ -15,24 +15,30 @@ import importlib
 import json
 import os
 import sys
-import traceback
 from typing import Any
 
+# Before any plugin import. writeragent_api treats a missing
+# WRITERAGENT_IS_WORKER as the LibreOffice host and calls execute_tool
+# → get_ctx(). This process has no office and no tool-call pipe.
+# WRITERAGENT_COMPUTE_WORKER makes that call fail before either path.
+os.environ["WRITERAGENT_IS_WORKER"] = "1"
+os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
+
 # Ensure repo root is on sys.path
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.executor import execute_code, release_session_lock
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, dumps_response
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, dumps_response, require_execute_wire, validate_execute_response
 from compute_service.worker_base import run_worker_stdio_loop
 
-# Do not load the Cython accelerator here. Default compute wire is JSON-forward
-# (worker json.loads data_json / dumps result_json once). The optional pickle +
-# split_grid fallback still unpacks via NumPy frombuffer. Cython flatten is
-# host-only (LibrePy / wire="pickle"). Importing payload_codec unpack helpers
-# must not load or claim Cython Active.
+# execute_code pulls in the sandbox. Import it on the first real request so
+# run_worker_stdio_loop can write {"status": "ready"} before that graph loads.
+# A cold import used to consume the 15s handshake with an empty stderr.
+
+# Do not load the Cython accelerator here. The compute payload is JSON-forward
+# (worker json.loads data_json / dumps result_json once). There is no
+# split_grid field on this pipe. Cython flatten stays on the LibrePy host.
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -54,6 +60,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     if action == "reset_session":
         session_id = req.get("session_id")
         if session_id and isinstance(session_id, str):
+            from compute_service.executor import release_session_lock
             from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
             res = reset_sandbox_session(session_id)
@@ -69,21 +76,37 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter"}
 
     session_id = req.get("session_id")
-    mode = req.get("mode") or "isolated"
+    # Same mode rule as the HTTP handler. Missing is isolated. false / 0 / a
+    # typo used to be rewritten on one path and rejected on the other.
+    raw_mode = req.get("mode", None)
+    try:
+        mode = canonical_execute_mode(raw_mode)
+        raw_wire = req.get("wire")
+        if raw_wire is not None:
+            require_execute_wire(raw_wire)
+    except ExecuteRequestError as exc:
+        err = {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc), "stdout": ""}
+        if _is_json_forward(req):
+            return _json_forward_envelope(err, req_id=req_id)
+        return err
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")
     json_forward = _is_json_forward(req)
 
     try:
+        from compute_service.executor import execute_code
+
         data = _load_request_data(req)
-        res = execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script)
+        res = validate_execute_response(execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script))
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
         if json_forward:
             return _json_forward_envelope(res, req_id=req_id)
         return res
     except Exception as exc:
-        err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "traceback": traceback.format_exc()}
+        # Traceback included server paths on the kit wire. Eval errors from
+        # json_egress are only status/error/stdout; this path must match.
+        err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "stdout": ""}
         if json_forward:
             return _json_forward_envelope(err, req_id=req_id)
         return err
@@ -96,14 +119,21 @@ def _is_json_forward(req: dict[str, Any]) -> bool:
 
 
 def _load_request_data(req: dict[str, Any]) -> Any:
-    """One deserialize of the data blob on the worker (never on the HTTP host)."""
+    """One deserialize of the data blob on the worker (never on the HTTP host).
+
+    The stdio dict used to also carry a ``data`` object for the pickle /
+    split_grid wire. Reading it here ran a payload the JSON path had not
+    accepted. Absent ``data_json`` is no data, not a second wire.
+    """
     raw = req.get("data_json")
+    if raw is None:
+        return None
     if isinstance(raw, (bytes, bytearray)):
         try:
             return json.loads(bytes(raw).decode("utf-8"))
         except Exception as exc:
             raise ValueError(f"Invalid data_json: {exc}") from exc
-    return req.get("data")
+    raise ValueError("data_json must be bytes")
 
 
 def _json_forward_envelope(res: dict[str, Any], *, req_id: Any) -> dict[str, Any]:

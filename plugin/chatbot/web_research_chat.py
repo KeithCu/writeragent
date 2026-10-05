@@ -74,9 +74,8 @@ def web_search_engine_step_chat_text(query_for_engine: str, step_index: int) -> 
     return block
 
 
-def web_research_engine_chat_block(query_for_engine: str, *, approval_required: bool = False) -> str:
-    """Same as web_search_engine_step_chat_text for step 0 (approval_required is legacy, ignored)."""
-    del approval_required
+def web_research_engine_chat_block(query_for_engine: str) -> str:
+    """Same as web_search_engine_step_chat_text for step 0."""
     return web_search_engine_step_chat_text(query_for_engine, 0)
 
 

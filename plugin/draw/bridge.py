@@ -83,6 +83,22 @@ class DrawBridge:
         return self._pages
 
     def get_active_page(self) -> Any | None:
+        if hasattr(self.doc, "supportsService") and self.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+            try:
+                controller = self.doc.getCurrentController()
+                sheet = None
+                if controller is not None:
+                    if hasattr(controller, "ActiveSheet"):
+                        sheet = controller.ActiveSheet
+                    if sheet is None and hasattr(controller, "getActiveSheet"):
+                        sheet = controller.getActiveSheet()
+                if sheet is not None:
+                    if hasattr(sheet, "getDrawPage"):
+                        return sheet.getDrawPage()
+                    if hasattr(sheet, "DrawPage"):
+                        return sheet.DrawPage
+            except Exception:
+                pass
         controller = self.doc.getCurrentController()
         if controller is not None and hasattr(controller, "getCurrentPage"):
             page = controller.getCurrentPage()
@@ -162,21 +178,33 @@ class DrawBridge:
             shapes.append(page.getByIndex(i))
         return shapes
 
-    def create_slide(self, index: int | None = None, switch: bool = True) -> Any:
-        """Creates a new slide (page) at the specified index."""
-        pages = self.get_pages()
-        if index is None:
-            index = pages.getCount()
-        new_page = pages.insertNewByIndex(index)
+    def create_slide(self, index: int | None = None, switch: bool = True) -> tuple[Any, int]:
+        """Insert a blank page so it occupies ``index`` (append when omitted).
 
-        if switch:
-            controller = self.doc.getCurrentController()
-            if controller is not None and hasattr(controller, "setCurrentPage"):
-                try:
-                    controller.setCurrentPage(new_page)
-                except Exception as exc:
-                    log.debug("setCurrentPage after insert failed: %s", exc)
-        return new_page
+        Returns ``(page, index)`` for the slot the new page actually occupies.
+        Impress ``DrawPage.getNumber()`` is missing, so callers must use this
+        index instead of ``get_active_page_index`` after the controller switches.
+
+        What was wrong: ``add_slide(page=N)`` passed ``N`` to
+        ``insertNewByIndex`` and reported ``active_page_index=N``. The new
+        slide was created one slot later, and the next tool edited the
+        previous slide. ``page=0`` never landed at 0, so master inheritance
+        treated the new page as its own neighbor.
+        How it happened: ``InsertSdPage`` (``sd/source/ui/unoidl/unomodel.cxx``)
+        inserts *after* ``min(count-1, nIndex)``. The new page lands at
+        ``min(count-1, n)+1``. Append (``n >= count-1``) happens to land at
+        the end, which hid the bug for the default "add at end" path.
+        Why this fixes it: choose ``n`` so the landing index is the request.
+        A request of 0 on a non-empty deck inserts after page 0 (lands at 1)
+        and exchanges with page 0 — the same reorder ``move_slide`` uses,
+        because ``InsertSdPage`` cannot create a page at index 0. The returned
+        page is the object that occupies the requested index.
+        """
+        pages = self.get_pages()
+        count = int(pages.getCount())
+        if index is None:
+            index = count
+        return self._insert_page_at(int(index), switch, count)
 
     def delete_slide(self, index: int) -> None:
         """Deletes the slide at the specified index."""
@@ -195,21 +223,127 @@ class DrawBridge:
         return new_page
 
     def insert_slide_from_master(self, master_index: int | None = None, master_name: str | None = None, after_index: int | None = None, switch: bool = True) -> tuple[Any, int]:
-        """Insert a slide after after_index (default: active), assign master, jump to new slide."""
+        """Insert a slide after ``after_index`` (default: active) and assign its master.
+
+        The returned index is the slot the new slide occupies. Transform
+        ``InsertMasterSlide`` stores that index as the current slide.
+        ``insertNewByIndex`` does not place a page at the index it is given;
+        ``_insert_page_at`` compensates. See ``create_slide``.
+        """
         pages = self.get_pages()
+        count = int(pages.getCount())
         if after_index is None:
             after_index = self.get_active_page_index()
-        insert_at = min(after_index + 1, pages.getCount())
-        new_page = pages.insertNewByIndex(insert_at)
+        try:
+            requested = int(after_index) + 1
+        except (TypeError, ValueError):
+            requested = count
         master = self._resolve_master(master_index=master_index, master_name=master_name)
+        if master is None and (master_index is not None or master_name is not None):
+            raise ValueError(f"Master page not found: index={master_index} name={master_name}")
+
+        new_page, landed = self._insert_page_at(requested, switch=False, count=count)
         if master is not None:
             try:
                 new_page.MasterPage = master
             except Exception as exc:
                 log.debug("insert_slide_from_master MasterPage: %s", exc)
+        # View follows the real slot. ``_insert_page_at(..., switch=False)``
+        # only restores a front-insert; the jump happens after MasterPage
+        # is assigned so the shown slide already has its master.
         if switch:
-            self.set_current_page_index(insert_at)
-        return new_page, insert_at
+            self.set_current_page_index(landed)
+        return new_page, landed
+
+    def _insert_page_at(self, index: int, switch: bool, count: int | None = None) -> tuple[Any, int]:
+        """Insert a blank page at ``index`` and optionally show it."""
+        pages = self.get_pages()
+        if count is None:
+            count = int(pages.getCount())
+        if index < 0:
+            index = 0
+        elif index > count:
+            index = count
+        exchanging = index == 0 and count > 0
+        # Capture the view before the exchange. Afterwards the object that
+        # was page 0 holds the new slide, so a controller still pointing at
+        # it would show the new slide even when activate is false.
+        previous = self._controller_page() if (not switch and exchanging) else None
+        new_page, landed = self._insert_blank_page(index, count)
+        self._show_inserted_page(landed, switch, previous, exchanged=exchanging and landed == 0)
+        return new_page, landed
+
+    def _insert_blank_page(self, index: int, count: int) -> tuple[Any, int]:
+        """Place a new blank page at ``index`` (already clamped to ``0..count``)."""
+        pages = self.get_pages()
+        if count == 0 or index >= count:
+            # insertNewByIndex(count) lands at the end (or the only slot).
+            new_page = pages.insertNewByIndex(count)
+            landed = 0 if count == 0 else count
+            if new_page is None:
+                new_page = pages.getByIndex(landed)
+            return new_page, landed
+        if index == 0:
+            # Lands at 1. Exchange so the new slide occupies index 0 and the
+            # previous first slide shifts right. The object at index 0 is what
+            # later layout and master writes must touch.
+            pages.insertNewByIndex(0)
+            try:
+                self._exchange_page_contents(pages.getByIndex(0), pages.getByIndex(1))
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                log.exception("create_slide could not place the new page at index 0")
+                # The blank page is still at index 1. Report that, so callers
+                # do not edit page 0 or copy its master onto itself.
+                return pages.getByIndex(1), 1
+            return pages.getByIndex(0), 0
+        # 0 < index < count: insert after the page that should precede it.
+        # insertNewByIndex(index-1) lands at index.
+        new_page = pages.insertNewByIndex(index - 1)
+        if new_page is None:
+            new_page = pages.getByIndex(index)
+        return new_page, index
+
+    def _controller_page(self) -> Any | None:
+        """Page the view is showing, or None when the controller has none.
+
+        ``get_active_page`` falls back to slide 0. Using that fallback here
+        would look like the user was on slide 0 and the front-insert restore
+        would move the view.
+        """
+        get_controller = getattr(self.doc, "getCurrentController", None)
+        if not callable(get_controller):
+            return None
+        try:
+            controller = get_controller()
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return None
+        if controller is None:
+            return None
+        get_page = getattr(controller, "getCurrentPage", None)
+        if not callable(get_page):
+            return None
+        try:
+            return get_page()
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return None
+
+    def _show_inserted_page(self, landed: int, switch: bool, previous: Any, exchanged: bool) -> None:
+        if switch:
+            self.set_current_page_index(landed)
+            return
+        if not exchanged or previous is None or landed != 0:
+            return
+        from plugin.framework.uno_context import uno_same
+
+        pages = self.get_pages()
+        if pages.getCount() > 1 and uno_same(previous, pages.getByIndex(0)):
+            self.set_current_page_index(1)
 
     def _resolve_master(self, master_index: int | None = None, master_name: str | None = None) -> Any | None:
         if not hasattr(self.doc, "getMasterPages"):
@@ -702,7 +836,8 @@ def find_notes_shape(notes_page: Any) -> Any | None:
 
     A notes-master header, footer, date, or slide number can be inserted
     ahead of the notes body, so getByIndex(1) reads or overwrites the wrong
-    shape. Chat context, read_slide_text, and the notes tools share this.
+    shape. Chat context, read_slide_text, the notes tools, and ppt-master
+    notes import and enhance share this.
     """
     if notes_page is None:
         return None
@@ -740,17 +875,33 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         ctx_str = "%s: %s\n" % (doc_type, safe_call(model.getURL, "Get document URL") or "Untitled")
         ctx_str += "Total %s: %d\n" % ("Slides" if is_impress else "Pages", safe_call(pages.getCount, "Get page count"))
 
-        # Get index of active page
+        # What was wrong: Active Slide Index was -1 when getCurrentPage() and
+        # getByIndex() returned different Python wrappers for one page.
+        # How it happened: this loop used ``==``. PyUNO wrappers often fail
+        # ``==`` / ``is`` for one UNO object. get_active_page_index already
+        # walks with uno_same (is, then ==, then uno.isSame).
+        # Why this fixes it: the same identity ladder, so the chat index
+        # matches the controller's current page.
+        from plugin.framework.uno_context import uno_same
+
         active_page_idx = -1
         for i in range(safe_call(pages.getCount, "Get page count")):
-            if safe_call(pages.getByIndex, "Get page by index", i) == active_page:
+            candidate = safe_call(pages.getByIndex, "Get page by index", i)
+            if uno_same(candidate, active_page):
                 active_page_idx = i
                 break
 
         ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress else "Page", active_page_idx)
 
-        # Summarize shapes on active page
-        if active_page:
+        # Summarize shapes on the active page.
+        # What was wrong: a blank slide omitted its speaker notes (and the
+        # shapes section) from chat context.
+        # How it happened: an empty XDrawPage is falsy when it has zero
+        # shapes, so `if active_page` skipped the whole block. Same trap as
+        # get_active_page_index, which already uses `is not None`.
+        # Why this fixes it: None means there is no page; a blank page is
+        # still a page, so notes on add_slide blank/none are included.
+        if active_page is not None:
             shapes = bridge.get_shapes(active_page)
             ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
             for i, s in enumerate(shapes):

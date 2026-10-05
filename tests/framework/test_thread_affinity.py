@@ -279,6 +279,12 @@ def test_notify_thread_violation_never_blocks(monkeypatch):
     monkeypatch.setattr(queue_executor, "execute_on_main_thread", fake_execute)
     monkeypatch.setattr(queue_executor, "post_to_main_thread", fake_post)
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    # One popup per OS thread. An earlier test on this xdist worker (for
+    # example get_runtime_uid off the designated main thread) already recorded
+    # this tid, so the post was skipped and post_called stayed false.
+    tid = threading.get_ident()
+    with tg._violation_ui_lock:
+        tg._violation_ui_threads.discard(tid)
 
     tg._notify_thread_violation("test violation from background worker")
     assert execute_called is False

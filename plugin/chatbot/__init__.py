@@ -53,7 +53,22 @@ class ChatbotModule(ModuleBase):
         services.tools.auto_discover(deep_research_session)
         services.tools.auto_discover(ppt_master)
         services.tools.auto_discover(skills)
+        self._register_selection_actions(services)
         self._adapter = None
+
+    def _register_selection_actions(self, services: Any) -> None:
+        """Hamburger passes the sidebar frame. The menubar calls these with none."""
+        from plugin.chatbot.selection import action_edit_selection, action_extend_selection
+        from plugin.framework.main_shared import register_action_handler
+
+        def _extend(frame: Any = None) -> None:
+            action_extend_selection(services, frame=frame)
+
+        def _edit(frame: Any = None) -> None:
+            action_edit_selection(services, frame=frame)
+
+        register_action_handler("chatbot", "extend_selection", _extend)
+        register_action_handler("chatbot", "edit_selection", _edit)
 
     def get_adapter(self) -> Any | None:
         """Return the ChatToolAdapter for use by the panel factory."""

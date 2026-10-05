@@ -1,5 +1,10 @@
 from unittest.mock import MagicMock, patch
-from plugin.chatbot.config_ui_helpers import update_lru_history, populate_combobox_with_lru, sync_sidebar_text_model
+from plugin.chatbot.config_ui_helpers import (
+    next_lru_list,
+    populate_combobox_with_lru,
+    sync_sidebar_text_model,
+    update_lru_history,
+)
 
 class TestConfigUiHelpers:
 
@@ -39,6 +44,13 @@ class TestConfigUiHelpers:
         update_lru_history('first', 'prompt_lru', '')
         self.mock_set.assert_not_called()
 
+    def test_next_lru_list_skips_blank_and_head_and_promotes(self):
+        assert next_lru_list(["first"], "  ", 10) is None
+        assert next_lru_list(["first", "second"], "first", 10) is None
+        assert next_lru_list(["first", "second"], "second", 10) == ["second", "first"]
+        assert next_lru_list("", "new", 10) == ["new"]
+        assert next_lru_list(["a", "b", "c"], "d", 3) == ["d", "a", "b"]
+
 
 class TestSyncSidebarTextModel:
     """Sidebar paste must persist combobox text before get_api_config reads text_model."""
@@ -46,6 +58,7 @@ class TestSyncSidebarTextModel:
     def setup_method(self):
         self.ctx = MagicMock()
         self.config_data = {}
+        self.config_writes: list[dict] = []
         self.endpoint = 'https://openrouter.ai/api'
 
         def mock_get_config(key, default=None):
@@ -56,12 +69,18 @@ class TestSyncSidebarTextModel:
         def mock_set_config(key, value, event_key=None):
             self.config_data[key] = value
 
+        def mock_set_configs(values):
+            self.config_writes.append(dict(values))
+            self.config_data.update(values)
+
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
+        self.configs_patcher = patch('plugin.chatbot.config_ui_helpers.set_configs', side_effect=mock_set_configs)
         self.get_mf_patcher = patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config)
         self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config)
         self.mock_get = self.get_patcher.start()
         self.mock_set = self.set_patcher.start()
+        self.configs_patcher.start()
         self.get_mf_patcher.start()
         self.mock_mf_set = self.set_mf_patcher.start()
         self.endpoint_patcher = patch('plugin.chatbot.config_ui_helpers.get_current_endpoint', return_value=self.endpoint)
@@ -70,6 +89,7 @@ class TestSyncSidebarTextModel:
     def teardown_method(self):
         self.get_patcher.stop()
         self.set_patcher.stop()
+        self.configs_patcher.stop()
         self.get_mf_patcher.stop()
         self.set_mf_patcher.stop()
         self.endpoint_patcher.stop()
@@ -86,6 +106,11 @@ class TestSyncSidebarTextModel:
         assert (result) == ('anthropic/claude-3.7-sonnet')
         assert (self.config_data['text_model']) == ('anthropic/claude-3.7-sonnet')
         assert (self.config_data[f'model_lru@{self.endpoint}']) == (['anthropic/claude-3.7-sonnet'])
+        # Model id and LRU list are one set_configs, not set_text_model plus set_config.
+        assert len(self.config_writes) == 1
+        assert set(self.config_writes[0]) == {'text_model', f'model_lru@{self.endpoint}'}
+        self.mock_set.assert_not_called()
+        self.mock_mf_set.assert_not_called()
 
     def test_unchanged_model_skips_text_model_write(self):
         self.config_data['text_model'] = 'openai/gpt-oss-120b:nitro'
@@ -97,6 +122,8 @@ class TestSyncSidebarTextModel:
 
         text_model_writes = [c for c in self.mock_mf_set.call_args_list if c.args[0] == 'text_model']
         assert (text_model_writes) == ([])
+        assert all('text_model' not in write for write in self.config_writes)
+        assert len(self.config_writes) <= 1
 
     def test_placeholder_not_persisted(self):
         self.config_data['text_model'] = 'openai/gpt-oss-120b:nitro'
@@ -142,6 +169,57 @@ class TestSyncSidebarTextModel:
             from plugin.framework.config import get_api_config
 
             assert (get_api_config()['model']) == ('anthropic/claude-3.7-sonnet')
+
+
+def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
+    """A sidebar model change is one writeragent.json write and one config:changed."""
+    import json
+
+    from plugin.framework.config import _write_config_file, reset_config_for_tests
+
+    path = tmp_path / "writeragent.json"
+    endpoint = "https://openrouter.ai/api"
+    path.write_text(json.dumps({"text_model": "old-model", "python_venv_path": "/old"}), encoding="utf-8")
+    reset_config_for_tests()
+    real_write = _write_config_file
+    ctrl = MagicMock()
+    ctrl.getText.return_value = "new-model"
+    try:
+        with (
+            patch("plugin.framework.config._config_path", return_value=str(path)),
+            patch("plugin.framework.event_bus.global_event_bus.emit") as emit,
+            patch("plugin.framework.config._write_config_file", wraps=real_write) as write,
+            patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=endpoint),
+        ):
+            assert sync_sidebar_text_model(MagicMock(), ctrl) == "new-model"
+            assert write.call_count == 1
+            assert emit.call_count == 1
+            assert emit.call_args.args[0] == "config:changed"
+            assert emit.call_args.kwargs["key"] == ""
+            assert set(emit.call_args.kwargs["keys"]) == {"text_model", f"model_lru@{endpoint}"}
+            body = path.read_text(encoding="utf-8")
+            data = json.loads(body[body.index("{"):])
+            assert data["text_model"] == "new-model"
+            assert data[f"model_lru@{endpoint}"] == ["new-model"]
+            assert data["python_venv_path"] == "/old"
+
+            write.reset_mock()
+            emit.reset_mock()
+            ctrl.getText.return_value = "newer-model"
+            # Head is still new-model, so the id and the list both change, still once.
+            sync_sidebar_text_model(MagicMock(), ctrl)
+            assert write.call_count == 1
+            assert emit.call_count == 1
+            assert set(emit.call_args.kwargs["keys"]) == {"text_model", f"model_lru@{endpoint}"}
+
+            write.reset_mock()
+            emit.reset_mock()
+            # Same combobox text: already stored and already the LRU head.
+            sync_sidebar_text_model(MagicMock(), ctrl)
+            assert write.call_count == 0
+            emit.assert_not_called()
+    finally:
+        reset_config_for_tests()
 
 
 class TestPopulateComboboxWithLruFetchOptions:

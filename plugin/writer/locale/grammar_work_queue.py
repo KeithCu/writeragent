@@ -106,6 +106,7 @@ class GrammarWorkItem:
     enqueue_seq: int
     original_bcp47: str = ""
     provider: str = ""
+    n_start: int = 0
 
 
 
@@ -262,6 +263,21 @@ class GrammarWorkQueue:
         with self._lock:
             return inflight_superseded(self._latest_seq, inflight_key, enqueue_seq)
 
+    def note_inflight_generation(self, inflight_key: str, enqueue_seq: int) -> bool:
+        """Record a retargeted generation. True when this seq is already stale.
+
+        In-place locale changes do not ``enqueue`` (the worker keeps the item).
+        The new key still has to land in ``_latest_seq`` or a later enqueue of
+        that sentence cannot supersede it. An older seq does not replace a
+        newer one, so the older generation stays droppable.
+        """
+        with self._lock:
+            latest = self._latest_seq.get(inflight_key)
+            if latest is not None and enqueue_seq < latest:
+                return True
+            self._latest_seq[inflight_key] = enqueue_seq
+            return False
+
     def enqueue(self, item: GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call.
 
@@ -269,7 +285,8 @@ class GrammarWorkQueue:
         dict inside ``_drain_loop`` (the worker drains so quickly that the queue
         is usually empty on the next enqueue during bursts). Cross-batch and
         in-flight supersedes use ``_latest_seq`` (Layer 3), including
-        language-detection requeues that mint a fresh higher seq.
+        language-detection requeues and in-place locale retargets that mint
+        a fresh higher seq (``note_inflight_generation``).
         """
         with self._lock:
             self._latest_seq, out_of_order, superseded_prev_seq = record_enqueue_latest(self._latest_seq, item)

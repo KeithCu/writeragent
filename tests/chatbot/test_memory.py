@@ -129,6 +129,15 @@ class TestMemory:
         assert (upsert_memory_arguments_dict("not json")) is None
         assert (upsert_memory_arguments_dict('{"key": "from_json", "content": "v"}')) == ({"key": "from_json", "content": "v"})
 
+    def test_upsert_memory_arguments_dict_non_dict_is_total(self):
+        # A list used to raise deal.PreContractError under pytest. The body
+        # returns None; the pytest pre must stay total.
+        assert upsert_memory_arguments_dict([]) is None
+        assert upsert_memory_arguments_dict(None) is None
+        assert upsert_memory_arguments_dict(1) is None
+        assert memory_key_from_tool_arguments([]) is None
+        assert format_upsert_memory_chat_line_from_arguments([]) == "[Memory update: upsert_memory]\n"
+
 def test_memory_tool_insert_update_and_nested_key(tmp_path):
     """upsert_memory inserts, replaces, and nests keys in USER.md JSON.
 
@@ -249,6 +258,57 @@ def test_upsert_null_content_pops_key(tmp_path):
         assert json.loads(store.read("user")) == {"name": "Ada"}
 
 
+def test_write_fsyncs_before_replace(tmp_path):
+    order: list[str] = []
+    real_fsync = os.fsync
+    real_replace = os.replace
+
+    def _fsync(fd: int) -> None:
+        order.append("fsync")
+        real_fsync(fd)
+
+    def _replace(src: str, dst: str) -> None:
+        order.append("replace")
+        real_replace(src, dst)
+
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)), patch(
+        "plugin.chatbot.memory.os.fsync", side_effect=_fsync
+    ), patch("plugin.chatbot.memory.os.replace", side_effect=_replace):
+        store = MemoryStore(object())
+        assert store.write("user", '{"name": "Ada"}') is True
+    assert order == ["fsync", "replace"]
+    assert json.loads(store.read("user")) == {"name": "Ada"}
+
+
+def test_upsert_invalid_utf8_returns_tool_error(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
+        path = store._get_path("user")
+        payload = b"\xff\xfe not utf-8"
+        with open(path, "wb") as handle:
+            handle.write(payload)
+        res = tool.execute(ctx, key="name", content="Ada")
+        with open(path, "rb") as handle:
+            after = handle.read()
+    assert res["status"] == "error"
+    assert "Failed to read" in res["message"]
+    assert after == payload
+
+
+def test_upsert_missing_content_does_not_delete(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
+        store.write("user", json.dumps({"name": "Ada"}))
+        res = tool.execute(ctx, key="name")
+        assert res["status"] == "error"
+        assert "Content is required" in res["message"]
+        assert json.loads(store.read("user")) == {"name": "Ada"}
+
+
 def test_upsert_empty_content_pops_key(tmp_path):
     ctx = object()
     tool = MemoryTool()
@@ -273,5 +333,17 @@ def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
 
     fqns = cover_fqns_for_module(Path("plugin/chatbot/memory.py"), require_deal=True)
     assert not any(f.endswith(".format_upsert_memory_chat_line") for f in fqns)
+
+
+def test_memory_arguments_longer_than_source_normalize():
+    from plugin.chatbot.memory import format_upsert_memory_chat_line, upsert_memory_arguments_dict
+    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+
+    content = "m" * (DEAL_MAX_SOURCE + 1)
+    args = {"key": "notes", "content": content, "extra": 1}
+    assert upsert_memory_arguments_dict(args) == args
+    line = format_upsert_memory_chat_line(args)
+    assert line.startswith("[Memory update:")
+    assert line.endswith("...\n") or "notes" in line
 
 

@@ -17,6 +17,99 @@ import pytest
 from plugin.chatbot.eval_dashboard_ui import EvalRunListener
 
 
+def test_show_loads_eval_dialog_with_ctx() -> None:
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    ctx = MagicMock()
+    dash = EvalDashboard(ctx)
+    dlg = MagicMock()
+    with patch("plugin.chatbot.eval_dashboard_ui.load_writeragent_dialog", return_value=dlg) as mock_load, \
+         patch.object(dash, "_populate"):
+        dash.show()
+    mock_load.assert_called_once_with("EvalDialog", ctx)
+    dlg.execute.assert_called_once()
+    dlg.dispose.assert_called_once()
+    assert dash._closed is True
+    assert dash._dlg is None
+
+
+def test_show_skips_execute_when_dialog_missing() -> None:
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    dash = EvalDashboard(MagicMock())
+    with patch("plugin.chatbot.eval_dashboard_ui.load_writeragent_dialog", return_value=None) as mock_load, \
+         patch.object(dash, "_populate") as mock_populate:
+        dash.show()
+    mock_load.assert_called_once()
+    mock_populate.assert_not_called()
+    assert dash._closed is True
+    assert dash._dlg is None
+
+
+def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    dash = EvalDashboard(MagicMock())
+    dialog = MagicMock()
+    dash._dlg = dialog
+    started: list[Any] = []
+    posted: list[Any] = []
+
+    def _capture_worker(fn: Any, **_kwargs: Any) -> None:
+        started.append(fn)
+
+    def _capture_post(fn: Any) -> None:
+        posted.append(fn)
+
+    with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
+         patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value="http://localhost:11434"), \
+         patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
+         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_worker), \
+         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture_post), \
+         patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=["llama3"]) as mock_fetch:
+        dash._populate()
+        mock_fetch.assert_not_called()
+        assert mock_pop.call_args.kwargs.get("skip_remote_fetch") is True
+        assert len(started) == 1
+        started[0]()
+        mock_fetch.assert_called_once_with("http://localhost:11434")
+        assert len(posted) == 1
+        posted[0]()
+        assert mock_pop.call_count == 2
+        assert mock_pop.call_args.kwargs.get("remote_models") == ["llama3"]
+        dash._closed = True
+        posted[0]()
+        assert mock_pop.call_count == 2
+
+
+def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
+    """A text-model list already cached is painted without fetch_available_models."""
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+    from plugin.framework.client import model_fetcher as cfg
+
+    endpoint = "http://127.0.0.1:11434"
+    cfg.clear_settings_catalog_cache(endpoint)
+    try:
+        with patch("plugin.framework.client.requests.sync_request", return_value={"data": [{"id": "llama3"}]}), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+            cfg.fetch_available_models(endpoint)
+        dash = EvalDashboard(MagicMock())
+        dialog = MagicMock()
+        dash._dlg = dialog
+        with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
+             patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value=endpoint), \
+             patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
+             patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch, \
+             patch("plugin.framework.client.requests.sync_request") as mock_sync:
+            dash._populate()
+        mock_fetch.assert_not_called()
+        mock_sync.assert_not_called()
+        assert mock_pop.call_args_list[0].kwargs.get("skip_remote_fetch") is True
+        assert mock_pop.call_args.kwargs.get("remote_models") == ["llama3"]
+    finally:
+        cfg.clear_settings_catalog_cache(endpoint)
+
+
 def test_importing_eval_dashboard_ui_does_not_load_eval_runner() -> None:
     sys.modules.pop("tests.eval_runner", None)
     import plugin.chatbot.eval_dashboard_ui as mod
@@ -169,6 +262,12 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
+    # What was wrong: tests.eval_runner imports dev scripts (scripts.lib.pricing)
+    # which are not present in stripped release verification trees.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("scripts/ not in stripped release tree")
     from tests.eval_runner import _on_main_thread
 
     ran: list[str] = []
@@ -199,6 +298,77 @@ def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
     assert seen == [True]
     hop.assert_called_once()
     assert ran == ["marker", "marker"]
+
+
+def test_populate_locks_endpoint_so_edits_are_not_ignored() -> None:
+    """The suite reads the saved endpoint. The dialog field must not look editable."""
+    # What was wrong: extension/ directory is not at root in stripped release bundle.
+    # Why: skip when running against stripped release bundle.
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("extension/ not in stripped release tree")
+    from pathlib import Path
+
+
+    xdl = Path("extension/Dialogs/EvalDialog.xdl").read_text(encoding="utf-8")
+    endpoint_line = next(line for line in xdl.splitlines() if 'dlg:id="endpoint"' in line)
+    assert 'dlg:readonly="true"' in endpoint_line
+
+
+def test_closed_dialog_skips_late_paint_and_clears_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Close disposes the dialog while the suite can still post. Ignore that window."""
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    dialog, controls = _dialog()
+    dash = EvalDashboard(MagicMock())
+    listener = EvalRunListener(MagicMock(), dialog, dash)
+    summary = {
+        "passed": 1,
+        "failed": 0,
+        "total_cost": 0.25,
+        "results": [{"status": "OK", "name": "t", "latency": 0.1}],
+    }
+    listener.is_running = True
+    listener._show_summary("model", summary)
+    assert controls["status"].text == "Finished"
+    assert "Benchmarks Complete" in controls["log_area"].text
+    assert listener.is_running is False
+
+    listener.is_running = True
+    controls["status"].text = "Running..."
+    controls["log_area"].text = "Starting...\n"
+    dash._closed = True
+    listener._show_summary("model", summary)
+    listener._show_failure(RuntimeError("late failure"))
+    listener._after_test({"status": "OK", "name": "late-test"})
+    _drain_posted_main_thread()
+    assert controls["status"].text == "Running..."
+    assert controls["log_area"].text == "Starting...\n"
+    assert "late-test" not in controls["log_area"].text
+    assert listener.is_running is False
+
+
+def test_disposed_dialog_summary_and_failure_clear_running() -> None:
+    """A disposed window raises instead of painting. is_running still clears."""
+
+    class DisposedException(Exception):
+        pass
+
+    dialog = MagicMock()
+    dialog.getControl.side_effect = DisposedException("disposed")
+    listener = EvalRunListener(MagicMock(), dialog)
+    listener.is_running = True
+    listener._show_summary(
+        "model",
+        {"passed": 0, "failed": 1, "total_cost": 0.0, "results": []},
+    )
+    assert listener.is_running is False
+
+    listener.is_running = True
+    listener._show_failure(RuntimeError("boom"))
+    assert listener.is_running is False
+    dialog.getControl.assert_called()
 
 
 def _drain_posted_main_thread() -> None:

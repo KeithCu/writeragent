@@ -156,6 +156,18 @@ def test_invoke_frame_handler():
     assert called == [frame]
 
 
+def test_invoke_optional_frame_parameter():
+    """A defaulted ``frame`` argument still receives the sidebar frame."""
+    called = []
+
+    def handler(frame=None):
+        called.append(frame)
+
+    frame = object()
+    invoke_action_handler(handler, frame)
+    assert called == [frame]
+
+
 def test_show_hamburger_uses_librepy_command_prefix():
     ctx = MagicMock()
     smgr = MagicMock()

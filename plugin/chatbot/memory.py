@@ -23,6 +23,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
+    UNDER_CROSSHAIR,
     ascii_bounded,
     str_bounded,
     deal,
@@ -66,6 +67,13 @@ class MemoryStore:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
+                # What was wrong: os.replace could publish USER.md while the
+                # new bytes were still only in the page cache. How: the temp
+                # fd was closed without flush+fsync. Why: match
+                # config._write_config_file so a crash after the replace
+                # does not lose the write.
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, path)
         except BaseException:
             try:
@@ -90,15 +98,29 @@ def user_profile_exists(ctx: Any) -> bool:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
-@deal.pre(
-    lambda arguments, *_unused, **__: (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE))
-    or (
+def _deal_memory_args_ok_pytest(arguments: object) -> bool:
+    # What was wrong: isinstance(arguments, (str, dict)) raised
+    # PreContractError on a list under make test. How: smolagents can hand
+    # the tool a non-dict, and deal_shim says LLM/ingest boundaries stay
+    # total on pytest. Why: the body already returns None unless the value
+    # is a dict or a JSON object string. CrossHair keeps the short domain.
+    # ``arguments`` is unused.
+    return True
+
+
+def _deal_memory_args_ok_crosshair(arguments: object) -> bool:
+    return (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE)) or (
         isinstance(arguments, dict)
         and len(arguments) <= DEAL_MAX_CMD_ARGS
         and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
         and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
     )
-)
+
+
+_deal_memory_args_ok = _deal_memory_args_ok_crosshair if UNDER_CROSSHAIR else _deal_memory_args_ok_pytest
+
+
+@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     # crosshair: off  # dict|JSON str Any still explodes (cover-all 33569420452: 4656 examples / ~503s est despite DEAL_MAX_SOURCE). Doable later: closed key set.
@@ -116,15 +138,7 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
-@deal.pre(
-    lambda arguments, *_unused, **__: (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE))
-    or (
-        isinstance(arguments, dict)
-        and len(arguments) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
-        and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
-    )
-)
+@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: result is None or isinstance(result, str))
 def memory_key_from_tool_arguments(arguments: object) -> str | None:
     # crosshair: off  # wraps upsert_memory_arguments_dict (cover-all 33569420452: 4491 examples / ~485s est). Doable later.
@@ -136,11 +150,27 @@ def memory_key_from_tool_arguments(arguments: object) -> str | None:
     return k if isinstance(k, str) else None
 
 
-@deal.pre(
-    lambda func_args: hasattr(func_args, "get")
-    and (not isinstance(func_args.get("key"), str) or str_bounded(func_args.get("key"), DEAL_MAX_TOKEN))
-    and (not isinstance(func_args.get("content"), str) or str_bounded(func_args.get("content"), DEAL_MAX_SOURCE))
+def _deal_memory_chat_line_ok_pytest(func_args: object) -> bool:
+    return hasattr(func_args, "get")
+
+
+def _deal_memory_chat_line_ok_crosshair(func_args: object) -> bool:
+    get = getattr(func_args, "get", None)
+    if not callable(get):
+        return False
+    key = get("key")
+    content = get("content")
+    return (not isinstance(key, str) or str_bounded(key, DEAL_MAX_TOKEN)) and (
+        not isinstance(content, str) or str_bounded(content, DEAL_MAX_SOURCE)
+    )
+
+
+_deal_memory_chat_line_ok = (
+    _deal_memory_chat_line_ok_crosshair if UNDER_CROSSHAIR else _deal_memory_chat_line_ok_pytest
 )
+
+
+@deal.pre(lambda func_args: _deal_memory_chat_line_ok(func_args))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
@@ -162,15 +192,7 @@ def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     return f"[Memory update: key {key!r} value {one_line!r}]\n"
 
 
-@deal.pre(
-    lambda arguments, *_unused, **__: (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE))
-    or (
-        isinstance(arguments, dict)
-        and len(arguments) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
-        and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
-    )
-)
+@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
     # crosshair: off
@@ -197,10 +219,16 @@ class MemoryTool(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # crosshair: off
         key = kwargs.get("key")
-        content = kwargs.get("content", "")
-
         if not key:
             return self._tool_error("Key is required.")
+        # What was wrong: a missing content argument defaulted to "" and
+        # popped the key. How: kwargs.get("content", "") treats omit the
+        # same as an explicit empty string, and empty content is the
+        # documented delete. Why: omit is an error; "" and JSON null still
+        # delete.
+        if "content" not in kwargs:
+            return self._tool_error("Content is required.")
+        content = kwargs.get("content")
 
         try:
             store = MemoryStore(ctx)
@@ -217,7 +245,11 @@ class MemoryTool(ToolBase):
 
         try:
             current = store.read(target)
-        except OSError as e:
+        except (OSError, UnicodeDecodeError) as e:
+            # What was wrong: invalid UTF-8 in USER.md escaped the tool.
+            # How: open(..., encoding="utf-8") raises UnicodeDecodeError,
+            # which is a ValueError, not an OSError, so this except missed
+            # it. Why: return the same tool error as any other failed read.
             return self._tool_error(f"Failed to read existing memory: {e}")
 
         raw = current.strip()

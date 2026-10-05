@@ -13,7 +13,7 @@ from typing import Any, Iterable, cast
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.tools import Tool
-from plugin.ppt_master.venv.ipc import emit_worker_event, rpc_tool
+from plugin.ppt_master.venv.ipc import UserStopped, emit_worker_event, rpc_tool
 from plugin.ppt_master.venv.model import HostRpcModel
 from plugin.ppt_master.venv.path_ops import resolve_project_file, resolve_under_root, run_script
 from plugin.ppt_master.venv.skill_context import load_skill_context, resolve_data_root_from_env
@@ -199,6 +199,11 @@ def _instructions_for_session(session_id: str, *, topic: str | None, ctx_block: 
 def _parse_finished(observations: str) -> dict[str, Any] | None:
     if "'status': 'finished'" not in observations and '"status": "finished"' not in observations:
         return None
+    # What was wrong: a regex stopped at the first apostrophe, so a finished
+    # handoff like "it's done" was cut to "it\\". str(dict) is a Python literal.
+    parsed = _finished_from_literal(observations)
+    if parsed is not None:
+        return parsed
     match = re.search(r"'result': '([^']*)'", observations) or re.search(r'"result": "([^"]*)"', observations)
     handoff = match.group(1) if match else None
     exp_match = re.search(r"'exported': (True|False)", observations) or re.search(
@@ -206,6 +211,48 @@ def _parse_finished(observations: str) -> dict[str, Any] | None:
     )
     exported = exp_match.group(1).lower() == "true" if exp_match else False
     return {"status": "finished", "result": handoff or "PPT-Master complete.", "exported": exported}
+
+
+def _finished_from_literal(observations: str) -> dict[str, Any] | None:
+    import ast
+    import json
+
+    start = observations.find("{")
+    end = observations.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    blob = observations[start : end + 1]
+    value: Any
+    try:
+        value = ast.literal_eval(blob)
+    except (SyntaxError, ValueError):
+        try:
+            value = json.loads(blob)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(value, dict) or value.get("status") != "finished":
+        return None
+    handoff = value.get("result")
+    if not isinstance(handoff, str) or not handoff:
+        handoff = "PPT-Master complete."
+    return {"status": "finished", "result": handoff, "exported": bool(value.get("exported"))}
+
+
+def _is_user_stopped(exc: BaseException | None) -> bool:
+    seen: set[int] = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, UserStopped):
+            return True
+        current = current.__cause__
+    return False
+
+
+def _user_stopped_payload() -> dict[str, Any]:
+    from plugin.framework.errors import ToolExecutionError, format_error_payload
+
+    return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
 
 def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
@@ -246,29 +293,38 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
 
     final_ans = None
     run_stream = cast("Iterable[Any]", agent.run(task, stream=True))
-    for step in run_stream:
-        if isinstance(step, ToolCall):
-            emit_worker_event({"kind": "tool", "name": step.name, "arguments": str(step.arguments)[:500]})
-            if step.name == "export_presentation_project":
-                _EXPORTED_FLAG[session_id] = True
-        elif isinstance(step, ActionStep):
-            parts = [f"Step {step.step_number}:\n"]
-            if step.model_output:
-                mo = step.model_output
-                parts.append(f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n")
-            if step.observations:
-                obs_str = str(step.observations).strip()
-                parts.append(f"Observation: {obs_str}\n")
-                finished = _parse_finished(obs_str)
-                if finished is not None:
-                    if _EXPORTED_FLAG.get(session_id):
-                        finished["exported"] = True
-                    emit_worker_event({"kind": "thinking", "text": "".join(parts)})
-                    return finished
-            parts.append("\n")
-            emit_worker_event({"kind": "thinking", "text": "".join(parts)})
-        elif isinstance(step, FinalAnswerStep):
-            final_ans = step.output
+    try:
+        for step in run_stream:
+            if isinstance(step, ToolCall):
+                emit_worker_event({"kind": "tool", "name": step.name, "arguments": str(step.arguments)[:500]})
+                if step.name == "export_presentation_project":
+                    _EXPORTED_FLAG[session_id] = True
+            elif isinstance(step, ActionStep):
+                # Smol wraps a host Stop inside the step error and would take
+                # another step. Return the same payload as the pre-turn check.
+                if _is_user_stopped(step.error):
+                    return _user_stopped_payload()
+                parts = [f"Step {step.step_number}:\n"]
+                if step.model_output:
+                    mo = step.model_output
+                    parts.append(f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n")
+                if step.observations:
+                    obs_str = str(step.observations).strip()
+                    parts.append(f"Observation: {obs_str}\n")
+                    finished = _parse_finished(obs_str)
+                    if finished is not None:
+                        if _EXPORTED_FLAG.get(session_id):
+                            finished["exported"] = True
+                        emit_worker_event({"kind": "thinking", "text": "".join(parts)})
+                        return finished
+                parts.append("\n")
+                emit_worker_event({"kind": "thinking", "text": "".join(parts)})
+            elif isinstance(step, FinalAnswerStep):
+                final_ans = step.output
+    except Exception as exc:
+        if _is_user_stopped(exc):
+            return _user_stopped_payload()
+        raise
 
     return {"status": "ok", "result": str(final_ans) if final_ans is not None else ""}
 

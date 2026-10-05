@@ -226,3 +226,19 @@ def test_paragraph_chunks_from_md(tmp_path: Path):
     assert chunks[0].text == "Alpha markdown"
     assert chunks[1].text == "Beta markdown"
     assert chunks[0].doc_url.endswith("/notes.md")
+
+
+def test_extract_writer_paragraphs_returns_none_on_corrupt_odt(tmp_path: Path):
+    corrupt = tmp_path / "bad.odt"
+    corrupt.write_bytes(b"not a zip file")
+    assert embeddings_fs.extract_writer_paragraphs(str(corrupt)) is None
+
+
+def test_indexable_chunks_from_path_skips_corrupt_odt(tmp_path: Path):
+    corrupt = tmp_path / "bad.odt"
+    corrupt.write_bytes(b"not a zip file")
+    count, chunks = embeddings_fs.indexable_chunks_from_path(str(corrupt))
+    assert count == 0
+    assert chunks is None
+
+

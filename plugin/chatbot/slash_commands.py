@@ -161,6 +161,15 @@ def _append_sidebar_line(host: Any, text: str) -> None:
     set_control_text(response, current + text)
 
 
+# Help, clear, and mocks replace the draft. /stop must not: the Stop button
+# leaves whatever the user typed.
+_ASK_CLEARING_NAMES = frozenset({"help", "clear"})
+
+
+def _command_clears_ask(cmd: SlashCommand) -> bool:
+    return cmd.kind == "mock" or cmd.name in _ASK_CLEARING_NAMES
+
+
 def _clear_ask_box(host: Any) -> None:
     from plugin.chatbot.dialogs import set_control_text
     from plugin.chatbot.send_state import SendEvent, SendEventKind
@@ -176,8 +185,10 @@ def run_slash_command(name: str, host: Any) -> bool:
     """Run a registry command on the live send listener. Not a chat turn.
 
     Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
-    prints the static list. ``/clear`` uses ClearButtonListener. ``/stop``
-    is the same one-liner as the Stop button (``STOP_CLICKED``).
+    prints the static list. ``/clear`` uses ClearButtonListener. Those and
+    mocks clear Ask. ``/stop`` does not: it runs ``StopButtonListener`` (TTS,
+    inline web approval, hands-free, and ``STOP_CLICKED``), same as the Stop
+    button, and leaves the draft.
     """
     clean = (name or "").lstrip("/").strip().lower()
     cmd = next((item for item in SLASH_COMMANDS if item.name == clean), None)
@@ -188,7 +199,19 @@ def run_slash_command(name: str, host: Any) -> bool:
     hide = getattr(popup, "hide", None)
     if callable(hide):
         hide()
-    _clear_ask_box(host)
+    if cmd.name == "stop":
+        # What was wrong: every slash path cleared Ask, then /stop only
+        # dispatched STOP_CLICKED. That wiped the draft and skipped speech,
+        # the inline approval dialog, and hands-free exit.
+        # How it happened: _clear_ask_box ran before the command branch.
+        # Why this change: the Stop button's listener is the one behavior.
+        # Lazy import: panel pulls UNO; filter tests must not load it at import.
+        from plugin.chatbot.panel import StopButtonListener
+
+        StopButtonListener(host).on_action_performed(None)
+        return True
+    if _command_clears_ask(cmd):
+        _clear_ask_box(host)
     if cmd.name == "help":
         _append_sidebar_line(host, "\n" + format_help_text() + "\n")
         return True
@@ -201,13 +224,6 @@ def run_slash_command(name: str, host: Any) -> bool:
             session = getattr(host, "session", None)
             if session is not None and hasattr(session, "clear"):
                 session.clear()
-        return True
-    if cmd.name == "stop":
-        from plugin.chatbot.send_state import SendEvent, SendEventKind
-
-        dispatch = getattr(host, "dispatch", None)
-        if callable(dispatch):
-            dispatch(SendEvent(SendEventKind.STOP_CLICKED))
         return True
     _append_sidebar_line(host, "\nslash: /%s\n" % cmd.name)
     return True

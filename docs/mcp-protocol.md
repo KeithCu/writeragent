@@ -27,16 +27,24 @@ what to consider doing next.
 | Cloudflare | Quick tunnel (`--url http://localhost:<port>`) | `cloudflared tunnel run --token …` (configure dashboard ingress to the MCP port) |
 | Bore | `--to bore.pub` | `server`, `server secret`, or `server:secret` (bare value with no `.` = secret for `bore.pub`) |
 | Ngrok | CLI / env authtoken | `--authtoken` |
-| Tailscale | Funnel (must already be logged in) | Ignored |
+| Tailscale | Funnel (must already be logged in). The public URL is the `https://<host>.<tailnet>.ts.net` line printed on its own after `Available on the internet:` (`serve_v2.go` `messageForPort`). | Ignored |
 
 The chosen binary must be on `PATH`. There is **no auth** on the MCP HTTP API itself — anyone who has the public URL can call tools against open documents. Tunnel start/auth failures (missing binary, bad ngrok/Cloudflare token, early process exit) are stored on `TunnelManager.last_error` and shown in **MCP Server Status** (and the Start toast when known immediately). When a tunnel connection drops unexpectedly, the pure state machine in [`plugin/mcp/tunnel_state.py`](../plugin/mcp/tunnel_state.py) automatically transitions through **reconnecting** with exponential backoff (1s, 2s, 4s, 8s, up to max retries) before declaring a failure. Fatal auth errors fail immediately without retrying. Implementation: [`plugin/mcp/tunnel.py`](../plugin/mcp/tunnel.py), [`plugin/mcp/tunnel_state.py`](../plugin/mcp/tunnel_state.py), wired from [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py).
 
+**Port rebind:** Changing `mcp.mcp_port` while MCP is enabled stops and starts the HTTP listener so the socket matches Settings. A port-only save emits `config:changed` with `key="mcp.mcp_port"` (a bulk `key=""` is only used when more than one key changes). Both paths rebind when the live port differs. MCP does not need a LibreOffice restart.
+
+**Tunnel restart:** A provider or token change terminates the old subprocess and starts a new one. The old process's exit callback is ignored unless that process is still the one `TunnelManager` is tracking, so it cannot clear the new process or force a reconnect. A pending reconnect timer is the same kind of callback: `Timer.cancel()` does not stop one that has already started. The provider binary check runs with the tunnel lock released, and the retry callback is ignored unless that timer is still the one `TunnelManager` is tracking, so it cannot start a second tunnel. Tailscale `pre_start` (the same `tailscale funnel reset` and `tailscale serve reset` as `post_stop`) also runs with the lock released; `start()` spawns `tailscale funnel <port>` only when that start's epoch and generation are still current. `TerminateProcessEffect.provider` is the provider that owned the process being stopped. Giving up after max retries, an auth failure, and leaving Tailscale while `RECONNECTING` or `FAILED` all emit that effect, so `post_stop` runs after the subprocess is already gone. Funnel/serve config persists on tailscaled. The reset is a background thread that captured the tunnel generation when it was scheduled; it no-ops when a newer Tailscale session has bumped that generation, so a late reset cannot clear a Funnel the new session already configured. Spawn writes `writeragent-tailscale-funnel-armed` next to `writeragent.json` before the CLI starts. A later process whose tunnel is still `STOPPED` resets Tailscale once when that marker is present, which covers LibreOffice being killed while Funnel was armed. An idle `stop()` that was already stopped and has no marker does not reset, so a settings save does not wipe Funnel.
+
 **Start failures:** If the HTTP listener cannot bind (usually port already in use), Toggle / Settings / Status show `host:port`, the exception line, and guidance to free the port or change `mcp.mcp_port` — not only “check the debug log”. Port conflicts do not offer Report bug. Full traceback remains in `writeragent_debug.log`. Formatter: `format_mcp_start_failure` in [`plugin/mcp/server.py`](../plugin/mcp/server.py).
+
+**Stale public URL:** Settings caches a tested or connected public URL per provider (`_tested_provider_tunnel_urls` in [`plugin/mcp/mcp_ui.py`](../plugin/mcp/mcp_ui.py)). When the tunnel stops, fails, or drops that URL (including reconnect), that provider's entry is retired. The client snippet and its copy button then use the local URL or the provider template, and MCP Server Status already reads `TunnelManager.mcp_public_url()` (cleared with the tunnel state). A later successful Test or a new connection stores a fresh URL.
+
+**Route registry:** [`HttpRouteRegistry`](../plugin/mcp/routes.py) locks route reads together with `add` / `remove`. MCP toggle registers and unregisters while HTTP workers serve `GET /`, which copies the route keys. The lock — held for the whole register or unregister batch — keeps that copy from raising `RuntimeError` and returns one consistent route set.
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/mcp` | JSON-RPC: `initialize`, `tools/list`, `tools/call`, … |
-| `GET` | `/mcp` | SSE keepalive only (not full legacy MCP) |
+| `GET` | `/mcp` | SSE keepalive only (not full legacy MCP). `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
 | `POST` | `/sse`, `/messages` | Same JSON-RPC as `/mcp` |
 | `GET` | `/health` | Liveness |
 | `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
@@ -45,7 +53,7 @@ There is **no** `/api/config` endpoint (removed — config is Settings / `writer
 
 **Code:** [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py), [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py), [`plugin/mcp/server.py`](../plugin/mcp/server.py) (`mcp_endpoint_url`).
 
-**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call, progress notification). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. `ProgressNotification` is defined for future long-running tool progress over SSE; today only SSE keepalive is sent.
+**Wire types:** MCP JSON-RPC message shapes live in [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py) — stdlib dataclass mirrors of the official [`mcp.types`](https://github.com/modelcontextprotocol/python-sdk) subset (initialize, tools/list, tools/call, progress notification). The official Python SDK and Pydantic are **not** bundled; the HTTP server and routing remain custom. `ProgressNotification` is defined for future long-running tool progress over SSE; today only SSE keepalive is sent. Client `initialize` `protocolVersion` is external input: on the pytest deal profile a long or odd value is copied into the result and does not raise `PreContractError`. CrossHair keeps the short token domain. Release OXTs strip `@deal`.
 
 **Document targeting:** `X-Document-URL` header on MCP requests (see below).
 
@@ -108,7 +116,7 @@ Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_orig
 
 **Origin ACL (shipped):** If `Origin` is present and **not** `is_safe_origin()`, every method and path (`/mcp`, `/health`, `/debug`, …) returns **HTTP 403**, empty body, **no** `Access-Control-*` headers. Requests with **no** `Origin` (Claude Code, curl, most MCP clients) are unchanged. Loopback and private/LAN defaults stay as above — this is not Nelson’s empty allow list. Implementation: `origin_is_forbidden` / `reject_forbidden_origin` in [`plugin/mcp/cors.py`](../plugin/mcp/cors.py). Tests: [`tests/mcp/test_cors.py`](../tests/mcp/test_cors.py).
 
-**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted, or a second `initialize` used to rotate the id) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”). Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` with a stale or missing id is always allowed.
+**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. A notifications-only JSON-RPC batch (HTTP 202, empty body) sends that header the same way a single notification does. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted, or a second `initialize` used to rotate the id) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”). Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` with a stale or missing id is always allowed.
 
 **Troubleshooting — OPTIONS succeeds but MCP never connects**
 
@@ -132,6 +140,8 @@ Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_orig
 **Current behavior (minimal fix):** [`GenericRequestHandler`](../plugin/mcp/server.py) does **not** set `protocol_version`, so Python’s `BaseHTTPRequestHandler` advertises **HTTP/1.0**. That matches pre–CORS-logging behavior and avoids several HTTP/1.1 client quirks. OPTIONS still returns **`204`** with an empty body; status line may read `HTTP/1.0 204` — that is normal.
 
 JSON responses (including HTTP **400** for an unsupported `Mcp-Protocol-Version` header) are written by [`write_http_json`](../plugin/mcp/server.py) with **`Content-Length`** and an explicit flush. Without that, Darwin urllib can raise `ConnectionResetError` (errno 54) while reading the 400 body after the `ThreadingMixIn` request thread exits.
+
+**Request body limits:** [`read_json_body`](../plugin/mcp/server.py) (shared by `GenericRequestHandler` and `MCPProtocolHandler`) rejects `Content-Length` above 4 MiB (`MCP_HTTP_MAX_BODY_BYTES`) with HTTP **413** and does not read the socket. A negative length is still HTTP **400** `PARSE_ERROR` and is not read. `GenericRequestHandler.timeout` and `_ThreadedHTTPServer.get_request` set a 30s socket timeout (`MCP_HTTP_SOCKET_TIMEOUT_SEC`); a stall while reading a body under the cap is HTTP **408**. SSE keepalive waits in `select()`, which does not follow that socket timeout, so a long `GET /mcp` is not cut off by it.
 
 This section is for **future** changes if you need HTTP/1.1 on the wire (some proxies, clients, or spec wording). It explains a regression seen in 2026 and how to debug similar hangs without expanding the default fix.
 
@@ -223,7 +233,7 @@ Pick **one** small change at a time; avoid combining socket timeouts, `tools/lis
 
 3. **Force `Connection: close`** — Set `self.close_connection = True` at the start of each handler (`_dispatch` / `do_OPTIONS`) so workers do not sit in `readline` after preflight. Does **not** fix Expect deadlock on POST; only reduces idle keep-alive threads.
 
-4. **Per-connection read timeout** — e.g. `get_request()` → `conn.settimeout(120)` on [`_ThreadedHTTPServer`](../plugin/mcp/server.py). Recovers stuck sockets eventually; does not fix handshake deadlocks; may surprise long SSE `GET /mcp` clients.
+4. **Per-connection read timeout** — Shipped as 30s (`MCP_HTTP_SOCKET_TIMEOUT_SEC`) on `GenericRequestHandler.timeout` and `get_request()`. A stall under the body cap returns HTTP 408. SSE keepalive uses `select()` and is not cut by that timeout. The timeout does not fix an Expect handshake deadlock.
 
 5. **`tools/list` without blocking on active document** — Separate issue: if AsyncCallback is missing, `QueueExecutor.execute` runs UNO on the HTTP thread and can hang forever (no timeout). That is **not** fixed by HTTP version; would need a dedicated change in [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) (e.g. skip `get_active_document` when dispatch is unavailable). Only consider if py-spy shows the worker past `do_POST`, inside UNO, with MainThread idle.
 
@@ -354,7 +364,7 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 
 Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
-**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden).
+**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Both paths wait for that gate on the HTTP worker. A backpressure tool then runs its body on the main thread, so a long-running mutator cannot freeze the LibreOffice UI for the gate timeout. A `tools/call` argument cannot disable the thread guard.
 
 **Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `list_open_documents`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
 
@@ -419,7 +429,7 @@ In both direct modes the specialized tools are invoked **by name** — which alr
 
 The direct modes **add** direct access; they don't remove delegation. The `delegate_to_specialized_*` gateway stays listed in every mode (it is core-tier), so a client can still delegate if it prefers — this is intentional, the direct modes are additive.
 
-`find_tools(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway, then lists every tool schema in a chosen domain. Workflow: `find_tools()` → pick a domain → `find_tools(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes.
+`find_tools(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway, then lists every tool schema in a chosen domain. Workflow: `find_tools()` → pick a domain → `find_tools(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes. The no-document merge forwards `for_discovery` the same way the Writer, Calc, and Draw branches do, so a domain hidden only from the Calc chat prompt is still listed when `find_tools` asks for discovery. Sidebar-only domains stay out of those results: Writer brainstorming / writing plan / deep research are returned as an empty tool list, and Draw/Impress `ppt-master` is removed by the same `doc_type` + `uno_services_supported` name filter `direct_flat` uses, including when a Draw or Impress document is open.
 
 > **Vision tools:** The delegate gateway omits the `vision` domain when the vision venv is not configured ([`vision_venv_configured`](plugin/vision/vision_availability.py)). MCP `tools/list` and `find_tools` do not pass `ctx` into registry filtering, so `direct_flat` may still advertise vision specialized tools when the venv is missing; `tools/call` will fail at runtime. Configure the vision venv or use `delegate` mode if you rely on OCR tools.
 
@@ -442,7 +452,7 @@ The MCP server is **implemented and opt-in** (default off). Live summary (paths 
   - **Per-result echo / mutation gates:** resolved target echoed as `document: {name, uid}` when the tool does not supply its own; concurrent mutating calls serialize per `uid:` / `url:` key. See `_resolve_mcp_doc_key` / `_mcp_tools_call` in `mcp_protocol.py`. Writer heading-tree / proximity / FTS caches share that `uid:` / `url:` identity (`DocumentService.doc_key`); document edits and unload emit `document:cache_invalidated`.
   - Companion guidance: https://github.com/KeithCu/cursor-libreoffice , https://github.com/KeithCu/libreoffice-skill
 - **Config:** `mcp.mcp_enabled` (default false), `mcp.mcp_port` (default **18765**) in [`plugin/framework/config.py`](../plugin/framework/config.py) / `writeragent.json`.
-- **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start when Settings saves with MCP enabled.
+- **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start when Settings saves with MCP enabled. The sidebar hamburger items call `_dispatch_command` when those commands are not in the action-handler registry, which is how `McpModule.on_action` runs for the toolbar. Registered hamburger items still receive the sidebar frame.
 - **Stdio bridge (optional):** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for clients that speak stdio MCP.
 - **Prompts / guidance:** specialized-delegation and review rules live in [`plugin/framework/prompts.py`](../plugin/framework/prompts.py); MCP `get_guidance` maps the same pieces via [`plugin/chatbot/agent_manual.py`](../plugin/chatbot/agent_manual.py). `USE_SUB_AGENT` remains in [`plugin/framework/constants.py`](../plugin/framework/constants.py).
 

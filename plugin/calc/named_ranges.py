@@ -18,11 +18,12 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import index_to_column, parse_address, split_sheet_prefix
+from plugin.calc.address_utils import column_to_index, index_to_column, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcRangeBase
-from plugin.calc.bridge import CalcBridge
+from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 
 if TYPE_CHECKING:
@@ -71,6 +72,66 @@ def _format_flags(flag_mask: int) -> list[str]:
     return result
 
 
+# Messages from ScNamedRangesObj::addNewByName (sc/source/ui/unoobj/nameuno.cxx).
+# addNewByName calls ScRangeData::IsNameValid (sc/source/core/tool/rangenam.cxx).
+# XNamedRange.setName does not, so a rename used to install A1, Sales.2026, 1abc, or names with spaces.
+_NAME_BAD_STRING = "Invalid name. It must start with a letter (excluding c, C, r, or R followed by a number) or underscore. Only letters, numbers, and underscores are permitted."
+_NAME_CELL_REF = "Invalid name. Reference to a cell, or a range of cells not allowed."
+
+# Column ceiling is Calc's jumbo XFD (index 16383). IsNameValid treats any
+# ScAddress::Parse result other than ScRefFlags::ZERO as a cell, including a
+# partial row, so a positive row with a column inside that ceiling is rejected.
+_MAX_NAMED_RANGE_COL = 16383  # XFD
+_A1_CELL_NAME = re.compile(r"^([A-Za-z]{1,3})([0-9]+)$")
+# R1C1 forms that use only name characters (brackets are not Name chars).
+# RC is the current cell. Bare R or C is not a reference.
+_R1C1_CELL_NAME = re.compile(r"^(?:R[0-9]*C[0-9]*|R[0-9]+|C[0-9]+)$", re.IGNORECASE)
+
+
+def _defined_name_char_ok(ch: str, *, start: bool) -> bool:
+    """Match ScCompiler::IsCharFlagAllConventions for CharName (start) or Name.
+
+    ASCII tables in compiler.cxx: CharName is a letter or '_'; Name also allows
+    digits and '?' (Excel). '.' is Name too, but IsNameValid rejects it first.
+    Non-ASCII uses CharClass::isLetterNumeric; letters may start a name, digits may not.
+    """
+    if ord(ch) < 128:
+        if start:
+            return ch.isalpha() or ch == "_"
+        return ch.isalnum() or ch in "_?"
+    if start:
+        return ch.isalpha()
+    return ch.isalnum()
+
+
+def _is_calc_cell_ref_name(name: str) -> bool:
+    """True when *name* is an A1 or R1C1 address under IsNameValid's parse check."""
+    if _R1C1_CELL_NAME.match(name):
+        return True
+    match = _A1_CELL_NAME.match(name)
+    if not match:
+        return False
+    row = int(match.group(2))
+    # Row 0 does not parse. Any positive row counts: a partial parse is not ScRefFlags::ZERO.
+    if row < 1:
+        return False
+    return column_to_index(match.group(1)) <= _MAX_NAMED_RANGE_COL
+
+
+def _defined_name_error(name: str) -> str | None:
+    """Return Calc's invalid-name message, or None when IsNameValid would accept *name*."""
+    if "." in name:
+        return _NAME_BAD_STRING
+    if not name or not _defined_name_char_ok(name[0], start=True):
+        return _NAME_BAD_STRING
+    for ch in name[1:]:
+        if not _defined_name_char_ok(ch, start=False):
+            return _NAME_BAD_STRING
+    if _is_calc_cell_ref_name(name):
+        return _NAME_CELL_REF
+    return None
+
+
 def _resolve_container(doc: Any, scope: str | None) -> tuple[Any, str, Any | None]:
     """Resolve the NamedRanges container and effective scope name.
 
@@ -93,6 +154,77 @@ def _resolve_container(doc: Any, scope: str | None) -> tuple[Any, str, Any | Non
     raise UnoObjectError(f"No sheet found with name '{clean_scope}' for scoped named ranges.")
 
 
+def _iter_named_range_sheets(doc: Any, *, agent_visible_only: bool) -> Any:
+    """Yield ``(sheet, name)`` for sheets that expose NamedRanges.
+
+    Agent-facing scans pass *agent_visible_only* so ``_``-prefixed generated
+    sheets (``__Anonymous_Sheet_DB__*``) stay in the file but are not listed
+    or used as an unqualified fallback. An explicit scope still resolves them.
+    """
+    if not hasattr(doc, "getSheets"):
+        return
+    sheets = doc.getSheets()
+    for idx in range(sheets.getCount()):
+        sheet = sheets.getByIndex(idx)
+        if not hasattr(sheet, "NamedRanges"):
+            continue
+        s_name = sheet.getName() if hasattr(sheet, "getName") else ""
+        if agent_visible_only and not is_agent_visible_sheet(s_name):
+            continue
+        yield sheet, s_name
+
+
+def _find_named_range(doc: Any, bridge: CalcBridge, name: str) -> tuple[Any, str, Any | None, Any] | None:
+    """Resolve an unqualified name, preferring the active sheet's local range.
+
+    Calc formula lookup and CalcBridge.resolve_range_or_address let a
+    sheet-local name shadow a same-spelled global name. Searching the
+    workbook container first made named_range_get_info (and edit/delete
+    with no scope) target the global range while cell tools used the local one.
+    Hidden sheets are not a fallback; pass scope to address them.
+    """
+    with suppress_disposed("search active sheet named ranges", logger=log):
+        active_sheet = bridge.get_active_sheet()
+        if hasattr(active_sheet, "NamedRanges") and active_sheet.NamedRanges.hasByName(name):
+            scope = active_sheet.getName() if hasattr(active_sheet, "getName") else ""
+            return active_sheet.NamedRanges, scope, active_sheet, active_sheet.NamedRanges.getByName(name)
+
+    if hasattr(doc, "NamedRanges") and doc.NamedRanges.hasByName(name):
+        return doc.NamedRanges, "global", None, doc.NamedRanges.getByName(name)
+
+    for sheet, s_name in _iter_named_range_sheets(doc, agent_visible_only=True):
+        if sheet.NamedRanges.hasByName(name):
+            return sheet.NamedRanges, s_name, sheet, sheet.NamedRanges.getByName(name)
+    return None
+
+
+def _resolve_named_range_target(
+    tool: ToolCalcRangeBase,
+    doc: Any,
+    bridge: CalcBridge,
+    name: str,
+    scope: str | None,
+    *,
+    not_found: str,
+) -> tuple[Any, str, Any | None, Any] | dict[str, Any]:
+    """Return ``(container, scope, sheet, named_range)`` or a tool error dict.
+
+    An explicit scope (including ``global``) uses only that container.
+    An omitted scope uses :func:`_find_named_range`.
+    """
+    scope_text = "" if scope is None else str(scope).strip()
+    if scope_text:
+        container, effective_scope, sheet_obj = _resolve_container(doc, scope_text)
+        if not container.hasByName(name):
+            return tool._tool_error(not_found.format(name=name, scope=effective_scope), code="NAMED_RANGE_NOT_FOUND")
+        return container, effective_scope, sheet_obj, container.getByName(name)
+
+    found = _find_named_range(doc, bridge, name)
+    if found is None:
+        return tool._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
+    return found
+
+
 def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int = 0) -> Any:
     """Create a com.sun.star.table.CellAddress structure for the base reference."""
     sheet_idx = default_sheet_idx
@@ -101,16 +233,24 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
 
     if base_cell and base_cell.strip():
         prefix, address = split_sheet_prefix(base_cell.strip())
-        if prefix and hasattr(doc, "getSheets"):
-            sheets = doc.getSheets()
-            for idx in range(sheets.getCount()):
-                if sheets.getByIndex(idx).getName() == prefix:
-                    sheet_idx = idx
-                    break
-        try:
-            col_idx, row_idx = parse_address(address)
-        except Exception:
-            col_idx, row_idx = 0, 0
+        if prefix:
+            # What was wrong: an unknown sheet left sheet_idx at the default
+            # (usually 0), so a relative name was anchored on the wrong sheet.
+            # How: the scan broke only on a match and ignored a finished loop.
+            # Why: a prefix that names no sheet is an error, same as a bad cell.
+            found = False
+            if hasattr(doc, "getSheets"):
+                sheets = doc.getSheets()
+                for idx in range(sheets.getCount()):
+                    if sheets.getByIndex(idx).getName() == prefix:
+                        sheet_idx = idx
+                        found = True
+                        break
+            if not found:
+                raise ValueError("No sheet named '%s'." % prefix)
+
+        # This will raise ValueError if invalid, instead of silently returning 0,0 (A1)
+        col_idx, row_idx = parse_address(address)
 
     try:
         from com.sun.star.table import CellAddress
@@ -179,7 +319,7 @@ class NamedRangeList(ToolCalcRangeBase):
     name: str | None = "named_range_list"
     intent: str | None = "navigate"
     description: str = "Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name)."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"scope": {"type": "string", "description": "Scope to list: 'global' (default), 'all' (global + all sheets), or specific sheet name."}}}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"scope": {"type": "string", "description": "Scope to list: 'global' (default), 'all' (global + visible sheets; skips _-prefixed generated sheets), or a specific sheet name."}}}
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -199,16 +339,11 @@ class NamedRangeList(ToolCalcRangeBase):
                     for name in doc.NamedRanges.getElementNames():
                         nr = doc.NamedRanges.getByName(name)
                         result.append(_extract_range_info(nr, "global", doc))
-                # Sheets
-                if hasattr(doc, "getSheets"):
-                    sheets = doc.getSheets()
-                    for idx in range(sheets.getCount()):
-                        sheet = sheets.getByIndex(idx)
-                        if hasattr(sheet, "NamedRanges"):
-                            s_name = sheet.getName()
-                            for name in sheet.NamedRanges.getElementNames():
-                                nr = sheet.NamedRanges.getByName(name)
-                                result.append(_extract_range_info(nr, s_name, doc))
+                # Visible sheets only. _-prefixed generated tabs stay in the file.
+                for sheet, s_name in _iter_named_range_sheets(doc, agent_visible_only=True):
+                    for name in sheet.NamedRanges.getElementNames():
+                        nr = sheet.NamedRanges.getByName(name)
+                        result.append(_extract_range_info(nr, s_name, doc))
             else:
                 container, effective_scope, _ = _resolve_container(doc, scope_clean)
                 for name in container.getElementNames():
@@ -230,7 +365,7 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
     description: str = "Retrieves detailed metadata, reference coordinates, flags, and base address for a specific named range."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"name": {"type": "string", "description": "The name of the defined range to inspect."}, "scope": {"type": "string", "description": "Scope where the name is defined: 'global' (default) or sheet name. Omit to search global then active sheet."}},
+        "properties": {"name": {"type": "string", "description": "The name of the defined range to inspect."}, "scope": {"type": "string", "description": "Omit to prefer the active sheet's local name over a same-spelled global name, then the workbook, then other visible sheets. 'global' or a sheet name forces that container, including a _-prefixed sheet."}},
         "required": ["name"],
     }
     is_mutation: bool | None = False
@@ -251,28 +386,11 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
                 info = _extract_range_info(nr, effective_scope, doc)
                 return {"status": "ok", "result": info}
 
-            # Search global first
-            if hasattr(doc, "NamedRanges") and doc.NamedRanges.hasByName(name):
-                nr = doc.NamedRanges.getByName(name)
-                return {"status": "ok", "result": _extract_range_info(nr, "global", doc)}
-
-            # Search active sheet
-            with suppress_disposed("search active sheet named ranges", logger=log):
-                active_sheet = bridge.get_active_sheet()
-                if hasattr(active_sheet, "NamedRanges") and active_sheet.NamedRanges.hasByName(name):
-                    nr = active_sheet.NamedRanges.getByName(name)
-                    return {"status": "ok", "result": _extract_range_info(nr, active_sheet.getName(), doc)}
-
-            # Search all sheets
-            if hasattr(doc, "getSheets"):
-                sheets = doc.getSheets()
-                for idx in range(sheets.getCount()):
-                    sheet = sheets.getByIndex(idx)
-                    if hasattr(sheet, "NamedRanges") and sheet.NamedRanges.hasByName(name):
-                        nr = sheet.NamedRanges.getByName(name)
-                        return {"status": "ok", "result": _extract_range_info(nr, sheet.getName(), doc)}
-
-            return self._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
+            found = _find_named_range(doc, bridge, name)
+            if found is None:
+                return self._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
+            _container, effective_scope, _sheet, nr = found
+            return {"status": "ok", "result": _extract_range_info(nr, effective_scope, doc)}
         except Exception as e:
             log.exception("Get named range info failed for %s", name)
             return self._tool_error(f"Failed to get named range info: {str(e)}", code="NAMED_RANGE_ERROR")
@@ -290,7 +408,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
             "name": {"type": "string", "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces."},
             "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)')."},
             "scope": {"type": "string", "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1')."},
-            "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0."},
+            "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
         },
         "required": ["name", "content"],
@@ -319,7 +437,11 @@ class NamedRangeAdd(ToolCalcRangeBase):
                         sheet_idx = idx
                         break
 
-            pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+            try:
+                pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+            except ValueError as ve:
+                return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
+
             type_mask = _parse_flags(flags_arg)
 
             container.addNewByName(name, content, pos, type_mask)
@@ -340,10 +462,10 @@ class NamedRangeEdit(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Current name of the range to edit."},
-            "new_name": {"type": "string", "description": "New name for the range if renaming."},
+            "new_name": {"type": "string", "description": "New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces."},
             "content": {"type": "string", "description": "New formula or range address content."},
-            "scope": {"type": "string", "description": "Scope where the named range exists: 'global' (default) or specific sheet name."},
-            "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates."},
+            "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."},
+            "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
         },
         "required": ["name"],
@@ -361,20 +483,25 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
         try:
             doc = bridge.get_active_document()
-            container, effective_scope, sheet_obj = _resolve_container(doc, scope)
+            resolved = _resolve_named_range_target(self, doc, bridge, name, scope, not_found="No named range found with name '{name}' in scope '{scope}'.")
+            if isinstance(resolved, dict):
+                return resolved
+            container, effective_scope, sheet_obj, nr = resolved
 
-            if not container.hasByName(name):
-                return self._tool_error(f"No named range found with name '{name}' in scope '{effective_scope}'.", code="NAMED_RANGE_NOT_FOUND")
+            if new_name is not None and new_name.strip() and new_name.strip() != name:
+                new_clean = new_name.strip()
+                # What was wrong: setName does not run IsNameValid, so A1 / Sales.2026 / 1abc / names with spaces were installed.
+                # How: only an existence check ran, and setContent/setType/setReferencePosition ran before setName, so a failed rename left a partial edit.
+                # Why: reject with the same messages as addNewByName, and do not touch the range until the new name and base cell are valid. Rename first and roll it back if a later setter fails.
+                invalid = _defined_name_error(new_clean)
+                if invalid:
+                    return self._tool_error(invalid, code="INVALID_NAME")
+                if container.hasByName(new_clean):
+                    return self._tool_error(f"Cannot rename to '{new_clean}': a named range with that name already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
+            else:
+                new_clean = None
 
-            nr = container.getByName(name)
-
-            if content is not None:
-                nr.setContent(content.strip())
-
-            if flags_arg is not None:
-                type_mask = _parse_flags(flags_arg)
-                nr.setType(type_mask)
-
+            pos = None
             if base_cell is not None:
                 sheet_idx = 0
                 if sheet_obj is not None and hasattr(doc, "getSheets"):
@@ -383,17 +510,31 @@ class NamedRangeEdit(ToolCalcRangeBase):
                         if sheets.getByIndex(idx).getName() == sheet_obj.getName():
                             sheet_idx = idx
                             break
-                pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
-                nr.setReferencePosition(pos)
+                try:
+                    pos = _parse_base_address(doc, base_cell, default_sheet_idx=sheet_idx)
+                except ValueError as ve:
+                    return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
-            if new_name is not None and new_name.strip() and new_name.strip() != name:
-                new_clean = new_name.strip()
-                if container.hasByName(new_clean):
-                    return self._tool_error(f"Cannot rename to '{new_clean}': a named range with that name already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
+            if new_clean:
                 nr.setName(new_clean)
                 final_name = new_clean
             else:
                 final_name = name
+
+            try:
+                if content is not None:
+                    nr.setContent(content.strip())
+                if flags_arg is not None:
+                    nr.setType(_parse_flags(flags_arg))
+                if pos is not None:
+                    nr.setReferencePosition(pos)
+            except Exception:
+                if new_clean:
+                    try:
+                        nr.setName(name)
+                    except Exception:
+                        log.exception("Rollback of named range rename %s -> %s failed", name, new_clean)
+                raise
 
             log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
             return {"status": "ok", "message": f"Named range '{final_name}' updated successfully in scope '{effective_scope}'."}
@@ -408,7 +549,7 @@ class NamedRangeDelete(ToolCalcRangeBase):
     name: str | None = "named_range_delete"
     intent: str | None = "edit"
     description: str = "Deletes an existing named range from global or sheet-specific scope."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the range to delete."}, "scope": {"type": "string", "description": "Scope of the named range: 'global' (default) or specific sheet name."}}, "required": ["name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the range to delete."}, "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."}}, "required": ["name"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -418,10 +559,10 @@ class NamedRangeDelete(ToolCalcRangeBase):
 
         try:
             doc = bridge.get_active_document()
-            container, effective_scope, _ = _resolve_container(doc, scope)
-
-            if not container.hasByName(name):
-                return self._tool_error(f"No named range found with the name '{name}' in scope '{effective_scope}'.", code="NAMED_RANGE_NOT_FOUND")
+            resolved = _resolve_named_range_target(self, doc, bridge, name, scope, not_found="No named range found with the name '{name}' in scope '{scope}'.")
+            if isinstance(resolved, dict):
+                return resolved
+            container, effective_scope, _sheet, _nr = resolved
 
             container.removeByName(name)
             log.info("Named range deleted: [%s] %s", effective_scope, name)
@@ -452,7 +593,10 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         import uno
 
         bridge = CalcBridge(ctx.doc)
-        range_str = kwargs["range"][0].strip()
+        range_arr = kwargs.get("range", [])
+        if not range_arr:
+            return self._tool_error("range is required", code="INVALID_ARGUMENT")
+        range_str = range_arr[0].strip()
         border_str = kwargs.get("border", "top")
         if border_str is None or str(border_str).strip() == "":
             border_str = "top"

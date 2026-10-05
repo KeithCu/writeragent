@@ -88,8 +88,8 @@ from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoin
 
 from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response, append_zai_unknown_model_hint
-from .http_transport import CONNECTION_ERRORS, LlmHttpTransport
-from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, backoff_delay_sec, clear_host_gap, emit_retry_status, pacing_key, parse_retry_after, remember_host_gap, request_model_from_body, wait_abortable
+from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json, redact_secrets
+from .request_controls import RETRY_MAX_ATTEMPTS, backoff_delay_sec, clear_host_gap, emit_retry_status, pacing_key, remember_host_gap, request_model_from_body, wait_abortable
 from .stream_normalizer import iterate_sse, _normalize_message_content, _normalize_delta, accumulate_streaming_thinking, extract_reasoning_replay_from_response, new_streaming_thinking_meta, THINKING_DELTA_KEYS
 from .provider_detection import is_openrouter_endpoint
 
@@ -126,11 +126,52 @@ def _stream_error_message(chunk: dict[str, Any]) -> str | None:
     return None
 
 
-def _stream_error_is_overload(message: str) -> bool:
-    """True when a mid-stream error is worth one retry before any UI text."""
+_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many", "unavailable")
+# 429/503 must be a whole token. "4290 tokens" is a context size, not HTTP 429.
+_OVERLOAD_STATUS_RE = re.compile(r"\b(?:429|503)\b")
+
+
+def _error_code_is_overload(value: Any) -> bool:
+    """True when a structured provider code is itself an overload signal."""
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, int):
+        return value in (429, 503)
+    if isinstance(value, float):
+        return value in (429.0, 503.0)
+    text = str(value).strip().lower()
+    if not text:
+        return False
+    if text in {"429", "503"}:
+        return True
+    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """Prefer error.code / type / status over scanning the message text."""
+    err = chunk.get("error")
+    if not isinstance(err, dict):
+        return False
+    return any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status"))
+
+
+def _text_is_overload(message: str) -> bool:
     low = message.lower()
-    markers = ("overload", "rate_limit", "rate limit", "too many", "429", "503", "unavailable")
-    return any(marker in low for marker in markers)
+    if any(marker in low for marker in _OVERLOAD_TEXT_MARKERS):
+        return True
+    return _OVERLOAD_STATUS_RE.search(low) is not None
+
+
+def _stream_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """True when a mid-stream error is worth one retry before any UI text.
+
+    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
+    Otherwise 429 and 503 match only on a word boundary.
+    """
+    if _structured_error_is_overload(chunk):
+        return True
+    message = _stream_error_message(chunk) or ""
+    return _text_is_overload(message)
 
 
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
@@ -155,12 +196,10 @@ def _request_payload_byte_length(body: Any) -> int:
 
 def _redact_secret_from_log_text(text: str, secret: str) -> str:
     """Remove a configured credential from a log string. Empty secret is a no-op."""
-    if not text or not secret:
-        return text
-    return text.replace(secret, "<redacted>")
+    return redact_secrets(text, [secret] if secret else None)
 
 
-def _parse_provider_envelope(raw: Any, path: str) -> dict[str, Any]:
+def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
     """Parse an HTTP 200 provider body as a JSON object.
 
     What was wrong: callers used ``safe_json_loads`` without ``strict=True``.
@@ -168,14 +207,25 @@ def _parse_provider_envelope(raw: Any, path: str) -> dict[str, Any]:
     ``{"choices":[{"message":{"content":"hel`` became a dict and looked like a
     finished reply. A JSON array was not ``None``, then ``.get`` ran outside
     the request ``try``.
-    Why: provider envelopes are not model text. Standard ``json.loads`` only,
-    and only a dict is a response.
+    Why: provider envelopes are not model text. ``parse_strict_json`` is
+    ``json.loads`` only (the peel walker stays out of this path), and only a
+    dict is a response.
     """
-    from plugin.framework.errors import safe_json_loads
-
-    parsed = safe_json_loads(raw, strict=True)
+    parsed = parse_strict_json(raw)
     if not isinstance(parsed, dict):
         raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
+    # What was wrong: the stream loop raises on {"error": ...} inside HTTP 200,
+    # but sync chat, images, and STT treated that body as a finished reply.
+    # chat_completion_sync then returned "". Why: same check as the stream loop.
+    # finish_reason=length with empty content is a different, documented case.
+    stream_err = _stream_error_message(parsed)
+    if stream_err is not None:
+        # What was wrong: the stream loop redacted an echoed API key, but sync
+        # chat, images, and STT raised the raw provider string from HTTP 200.
+        # How: this helper had no credential. Why: the caller passes the key
+        # the same way the stream loop does. Do not retry a finished body.
+        stream_err = _redact_secret_from_log_text(stream_err, api_key)
+        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
     return parsed
 
 
@@ -382,12 +432,8 @@ class LlmClient:
         if conn_hdr == "close":
             self._close_connection()
 
-    def _retry_or_raise_http_error(self, response: Any, body: Any, path: str, *, retries_left: int, emitted_any: bool, stop_checker: Any, status_callback: Any = None, attempt: int = 1) -> str | None:
-        """On non-200: jittered 429/503 retry while attempts remain; else HTTP_ERROR.
-
-        OpenClaw Retry-After + jitter. Never after tokens already reached the UI.
-        """
-        err_body = response.read().decode("utf-8", errors="replace")
+    def _observe_provider_http_error(self, response: Any, err_body: str, path: str, body: Any) -> str:
+        """Chat-only ERROR line and llama-server 500 shape. Redaction is the transport's."""
         request_model = request_model_from_body(body)
         api_key = str(self.config.get("api_key") or "").strip()
         # Keep the existing response-body ERROR line, but never echo the key if
@@ -396,23 +442,30 @@ class LlmClient:
         n_ctx = _peek_live_ollama_num_ctx(self) if response.status == 500 else None
         if response.status == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        self._close_connection()
-        if response.status in RETRYABLE_HTTP_STATUS and retries_left > 0 and not emitted_any:
-            retry_after = parse_retry_after(response.getheader("Retry-After"))
-            delay = backoff_delay_sec(attempt=attempt, retry_after_sec=retry_after)
-            remember_host_gap(pacing_key(self._current_host(), request_model), delay)
-            log.warning("Retrying HTTP %s after %.3fs (Retry-After=%s attempt=%s left=%s)", response.status, delay, retry_after, attempt, retries_left)
-            emit_retry_status(status_callback, delay)
-            if not wait_abortable(delay, stop_checker):
-                self._stopped = True
-                return "stop"
-            return "retry"
         err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
-        err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
-        # Logs already redact the key. The sidebar string is this message, and
-        # a provider that echoes the key in error.message would show it.
-        err_msg = _redact_secret_from_log_text(err_msg, api_key)
-        raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
+        return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
+
+    def _wire_secrets(self) -> list[str]:
+        api_key = str(self.config.get("api_key") or "").strip()
+        return [api_key] if api_key else []
+
+    def _retry_or_raise_http_error(self, response: Any, body: Any, path: str, *, retries_left: int, emitted_any: bool, stop_checker: Any, status_callback: Any = None, attempt: int = 1) -> str | None:
+        """On non-200: shared transport retry. Never after tokens already reached the UI."""
+        action = self._transport.handle_http_status(
+            response,
+            request_body=body,
+            path=path,
+            retries_left=retries_left,
+            emitted_any=emitted_any,
+            stop_checker=stop_checker,
+            status_callback=status_callback,
+            attempt=attempt,
+            secrets=self._wire_secrets(),
+            observe_http_error=self._observe_provider_http_error,
+        )
+        if action == "stop":
+            self._stopped = True
+        return action
 
     def _send_http_attempt(self, method: str, path: str, body: Any, headers: dict[str, str], *, sends_left: int, wait_index: int, emitted_any: bool, stop_checker: Any, status_callback: Any) -> tuple[str, Any, int, int]:
         """One send. ``('ok', response, ...)`` on HTTP 200.
@@ -440,7 +493,7 @@ class LlmClient:
         """Shared connection-error budget. Returns ``('retry'|'stop', sends_left, wait_index)``."""
         sends_left -= 1
         wait_index += 1
-        action = self._transport.handle_connection_error(err, path=path, retries_left=sends_left, retry_log_message=retry_log_message, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body))
+        action = self._transport.handle_connection_error(err, path=path, retries_left=sends_left, retry_log_message=retry_log_message, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body), secrets=self._wire_secrets())
         return action, sends_left, wait_index
 
     def stop(self) -> None:
@@ -463,8 +516,7 @@ class LlmClient:
         ``wait_abortable`` returns early only when its checker is true.
         Streaming and sync tool requests passed the caller's checker alone, so
         ``stop()`` (which only sets ``_stopped``) slept out a backoff of up to
-        ``RETRY_MAX_DELAY_SEC`` when the caller passed no checker. Image/STT
-        ``_request_json`` already combined the latch; these loops did not.
+        ``RETRY_MAX_DELAY_SEC`` when the caller passed no checker.
         """
 
         def _aborted() -> bool:
@@ -493,7 +545,12 @@ class LlmClient:
 
         # Legacy fallback for simple/manual endpoints: if an api_key exists and no
         # auth header was added (e.g. style='none' or unknown provider), add Bearer.
-        api_key = self.config.get("api_key", "").strip()
+        # What was wrong: an explicit null api_key (key present, value None)
+        # called str.strip on None and raised AttributeError. Other call sites
+        # already use ``str(... or "")``.
+        # How: .get returns None when the key is set to null, so the "" default
+        # never applied. Why: treat null like a missing key and omit Bearer.
+        api_key = str(self.config.get("api_key") or "").strip()
         if api_key and "Authorization" not in h and "x-api-key" not in h:
             reject_control_chars_in_api_key(api_key)
             h["Authorization"] = f"Bearer {api_key}"
@@ -517,6 +574,7 @@ class LlmClient:
         return auth_info.get("provider", "custom")
 
     def _timeout(self) -> Any:
+        """Settings read/stall budget. Connect uses ``LLM_CONNECT_TIMEOUT_SEC``."""
         return self.config.get("request_timeout", 120)
 
     def _current_host(self) -> str:
@@ -559,6 +617,15 @@ class LlmClient:
             max_tokens = 512
 
         messages = prepare_chat_messages(messages, self._get_provider(), prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        # What was wrong: each provider shim received the model's tool call
+        # unchanged, and an empty properties object was not a schema until
+        # execute. Hallucinated kwargs on a no-arg tool were still in the
+        # request every shim built. How: one allow-list, including
+        # properties {}, runs here before build_chat_request. Why: OpenAI
+        # and Anthropic then format the same checked call.
+        from plugin.framework.tool_schema import normalize_outbound_tool_calls
+
+        messages = normalize_outbound_tool_calls(messages, tools)
 
         model_name = model or self.config.get("model", "")
         # Missing key (settings default -1) means omit from the request so the
@@ -581,39 +648,75 @@ class LlmClient:
         shim = self._get_shim()
         return shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
 
-    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str]) -> Any:
+    def _exchange_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None, retry_log_message: str, on_retry: Any = None, wrap_unexpected: bool = False, failure_log: str = "JSON request failed") -> tuple[str, Any]:
+        """One non-streaming JSON exchange with the shared retry budget.
+
+        Returns ``("ok", parsed)`` or ``("stop", None)``. The stream loop stays
+        separate: it tracks ``emitted_any`` and parses SSE.
+
+        What was wrong: ``_request_json`` and the sync half of
+        ``request_with_tools`` each owned this loop. Image and speech only
+        watched ``self._stopped``, so a caller's stop checker slept out a 429
+        and never got a retry status. A connection error after ``read()``
+        had already returned the body re-posted the request.
+        Why: one loop. Stop is a result the caller maps (raise vs stop dict).
+        Bytes already in hand are not sent again.
+        """
+        abort_checker = self._abort_checker(stop_checker)
+        if self._stopped or (stop_checker and stop_checker()):
+            self._stopped = True
+            self._close_connection()
+            return "stop", None
+        api_key = str(self.config.get("api_key") or "").strip()
+
+        def _sender(send_method: str, send_path: str, send_body: Any, send_headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
+            return self._send_request(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
+
+        try:
+            # Same exchange as catalog and speech. Stop, timeout, retry, and
+            # redaction are not a second loop here.
+            result = self._transport.exchange(
+                method,
+                path,
+                body,
+                headers,
+                stop_checker=abort_checker,
+                status_callback=status_callback,
+                parse_json=False,
+                sender=_sender,
+                secrets=self._wire_secrets(),
+                on_retry=on_retry,
+                after_read=self._close_if_connection_close,
+                observe_http_error=self._observe_provider_http_error,
+                retry_log_message=retry_log_message,
+            )
+        except NetworkError as exc:
+            if getattr(exc, "code", None) == "STOPPED":
+                self._stopped = True
+                return "stop", None
+            raise
+        except Exception as exc:
+            if not wrap_unexpected:
+                raise
+            err_msg = format_error_message(exc)
+            log.exception(failure_log)
+            raise NetworkError(err_msg, details={"url": path}) from exc
+        return "ok", _parse_provider_envelope(result.body, path, api_key=api_key)
+
+    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Blocking JSON call on the persistent transport.
 
         Image and speech used ``sync_request``, which ignored Stop and 429/503
         backoff. This shares the chat transport so ``stop()`` closes the socket.
-        Retry waits read the same latch: ``wait_abortable`` only returns early
-        when a checker is set, so a 429 used to sleep out after Stop.
+        ``stop_checker`` / ``status_callback`` match the sync chat path: a 429
+        wait ends when the caller stops, and the sidebar sees the retry line.
         """
-        def _stopped() -> bool:
-            return self._stopped
-
-        if self._stopped:
+        action, parsed = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying JSON request on fresh connection")
+        if action == "stop":
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-        sends_left = RETRY_MAX_ATTEMPTS
-        wait_index = 0
-        while True:
-            try:
-                if self._stopped:
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=_stopped, status_callback=None)
-                if action == "stop":
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                if action == "retry":
-                    continue
-                raw = response.read().decode("utf-8", errors="replace")
-                self._close_if_connection_close(response)
-                return _parse_provider_envelope(raw, path)
-            except CONNECTION_ERRORS as e:
-                action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=_stopped, status_callback=None, retry_log_message="Retrying JSON request on fresh connection")
-                if action == "stop":
-                    raise NetworkError("LLM request aborted by Stop", code="STOPPED") from e
+        return parsed
 
-    def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> Any:
+    def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
         method, path, body, headers = self.make_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
@@ -631,14 +734,14 @@ class LlmClient:
 
         # Image generate/edit used sync_request, which Stop cannot abort and
         # which does not retry 429/503. The persistent transport does both.
-        res = self._request_json(method, path, body, headers)
+        res = self._request_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
         if not res:
             return []
 
         shim = self._get_shim()
         return shim.parse_image_responses(res)
 
-    def transcribe_audio(self, wav_path: str, model: str | None = None) -> str:
+    def transcribe_audio(self, wav_path: str, model: str | None = None, *, stop_checker: Any = None, status_callback: Any = None) -> str:
         """Transcribe audio via POST /v1/audio/transcriptions (or chat if STT model supports input_audio).
 
         STT-only models use the transcription endpoint only; chat+audio STT models may
@@ -664,16 +767,30 @@ class LlmClient:
 
                 messages = [{"role": "user", "content": [{"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."}, {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}}]}]
 
-                # Using synchronous chat completion with model override
-                return self.chat_completion_sync(messages, max_tokens=16384, model=model_name)
+                # Using synchronous chat completion with model override.
+                # Pass status_callback so 429 waits are visible on this path too.
+                return self.chat_completion_sync(
+                    messages,
+                    max_tokens=16384,
+                    model=model_name,
+                    stop_checker=stop_checker,
+                    status_callback=status_callback,
+                )
             except AuthError:
                 raise
             except NetworkError as e:
                 if self._stopped or getattr(e, "code", None) == "STOPPED":
                     raise
-                # Fall through to the transcription endpoint; keep the traceback.
-                log.exception("Multimodal transcription failed; falling back to stt endpoint")
-            except Exception:
+                # What was wrong: a bare ``except Exception`` under this handler
+                # treated a parse error or a bug in the native-audio path as
+                # "this model cannot take input_audio" and POSTed
+                # /audio/transcriptions. How: chat_completion_sync raises
+                # ValueError, JSONDecodeError, or any other non-network error
+                # before an HTTP failure, and that handler logged and fell
+                # through. Why: only a transport failure is a reason to try the
+                # transcription endpoint. AuthError is re-raised above. Stop and
+                # USER_STOPPED are not NetworkError, so they propagate instead of
+                # being posted again. Any other exception propagates too.
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
         endpoint = self._endpoint()
@@ -712,7 +829,7 @@ class LlmClient:
         log.debug("STT Model: %s" % model_name)
 
         # Same transport as chat so Stop closes the socket and 429/503 retries.
-        res = self._request_json("POST", api_path + "/audio/transcriptions", body_bytes, headers)
+        res = self._request_json("POST", api_path + "/audio/transcriptions", body_bytes, headers, stop_checker=stop_checker, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
     def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
@@ -720,7 +837,7 @@ class LlmClient:
         method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
         self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
-    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, _retry: bool = True, status_callback: Any = None) -> Any:
+    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, _retry: bool = True, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
         init_logging(self.ctx)
         log.info("=== Starting streaming loop (persistent) ===")
@@ -739,6 +856,18 @@ class LlmClient:
         wait_index = 0
         emitted_any = False
         while True:
+            # What was wrong: on_delta wrote role, usage, and a buffered
+            # "<think" prefix into the caller's snapshot before any callback
+            # ran. emitted_any stayed false, so an overload or connection
+            # retry called accumulate_delta again and added prompt_tokens /
+            # completion_tokens and concatenated that prefix. How: a usage-only
+            # chunk and a partial tag never call on_content. Why: drop only
+            # that attempt, and only while nothing has been shown. Once
+            # emitted_any is set this does not run, so shown text stays.
+            # The first call clears an empty snapshot; a later call drops the
+            # failed attempt before the next send.
+            if not emitted_any and reset_unemitted_attempt is not None:
+                reset_unemitted_attempt()
             last_finish_reason = None
 
             try:
@@ -753,6 +882,9 @@ class LlmClient:
                 if action == "retry":
                     continue
 
+                # Set only when the SSE loop finishes without an error or Stop.
+                # The finally block drains solely in that case.
+                clean_finish = False
                 try:
                     # Use a flag to stop logical processing but keep reading to exhaust the stream
                     content_finished = False
@@ -770,8 +902,13 @@ class LlmClient:
                             continue
 
                         try:
-                            chunk = json.loads(payload)
-                        except json.JSONDecodeError:
+                            # Same strict parser as sync chat and catalog. A
+                            # truncated SSE line is skipped, not repaired into
+                            # a finished chunk.
+                            chunk = parse_strict_json(payload)
+                        except NetworkError as decode_err:
+                            if getattr(decode_err, "code", None) != "BAD_RESPONSE":
+                                raise
                             if payload and payload != "{}":
                                 log.exception("streaming_loop: JSON decode error in payload: %s", payload)
                             continue
@@ -822,7 +959,7 @@ class LlmClient:
                             # the sidebar and the debug log then showed.
                             api_key = str(self.config.get("api_key") or "").strip()
                             stream_err = _redact_secret_from_log_text(stream_err, api_key)
-                            if (not emitted_any) and _stream_error_is_overload(stream_err) and sends_left > 1:
+                            if (not emitted_any) and _stream_error_is_overload(chunk) and sends_left > 1:
                                 self._close_connection()
                                 sends_left -= 1
                                 wait_index += 1
@@ -863,9 +1000,15 @@ class LlmClient:
 
                             raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
 
-                        if thinking and on_thinking:
-                            on_thinking(thinking)
+                        if thinking:
+                            # What was wrong: emitted_any flipped only when
+                            # on_thinking was set. A reasoning delta still
+                            # reached on_delta, and a socket drop retried that
+                            # text. Count the bytes even if the UI callback is
+                            # missing.
                             emitted_any = True
+                            if on_thinking:
+                                on_thinking(thinking)
                         if content:
                             pieces = think_tag_splitter.feed(content)
                             for is_think, text_piece in pieces:
@@ -873,10 +1016,10 @@ class LlmClient:
                                     # What was wrong: <think> text called on_thinking
                                     # without setting emitted_any. A drop during the
                                     # reasoning block retried and duplicated it.
-                                    # Dedicated thinking fields already set the flag.
-                                    if text_piece and on_thinking:
-                                        on_thinking(text_piece)
+                                    if text_piece:
                                         emitted_any = True
+                                        if on_thinking:
+                                            on_thinking(text_piece)
                                 else:
                                     if on_content:
                                         on_content(text_piece)
@@ -918,20 +1061,35 @@ class LlmClient:
                     log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
 
                     # Flush any trailing buffered text from the think tag splitter
-                    # (trailing buffer contains small tag prefix remnants like '<' at EOF)
-                    for is_think, text_piece in think_tag_splitter.flush():
-                        if is_think and text_piece and on_thinking:
-                            on_thinking(text_piece)
-                            emitted_any = True
-                        elif not is_think and on_content:
-                            on_content(text_piece)
-                            if text_piece:
-                                emitted_any = True
-                finally:
-                    # Drain leftover body only when we still own a live connection.
-                    # After Stop we closed the sock — response.read() would block until
-                    # request_timeout and hold llm_request_lane (B13).
+                    # (trailing buffer contains small tag prefix remnants like '<' at EOF).
+                    # What was wrong: Stop broke out of the read and then this
+                    # flush still called on_content for a partial "<think" prefix.
+                    # How: the splitter holds at most the tag prefix, and the
+                    # flush runs after the loop whether the stream ended or Stop
+                    # closed the socket. Why: a completed stream still needs the
+                    # flush; Stop must not paint that prefix into the sidebar.
                     if not self._stopped:
+                        for is_think, text_piece in think_tag_splitter.flush():
+                            if is_think and text_piece:
+                                emitted_any = True
+                                if on_thinking:
+                                    on_thinking(text_piece)
+                            elif not is_think and on_content:
+                                on_content(text_piece)
+                                if text_piece:
+                                    emitted_any = True
+                    clean_finish = not self._stopped
+                finally:
+                    # What was wrong: STREAM_ERROR, INFINITE_LOOP, finish_reason
+                    # error, and any other raised stream exception fell into
+                    # response.read() and waited out the rest of the generation
+                    # (up to request_timeout, holding llm_request_lane).
+                    # How: the finally drained whenever Stop had not latched,
+                    # including when the loop raised or retried.
+                    # Why: drain only after a clean finish so the keep-alive
+                    # socket can be reused. Every other exit closes. Stop still
+                    # skips the drain (B13).
+                    if clean_finish:
                         try:
                             remaining = response.read()
                             if remaining:
@@ -1045,9 +1203,18 @@ class LlmClient:
                 if "model" in d and "model" not in message_snapshot:
                     message_snapshot["model"] = d["model"]
 
+            def _reset_unemitted_attempt() -> None:
+                # on_delta also fills thinking meta from a reasoning_details
+                # chunk that had no display text. That is the same unsent
+                # attempt. Do not call this after a token was shown.
+                message_snapshot.clear()
+                thinking_parts.clear()
+                thinking_meta.clear()
+                thinking_meta.update(new_streaming_thinking_meta())
+
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback)
+                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback, reset_unemitted_attempt=_reset_unemitted_attempt)
             except NetworkError:
                 raise
             except Exception as e:
@@ -1077,45 +1244,16 @@ class LlmClient:
                 self._stopped = True
                 self._close_connection()
                 return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-            result = None
-            sends_left = RETRY_MAX_ATTEMPTS
-            wait_index = 0
-            abort_checker = self._abort_checker(stop_checker)
-            while True:
+            def _log_outgoing_on_retry() -> None:
                 try:
-                    if self._stopped or (stop_checker and stop_checker()):
-                        self._stopped = True
-                        self._close_connection()
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=abort_checker, status_callback=status_callback)
-                    if action == "stop":
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    if action == "retry":
-                        try:
-                            redacted_msgs = redact_sensitive_payload_for_log(messages)
-                            log.debug("request_with_tools outgoing messages (redacted): %s", json.dumps(redacted_msgs, indent=2, ensure_ascii=False))
-                        except Exception as log_exc:
-                            log.warning("Could not log redacted outgoing messages: %s", log_exc)
-                        continue
-                    raw = response.read()
-                    self._close_if_connection_close(response)
-                    result = _parse_provider_envelope(raw, path)
-                    break
-                except CONNECTION_ERRORS as e:
-                    action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection")
-                    if action == "stop":
-                        self._stopped = True
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    continue
-                except NetworkError as e:
-                    if getattr(e, "code", None) == "STOPPED":
-                        self._stopped = True
-                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    raise
-                except Exception as e:
-                    err_msg = format_error_message(e)
-                    log.exception("request_with_tools failed")
-                    raise NetworkError(err_msg, details={"url": path}) from e
+                    redacted_msgs = redact_sensitive_payload_for_log(messages)
+                    log.debug("request_with_tools outgoing messages (redacted): %s", json.dumps(redacted_msgs, indent=2, ensure_ascii=False))
+                except Exception as log_exc:
+                    log.warning("Could not log redacted outgoing messages: %s", log_exc)
+
+            action, result = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection", on_retry=_log_outgoing_on_retry, wrap_unexpected=True, failure_log="request_with_tools failed")
+            if action == "stop":
+                return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
 
             log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
@@ -1172,7 +1310,18 @@ class LlmClient:
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
 
-    def chat_completion_sync(self, messages: list[Any], max_tokens: int = 512, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True, stop_checker: Any = None) -> str:
+    def chat_completion_sync(
+        self,
+        messages: list[Any],
+        max_tokens: int = 512,
+        model: str | None = None,
+        response_format: Any = None,
+        chat_extra: Any = None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
+        stop_checker: Any = None,
+        status_callback: Any = None,
+    ) -> str:
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.
@@ -1191,6 +1340,7 @@ class LlmClient:
             chat_extra=chat_extra,
             prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
             stop_checker=stop_checker,
+            status_callback=status_callback,
         )
         # request_with_tools reports Stop as an empty assistant message whose
         # finish_reason is also "stop" — the same finish_reason a normal

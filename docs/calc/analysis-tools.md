@@ -38,7 +38,7 @@ Runs curated numpy/pandas/scipy helpers in the user venv via a fixed RPC stub (n
 * `helper` (required): Helper name — `describe_data`, `kpi_summary`, `detect_outliers`, `quick_stats`, `format_currency`, `format_percent`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `compare_periods`, `correlation_matrix`, `run_regression`, `cluster_numeric`, `monte_carlo`
 * `params`: Helper-specific parameters (object)
 * `data_range`: A1 range to read from the sheet (e.g. `Sheet1.A1:D20`)
-* `output_range`: Optional anchor cell to write a formatted multi-cell report (Calc only)
+* `output_range`: Optional anchor cell to write a formatted multi-cell report (Calc only). Sheet prefixes match other Calc refs (`Sheet1.B2`, `'Q1.Sales'!B2`). A range writes from its start cell (`Sheet1.A1:C10` starts at A1); `$` locks are ignored. `forecast_data` and `optimize_data` use this same anchor: the parsed sheet is passed into the shared tabular writer, and `CalcBridge.resolve` opens that sheet.
 * `data`: 2D array alternative (e.g. from `read_cell_range`)
 * `headers`: First row is column names (default `true`)
 * `task_hint`: Optional string echoed in result context

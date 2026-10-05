@@ -205,6 +205,22 @@ def test_run_vec_pack_download_invalidates_accelerator(tmp_path):
     )
 
 
+def test_run_vec_pack_download_bind_host_false_skips_path_and_modules(tmp_path):
+    from plugin.scripting.native_binaries import run_vec_pack_download
+
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
+        patch("plugin.scripting.native_binaries._download_url_to_file"),
+        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path") as mock_ensure,
+        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator") as mock_inv,
+    ):
+        ok = run_vec_pack_download(lambda _t: None, lambda _s: None, bind_host=False)
+    assert ok is True
+    mock_ensure.assert_not_called()
+    mock_inv.assert_not_called()
+
+
 def test_atomic_replace_native_posix_uses_os_replace(tmp_path):
     partial = tmp_path / "pack.so.partial"
     dest = tmp_path / "pack.so"

@@ -226,7 +226,7 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
 1. **`ToolContext.read_only_target`** — set on the inner agent’s context in [`run_inner_read_agent`](../../plugin/doc/nearby_specialized.py).
 2. **Inner allowlist** — `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../../plugin/doc/nearby_specialized.py); inner uses `registry.get_tools(..., names=allowlist)` — not `active_domain="document_research"` on the opened model.
-3. **Defense in depth** — [`ToolRegistry.execute`](../../plugin/framework/tool.py) returns `READ_ONLY_TARGET` when `ctx.read_only_target` and `tool.detects_mutation()`.
+3. **Defense in depth** — [`ToolRegistry.execute`](../../plugin/framework/tool.py) returns `READ_ONLY_TARGET` when `ctx.read_only_target` and `tool.detects_mutation()`. The inner agent does not go through the registry: [`SmolToolAdapter.forward`](../../plugin/chatbot/smol_agent.py) applies the same check before `execute` / `execute_safe`.
 
 ---
 
@@ -488,7 +488,7 @@ flowchart LR
 #### 7.1 Cross-Document Search ("Office Grep") — **shipped**
 
 *   **Concept:** A dedicated tool for the outer `document_research` sub-agent to find keywords across multiple files without manually delegating to each one sequentially.
-*   **Implementation:** [`grep_nearby_files`](plugin/doc/document_research_tools.py) in [`plugin/doc/document_research_grep.py`](../../plugin/doc/document_research_grep.py). Args: `pattern`, optional `file_subset` (basename token such as `budget` → `*budget*.od*` via `list_nearby_files`), caps (`max_files`, `max_results_per_file`, `max_total_results`). Opens each candidate hidden+read-only, searches by type (Writer paragraphs with **automatic 2-paragraph context**, Calc `findAll` all sheets, Draw shape text with shape cap), returns snippet previews, closes hidden opens, calls `processEventsToIdle` between files. Prefer grep before `delegate_read_document` when locating which file contains a keyword (hint in [`specialized_base.py`](../../plugin/doc/specialized_base.py)).
+*   **Implementation:** [`grep_nearby_files`](plugin/doc/document_research_tools.py) in [`plugin/doc/document_research_grep.py`](../../plugin/doc/document_research_grep.py). Args: `pattern`, optional `file_subset` (basename token such as `budget` → `*budget*.od*` via `list_nearby_files`), caps (`max_files`, `max_results_per_file`, `max_total_results`). Opens each candidate hidden+read-only, searches by type (Writer paragraphs with **automatic 2-paragraph context**, Calc `findAll` all sheets, Draw shape text with shape cap). Draw `match_count` is the number of matches returned: each page is searched with the remaining result budget. Returns snippet previews, closes hidden opens, calls `processEventsToIdle` between files. Prefer grep before `delegate_read_document` when locating which file contains a keyword (hint in [`specialized_base.py`](../../plugin/doc/specialized_base.py)).
 *   **Tests:** [`tests/doc/test_document_research_grep.py`](../../tests/doc/test_document_research_grep.py), [`tests/doc/test_document_research_grep_uno.py`](../../tests/doc/test_document_research_grep_uno.py).
 
 #### 7.2 Metadata Caching ("Librarian's Index")

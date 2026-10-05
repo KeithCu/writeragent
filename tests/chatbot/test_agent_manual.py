@@ -189,6 +189,17 @@ def test_full_manual_contains_every_section_in_order():
     assert positions == sorted(positions)
 
 
+def test_full_manual_impress_uses_draw_sections():
+    assert full_manual("impress") == full_manual("draw")
+    assert full_manual("Impress") == full_manual("draw")
+    assert full_manual("  IMPRESS ") == full_manual("draw")
+    assert list_topics("Impress") == list_topics("draw")
+    assert "TRACKED CHANGES" not in full_manual("Impress")
+    assert full_manual(" Writer ") == full_manual("writer")
+    assert "TRACKED CHANGES" in full_manual(" Writer ")
+    assert full_manual(" Nope ") == full_manual("writer")
+
+
 def test_full_manual_for_model_switches_per_app():
     assert "review-modes" in " ".join(list_topics("writer")) or True  # sanity
     assert "TRACKED CHANGES" in full_manual_for_model(WRITER_DOC)

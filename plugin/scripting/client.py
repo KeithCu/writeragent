@@ -39,6 +39,10 @@ def _run_trusted_action(
     *,
     allow_heartbeat: bool = False,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    headers: bool | None = None,
+    header_row: int | None = None,
+    send_cancellation: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action packet in the user venv worker.
 
@@ -58,6 +62,10 @@ def _run_trusted_action(
         error_label=error_label,
         allow_heartbeat=allow_heartbeat,
         heartbeat_fn=heartbeat_fn,
+        stop_checker=stop_checker,
+        headers=headers,
+        header_row=header_row,
+        cancellation_scope=send_cancellation,
     )
 
 
@@ -75,6 +83,23 @@ def _resolve_trusted_timeout(ctx: Any, session_prefix: str) -> int:
     if session_prefix in _LONG_TRUSTED_PREFIXES:
         return long_trusted_worker_timeout_sec(ctx)
     return configured_python_exec_timeout(ctx)
+
+
+def _spec_sheet_layout(spec: dict[str, Any]) -> dict[str, Any]:
+    """Copy ``headers`` / ``header_row`` off a spec for the worker packet.
+
+    Those keys sit beside ``helper`` and ``params``. Keeping only helper and
+    params dropped them: the worker rebuilt the spec without ``headers``, and
+    ``parse_trusted_spec`` defaulted it to true. ``forecast_data`` /
+    ``optimize_data`` ``headers=false`` then consumed the first data row as
+    column names.
+    """
+    layout: dict[str, Any] = {}
+    if "headers" in spec:
+        layout["headers"] = bool(spec["headers"])
+    if "header_row" in spec:
+        layout["header_row"] = int(spec["header_row"])
+    return layout
 
 
 def _make_spec_runner(
@@ -102,9 +127,11 @@ def _make_spec_runner(
         if isinstance(spec, str):
             helper = spec
             params: dict[str, Any] = {}
+            layout: dict[str, Any] = {}
         else:
             helper = spec.get("helper", "")
             params = spec.get("params") or {}
+            layout = _spec_sheet_layout(spec)
 
         return _run_trusted_action(
             ctx,
@@ -116,6 +143,10 @@ def _make_spec_runner(
             timeout_sec=timeout_sec,
             error_code=error_code,
             error_label=error_label,
+            headers=layout["headers"] if "headers" in layout else None,
+            header_row=layout["header_row"] if "header_row" in layout else None,
+            stop_checker=getattr(ctx, "stop_checker", None),
+            send_cancellation=getattr(ctx, "send_cancellation", None),
         )
 
     _runner.__name__ = f"run_{error_label.lower().replace(' ', '_')}"
@@ -206,6 +237,7 @@ def run_vision(
     image: Any = None,
     *,
     context: dict[str, Any] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv."""
     timeout_sec = _resolve_vision_timeout_sec(ctx, spec)
@@ -226,6 +258,8 @@ def run_vision(
         error_code="VISION_ERROR",
         error_label="Vision",
         additional_data={"image": image},
+        stop_checker=stop_checker if stop_checker is not None else getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 
@@ -264,6 +298,8 @@ def run_folder_sql(
             "preloaded": preloaded or {},
             "flat_files": flat_files or {},
         },
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 
@@ -317,6 +353,8 @@ def run_text_analytics(
         error_code="TEXT_ANALYTICS_ERROR",
         error_label="Text Analytics",
         additional_data={"text": text},
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 # --- LanguageTool ---
@@ -335,6 +373,8 @@ def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
         error_code="LANGUAGETOOL_ERROR",
         error_label="LanguageTool",
         additional_data={"text": text, "bcp47": bcp47},
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )
 
 
@@ -354,4 +394,6 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
         error_code="VALE_ERROR",
         error_label="Vale Linter",
         additional_data={"text": text, "config_dir": config_dir, "styles": styles},
+        stop_checker=getattr(ctx, "stop_checker", None),
+        send_cancellation=getattr(ctx, "send_cancellation", None),
     )

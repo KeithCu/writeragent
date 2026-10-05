@@ -29,14 +29,21 @@ from plugin.framework.errors import (
 )
 from plugin.framework.config import get_api_config, get_config, get_config_int_safe
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
+from plugin.framework.client.errors import format_error_for_display
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
-from plugin.framework.queue_executor import llm_request_lane
+from plugin.framework.queue_executor import capture_send_stop, llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
-from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
-from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn
+from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter, ui_lines_for_handler_error
+from plugin.chatbot.tool_loop_actions import (
+    TurnController,
+    abort_turn,
+    current_turn,
+    persist_assistant_on_turn,
+    running_turn,
+)
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -59,6 +66,75 @@ def _direct_image_source_arg(model: Any) -> str | None:
     except Exception:
         log.debug("Direct image: selection probe failed", exc_info=True)
     return None
+
+
+class _SendWorkerQueue:
+    """Worker-facing queue bound to the turn that created it.
+
+    What was wrong: image, agent, and web workers called ``Queue.put`` on the
+    drain queue. After Stop or a newer send those items still arrived, and
+    the drain kept a second queue alive to filter them. ``put`` goes through
+    the controller. Once that turn is aborted, the item is dropped. The
+    worker does not assign the queue; the drain attached it.
+    """
+
+    _turn: TurnController | None
+    raw: "queue.Queue[Any]"
+
+    def __init__(self, turn: TurnController | None, raw: "queue.Queue[Any]") -> None:
+        self._turn = turn
+        self.raw = raw
+
+    def put(self, item: Any, *_args: Any, **_kwargs: Any) -> None:
+        turn = self._turn
+        if isinstance(turn, TurnController):
+            turn.put(item)
+
+
+def _send_worker_queues(host: Any) -> tuple["queue.Queue[Any]", _SendWorkerQueue]:
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    # ``_do_send`` starts the turn. A direct handler call with no turn yet
+    # starts one before the worker. An aborted turn is not replaced.
+    if current_turn(host) is None:
+        begin_send_turn(host, "")
+    raw: queue.Queue[Any] = queue.Queue()
+    turn = current_turn(host)
+    if isinstance(turn, TurnController) and turn.alive:
+        turn.queue = raw
+        turn.batcher = None
+    return raw, _SendWorkerQueue(turn, raw)
+
+
+def _turn_session_or_stop(host: Any) -> Any:
+    """The session for this send. None when the turn is already over.
+
+    ``_do_send`` starts the turn before this runs. A direct call with no
+    turn yet starts one. An aborted turn is not replaced: that rebind wrote
+    the reply onto a session the turn did not start with.
+    """
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    if current_turn(host) is None:
+        begin_send_turn(host, "")
+    turn = running_turn(host)
+    if turn is None:
+        return None
+    return turn.session
+
+
+def _specialized_tool_error_payload(note: str) -> dict[str, str]:
+    """Assistant row for a specialized tool that returned status=error.
+
+    What was wrong: librarian, brainstorm, writing-plan, PPT, deep research,
+    and shallow research painted the error and finished with an empty
+    STREAM_DONE. on_stream_done stores a non-agent row only when
+    assistant_content is non-empty, so the user turn stayed unanswered
+    while the FSM ended Ready. The open transcript is not a history write.
+    Why: the painted note is the assistant message, same as a stream error.
+    """
+    return {"assistant_content": note.strip()}
+
 
 if TYPE_CHECKING:
     from plugin.chatbot.panel import ChatSession
@@ -99,13 +175,16 @@ class SendHandlerHost(Protocol):
     frame: Any
     audio_wav_path: str | None
     _terminal_status: str
+    _stt_inflight: bool
+    _stt_kill: Any
     _current_agent_backend: Any
+    _turn: Any
 
     def _set_status(self, text: str) -> None: ...
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _get_doc_type_str(self, model: Any) -> str: ...
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
-    def rerender_rich_text_session(self) -> None: ...
+    def rerender_rich_text_session(self) -> bool: ...
     _record_assistant_start: bool
     def _run_unified_worker_drain_loop(
         self, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
@@ -138,49 +217,111 @@ class SendHandlersMixin:
     client: LlmClient | None = None
     audio_wav_path: str | None = None
     _terminal_status: str = "Ready"
+    _stt_inflight: bool = False
+    _stt_kill: Any = None
     _current_agent_backend: Any = None
     _librarian_suggested_user_name: str | None = None
     _in_librarian_mode: bool = False
     _in_brainstorming_mode: bool = False
     _in_writing_plan_mode: bool = False
     _in_ppt_master_mode: bool = False
+    _turn: Any = None
 
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
-        """Transcribe audio synchronously using event pumping on the main thread."""
-        from plugin.audio.stt_service import status_for_transcription, transcribe
+        """Transcribe audio synchronously using event pumping on the main thread.
+
+        What was wrong: this called ``transcribe`` with no stop checker.
+        ``run_blocking_in_thread`` pumps the UI, so Stop can cancel the send
+        scope, and a nested send can replace ``_send_cancellation``, while
+        Whisper's ``subprocess.run`` still waited out 900s. The transcript
+        was then posted anyway.
+
+        Why: ``capture_send_stop`` freezes the scope from this send. The
+        worker closes over that checker and must not call
+        ``resolve_stop_checker`` again. Stop kills the child through the
+        scope hook and ``_stt_kill``. A re-entrant call returns without
+        deleting the first WAV or clearing the first client's stop latch.
+        """
+        from plugin.audio.stt_service import SttStopped, status_for_transcription, terminate_stt_process, transcribe
         from plugin.framework.queue_executor import post_to_main_thread
 
-        if not self.client:
+        # getattr: a duck-typed host (the smol _do_send double) has no field
+        # until this call sets it. Missing means nothing is in flight.
+        if getattr(self, "_stt_inflight", False):
+            log.info("Ignoring re-entrant STT; the in-flight transcription keeps the first Stop")
+            return ""
 
-
-            api_config = get_api_config()
-            self.client = LlmClient(api_config, self.ctx)
-
-        cl = self.client
-        assert cl is not None
-
-        transcribing = status_for_transcription()
-        self._set_status(transcribing)
-        self._append_response("\n[" + transcribing + "]\n")
-
-        def on_status(message: str) -> None:
-            # Worker thread: the status control is UNO. run_blocking_in_thread
-            # pumps processEventsToIdle, which runs this posted callback.
-            post_to_main_thread(self._set_status, message)
-
+        self._stt_inflight = True
         try:
-            transcript_text = run_blocking_in_thread(
-                self.ctx, transcribe, wav_path, client=cl, model=stt_model, on_status=on_status,
-            )
+            # Spawn-time scope. Do not call resolve_stop_checker inside the
+            # worker: Stop's drain clears the field and the next send replaces it.
+            cancel_scope, stop_checker = capture_send_stop(self)
+            if stop_checker():
+                self._terminal_status = "Stopped"
+                return ""
+
+            # Always create a fresh client to avoid reusing previous STT endpoint/key
+            api_config = get_api_config()
+            self.client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope)
+
+            cl = self.client
+            assert cl is not None
+            if cancel_scope is not None and not cancel_scope.is_cancelled():
+                clearer = getattr(cl, "clear_stop", None)
+                if callable(clearer):
+                    clearer()
+            if cancel_scope is not None:
+                register = getattr(cancel_scope, "register_client", None)
+                if callable(register):
+                    register(cl)
+
+            transcribing = status_for_transcription()
+            self._set_status(transcribing)
+            self._append_response("\n[" + transcribing + "]\n")
+
+            def on_status(message: str) -> None:
+                # Worker thread: the status control is UNO. run_blocking_in_thread
+                # pumps processEventsToIdle, which runs this posted callback.
+                post_to_main_thread(self._set_status, message)
+
+            def _on_spawn(proc: Any) -> None:
+                def _kill() -> None:
+                    terminate_stt_process(proc)
+
+                # StopSendEffect calls this when the panel field no longer
+                # points at cancel_scope (a second send replaced it).
+                self._stt_kill = _kill
+
+            def _call() -> str:
+                return transcribe(
+                    wav_path,
+                    client=cl,
+                    model=stt_model,
+                    on_status=on_status,
+                    on_spawn=_on_spawn,
+                )
+
+            try:
+                # Do not pass stop_checker here. That raises BlockingWaitStopped
+                # and returns before the worker reaps the child. The worker
+                # polls the frozen checker and kills the process first.
+                transcript_text = run_blocking_in_thread(self.ctx, _call)
+            except SttStopped:
+                log.info("Speech-to-text stopped")
+                self._terminal_status = "Stopped"
+                return ""
+            except Exception as e:
+                log.exception("Transcription error in _transcribe_audio")
+                self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
+                raise e
+            if stop_checker():
+                log.info("Speech-to-text finished after Stop; preserving transcript for query box")
+                self._terminal_status = "Stopped"
+                return transcript_text
             return transcript_text
-
-        except Exception as e:
-            log.exception("Transcription error in _transcribe_audio")
-            self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
-            raise e
         finally:
-
-
+            self._stt_inflight = False
+            self._stt_kill = None
             try:
                 os.remove(wav_path)
             except Exception:
@@ -241,8 +382,21 @@ class SendHandlersMixin:
                     self._in_ppt_master_mode = False
 
         def on_stream_done(item: Any) -> None:
+            # Stop or a new send already aborted this turn. The worker
+            # wrapper may still post STREAM_DONE so the drain unblocks.
+            # That sentinel is not a successful answer.
+            live = current_turn(self)
+            if isinstance(live, TurnController) and not live.alive:
+                return
             payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
             if isinstance(payload, dict):
+                # Store the answer before a mode handoff aborts this turn.
+                # Web, librarian, brainstorm, writing, PPT, and deep research
+                # used to persist on the worker. That write raced Clear.
+                if current_state.handler_type != "agent":
+                    answer = payload.get("assistant_content")
+                    if isinstance(answer, str) and answer:
+                        persist_assistant_on_turn(self, content=answer)
                 _finish_specialized_session(payload)
             if current_state.handler_type == "agent":
                 text = "".join(agent_parts).strip()
@@ -251,15 +405,32 @@ class SendHandlersMixin:
             dispatch_event(StreamDoneEvent(payload))
 
         def on_stopped() -> None:
-            if current_state.handler_type == "agent":
-                partial = "".join(agent_parts).strip()
-                persist_assistant_on_turn(self, content=partial or "No response.")
-            elif on_stopped_callback:
+            # What was wrong: only agent Stop stored a row. Web and image pass
+            # no on_stopped_callback, and finalize skips rerender after Stop,
+            # so the painted partial never landed in session.messages.
+            # Why: the turn commits the open row and writes the stop line.
+            # Agent still prefers the non-thinking chunks it accumulated.
+            turn = current_turn(self)
+            partial = "".join(agent_parts).strip() if current_state.handler_type == "agent" else None
+            if isinstance(turn, TurnController):
+                turn.close_stopped(self, partial)
+            if on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
 
         def on_error(e: Exception) -> None:
+            live = current_turn(self)
+            if isinstance(live, TurnController) and not live.alive:
+                return
             dispatch_event(ErrorEvent(e))
+            # What was wrong: the banner was painted and the user row was
+            # already stored, so the next send had a hole where the assistant
+            # row should be. The tool loop stores that banner with
+            # persist_assistant_on_turn. Why: same write for web, agent, and
+            # image, using the lines handle_error already shows.
+            err_msg = format_error_for_display(e)
+            append_text = ui_lines_for_handler_error(current_state.handler_type, err_msg)[1]
+            persist_assistant_on_turn(self, content=append_text.strip())
 
         def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
             # The worker_fn in this mixin expects to put things directly into q.
@@ -269,19 +440,28 @@ class SendHandlersMixin:
             # BUT, it's better to refactor the workers to use the passed queue.
             worker_fn()
 
-        run_async_worker_with_drain(
-            self.ctx,
-            worker_wrapper,
-            apply_chunk,
-            on_stream_done,
-            on_error,
-            on_status_fn=self._set_status,
-            stop_checker=self.resolve_stop_checker(),
-            on_stopped_fn=on_stopped,
-            name="chatbot-send-handler",
-            q=q,
-            on_approval_required=on_approval_callback,
-        )
+        turn = current_turn(self)
+        if isinstance(turn, TurnController) and turn.queue is None:
+            # The drain owns the queue. The worker wrapper only calls put.
+            turn.queue = q
+        try:
+            run_async_worker_with_drain(
+                self.ctx,
+                worker_wrapper,
+                apply_chunk,
+                on_stream_done,
+                on_error,
+                on_status_fn=self._set_status,
+                stop_checker=self.resolve_stop_checker(),
+                on_stopped_fn=on_stopped,
+                name="chatbot-send-handler",
+                q=q,
+                on_approval_required=on_approval_callback,
+            )
+        finally:
+            # Workers that outlive the drain must not enqueue. The send
+            # drain drops ``_turn`` after it has read the reply to speak.
+            abort_turn(self)
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
         interpreter = EffectInterpreter(self)
@@ -295,9 +475,11 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is not None:
+            turn_session.add_user_message(query_text)
 
-
-        q: queue.Queue[Any] = queue.Queue()
+        drain_q, q = _send_worker_queues(self)
         # Probe on the UI thread. The tool re-reads the selection when it
         # executes; this flag only decides whether to request img2img.
         source_image = _direct_image_source_arg(model)
@@ -328,12 +510,15 @@ class SendHandlersMixin:
         with suppress_disposed("LRU update", logger=log, exc_info=True):
             update_lru_history(base_size_int, "image_base_size_lru", "")
 
+        # Spawn-time scope. The body must not call resolve_stop_checker or
+        # read _send_cancellation: Stop clears the field and the next send replaces it.
+        cancel_scope, stop_checker = capture_send_stop(self)
+
         def run_direct_image() -> None:
             try:
                 from plugin.main import get_tools
 
-                cancel_scope = getattr(self, "_send_cancellation", None)
-                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=self.resolve_stop_checker(), doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=getattr(self, "cached_doc_type", None) or "writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
                 image_args: dict[str, Any] = {"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_int, "image_model": image_model_text}
@@ -342,15 +527,21 @@ class SendHandlersMixin:
                 res = get_tools().execute("image_generate", tctx, bypass_thread_guard=False, **image_args)
                 if isinstance(res, dict) and res.get("status") == "error":
                     log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
-                result = json.dumps(res) if isinstance(res, dict) else str(res)
+                result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
                 data = safe_json_loads(result, default={})
                 if isinstance(data, dict):
                     note = data.get("message", data.get("status", "done"))
                 else:
                     log.error("Failed to parse generate_image result in _do_send_direct_image")
                     note = "done"
-                q.put((StreamQueueKind.CHUNK, "[image_generate: %s]\n" % note))
-                q.put((StreamQueueKind.STREAM_DONE, {}))
+                # What was wrong: success (and a tool status=error) put
+                # STREAM_DONE {}. on_stream_done stores a non-agent row only
+                # when assistant_content is set, so the [image_generate: …]
+                # note never reached history. Stop and raised errors already
+                # store a row. Why: this note is the assistant message.
+                note_line = "[image_generate: %s]\n" % note
+                q.put((StreamQueueKind.CHUNK, note_line))
+                q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": note_line.strip()}))
             except Exception as e:
                 doc_type = getattr(self, "cached_doc_type", None) or "unknown"
                 log.exception("Direct image path failed in _do_send_direct_image [doc: %s]", doc_type)
@@ -358,7 +549,7 @@ class SendHandlersMixin:
 
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
-        self._run_unified_worker_drain_loop(q, run_direct_image, current_state, interpreter)
+        self._run_unified_worker_drain_loop(drain_q, run_direct_image, current_state, interpreter)
         # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
         # here made image Stop look like a normal finish. The agent path
         # below keeps both Error and Stopped.
@@ -388,9 +579,13 @@ class SendHandlersMixin:
             if model and hasattr(model, "getURL"):
                 document_url = str(model.getURL() or "")
 
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
+            return
+
         try:
-            self.session.refresh_document_context(model, self.ctx)
-            doc_context = self.session.document_context
+            turn_session.refresh_document_context(model, self.ctx)
+            doc_context = turn_session.document_context
         except Exception as e:
             from plugin.framework.errors import is_disposed_exception
 
@@ -422,12 +617,14 @@ class SendHandlersMixin:
             self._set_status(_("Error"))
             return
 
-        bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session.add_user_message(query_text)
+        self._append_response(query_text, role="user")
 
-        q: queue.Queue[Any] = queue.Queue()
+        drain_q, q = _send_worker_queues(self)
         self._current_agent_backend = adapter
-        cancel_scope = getattr(self, "_send_cancellation", None)
+        # Spawn-time scope. run_agent must not call resolve_stop_checker:
+        # Stop clears the field and the next send replaces it.
+        cancel_scope, stop_checker = capture_send_stop(self)
         if cancel_scope is not None and hasattr(adapter, "stop"):
             cancel_scope.register_on_cancel(adapter.stop)
 
@@ -442,9 +639,14 @@ class SendHandlersMixin:
                 # Lean system prompt for external agents: instructions + MCP connection info
                 mcp_url = self._get_mcp_url()
 
-                # Check if MCP is enabled; if so, tell the agent about it.
+                # Check if MCP is enabled and running; if so, tell the agent about it.
+                # What was wrong: after "Stop MCP Server" or when stopped, the advertise check only
+                # inspected config (mcp.mcp_enabled), telling the agent the dead endpoint was live.
+                # Why this change: gate advertisement on the MCP server actually running.
                 mcp_instructions = ""
-                if mcp_url and as_bool(get_config("mcp.mcp_enabled")):
+                from plugin.mcp import is_mcp_server_running
+
+                if mcp_url and is_mcp_server_running():
                     mcp_instructions = (
                         f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\nYou can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\nTarget the current document by passing the 'X-Document-URL' header: {document_url}\n"
                     )
@@ -462,7 +664,7 @@ class SendHandlersMixin:
                     lean_system_prompt += "\n\n" + extra
 
                 with llm_request_lane():
-                    adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=self.resolve_stop_checker())
+                    adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=stop_checker)
             except Exception as e:
                 log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
 
@@ -479,13 +681,15 @@ class SendHandlersMixin:
             tool_name = item[2] if len(item) > 2 else ""
             request_id = item[4] if len(item) > 4 else None
 
-            # Option to auto-approve web research or other tools from external agents
+            # Option to auto-approve tools from external agents
             try:
-                prompt_for_research = as_bool(get_config("chatbot.prompt_for_web_research"))
+                prompt_for_permission = as_bool(get_config("agent_backend.prompt_for_permission"))
             except Exception:
-                prompt_for_research = True
+                prompt_for_permission = True
 
-            if not prompt_for_research:
+            if self.stop_requested:
+                approved = False
+            elif not prompt_for_permission:
                 approved = True
             else:
                 approved = show_approval_dialog(self.ctx, description, tool_name, parent_frame=getattr(self, "frame", None))
@@ -499,7 +703,7 @@ class SendHandlersMixin:
                     else:
                         log.debug("Error submitting agent backend approval: %s", e)
 
-        self._run_unified_worker_drain_loop(q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required)
+        self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required)
         if self._terminal_status not in ("Error", "Stopped"):
             self._terminal_status = "Ready"
         self._current_agent_backend = None
@@ -515,8 +719,10 @@ class SendHandlersMixin:
         self._librarian_suggested_user_name = get_suggested_user_name(self.ctx)
 
         self._in_librarian_mode = True
-        bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
+            return
+        turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -535,8 +741,10 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_brainstorming_mode = True
-        bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
+            return
+        turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
@@ -553,8 +761,10 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_writing_plan_mode = True
-        bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
+            return
+        turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
@@ -571,8 +781,10 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_ppt_master_mode = True
-        bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
+            return
+        turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
@@ -588,8 +800,10 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
+            return
+        turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -623,7 +837,7 @@ class SendHandlersMixin:
 
 
 
-        q: queue.Queue[Any] = queue.Queue()
+        drain_q, q = _send_worker_queues(self)
         # Read show_thinking before spawning the thread so apply_chunk can use it
         try:
 
@@ -638,11 +852,12 @@ class SendHandlersMixin:
         from plugin.chatbot.web_research_chat import format_sub_agent_conversation_history
 
         history_text = format_sub_agent_conversation_history(self.session, current_query=query_text)
+        # Spawn-time scope. run_search must not call resolve_stop_checker or
+        # read _send_cancellation: Stop clears the field and the next send replaces it.
+        cancel_scope, stop_checker = capture_send_stop(self)
 
         def run_search() -> None:
             doc_type = getattr(self, "cached_doc_type", None) or "writer"
-            cancel_scope = getattr(self, "_send_cancellation", None)
-            stop_checker = self.resolve_stop_checker()
             try:
                 # If librarian mode, clear active_run_librarian and run librarian
 
@@ -696,7 +911,7 @@ class SendHandlersMixin:
                             "suggested_user_name": getattr(self, "_librarian_suggested_user_name", None),
                         },
                     )
-                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -710,21 +925,20 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
-                        q.put((StreamQueueKind.STREAM_DONE, {}))
+                        q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": answer}))
                     elif data.get("status") == "switch_mode":
                         # Exit librarian on the UI thread via STREAM_DONE (combobox is UNO).
                         answer = data.get("result", _("Perfect! I'm switching you to the main assistant now."))
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
-                        q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True}))
+                        q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True, "assistant_content": answer}))
                     else:
                         self._in_librarian_mode = False
 
                         msg = data.get("message", _("Unknown librarian error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Librarian error: {0}]").format(msg) + "\n"))
-                        q.put((StreamQueueKind.STREAM_DONE, {}))
+                        note = "\n" + _("[Librarian error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        q.put((StreamQueueKind.STREAM_DONE, _specialized_tool_error_payload(note)))
                 elif is_brainstorming:
                     topic = getattr(self, "_brainstorming_topic", "") or ""
                     res = get_tools().execute(
@@ -733,7 +947,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text, "topic": topic},
                     )
-                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -748,7 +962,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
                         done_payload = {"brainstorming_finished": True, "spec_saved": bool(data.get("spec_saved", False))}
                         answer = data.get("result", _("Brainstorming complete."))
@@ -756,11 +970,13 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         self._in_brainstorming_mode = False
                         msg = data.get("message", _("Unknown brainstorming error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Brainstorming error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Brainstorming error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_writing_plan:
@@ -771,7 +987,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text, "topic": topic},
                     )
-                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -786,7 +1002,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
                         done_payload = {"writing_plan_finished": True}
                         answer = data.get("result", _("Writing plan complete."))
@@ -794,11 +1010,13 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         self._in_writing_plan_mode = False
                         msg = data.get("message", _("Unknown writing plan error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Writing plan error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Writing plan error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_ppt_master:
@@ -809,7 +1027,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text, "topic": topic},
                     )
-                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -824,7 +1042,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
                         done_payload = {"ppt_master_finished": True, "exported": bool(data.get("exported", False))}
                         answer = data.get("result", _("PPT-Master session complete."))
@@ -832,11 +1050,13 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         self._in_ppt_master_mode = False
                         msg = data.get("message", _("Unknown PPT-Master error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[PPT-Master error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[PPT-Master error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_deep_research:
@@ -846,7 +1066,7 @@ class SendHandlersMixin:
                         bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text},
                     )
-                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -854,21 +1074,24 @@ class SendHandlersMixin:
                         parsed_err = AgentParsingError("Invalid JSON from deep research tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
+                    done_payload = {}
                     if data.get("status") == "ok":
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         msg = data.get("message", _("Unknown deep research error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Deep research error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Deep research error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
-                    q.put((StreamQueueKind.STREAM_DONE, {}))
+                    q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 else:
                     res = get_tools().execute("web_research", tctx, bypass_thread_guard=False, **{"query": query_text, "history_text": history_text})
-                    result = json.dumps(res) if isinstance(res, dict) else str(res)
+                    result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
@@ -876,6 +1099,7 @@ class SendHandlersMixin:
                         parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
+                    done_payload = {}
                     if data.get("status") == "ok":
                         from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 
@@ -885,12 +1109,14 @@ class SendHandlersMixin:
                         cache_block = format_research_cache_result_chat(data)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, cache_block + answer + "\n"))
-                        persist_assistant_on_turn(self, content=cache_block + answer)
+                        done_payload["assistant_content"] = cache_block + answer
                     else:
                         msg = data.get("message", _("Unknown research error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Research error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
-                    q.put((StreamQueueKind.STREAM_DONE, {}))
+                    q.put((StreamQueueKind.STREAM_DONE, done_payload))
             except Exception as e:
                 log.exception("Web/Librarian path ERROR in _run_web_research [doc: %s]", doc_type)
 
@@ -905,7 +1131,7 @@ class SendHandlersMixin:
                 self.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
             log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
-        self._run_unified_worker_drain_loop(q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
+        self._run_unified_worker_drain_loop(drain_q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 
         from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
@@ -914,6 +1140,8 @@ class SendHandlersMixin:
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""
         try:
+            if not as_bool(get_config("mcp.mcp_enabled")):
+                return None
             from plugin.mcp.server import mcp_endpoint_url
 
             port = get_config_int_safe("mcp.mcp_port")

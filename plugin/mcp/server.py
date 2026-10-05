@@ -25,8 +25,9 @@ Concurrency: the socket accept loop runs on its **own** daemon thread
 does not occupy the short-job pool. Incoming HTTP is **not** the
 LibreOffice UI thread. Anything that touches a document, a dialog, or
 most UNO services must be posted through ``QueueExecutor``
-(``execute_on_main_thread``). The route table is registered at server
-start and then only read — no lock.
+(``execute_on_main_thread``). Route reads and register/unregister share
+``HttpRouteRegistry``'s lock. MCP toggle mutates the table while ``GET /``
+iterates it; the lock is what keeps that from raising ``RuntimeError``.
 """
 
 from __future__ import annotations
@@ -34,9 +35,13 @@ from __future__ import annotations
 from plugin.framework.thread_guard import background
 import json
 import logging
+import socket
 import socketserver
+import sys
+import threading
+import weakref
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
@@ -47,6 +52,18 @@ if TYPE_CHECKING:
     from plugin.mcp.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.framework.http_server")
+
+# MCP JSON-RPC bodies are tool arguments, not file uploads. A few MiB is
+# enough for a document slice and small enough that one request cannot
+# force a multi-gigabyte allocation in the ThreadingMixIn worker.
+MCP_HTTP_MAX_BODY_BYTES = 4 * 1024 * 1024
+
+# rfile.read blocks forever when BaseHTTPRequestHandler.timeout is None.
+# A client that sends Content-Length and then stalls held one request
+# thread until the process exited. 30s fails that read closed. SSE
+# keepalive waits in select(), which does not follow this socket timeout,
+# so a long GET /mcp is not cut off by it.
+MCP_HTTP_SOCKET_TIMEOUT_SEC = 30.0
 
 
 def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:
@@ -89,6 +106,64 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
             pass
 
 
+def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]:
+    """Parse a JSON object body, or ``(None, (status, error))`` when it is refused.
+
+    The caller writes the error response. Negative Content-Length stays 400.
+    A length above :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read.
+    A socket timeout while reading a body that is under the cap is 408.
+    An empty body is ``{}`` and does not touch ``rfile``.
+    """
+    from plugin.framework.errors import AgentParsingError
+
+    raw_length = handler.headers.get("Content-Length", 0)
+    try:
+        content_length = int(raw_length)
+    except (TypeError, ValueError):
+        err = AgentParsingError("Invalid Content-Length in HTTP request", details={"length": raw_length})
+        return None, (400, err)
+    if content_length < 0:
+        # What was wrong: BaseHTTPRequestHandler / rfile.read treats a
+        # negative size as "read until EOF". A client sent Content-Length: -1
+        # and the worker blocked until the socket closed.
+        # Why: reject before any read. Same check as before this cap existed.
+        log.warning("Invalid negative Content-Length: %s", content_length)
+        err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
+        return None, (400, err)
+    if content_length == 0:
+        return {}, None
+    if content_length > MCP_HTTP_MAX_BODY_BYTES:
+        # What was wrong: the handler trusted Content-Length and called
+        # rfile.read(content_length) with no ceiling and no socket timeout.
+        # A huge length pinned the worker on the allocation, and a stalled
+        # body pinned it forever.
+        # Why: refuse the length before the read. The handler/server timeout
+        # covers a stall whose declared length is still under the cap.
+        log.warning("Rejecting oversized Content-Length: %s", content_length)
+        err = AgentParsingError("HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, details={"length": content_length, "max": MCP_HTTP_MAX_BODY_BYTES})
+        return None, (413, err)
+    try:
+        raw_bytes = handler.rfile.read(content_length)
+    except TimeoutError:
+        log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
+        err = AgentParsingError("Timed out reading HTTP body", details={"length": content_length})
+        return None, (408, err)
+    if isinstance(raw_bytes, str):
+        raw = raw_bytes
+    else:
+        try:
+            raw = bytes(raw_bytes).decode("utf-8")
+        except UnicodeDecodeError:
+            err = AgentParsingError("HTTP body is not UTF-8", details={"length": content_length})
+            return None, (400, err)
+    data = safe_json_loads(raw, default=None, strict=True)
+    if data is None and raw.strip():
+        log.warning("Invalid JSON body: %s", raw[:200])
+        err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
+        return None, (400, err)
+    return (data if data is not None else {}), None
+
+
 def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> None:
     """Status-only response (204/202) with Content-Length: 0 so the client is not left reading to EOF."""
     handler.send_response(status)
@@ -96,6 +171,94 @@ def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> No
         extra_headers(handler)
     handler.send_header("Content-Length", "0")
     handler.end_headers()
+
+
+def _sse_state(tcp_server: Any) -> tuple[threading.Event, Any, Any, threading.Lock]:
+    """Per-listener keepalive tracking.
+
+    serve_forever()/shutdown() does not join ThreadingMixIn request threads.
+    State lives on that listener: stopping one server must not mark a
+    different listener's streams as stopped. Weak refs so a handler that
+    already exited does not pin the connection.
+    """
+    lock = getattr(tcp_server, "_sse_lock", None)
+    if lock is None:
+        lock = threading.Lock()
+        tcp_server._sse_lock = lock
+        tcp_server._sse_stop = threading.Event()
+        tcp_server._sse_sockets = weakref.WeakSet()
+        tcp_server._sse_threads = weakref.WeakSet()
+    return tcp_server._sse_stop, tcp_server._sse_sockets, tcp_server._sse_threads, lock
+
+
+def note_sse_keepalive(tcp_server: Any, sock: Any) -> threading.Event | None:
+    """Register *sock* on *tcp_server*.
+
+    Returns the stop event the loop must watch, or None when this listener
+    is already stopped and the loop must not run.
+    """
+    if tcp_server is None or sock is None:
+        return None
+    stop, sockets, threads, lock = _sse_state(tcp_server)
+    with lock:
+        if stop.is_set():
+            return None
+        sockets.add(sock)
+        threads.add(threading.current_thread())
+        return stop
+
+
+def forget_sse_keepalive(tcp_server: Any, sock: Any) -> None:
+    """Drop a keepalive that has left its loop."""
+    if tcp_server is None:
+        return
+    _stop, sockets, threads, lock = _sse_state(tcp_server)
+    with lock:
+        if sock is not None:
+            sockets.discard(sock)
+        threads.discard(threading.current_thread())
+
+
+def _shutdown_sse_socket(sock: Any) -> None:
+    """Wake select on *sock*, then close it.
+
+    close() from another thread does not reliably interrupt select, and
+    the fd can be reused under that wait. shutdown(SHUT_RDWR) marks the
+    socket readable so the keepalive loop returns and checks the stop flag.
+    """
+    shutdown = getattr(sock, "shutdown", None)
+    if callable(shutdown):
+        try:
+            shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+    close = getattr(sock, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
+def stop_sse_keepalives(tcp_server: Any) -> None:
+    """End SSE loops still running on *tcp_server* after the accept loop exits.
+
+    What was wrong: HttpServer.stop() only makes serve_forever() return.
+    Each GET /mcp and GET /sse keepalive stays on its request thread until
+    the client drops or the 15s select timeout, and a restart adds more.
+    Why: set this listener's flag and shut down its registered sockets so
+    those loops exit. The next HttpServer has its own flag.
+    """
+    if tcp_server is None:
+        return
+    stop, sockets, _threads, lock = _sse_state(tcp_server)
+    with lock:
+        stop.set()
+        socks = list(sockets)
+    if socks:
+        log.info("Closing %d SSE keepalive socket(s)", len(socks))
+    for sock in socks:
+        _shutdown_sse_socket(sock)
 
 
 def is_port_in_use_error(exc: BaseException) -> bool:
@@ -130,9 +293,37 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
     daemon_threads: bool = True
 
+    def get_request(self) -> tuple[Any, Any]:
+        """Accept one connection and bound how long a later recv may block.
+
+        Handler.setup also applies GenericRequestHandler.timeout. Setting it
+        here covers the window before setup, including a client that connects
+        and never sends a request line.
+        """
+        conn, addr = super().get_request()
+        try:
+            conn.settimeout(MCP_HTTP_SOCKET_TIMEOUT_SEC)
+        except OSError:
+            pass
+        return conn, addr
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """A stalled read is a closed request, not a traceback on the console."""
+        _typ, exc, _tb = sys.exc_info()
+        if isinstance(exc, TimeoutError):
+            host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
+            log.info("HTTP read timed out from %s", host)
+            return
+        super().handle_error(request, client_address)
+
 
 class GenericRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler that dispatches to registered routes."""
+
+    # Applied in StreamRequestHandler.setup to the accepted socket.
+    # ClassVar matches StreamRequestHandler.timeout so this stays a class
+    # attribute (a bare annotation is treated as an instance variable).
+    timeout: ClassVar[float | None] = MCP_HTTP_SOCKET_TIMEOUT_SEC
 
     route_registry: HttpRouteRegistry | None = None  # set by HttpServer.start()
 
@@ -196,19 +387,14 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             self._send_json(500, format_error_payload(e))
 
     def _read_body(self) -> Any:
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length == 0:
-            return {}
-        raw = self.rfile.read(content_length).decode("utf-8")
-        data = safe_json_loads(raw, default=None, strict=True)
-        if data is None and raw.strip():
-            from plugin.framework.errors import AgentParsingError, format_error_payload
+        data, rejected = read_json_body(self)
+        if rejected is not None:
+            from plugin.framework.errors import format_error_payload
 
-            log.warning("Invalid JSON body: %s", raw[:200])
-            err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
-            self._send_json(400, format_error_payload(err))
+            status, err = rejected
+            self._send_json(status, format_error_payload(err))
             return None
-        return data if data is not None else {}
+        return data
 
     def _send_json(self, status: int, data: Any) -> None:
         write_http_json(self, status, data)
@@ -251,6 +437,8 @@ class HttpServer:
         # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
         try:
             self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
+            # Before the accept thread exists, so request handlers share this state.
+            _sse_state(self._server)
         except OSError:
             log.exception("Could not bind %s:%s — %s", self.host, self.port, _PORT_IN_USE_GUIDANCE)
             raise
@@ -264,9 +452,15 @@ class HttpServer:
                 import ssl
 
                 ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-                ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
-                if self._server:
-                    self._server.socket = ssl_ctx.wrap_socket(self._server.socket, server_side=True)
+                try:
+                    ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+                    if self._server:
+                        self._server.socket = ssl_ctx.wrap_socket(self._server.socket, server_side=True)
+                except Exception:
+                    if self._server:
+                        self._server.server_close()
+                        self._server = None
+                    raise
             else:
                 log.warning("use_ssl is True but no certificates provided. Disabling TLS.")
                 self.use_ssl = False
@@ -282,10 +476,28 @@ class HttpServer:
         if not self._running:
             return
         self._running = False
-        if self._server:
-            self._server.shutdown()
-            self._server.server_close()
-            log.info("HTTP server stopped")
+        threads_to_join = []
+        try:
+            if self._server:
+                # The SSE state registry tracks active threads (via note_sse_keepalive,
+                # which routes use) so we can wait for in-flight requests to complete.
+                _, _, threads, lock = _sse_state(self._server)
+                with lock:
+                    threads_to_join = list(threads)
+                self._server.shutdown()
+                self._server.server_close()
+                log.info("HTTP server stopped")
+        finally:
+            # shutdown() does not join request threads. SSE keepalives are
+            # still blocked in select until their sockets are closed.
+            stop_sse_keepalives(self._server)
+
+            # Join in-flight threads. We give them a bit of time, shutdown() only shuts down new accept calls.
+            for t in threads_to_join:
+                if t.is_alive() and t is not threading.current_thread():
+                    t.join(timeout=2.0)
+                    if t.is_alive():
+                        log.warning("HTTP server request thread %s still alive after stop", getattr(t, "name", "unknown"))
 
     @background
     def _run(self) -> None:
@@ -296,7 +508,22 @@ class HttpServer:
             if self._running:
                 log.exception("HTTP server error")
         finally:
+            # stop() sets _running False before shutdown() and server_close().
+            # What was wrong: when serve_forever returned on its own, this
+            # finally cleared _running and stopped SSE keepalives but left
+            # the listen socket open. stop() then returned immediately, so
+            # server_close() never ran and the port stayed bound.
+            # Call server_close() only on that unexpected exit. The normal
+            # stop() path has already closed the listener, so this branch
+            # does not run and does not close it a second time.
+            unexpected = self._running
             self._running = False
+            if unexpected:
+                try:
+                    if self._server is not None:
+                        self._server.server_close()
+                finally:
+                    stop_sse_keepalives(self._server)
 
     def is_running(self) -> bool:
         return self._running

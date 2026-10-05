@@ -327,6 +327,34 @@ def test_parse_whisper_stdout() -> None:
         stt_service.parse_whisper_stdout("")
 
 
+def test_run_cmd_returns_child_stdout() -> None:
+    completed = stt_service._run_cmd([sys.executable, "-c", "print('hello-stt')"], 30)
+    assert completed is not None
+    assert completed.returncode == 0
+    assert "hello-stt" in completed.stdout
+
+
+def test_run_cmd_stop_already_clicked_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When Stop was already clicked before spawn, _run_cmd raises SttStopped without spawning."""
+    spawned = False
+
+    def _fail_popen(*_args: object, **_kwargs: object) -> subprocess.Popen[str]:
+        nonlocal spawned
+        spawned = True
+        raise AssertionError("Process must not be spawned when Stop was already clicked")
+
+    monkeypatch.setattr(stt_service.subprocess, "Popen", _fail_popen)
+    with pytest.raises(stt_service.SttStopped):
+        stt_service._run_cmd([sys.executable, "-c", "pass"], 10, stop_checker=lambda: True)
+    assert not spawned
+
+
+def test_transcribe_stop_already_clicked_raises_stt_stopped() -> None:
+    """transcribe raises SttStopped when Stop was already clicked."""
+    with pytest.raises(stt_service.SttStopped):
+        stt_service.transcribe("/tmp/test.wav", stop_checker=lambda: True)
+
+
 def test_child_script_missing_package_is_json() -> None:
     """The venv entry reports a missing import as JSON and does not touch the network."""
     import importlib.util

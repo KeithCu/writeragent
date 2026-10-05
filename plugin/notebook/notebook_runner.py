@@ -15,7 +15,8 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.async_stream import BlockingWaitStopped, run_blocking_in_thread
+from plugin.framework.errors import is_document_disposed
+from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.notebook import form_lookup
@@ -23,7 +24,7 @@ from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _I
 from plugin.notebook.notebook_controls import _doc_key, _resolve_para_style
 from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_NOTEBOOK_OUT, _insert_image_in_flow, _strip_ansi, output_para_style
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
-from plugin.scripting.session_manager import notebook_session_id
+from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger("writeragent.notebook")
@@ -37,10 +38,13 @@ log = logging.getLogger("writeragent.notebook")
 _running_docs: set[str] = set()
 
 # Stop is a separate signal so the busy guard never blocks it. The hamburger
-# sets it on the UI thread. ``execute_code`` waits on that same thread without
-# a VCL pump, so the click is delivered between cells (``flush_ui_idle``), not
-# during the in-flight wait. ``stop_checker`` still aborts that wait if another
-# thread sets the flag; the menu cannot.
+# sets the per-doc Event on the UI thread. Chat Stop only latches
+# SendCancellation on that same thread. ``execute_code`` waits without a VCL
+# pump, so neither click lands during the in-flight cell. Between cells,
+# ``flush_ui_idle`` delivers the click when no drain owns VCL. That flush
+# no-ops while a chat drain is the owner, and the drain is blocked inside
+# this Run All, so a chat-owned sequence uses ``pump_ui_idle`` instead
+# (depth <= 1 still pumps). ``_clear_stop`` does not reset the chat scope.
 _stop_flags: dict[str, threading.Event] = {}
 _stop_lock = threading.Lock()
 
@@ -71,10 +75,26 @@ def _stop_event(busy_key: str) -> threading.Event:
         return ev
 
 
+def _chat_stop_requested() -> bool:
+    """True when sidebar Stop has latched the active send scope.
+
+    What was wrong: Stop did nothing for the rest of a chat-owned Run All.
+    How: the chat Stop button only cancels ``SendCancellation``. Run All
+    watched the notebook Event, which that button never sets.
+    Why: the scope is on this thread, and ``_clear_stop`` does not reset it.
+    """
+    from plugin.framework.queue_executor import get_current_send_cancellation
+
+    scope = get_current_send_cancellation()
+    return scope is not None and scope.is_cancelled()
+
+
 def _is_stop_requested(busy_key: str) -> bool:
     with _stop_lock:
         ev = _stop_flags.get(busy_key)
-    return bool(ev is not None and ev.is_set())
+    if ev is not None and ev.is_set():
+        return True
+    return _chat_stop_requested()
 
 
 def _clear_stop(busy_key: str) -> None:
@@ -104,9 +124,10 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     livelocks (92% CPU, never returns) on notebooks with many in-flow form
     controls — the same bug ``flush_ui_idle`` documents after import. Drain
     *between* cells in Run All, never here. ``stop_checker`` is polled on this
-    wait, but the hamburger sets that flag on this same UI thread, so a Stop
-    click is not dispatched until the worker returns. Stop therefore skips
-    cells that have not started; it does not abort the in-flight cell.
+    wait (notebook Event or chat ``SendCancellation``). Both Stop buttons run
+    on this same UI thread, and this wait does not pump, so a click during the
+    cell is not seen until the worker returns. Stop therefore skips cells that
+    have not started; it does not abort the in-flight cell.
     """
     session_id = notebook_session_id(ctx, doc)
     if not session_id:
@@ -115,18 +136,24 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
 
     ensure_python_session_cleared_on_unload(ctx, doc, session_id)
 
-    def _run() -> dict[str, Any]:
-        return run_code_in_user_venv(ctx, code, session_id=session_id)
+    script_session_id = pin_script_document(doc)
 
     busy_key = _doc_key(doc)
 
     def _stopped() -> bool:
         return _is_stop_requested(busy_key)
 
-    try:
-        return run_blocking_in_thread(ctx, _run, pump_idle=False, stop_checker=_stopped)
-    except BlockingWaitStopped:
-        return {"status": "interrupted", "message": "Stopped."}
+    def _run() -> dict[str, Any]:
+        try:
+            return run_code_in_user_venv(ctx, code, session_id=session_id, script_session_id=script_session_id, stop_checker=_stopped)
+        except Exception:
+            if _stopped():
+                return {"status": "stopped", "message": "Stopped."}
+            raise
+        finally:
+            release_script_document(script_session_id)
+
+    return run_blocking_in_thread(ctx, _run, pump_idle=False)
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +432,10 @@ def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: 
     if _style_is_heading12(para_style) and stripped:
         return True
     compact = _style_compact(para_style)
-    if stripped and compact in ("textbody", "textkörper", "bodytext"):
+    # Treat following markdown blockquote/list (and other non-output notebook body
+    # that belongs to the next cell / markdown cell) as a stop boundary so clearing
+    # outputs never deletes them.
+    if stripped and compact not in ("", "preformattedtext", "preformatted", "writeragentnotebookoutput"):
         return True
     return False
 
@@ -1050,7 +1080,7 @@ def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: Notebo
     result = execute_code(ctx, doc, code)
     # After execute so live smoke can tell ok from a sandbox dunder deny.
     log.info("notebook run cell index=%d field=%s status=%s", cell.index, cell.code_field_name, result.get("status"))
-    if result.get("status") == "interrupted":
+    if result.get("status") == "stopped" or result.get("status") == "interrupted":
         # In [n] / outputs only for cells that actually finished.
         return RunResult("stopped", None, "Stopped.", cells_run=0)
 
@@ -1124,7 +1154,10 @@ def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
     # Execution errors (sandbox, syntax, traceback) already land under the cell
     # via apply_run_result. A modal here blocked the document and would make
     # Run All unusable. Keep msgbox only for the setup failures above.
-    run_cell(ctx, doc, cell.cell_id)
+    result = run_cell(ctx, doc, cell.cell_id)
+    if result.status == "error" and not result.cells_run:
+        msgbox(ctx, "WriterAgent", result.message)
+
 
 
 def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
@@ -1163,16 +1196,43 @@ def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
     return len(cells)
 
 
+def _pump_between_notebook_cells(ctx: Any) -> None:
+    """Deliver a Stop click between cells.
+
+    What was wrong: Stop was ignored for the rest of a chat-owned Run All.
+    How: ``flush_ui_idle`` calls ``process_events_to_idle``, which does not
+    pump while a drain owner is set. The drain is blocked inside this Run
+    All, so the chat Stop click never runs, and that button never sets the
+    notebook Event.
+    Why: ``pump_ui_idle`` is the owner's pump and still delivers VCL at
+    depth 1. With no owner, keep ``flush_ui_idle`` (hamburger Stop, and the
+    tests that patch it). Do not pump inside ``execute_code`` (LayoutIdle).
+    """
+    try:
+        from plugin.framework.async_drain_guard import get_drain_owner
+        from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
+        from plugin.framework.uno_context import get_toolkit
+        from plugin.notebook.writer_importer import flush_ui_idle
+
+        pump_main_thread_work_queue(max_items=1)
+        if get_drain_owner() is not None:
+            pump_ui_idle(get_toolkit(ctx), max_queue_items=1)
+        else:
+            flush_ui_idle(ctx)
+    except Exception:
+        log.debug("notebook run: between-cell pump failed", exc_info=True)
+
+
 def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
     """Execute code cells from *start_index* in registry order.
 
     Holds the busy key for the whole sequence so a ▶ is skipped (``busy``).
     Stop does not take this guard. It is observed between cells: the in-flight
-    ``execute_code`` wait does not pump VCL, so a hamburger Stop cannot land
-    until that wait returns. Empty fields are skipped (single-cell ▶ still
-    errors). A missing code field is logged and skipped. A traceback is written
-    under the cell and the batch continues unless Stop was requested. Drain
-    between cells only.
+    ``execute_code`` wait does not pump VCL, so a Stop click cannot land until
+    that wait returns. Empty fields are skipped (single-cell ▶ still errors).
+    A missing code field is logged and skipped. A traceback is written under
+    the cell and the batch continues unless Stop was requested. Drain between
+    cells only.
     """
     state = load_registry(doc)
     if state is None:
@@ -1203,9 +1263,10 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
             if need_drain:
                 # LayoutIdle livelock is during execute, not this between-cell pump.
                 # Stop clicks are delivered here; check the flag before the next cell.
-                from plugin.notebook.writer_importer import flush_ui_idle
-
-                flush_ui_idle(ctx)
+                _pump_between_notebook_cells(ctx)
+            if is_document_disposed(doc):
+                stopped = True
+                break
             if _is_stop_requested(busy_key):
                 stopped = True
                 break
@@ -1256,22 +1317,43 @@ def run_from_here_for_doc(ctx: Any, doc: Any) -> RunResult | None:
     return run_cells(ctx, doc, start_index=find_run_from_here_index(doc, state))
 
 
-def run_all_from_menu(ctx: Any | None = None) -> None:
+def run_all_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
     from plugin.framework.uno_context import get_ctx
 
     resolved = ctx if ctx is not None else get_ctx()
-    run_all_for_doc(resolved, get_active_document(resolved))
+    doc = None
+    if frame is not None and hasattr(frame, "getController"):
+        ctrl = frame.getController()
+        if ctrl is not None and hasattr(ctrl, "getModel"):
+            doc = ctrl.getModel()
+    if doc is None:
+        doc = get_active_document(resolved)
+    run_all_for_doc(resolved, doc)
 
 
-def run_from_here_from_menu(ctx: Any | None = None) -> None:
+def run_from_here_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
     from plugin.framework.uno_context import get_ctx
 
     resolved = ctx if ctx is not None else get_ctx()
-    run_from_here_for_doc(resolved, get_active_document(resolved))
+    doc = None
+    if frame is not None and hasattr(frame, "getController"):
+        ctrl = frame.getController()
+        if ctrl is not None and hasattr(ctrl, "getModel"):
+            doc = ctrl.getModel()
+    if doc is None:
+        doc = get_active_document(resolved)
+    run_from_here_for_doc(resolved, doc)
 
 
-def stop_from_menu(ctx: Any | None = None) -> None:
+def stop_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
     from plugin.framework.uno_context import get_ctx
 
     resolved = ctx if ctx is not None else get_ctx()
-    stop_for_doc(get_active_document(resolved))
+    doc = None
+    if frame is not None and hasattr(frame, "getController"):
+        ctrl = frame.getController()
+        if ctrl is not None and hasattr(ctrl, "getModel"):
+            doc = ctrl.getModel()
+    if doc is None:
+        doc = get_active_document(resolved)
+    stop_for_doc(doc)

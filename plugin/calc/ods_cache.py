@@ -129,9 +129,8 @@ def lookup_cached_ods(source_path: str) -> Path | None:
     return ods_path
 
 
-def write_sidecar_meta(meta_path: Path, source_path: str) -> None:
+def write_sidecar_meta(meta_path: Path, abs_path: str, mtime_ns: int, size: int) -> None:
     """Write source path / mtime / size / format version next to the cached ODS."""
-    abs_path, mtime_ns, size = source_stat(source_path)
     payload = {"cache_format_version": CACHE_FORMAT_VERSION, "source_path": abs_path, "mtime_ns": mtime_ns, "size": size}
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

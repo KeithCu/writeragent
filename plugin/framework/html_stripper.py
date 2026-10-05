@@ -37,13 +37,43 @@ _deal_strip_html_ok = ascii_bounded if _HTML_CROSSHAIR else str_bounded
 # Element text used to survive (``<script>alert(1)</script>`` → ``alert(1)``).
 # Drop the body until the matching close tag, not only the tag bytes.
 _DISCARD_ELEMENTS = frozenset({"script", "style"})
+# Tags the stripper removes. Anything else inside ``<…>`` is prose: a generic
+# (``List<String>``), an autolink (``<https://example.com>``), an email
+# (``<user@example.com>``), or a known name glued to a non-delimiter
+# (``<a@b.com>``, ``<b, c>``, ``<em@x>``). ``b`` / ``i`` / ``script`` stay in
+# this set so formatting and script-body removal are unchanged.
+_HTML_ELEMENTS = frozenset({
+    "a", "abbr", "acronym", "address", "area", "article", "aside", "audio",
+    "b", "base", "bdi", "bdo", "big", "blockquote", "body", "br", "button",
+    "canvas", "caption", "center", "cite", "code", "col", "colgroup",
+    "data", "datalist", "dd", "del", "details", "dfn", "dialog", "div", "dl", "dt",
+    "em", "embed",
+    "fieldset", "figcaption", "figure", "font", "footer", "form",
+    "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html",
+    "i", "iframe", "img", "input", "ins",
+    "kbd",
+    "label", "legend", "li", "link",
+    "main", "map", "mark", "menu", "meta", "meter",
+    "nav", "noscript",
+    "object", "ol", "optgroup", "option", "output",
+    "p", "picture", "pre", "progress",
+    "q",
+    "rp", "rt", "ruby",
+    "s", "samp", "script", "search", "section", "select", "slot", "small",
+    "source", "span", "strike", "strong", "style", "sub", "summary", "sup",
+    "table", "tbody", "td", "template", "textarea", "tfoot", "th", "thead",
+    "time", "title", "tr", "track", "tt",
+    "u", "ul",
+    "var", "video",
+    "wbr",
+})
 # The tag-buffer cap (256) does not cover element body. An unclosed
 # ``<script>`` used to drop every later character of the reply. Hold at most
 # this many body chars; past that, or on a blank line, it was prose.
 _DISCARD_BODY_LIMIT = 256
 # Trailing incomplete entity (``&amp`` split across chunks). A finished
 # ``&amp;`` does not match. ``3 & 5`` does not end on the ampersand.
-_INCOMPLETE_ENTITY_TAIL = re.compile(r"&(?:#x[0-9A-Fa-f]*|#\d*|[A-Za-z][A-Za-z0-9]{0,31})?$")
+_INCOMPLETE_ENTITY_TAIL = re.compile(r"&(?:#x[0-9A-Fa-f]*|#\d*|[A-Za-z][A-Za-z0-9]{0,31})?\Z")
 
 
 def _split_incomplete_entity(text: str) -> tuple[str, str]:
@@ -56,29 +86,89 @@ def _split_incomplete_entity(text: str) -> tuple[str, str]:
     return text[: matched.start()], matched.group(0)
 
 
-def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
-    """Return ``(lower_name, is_close, is_empty)`` for a tag buffer without ``>``.
+def _tag_name_body(buf: str) -> tuple[str, bool, str]:
+    """Return ``(lower_name, is_close, rest)`` for a tag buffer without ``>``.
 
-    ``buf`` is everything after ``<`` was seen and before an unquoted ``>``.
+    ``rest`` starts at the first character after the element name. A leading
+    ``/`` and the whitespace after it are the close marker (``</ em>``), not
+    part of the name. ``!`` / ``?`` are declarations, not element names.
     """
     inner = buf[1:] if buf.startswith("<") else buf
     if not inner:
-        return "", False, False
+        return "", False, ""
     is_close = False
     if inner[0] == "/":
         is_close = True
         inner = inner[1:].lstrip()
     elif inner[0] in "!?":
-        return "", False, False
+        return "", False, ""
     name: list[str] = []
     for char in inner:
         if char.isalnum() or char in "-:":
             name.append(char.lower())
         else:
             break
+    return "".join(name), is_close, inner[len(name):]
+
+
+def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
+    """Return ``(lower_name, is_close, is_empty)`` for a tag buffer without ``>``.
+
+    ``buf`` is everything after ``<`` was seen and before an unquoted ``>``.
+    """
+    inner = buf[1:] if buf.startswith("<") else buf
+    if not inner or inner[0] in "!?":
+        return "", False, False
+    name, is_close, rest = _tag_name_body(buf)
     # ``<script/>`` and ``<script />`` have no element body to discard.
-    is_empty = (not is_close) and buf.rstrip().endswith("/")
-    return "".join(name), is_close, is_empty
+    # What was wrong: any buffer ending in ``/`` was empty, so an unquoted
+    # attribute such as ``<script src=https://cdn.example.com/>`` kept the
+    # script body. The slash closes the tag only when it is its own token.
+    stripped = rest.rstrip()
+    is_empty = False
+    if not is_close and stripped.endswith("/"):
+        before = stripped[:-1]
+        is_empty = (not before) or before[-1].isspace()
+    return name, is_close, is_empty
+
+
+def _is_real_html_tag(buf: str) -> bool:
+    """True when a tag buffer (no closing ``>``) should be removed, not shown.
+
+    What was wrong: the second character being a letter was enough, so
+    ``<String>``, ``<https://example.com>``, and ``<user@example.com>`` were
+    tags. The stream stripper and the committed paint both deleted them.
+    The name check still stopped there. ``_html_tag_name`` takes the leading
+    name run and stops at the first other character, and this function
+    returned true whenever that name was in ``_HTML_ELEMENTS``. ``<a@b.com>``
+    (name ``a``, next ``@``), ``<b, c>`` (next ``,``), and ``<em@x>`` (next
+    ``@``) were deleted with the brackets.
+
+    A completed buffer is a real tag when it names a known element and the
+    next character is a delimiter: end of the buffer (``<b>``, ``</em>``) or
+    whitespace (``<a href="x">``, ``<b >``). A self-closing slash that is its
+    own token (``<br/>``, ``<a/>``) is the empty-element path below, which
+    also keeps ``<widget/>``. A non-space character glued to the name is
+    prose; the brackets stay. ``!`` / ``?`` still start a comment, doctype,
+    or processing instruction.
+    """
+    inner = buf[1:] if buf.startswith("<") else buf
+    if not inner:
+        return False
+    if inner[0] in "!?":
+        return True
+    name, _is_close, is_empty = _html_tag_name(buf)
+    # Unknown names such as ``<widget/>`` are still tags when the slash is
+    # its own token. Require the element set only for the other shapes.
+    if is_empty:
+        return True
+    if name not in _HTML_ELEMENTS:
+        return False
+    _name, _close, rest = _tag_name_body(buf)
+    # A generic token like `<a@b.com>` stops the name run at `@`. We check the rest.
+    # Delimiters indicating a tag: end of string (e.g. `<a>`, `</a>`), whitespace (`<a href>`),
+    # or a slash (`<a/>` - handled by `is_empty` above, but `is_empty` also allows `<widget/>`).
+    return (not rest) or rest[0].isspace()
 
 
 class StreamingHTMLStripper:
@@ -87,7 +177,8 @@ class StreamingHTMLStripper:
     Allows feeding chunks of text (e.g., from an LLM response) and outputs
     the text with HTML tags stripped. It handles cases where a tag definition
     is split across chunk boundaries, and distinguishes between HTML tags and
-    math comparisons (e.g. "3 < 5").
+    math comparisons (e.g. "3 < 5"). Angle-bracket prose (``<String>``, URLs,
+    emails, and an element name glued to ``@`` or ``,``) is kept.
     """
 
     in_tag: bool
@@ -99,6 +190,8 @@ class StreamingHTMLStripper:
     # Body held until the close tag, a blank line, or _DISCARD_BODY_LIMIT.
     _discard_body: str
     _entity_tail: str
+    # Set when a completed buffer was a real tag. Detection reuses this machine.
+    dropped_real_tag: bool
 
     def __init__(self) -> None:
         self.in_tag = False
@@ -107,6 +200,7 @@ class StreamingHTMLStripper:
         self._discard_until = ""
         self._discard_body = ""
         self._entity_tail = ""
+        self.dropped_real_tag = False
 
     def _unescape_emitted(self, raw: str, *, hold_tail: bool) -> str:
         combined = self._entity_tail + raw
@@ -114,7 +208,11 @@ class StreamingHTMLStripper:
             ready, self._entity_tail = _split_incomplete_entity(combined)
         else:
             ready, self._entity_tail = combined, ""
-        return html.unescape(ready)
+        return re.sub(
+            r"&(?:[a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);",
+            lambda m: html.unescape(m.group(0)),
+            ready,
+        )
 
     def _release_tag_buffer(self, out: list[str], *, force_emit: bool) -> None:
         """Stop buffering a tag. Emit unless we are discarding element text."""
@@ -138,16 +236,35 @@ class StreamingHTMLStripper:
             # the tag buffer. Element body is bounded in _note_discarded_body.
             self._release_tag_buffer(out, force_emit=True)
 
-    def _end_tag(self) -> None:
-        """Drop a completed tag. script/style then discard until the close tag."""
-        name, is_close, is_empty = _html_tag_name(self.tag_buffer)
+    def _end_tag(self, out: list[str]) -> None:
+        """Drop a completed real tag. Prose in angle brackets is text.
+
+        script/style then discard until the close tag. A non-tag such as
+        ``<String>`` is not a tag even while that body is held: it joins the
+        held text so a later release can show it.
+        """
+        buf = self.tag_buffer
+        name, is_close, is_empty = _html_tag_name(buf)
+        real = _is_real_html_tag(buf)
         self.in_tag = False
         self.tag_buffer = ""
         self._quote = ""
+        if real:
+            self.dropped_real_tag = True
         if self._discard_until:
-            if is_close and name == self._discard_until:
+            if real and is_close and name == self._discard_until:
                 self._discard_until = ""
                 self._discard_body = ""
+                return
+            if not real:
+                self._discard_body += buf + ">"
+                if len(self._discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in self._discard_body:
+                    out.append(self._discard_body)
+                    self._discard_until = ""
+                    self._discard_body = ""
+            return
+        if not real:
+            out.append(buf + ">")
             return
         if name in _DISCARD_ELEMENTS and not is_close and not is_empty:
             self._discard_until = name
@@ -191,7 +308,7 @@ class StreamingHTMLStripper:
                 self.tag_buffer = "<"
                 self._quote = ""
             elif char == ">":
-                self._end_tag()
+                self._end_tag(out)
             else:
                 self._push_tag_char(char, out, reject_bad_start=True)
         return "".join(out)
@@ -254,6 +371,20 @@ class StreamingHTMLStripper:
             self._quote = ""
             return self._unescape_emitted(buf, hold_tail=False)
         return self._unescape_emitted("", hold_tail=False)
+
+
+def text_has_real_html_tag(text: str) -> bool:
+    """True when *text* contains a tag :func:`strip_html_tags` would remove.
+
+    Same machine as the live stream, so a generic token the stripper keeps
+    is not reported as HTML left in the hidden document.
+    """
+    if not text or "<" not in text:
+        return False
+    stripper = StreamingHTMLStripper()
+    stripper.feed(text)
+    stripper.finalize()
+    return stripper.dropped_real_tag
 
 
 # feed() slices so live deal never requires the whole string ≤ DEAL_MAX_HTML_CHUNK.
