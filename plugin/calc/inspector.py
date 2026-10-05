@@ -27,7 +27,7 @@ from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
-from plugin.calc.formulas import _formula_cell_result
+from plugin.calc.calc_utils import _formula_cell_result
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 
 try:

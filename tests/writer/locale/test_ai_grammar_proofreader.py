@@ -47,10 +47,25 @@ setattr(
 )
 
 # Mock uno module. Distinct structs per call so multi-error aErrors can be
-# inspected by start/rule (a shared MagicMock return_value overwrites fields).
 uno_mod = _ensure_module("uno")
 uno_mod.createUnoStruct = MagicMock(side_effect=lambda *_args, **_kwargs: types.SimpleNamespace())
-uno_mod.getConstantByName = MagicMock(return_value=4)  # PROOFREADING
+_orig_getConstantByName = getattr(uno_mod, "getConstantByName", None)
+
+
+def _safe_get_constant(name: str) -> Any:
+    # Delegate to the real uno implementation when present so other test suites
+    # sharing this worker process (e.g. Calc FormulaResult constants) are not clobbered.
+    if _orig_getConstantByName is not None and not isinstance(_orig_getConstantByName, MagicMock):
+        try:
+            return _orig_getConstantByName(name)
+        except Exception:
+            pass
+    if "PROOFREADING" in name:
+        return 4
+    return 1
+
+
+uno_mod.getConstantByName = MagicMock(side_effect=_safe_get_constant)
 uno_mod.getComponentContext = MagicMock()
 
 class FakeBI:
