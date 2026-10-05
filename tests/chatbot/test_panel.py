@@ -1249,3 +1249,52 @@ class TestStoppedTTS:
             listener._run_send_drain()
             mock_speak.assert_called_once()
             assert "Spoken reply text." in mock_speak.call_args[0][0]
+
+class TestClearButtonAndPeerDrain:
+    def test_clear_greeting_uses_document_model(self) -> None:
+        from plugin.chatbot.panel import ClearButtonListener
+
+        session = MagicMock()
+        send_listener = MagicMock()
+        mock_doc = MagicMock()
+        send_listener._get_document_model.return_value = mock_doc
+        send_listener.sidebar_state = MagicMock()
+        send_listener.sidebar_state.send = MagicMock()
+        send_listener.sidebar_state.send.is_busy = False
+        send_listener._approval_event = None
+
+        listener = ClearButtonListener(session, MagicMock(), MagicMock(), "", send_listener)
+        with patch("plugin.audio.tts_service.stop_speech"):
+            with patch("plugin.chatbot.tool_loop_actions.abort_turn"):
+                with patch("plugin.framework.prompts.get_greeting_for_document") as mock_get_greeting:
+                    mock_get_greeting.return_value = "Doc Greeting"
+                    try:
+                        listener.on_action_performed(MagicMock())
+                    except Exception as e:
+                        print("EXCEPTION", e)
+
+                    send_listener._get_document_model.assert_called_once()
+                    mock_get_greeting.assert_called_once_with(mock_doc)
+                    send_listener.rich_text_widget.clear_and_greeting.assert_called_once_with("Doc Greeting")
+
+    def test_extracted_peer_drain_finally_runs(self) -> None:
+        listener = _make_send_listener()
+        listener._extracted_peer_query = "query"
+        listener._extracted_peer_already_appended = True
+
+        with patch.object(listener, "_do_send_extracted_peer"):
+            with patch.object(listener, "dispatch", side_effect=Exception("dispatch error")):
+                with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop_turn:
+                    with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
+                        with patch("plugin.framework.queue_executor.agent_session") as mock_session:
+                            mock_cancel_scope = MagicMock()
+                            mock_cancel_scope.is_cancelled.return_value = False
+                            mock_session.return_value.__enter__.return_value = mock_cancel_scope
+
+                            try:
+                                listener._run_extracted_peer_drain()
+                            except Exception as e:
+                                pass # Catch the dispatch error
+
+                            mock_drop_turn.assert_called_once_with(listener)
+                            mock_kick.assert_called_once()

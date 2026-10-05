@@ -1074,6 +1074,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
+        if getattr(self, "_panel_teardown", False) or self.ctx is None:
+            return
+
         try:
             self._last_mcp_req_id = kwargs.get("req_id")
             from plugin.chatbot.tool_loop_actions import current_turn
@@ -1106,24 +1109,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
             rid = str(kwargs.get("req_id", ""))
-            last_turn = self._last_mcp_turn.get(rid)
+            last_turn = self._last_mcp_turn.pop(rid, None)
             if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
                 return
         except Exception:
-            pass
+            return
 
         def _update_ui() -> None:
             if self._panel_teardown or self.ctx is None:
                 return
             try:
                 from plugin.chatbot.tool_loop_actions import TurnController, current_turn
-
-                rid = str(kwargs.get("req_id", ""))
-                last_turn = self._last_mcp_turn.pop(rid, None)
                 if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
                     return
             except Exception:
-                pass
+                return
             try:
                 from plugin.framework.logging import format_tool_result_for_display
 
@@ -1724,7 +1724,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         if not doc_type_label or doc_type_label == "unknown":
             err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
-            log.exception("_do_send ERROR: %s", err_msg)
+            log.error("_do_send ERROR: %s", err_msg)
             self._append_response("\n%s\n" % err_msg)
             self._terminal_status = "Error"
             return
@@ -1935,7 +1935,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         return True
 
     def _run_extracted_peer_drain(self) -> None:
-        """Same completion FSM as ``_run_send_drain``, without Ask-box ``_do_send``."""
+        """Same completion FSM as ``_run_send_drain``, without Ask-box ``_do_send``.
+        We keep peer drain separate from _run_send_drain TTS/WAV/_stt_inflight sharing for now — unifying for TTS would widen risk; this PR only fixes the drop_turn finally. Do not collapse peer into full send drain.
+        """
         from plugin.framework.i18n import _
         from plugin.framework.queue_executor import SendCancellation, agent_session
         from plugin.doc.peer_message import kick_pending_peer_starts
@@ -1955,6 +1957,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         return
                     self._do_send_extracted_peer(query_text, already_appended=already_appended)
                 finally:
+                    from plugin.chatbot.tool_loop_actions import drop_turn
+                    from plugin.doc.peer_message import kick_pending_peer_starts
+
+                    drop_turn(self)
+                    kick_pending_peer_starts()
                     if not getattr(self, "_panel_teardown", False):
                         self._send_cancellation = None
         except Exception as e:
@@ -1977,11 +1984,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     # peer ignores those paths. Avoid the redundant if-check.
                     self._set_status(_(self._terminal_status))
                     self._flush_sticky_restart()
-            from plugin.chatbot.tool_loop_actions import drop_turn
-            from plugin.doc.peer_message import kick_pending_peer_starts
-
-            drop_turn(self)
-            kick_pending_peer_starts()
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
         """Force chat-with-tools. No Ask read/clear, no setFocus, no librarian/image."""
@@ -2064,6 +2066,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # streaming into a dead panel. Match StopSendEffect: cancel the scope
         # and latch the fallback.
         self._panel_teardown = True
+        self._last_mcp_turn.clear()
         # What was wrong: silence auto-stop lambdas stayed on the recorder and
         # posted UI work after this listener was gone.
         # Why: drop them before cleanup so stop does not re-enter the panel.
@@ -2346,7 +2349,8 @@ class ClearButtonListener(BaseActionListener):
 
         greeting = self.greeting
         if not greeting:
-            model = getattr(self.send_listener, "doc", None) if self.send_listener else None
+            # Nothing sets .doc on the listener. Use a real doc source.
+            model = self.send_listener._get_document_model() if self.send_listener else None
             try:
                 from plugin.framework.prompts import get_greeting_for_document, DEFAULT_WRITER_GREETING
                 greeting = get_greeting_for_document(model) or DEFAULT_WRITER_GREETING
