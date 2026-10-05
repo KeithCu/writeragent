@@ -466,11 +466,12 @@ WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill �
 - Reserve get_document_content(scope='full') for short documents or a deliberate full read."""
 
 WRITER_IMAGES_RULES = """IMAGES:
-- Image tools live in the 'images' domain: image_generate, image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm), image_download.
+- Image tools live in the 'images' domain: image_generate, image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm and width_px/height_px), image_download, image_crop_and_highlight.
   Extract text and structure (layout, tables) from images with extract_structure_from_image in the 'vision' domain; inserts a high-quality representation into the document.
 - To edit, change, or restyle an existing or selected image, delegate domain=images with a task that instructs image_generate(source_image='selection') and keeps the user's wording (e.g. 'make it look like a wizard'). That runs img2img and replace_image_in_place. A generate-new paraphrase inserts a new graphic.
 - Writer letterhead logos: image_insert(target='header'|'footer'). A different first page needs page_set_style_properties(first_is_shared=false) then target='header_first' (or footer_first) — otherwise the logo lands in the shared header and repeats on every page.
 - image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
+- To paste an excerpt of a picture and mark a passage on it (yellow highlight, red box, underline), use image_crop_and_highlight with boxes in the picture's own pixels (or units='percent'), then check it with get_image. Do not cut it with crop_*_mm or draw loose shapes over it: those are placed in page millimetres and drift.
 - To actually SEE an image (vision-capable models), call get_image — by graphic name, selection=true, or page=N (0-based) to render that whole page.
   For a bulk read with pictures embedded, pass include_images=true to get_document_content."""
 

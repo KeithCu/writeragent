@@ -148,6 +148,116 @@ def test_position_before_inserts_at_match_start():
     found.getStart.assert_called()
 
 
+def _next_to_match_found(*, at_paragraph_edge: bool, leftover: str = ""):
+    """A match whose cursors all share one mock: not in a table cell, edges configurable."""
+    found = MagicMock()
+    cursor = found.getText.return_value.createTextCursorByRange.return_value
+    cursor.getPropertyValue.return_value = None
+    cursor.isStartOfParagraph.return_value = at_paragraph_edge
+    cursor.isEndOfParagraph.return_value = at_paragraph_edge
+    cursor.getString.return_value = leftover
+    return found, cursor
+
+
+def test_position_after_block_opens_a_paragraph_after_the_matched_one():
+    """#59: a block imported at the match end split "... EM DOBRO" mid-paragraph and glued the
+    first block onto it. It must go into a fresh paragraph after the matched one, and the empty
+    paragraph the import leaves behind must be removed."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    ctx = _edit_ctx()
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_inline_at_cursor") as inline, \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            ctx, content=["<p>NOVO A</p><p>NOVO B</p>"], target="search", old_content="EM", position="after")
+
+    assert res["status"] == "ok" and res["snapped_to_paragraph"] is True
+    assert "paragraph that contains the match" in res["message"]
+    cursor.gotoEndOfParagraph.assert_any_call(False)
+    found.getText.return_value.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+    ins.assert_called_once()
+    inline.assert_not_called()
+    # Leftover empty paragraph: select the break before it and delete it.
+    cursor.goLeft.assert_called_once_with(1, True)
+    cursor.setString.assert_called_once_with("")
+
+
+def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=["<p>novo</p>"], target="search", old_content="fim.", position="after")
+    assert res["status"] == "ok" and "snapped_to_paragraph" not in res
+    cursor.setString.assert_not_called()
+
+
+def test_position_before_block_goes_to_paragraph_start_without_a_break():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=["<h2>Nova</h2>"], target="search", old_content="meio", position="before")
+    assert res["status"] == "ok" and res["snapped_to_paragraph"] is True
+    cursor.gotoStartOfParagraph.assert_called_once_with(False)
+    found.getText.return_value.insertControlCharacter.assert_not_called()
+    ins.assert_called_once()
+
+
+def test_position_before_inline_stays_at_the_exact_match_edge():
+    """#59: plain text went through <p> wrapping and split the paragraph around the word."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_inline_at_cursor") as inline, \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=["bem "], target="search", old_content="inteiro.", position="before")
+    assert res["status"] == "ok" and "snapped_to_paragraph" not in res
+    inline.assert_called_once()
+    ins.assert_not_called()
+    cursor.gotoStartOfParagraph.assert_not_called()
+
+
+@pytest.mark.parametrize("content", ["Novo A\n\nNovo B", "Novo A\\n\\nNovo B"])
+def test_position_after_plain_text_with_line_breaks_is_block(content):
+    """Plain text with line breaks on the inline path went in as manual line breaks glued onto
+    the matched paragraph ("inteiro.Novo A\\n\\nNovo B")."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, _cursor = _next_to_match_found(at_paragraph_edge=True)
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_inline_at_cursor") as inline, \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=[content], target="search", old_content="inteiro.", position="after")
+    assert res["status"] == "ok"
+    ins.assert_called_once()
+    inline.assert_not_called()
+
+
 def test_position_after_rejects_math_and_table_cells():
     from unittest.mock import patch
 
@@ -274,3 +384,100 @@ def test_get_document_content_surfaces_tracked_changes():
     assert res["status"] == "ok"
     assert res["tracked_changes"] == [{"type": "Insert", "text": "x"}]
     assert "tracked_changes_note" in res
+
+
+@pytest.mark.parametrize("old, new, expected", [
+    # deletion: the word goes with the space it names (was "Primeiro  inteiro.")
+    (" paragrafo", "", ("", 1)),
+    ("paragrafo ", "", ("", 1)),
+    (" paragrafo ", "", ("", 1)),
+    (" x ", " ", ("", 1)),
+    # replacement: drop the same edge the search dropped
+    (" paragrafo inteiro", " inteiro", ("inteiro", 0)),
+    # sloppy trailing space on old_content only: keep the replacement as sent
+    ("Primeiro ", "Um", ("Um", 0)),
+    ("foo", " bar", (" bar", 0)),
+    # a symbol replaced by a space is a replacement, not a deletion ("bem_vindo" -> "bem vindo")
+    ("_", " ", (" ", 0)),
+    ("x", "", ("", 0)),
+])
+def test_match_stripped_edges(old, new, expected):
+    from plugin.writer.content import _match_stripped_edges
+
+    assert _match_stripped_edges(old, new) == expected
+
+
+class _StrRange:
+    """A [a, b) range over a string, with the model-cursor moves _grow_over_edge_space uses."""
+
+    def __init__(self, text, a, b):
+        self.text, self.a, self.b = text, a, b
+
+    def getText(self):
+        return self.text
+
+    def getStart(self):
+        return _StrRange(self.text, self.a, self.a)
+
+    def getEnd(self):
+        return _StrRange(self.text, self.b, self.b)
+
+    def getString(self):
+        return self.text.s[self.a:self.b]
+
+    def goLeft(self, n, expand):
+        if self.a - n < 0:
+            return False
+        self.a -= n
+        if not expand:
+            self.b = self.a
+        return True
+
+    def goRight(self, n, expand):
+        if self.b + n > len(self.text.s):
+            return False
+        self.b += n
+        if not expand:
+            self.a = self.b
+        return True
+
+    def gotoRange(self, other, expand):
+        if expand:
+            self.b = other.b
+        else:
+            self.a = self.b = other.a
+
+
+class _StrText:
+    def __init__(self, s):
+        self.s = s
+
+    def createTextCursorByRange(self, rng):
+        return _StrRange(self, rng.a, rng.b)
+
+    def match(self, word):
+        at = self.s.index(word)
+        return _StrRange(self, at, at + len(word))
+
+
+@pytest.mark.parametrize("body, word, taken", [
+    ("Primeiro paragrafo inteiro.", "paragrafo", " paragrafo"),
+    # paragraph start: no space on the left, take the one on the right
+    ("Primeiro inteiro.", "Primeiro", "Primeiro "),
+    ("a\nx y", "x", "x "),
+    # no space on either side: nothing to take
+    ("(x)", "x", "x"),
+])
+def test_grow_over_edge_space_takes_one_separator(body, word, taken):
+    from plugin.writer.content import _grow_over_edge_space
+
+    text = _StrText(body)
+    assert _grow_over_edge_space(text.match(word), 1).getString() == taken
+
+
+def test_grow_over_edge_space_is_a_no_op_without_edges():
+    from plugin.writer.content import _grow_over_edge_space
+
+    found = MagicMock()
+    assert _grow_over_edge_space(found, 0) is found
+    found.getText.assert_not_called()

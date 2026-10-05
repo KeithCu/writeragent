@@ -18,6 +18,7 @@ from plugin.writer.images.images import (
     ImageListNearbyFiles,
     ImageReplace,
     _download_image_to_cache,
+    _object_size,
     _resolve_crop_edges,
     _resolve_orient,
     resolve_image_generate_is_edit,
@@ -409,3 +410,14 @@ def test_image_generate_marshals_insert_unscoped():
     assert result["status"] == "ok"
     assert None in scopes_passed
 
+
+
+def test_object_size_reads_writer_property_and_draw_getsize():
+    writer = MagicMock()
+    writer.getPropertyValue.return_value = "writer-size"
+    assert _object_size(writer) == "writer-size"
+    # Draw/Impress shapes have no Size property; image_list used to skip them silently.
+    draw = MagicMock()
+    draw.getPropertyValue.side_effect = Exception("UnknownPropertyException: Size")
+    draw.getSize.return_value = "draw-size"
+    assert _object_size(draw) == "draw-size"

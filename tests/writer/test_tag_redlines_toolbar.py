@@ -79,12 +79,18 @@ class FakeModel:
         return self._rl
 
 
+def _before(*ids):
+    """The pre-edit snapshot of redlines *ids* (the keys ``snapshot_redline_ids`` returns)."""
+    from plugin.writer.review_scan import snapshot_redline_ids
+    return snapshot_redline_ids(FakeModel(FakeRedlines([FakeRedline(i) for i in ids])))[0]
+
+
 def test_refreshes_toolbar_when_new_redline_tagged():
     rl_old, rl_new = FakeRedline("old1"), FakeRedline("new1")
     doc = FakeModel(FakeRedlines([rl_old, rl_new]))
     fake = _fake_toolbar_module()
     with patch.dict(sys.modules, {"plugin.writer.review_toolbar": fake}):
-        token = tag_agent_redlines(doc, before_ids={"old1"}, before_reliable=True)
+        token = tag_agent_redlines(doc, before_ids=_before("old1"), before_reliable=True)
     assert token is not None
     assert rl_new.comment == token   # only the new redline got tagged
     assert rl_old.comment is None
@@ -96,7 +102,7 @@ def test_no_refresh_when_nothing_new_tagged():
     doc = FakeModel(FakeRedlines([rl]))
     fake = _fake_toolbar_module()
     with patch.dict(sys.modules, {"plugin.writer.review_toolbar": fake}):
-        token = tag_agent_redlines(doc, before_ids={"old1"}, before_reliable=True)
+        token = tag_agent_redlines(doc, before_ids=_before("old1"), before_reliable=True)
     assert token is None
     fake.refresh_review_toolbar.assert_not_called()
 

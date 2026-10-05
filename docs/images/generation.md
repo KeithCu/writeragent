@@ -38,6 +38,16 @@ Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` —
 - **`get_selected_image_base64`**: extracts selected image for img2img.
 - **`add_image_to_gallery`**: optional Media Gallery add after generation.
 
+### Cropping and highlighting a picture (`image_crop_and_highlight`)
+
+[`plugin/writer/images/image_mark.py`](../../plugin/writer/images/image_mark.py) backs the `image_crop_and_highlight` tool in `images.py`. It cuts a picture down to a `crop_box` and draws `highlights` (`highlight` = yellow highlighter, `box` = red outline outside the text, `underline` = red line under it). Every box is `[x, y, width, height]` in the picture's own pixels (`image_get_info` → `width_px`/`height_px`), or `units='percent'` when the agent only sees a scaled copy. It exists because `crop_*_mm` and loose drawing shapes made the agent convert pixels into page millimetres, so crops and marks landed off target.
+
+- **Baked, not layered.** The result replaces the picture's `Graphic` (embedded PNG, link dropped, `GraphicCrop` reset). The marks cannot drift, and the cut-away part is not kept in the file. The frame keeps its width (or `width_mm`) and the height follows the region's aspect ratio.
+- **Rendering.** A hidden Draw page the size of the region holds the whole picture, shifted by `-x, -y`, plus the box and underline rectangles. `GraphicExportFilter` exports that page as a PNG at exactly the region's pixel size, and the page edge clips everything else. The tool does **not** set `GraphicCrop` on the Draw shape. That crop is measured in 1/100 mm of a size LibreOffice derives from the screen DPI when the file has none (a JPEG reports `Size100thMM` 0, and Writer's `ActualSize` was about 92 DPI on a Mac), so it cut the wrong rows.
+- **Highlighter = multiply.** Draw has no blend modes, and translucent yellow turned the letters olive. So the PNG makes a round trip through a BMP: `GraphicProvider` MIME type `image/x-MS-bmp`, case-sensitive (`image/bmp` writes nothing). `multiply_bmp` multiplies the color into the raw pixels: paper turns yellow and ink stays black. The PNG export honours `PixelWidth`/`PixelHeight` only when `FilterData` is a typed `uno.Any` passed through `uno.invoke`; the BMP export ignores them.
+- **Existing crop.** Without `crop_box`, the visible part of an already-cropped picture is kept. Its crop is read against the frame's `ActualSize`, not `Size100thMM`. Undo restores the original picture and size but not that earlier crop: LibreOffice does not record API `GraphicCrop` changes in Undo.
+- Draw/Impress pictures work too. `image_list`/`image_get_info` read their size with `getSize()`, because shapes have no `Size` property and used to be skipped.
+
 ## Model naming
 
 | Key | Role |

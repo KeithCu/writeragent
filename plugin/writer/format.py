@@ -617,6 +617,16 @@ def content_has_markup(content: str) -> bool:
     return impl(content)
 
 
+def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, config_svc: Any = None) -> None:
+    from .html_import import insert_inline_at_cursor as impl
+    return impl(model, ctx, cursor, content, config_svc)
+
+
+def content_has_block_markup(content: str) -> bool:
+    from .html_import import _content_has_block_markup as impl
+    return impl(content)
+
+
 def _content_has_block_markup(content: str) -> bool:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _content_has_block_markup as impl
     return impl(content)

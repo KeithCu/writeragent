@@ -140,7 +140,7 @@ def _redlines_doc(items, count=None, raise_enum=False, raise_count=False, raise_
 def test_snapshot_redline_ids_reliable_when_complete():
     from plugin.writer.review_scan import snapshot_redline_ids
     ids, ok = snapshot_redline_ids(_redlines_doc(["a", "b"]))
-    assert ok is True and ids == {"a", "b"}
+    assert ok is True and {key[0] for key in ids} == {"a", "b"}
 
 
 def test_snapshot_redline_ids_unreliable_on_silent_truncation():
@@ -180,7 +180,9 @@ def test_snapshot_redline_ids_unreliable_on_hasmore_error():
 
 def test_new_redlines_complete_finds_new_when_complete():
     from plugin.writer.review_scan import new_redlines_since as _new_redlines_complete
-    new, ok = _new_redlines_complete(_redlines_doc(["old", "new1", "new2"]), {"old"})
+    from plugin.writer.review_scan import snapshot_redline_ids
+    before, _ok = snapshot_redline_ids(_redlines_doc(["old"]))
+    new, ok = _new_redlines_complete(_redlines_doc(["old", "new1", "new2"]), before)
     assert ok is True and len(new) == 2
 
 

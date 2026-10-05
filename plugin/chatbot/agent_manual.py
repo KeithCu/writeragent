@@ -103,7 +103,7 @@ _TOPIC_SUMMARY: list[tuple[str, str]] = [
     ("review-modes", "tracked changes off/record/wait; never resolve your own"),
     ("search", "find text anywhere (body, tables, boxes, shapes, headers, comments) + where it is"),
     ("navigation", "map-first reading of large documents"),
-    ("images", "insert/replace/resize/crop + how a vision model sees images"),
+    ("images", "insert/replace/resize/crop, highlight passages on a picture + how a vision model sees images"),
     ("concurrency", "same-document edits serialize; retry on HTTP 429; multi-document targeting"),
 ]
 
@@ -146,7 +146,7 @@ _ALIASES = {
     "review": "review-modes", "review_modes": "review-modes", "review-mode": "review-modes",
     "find": "search", "search_in_document": "search",
     "navigate": "navigation", "outline": "navigation", "large-documents": "navigation",
-    "image": "images", "crop": "images", "vision": "images",
+    "image": "images", "crop": "images", "vision": "images", "highlight": "images",
     "429": "concurrency", "rate-limit": "concurrency", "rate_limit": "concurrency",
     "documents": "concurrency", "multi-document": "concurrency", "document-url": "concurrency",
     "document_url": "concurrency",

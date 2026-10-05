@@ -48,6 +48,7 @@ def _run_on_main(
         return fn(*args, **kwargs)
     return execute_on_main_thread(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
 from .image_utils import ImageService
+from . import image_mark
 from plugin.framework.config import get_config_int, get_config_bool, get_config_str
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.client.model_fetcher import get_image_model
@@ -319,7 +320,7 @@ class ImageList(ToolWriterImageBase):
         images = []
         for name, graphic in graphics_names:
             try:
-                size = graphic.getPropertyValue("Size")
+                size = _object_size(graphic)
                 title = ""
                 description = ""
                 try:
@@ -381,12 +382,20 @@ def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str) -> An
     return visual_helpers.get_graphic_object_by_name(doc, image_name)
 
 
+def _object_size(obj: typing.Any) -> Any:
+    """Frame size in 1/100 mm. Writer graphics have a ``Size`` property; Draw/Impress shapes
+    do not (UnknownPropertyException) and only answer ``getSize()``. Reading the property alone
+    made image_list skip every Draw picture and image_get_info fail on them."""
+    size = visual_helpers.safe_get_property(obj, "Size")
+    return size if size is not None else obj.getSize()
+
+
 class ImageGetInfo(ToolWriterImageBase):
     """Get detailed info about a specific image."""
 
     name: str | None = "image_get_info"
     intent: str | None = "media"
-    description: str = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index."
+    description: str = "Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["name"]}
 
 
@@ -397,7 +406,7 @@ class ImageGetInfo(ToolWriterImageBase):
         if not graphic:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
-        size = graphic.getPropertyValue("Size")
+        size = _object_size(graphic)
 
         # Graphic URL — try the modern property first, then legacy.
         graphic_url = ""
@@ -445,6 +454,15 @@ class ImageGetInfo(ToolWriterImageBase):
         except Exception:
             pass
 
+        # Pixel frame that image_crop_and_highlight boxes refer to.
+        width_px = height_px = None
+        source = visual_helpers.graphic_from_object(graphic)
+        if source is not None:
+            try:
+                width_px, height_px = image_mark.pixel_size(source)
+            except Exception:
+                pass
+
         # Crop (mm trimmed from each edge), so a reader/agent can see and adjust it.
         crop_mm = None
         try:
@@ -475,6 +493,8 @@ class ImageGetInfo(ToolWriterImageBase):
             "height_mm": size.Height / 100.0,
             "width_100mm": size.Width,
             "height_100mm": size.Height,
+            "width_px": width_px,
+            "height_px": height_px,
             "anchor_type": anchor_type,
             "hori_orient": hori_orient,
             "vert_orient": vert_orient,
@@ -660,6 +680,118 @@ class ImageSetProperties(ToolWriterImageBase):
             updated.append("crop")
 
         return {"status": "ok", "image_name": image_name, "updated": updated}
+
+
+# ------------------------------------------------------------------
+# ImageCropAndHighlight
+# ------------------------------------------------------------------
+
+
+_BOX_SCHEMA: dict[str, Any] = {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}
+
+
+class ImageCropAndHighlight(ToolWriterImageBase):
+    """Cut an image down to a region and mark passages on it, in the picture's own pixels.
+
+    The why and the how live in :mod:`image_mark`."""
+
+    name: str | None = "image_crop_and_highlight"
+    intent: str | None = "media"
+    description: str = (
+        "Cut an image down to a region and/or mark passages on it (highlighter, red box, underline) "
+        "with boxes in the picture's OWN pixels: [x, y, width, height] from its top-left corner, "
+        "inside width_px x height_px from image_get_info. If you only see a scaled copy, pass "
+        "units='percent' (0-100 of the picture's width/height). crop_box and every highlight box use "
+        "the same frame: the picture as it is now. The result is baked into the picture: the cut-away "
+        "part is removed from the file and marks cannot drift. Afterwards the picture IS the region "
+        "(new width_px/height_px). The frame keeps its width (or width_mm) and its height follows the "
+        "new shape. Check the result with get_image."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Name of the image (from image_list)."},
+            "crop_box": {**_BOX_SCHEMA, "description": "Region to keep, [x, y, width, height]. Omit to keep the picture as shown (an existing crop stays)."},
+            "highlights": {
+                "type": "array",
+                "description": "Marks to draw.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "box": {**_BOX_SCHEMA, "description": "Area to mark, [x, y, width, height], same frame as crop_box."},
+                        "style": {
+                            "type": "string",
+                            "enum": list(image_mark.STYLES),
+                            "description": "highlight = translucent yellow over the text (default); box = red outline around it; underline = red line under it.",
+                        },
+                        "color": {"type": "string", "description": "Optional '#RRGGBB' or color name instead of the style's color."},
+                    },
+                    "required": ["box"],
+                },
+            },
+            "units": {"type": "string", "enum": ["px", "percent"], "description": "Units of every box (default px)."},
+            "width_mm": {"type": "number", "description": "Display width in millimetres (default: keep the current width)."},
+        },
+        "required": ["name"],
+    }
+
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
+        image_name = kwargs.get("name", "")
+        obj = _get_graphic_object(ctx, ctx.doc, image_name)
+        if not obj:
+            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+        crop_box = kwargs.get("crop_box")
+        highlights = kwargs.get("highlights") or []
+        if crop_box is None and not highlights:
+            return self._tool_error("Pass crop_box and/or highlights.", code="MISSING_PARAMETER", parameter="crop_box")
+        source = visual_helpers.graphic_from_object(obj)
+        if source is None:
+            return self._tool_error("Image '%s' has no picture data to mark." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+
+        units = kwargs.get("units") or "px"
+        width_px, height_px = image_mark.pixel_size(source)
+        try:
+            if crop_box is not None:
+                region = image_mark.to_pixel_box(crop_box, units, width_px, height_px)
+            else:
+                region = image_mark.visible_region(visual_helpers.safe_get_property(obj, "GraphicCrop"), visual_helpers.safe_get_property(obj, "ActualSize"), source)
+            marks = image_mark.parse_marks(highlights, units, width_px, height_px, region)
+        except ValueError as e:
+            return self._tool_error(str(e), code="INVALID_PARAMETER", width_px=width_px, height_px=height_px)
+
+        from com.sun.star.awt import Size
+        from com.sun.star.text import GraphicCrop
+        from plugin.writer.edit_review import WriterCompoundUndo
+
+        size = _object_size(obj)
+        width_mm = kwargs.get("width_mm")
+        width_100mm = int(round(width_mm * 100)) if width_mm else int(size.Width)
+        region_w, region_h = region[2], region[3]
+        height_100mm = max(1, int(round(width_100mm * region_h / region_w)))
+        try:
+            baked = image_mark.bake(ctx.ctx, source, region, marks, image_mark.stroke_px(region_w, width_100mm / 100.0))
+        except Exception as e:
+            log.exception("image_crop_and_highlight: baking failed")
+            return self._tool_error("Could not mark the picture: %s" % e, code="IMAGE_MARK_FAILED", image_name=image_name)
+
+        with WriterCompoundUndo(ctx.doc, "WriterAgent: Crop and highlight image"):
+            obj.setPropertyValue("Graphic", baked)
+            # The old crop referred to the old picture; the region is already cut out of the new one.
+            visual_helpers.safe_set_property(obj, "GraphicCrop", GraphicCrop())
+            new_size = Size(width_100mm, height_100mm)
+            if not visual_helpers.safe_set_property(obj, "Size", new_size):
+                visual_helpers.safe_try_method(obj, "setSize", new_size)
+        return {
+            "status": "ok",
+            "image_name": image_name,
+            "width_px": region_w,
+            "height_px": region_h,
+            "width_mm": width_100mm / 100.0,
+            "height_mm": height_100mm / 100.0,
+            "highlights": len(marks),
+        }
 
 
 # ------------------------------------------------------------------

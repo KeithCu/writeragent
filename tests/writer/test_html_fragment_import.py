@@ -77,18 +77,19 @@ def test_prewrapped_skips_rewrap():
 
 
 def test_advances_cursor_when_model_given():
+    """The cursor continues right after the imported content, in its own text. Jumping to the
+    BODY end sent later segments of a mid-document edit to the end (#46/#47) and raised
+    RuntimeException for a cursor in a frame or cell (#52)."""
     cursor = MagicMock()
-    end_cursor = MagicMock()
     model = MagicMock()
-    text = MagicMock()
-    model.getText.return_value = text
-    text.createTextCursor.return_value = end_cursor
+    parked = cursor.getText.return_value.createTextCursorByRange.return_value
 
     with _capture_temp_buffer({}):
         insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", model=model)
 
-    end_cursor.gotoEnd.assert_called_once_with(False)
-    cursor.gotoRange.assert_called_once_with(end_cursor.getStart(), False)
+    cursor.getText.return_value.createTextCursorByRange.assert_called_once_with(cursor.getEnd())
+    cursor.gotoRange.assert_called_once_with(parked.getStart(), False)
+    model.getText.assert_not_called()
 
 
 def test_content_has_block_markup_inline_span():

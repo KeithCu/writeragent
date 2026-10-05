@@ -350,7 +350,7 @@ class EditReviewSession:
     # -- recording ---------------------------------------------------------------------------
 
     def _redline_idents(self) -> tuple[set[Any], bool]:
-        """``(current RedlineIdentifiers, reliable)`` -- see ``snapshot_redline_ids``. reliable=False
+        """``(current redline keys, reliable)`` -- see ``snapshot_redline_ids``. reliable=False
         means the snapshot is incomplete and must NOT back a new-vs-pre-existing tagging decision."""
         return _review_scan.snapshot_redline_ids(self.doc)
 

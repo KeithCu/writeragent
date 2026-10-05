@@ -754,6 +754,25 @@ class TestExecuteKwargsAndFailure:
 
         assert result["status"] == "success"
         assert result["got"] == {"arg1": "val1"}
+        # #25: a dropped argument is reported instead of vanishing (paragraph_index on image_insert).
+        assert result["ignored_parameters"] == ["extra"]
+        assert "ignored_parameters" not in reg.execute("tool_with_params", ctx, arg1="val1")
+
+    def test_validation_error_lists_dropped_kwargs(self):
+        class ToolNeedsIndex(ToolBase):
+            name = "tool_needs_index"
+            description = "Tool with a required param"
+            parameters = {"type": "object", "properties": {"index": {"type": "integer"}}, "required": ["index"]}
+            uno_services = ["com.sun.star.text.TextDocument"]
+            def execute(self, ctx, **kwargs): return {"status": "ok"}
+
+        services = ServiceRegistry()
+        reg = ToolRegistry(services)
+        reg.register(ToolNeedsIndex())
+        ctx = ToolContext(doc=TestingFactory.create_doc(doc_type="writer"), ctx=None, doc_type="writer", services=services, caller="test")
+        result = reg.execute("tool_needs_index", ctx, paragraph_index=3)
+        assert result["code"] == "VALIDATION_ERROR"
+        assert result["details"]["ignored_parameters"] == ["paragraph_index"]
 
     def test_execute_coerces_write_formula_range_array_and_number(self):
         class WriteFormulaRange(ToolBase):

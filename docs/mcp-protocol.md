@@ -714,6 +714,7 @@ The mutating edit tools return **structured, machine-readable fields** alongside
 **`apply_document_content`** (search path)
 - `replaced_count` — how many occurrences were actually replaced. **`replaced_count: 0` returns `status: "error"`** (a search that matched nothing is no longer a silent "ok"); `> 0` returns `status: "ok"`.
 - `occurrence` — optional 0-based selector for one replaceable Writer text match when `target="search"`; it cannot be combined with `all_matches=true`. Successful edits (replace and `position=before/after`) echo `occurrence`. Out of range uses `code: OCCURRENCE_OUT_OF_RANGE` and `use 0..N-1`. Empty replaceable ranges fall through to the existing miss / drawing-shape path (same as omitting `occurrence`).
+- `position=before/after` — `inserted: true` and no `replaced_count`. Inline content lands at the exact match edge; block content (`<p>`, headings, lists, tables) lands before/after the paragraph that holds the match, and `snapped_to_paragraph: true` says the insert moved off the match edge to get there.
 - If a replacement raises mid-`all_matches`, the existing abort behavior stands (no partial-replace handling — the call surfaces the error).
 
 **`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).

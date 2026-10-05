@@ -395,7 +395,10 @@ class _SemanticTransformer(HTMLParser):
         if t == "table":
             self._table_depth += 1
             self._out.append(raw)
-        elif t in BLOCK_TAGS:
+        elif t in BLOCK_TAGS or (t == "div" and _PARA_CLASS_RE.search(_attr_value(attrs, "class"))):
+            # A paragraph that holds a frame (an image) is exported as <div class="paragraph-X">:
+            # it is one Writer paragraph, so it gets its data-lo-style like a <p>. Without it the
+            # write side's positional styles skipped that paragraph and the next ones shifted.
             self._out.append(self._rewrite_block(raw, attrs))
         elif t == "span":
             self._out.append(self._rewrite_span(raw, attrs))

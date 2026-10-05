@@ -1010,7 +1010,10 @@ class ToolRegistry:
             extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
             # One allow-list (including properties {}). The outbound check
             # uses the same helper before any provider shim.
-            kwargs = without_unknown_kwargs(schema, kwargs, extra_ok)
+            kept = without_unknown_kwargs(schema, kwargs, extra_ok)
+            # Keep the names that were dropped: they are reported back as ignored_parameters.
+            ignored: list[str] = sorted(k for k in kwargs if k not in kept)
+            kwargs = kept
 
             required = schema.get("required") or []
             required_names = set(required) if isinstance(required, list) else set()
@@ -1034,7 +1037,10 @@ class ToolRegistry:
             # Validate parameters
             ok, err = tool.validate(doc_type=ctx.doc_type, **kwargs)
             if not ok:
-                return make_tool_error(err, code="VALIDATION_ERROR", **common_details)
+                # "Missing required parameter: index" is exactly when the agent sent the value
+                # under another name (paragraph_index): show which names were dropped.
+                extra = {"ignored_parameters": ignored} if ignored else {}
+                return make_tool_error(err, code="VALIDATION_ERROR", **common_details, **extra)
 
             if getattr(ctx, "read_only_target", False) and tool.detects_mutation():
                 # Use the central factory (all tool errors now go through make_tool_error).
@@ -1066,6 +1072,12 @@ class ToolRegistry:
                         if k not in merged:
                             merged[k] = v
                     cast("dict[str, Any]", result)["details"] = merged
+
+            # The dropped keys used to vanish silently: image_insert(paragraph_index=70) -- the
+            # name image_list reports -- dropped the index and put the image at the view cursor
+            # with status ok (relato #25). Say which arguments were not used.
+            if ignored and isinstance(result, dict):
+                cast("dict[str, Any]", result).setdefault("ignored_parameters", ignored)
 
             return result
 

@@ -23,6 +23,28 @@ from plugin.writer.page import (
 )
 
 
+def test_get_page_style_properties_without_header_or_footer():
+    """A new Writer document has header and footer off, and LibreOffice then leaves their
+    measures void (None, checked live); None / 100.0 made the whole read fail."""
+    from plugin.writer.page import get_page_style_properties
+
+    void_when_off = {"HeaderHeight", "FooterHeight", "HeaderBodyDistance", "FooterBodyDistance"}
+    style = MagicMock()
+    style.getPropertyValue.side_effect = lambda name: (
+        None if name in void_when_off else False if name.endswith("IsOn") else 2000
+    )
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value.getByName.return_value = style
+
+    res = get_page_style_properties(doc, "Standard")
+
+    assert res["status"] == "ok"
+    props = res["properties"]
+    assert props["header_is_on"] is False and props["header_height_mm"] is None
+    assert props["footer_body_distance_mm"] is None
+    assert props["left_margin_mm"] == 20.0
+
+
 def test_get_page_style_properties():
     doc = MagicMock()
     families = MagicMock()

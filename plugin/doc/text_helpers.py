@@ -51,21 +51,34 @@ _GO_RIGHT_CHUNK = 8192
 
 
 def _writer_char_count(model: Any) -> int:
-    """Writer document character count; prefers O(1) CharacterCount over full getString()."""
-    try:
-        check_disposed(model, "Document Model")
-        count = getattr(model, "CharacterCount", None)
-        if count is not None:
-            paras = getattr(model, "ParagraphCount", 1)
-            return max(0, int(count) + max(0, int(paras) - 1))
-    except Exception:
-        pass
+    """Length of the Writer body in cursor steps: the space every offset here uses
+    (``get_text_cursor_at_range``, ``get_selection_range``, the chat excerpt reads).
+
+    What was wrong: this returned the ``CharacterCount`` statistic, which leaves out paragraph
+    breaks and text deleted by pending tracked changes (54 chars read as 53; 60 pending edits,
+    2385 against offsets up to 3404). Adding ``ParagraphCount - 1`` puts the breaks back but
+    not the deleted text, which the cursor still steps over. Callers treat it as the end of the offset space, so the
+    chat's [DOCUMENT END] excerpt and get_full_writer_text dropped the end of the document, and a
+    selection at the end came back as (length, length). The statistic was not cheap either: after
+    an edit it recomputes (253 ms on a 348k-char body; this walk took 55 ms).
+    """
     try:
         text = safe_call(model.getText, "Get document text")
         cursor = safe_call(text.createTextCursor, "Create text cursor")
         safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-        return len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
+        count = 0
+        step = _GO_RIGHT_CHUNK
+        while step:
+            probe = safe_call(text.createTextCursorByRange, "Create probe cursor",
+                              safe_call(cursor.getStart, "Cursor getStart"))
+            # A goRight that cannot go the full distance still moves to the end and returns
+            # False, so retry a smaller step from the last position it fully reached.
+            if safe_call(probe.goRight, "Cursor goRight", step, False) is True:
+                cursor = probe
+                count += step
+            else:
+                step //= 2
+        return count
     except UnoObjectError:
         logging.getLogger(__name__).exception("_writer_char_count failed")
         return 0
@@ -647,11 +660,23 @@ def _writer_selection_overlaps_windows(  # pyright: ignore[reportUnusedFunction]
 
 @main_thread_only
 def get_document_length(model: Any) -> int:
-    """Return total character length of the document. Returns 0 on error."""
+    """Return total character length of the document. Returns 0 on error.
+
+    Writer: the length of the visible text (pending tracked deletions hidden, paragraph breaks
+    counted, fields and footnote numbers as shown), read with the same helper
+    get_document_content scope='range' counts its offsets with. It was the ``CharacterCount``
+    statistic, which leaves out the breaks and the deleted text, so a range read near the end
+    was cut short ("o dan"). Cursor steps minus the deleted text is no substitute: a field or
+    footnote anchor is one step but several characters (314 against 324 on 12 footnotes).
+    """
     try:
         check_disposed(model, "Document Model")
         if _doc_type.get_document_type(model) == _doc_type.DocumentType.WRITER:
-            return _writer_char_count(model)
+            body = safe_call(model.getText, "Get document text")
+            whole = safe_call(body.createTextCursor, "Create text cursor")
+            safe_call(whole.gotoStart, "Cursor gotoStart", False)
+            safe_call(whole.gotoEnd, "Cursor gotoEnd", True)
+            return len(normalize_linebreaks(get_string_without_tracked_deletions(whole)))
         text = safe_call(model.getText, "Get document text")
         cursor = safe_call(text.createTextCursor, "Create text cursor")
         safe_call(cursor.gotoStart, "Cursor gotoStart", False)
@@ -682,25 +707,32 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
     Returns None on error or invalid range."""
     try:
         check_disposed(model, "Document Model")
-        doc_len = get_document_length(model)
-        start_offset = max(0, min(start_offset, doc_len))
-        end_offset = max(0, min(end_offset, doc_len))
+        # What was wrong: both offsets were clamped to get_document_length(), which for Writer is
+        # the CharacterCount statistic -- it leaves out paragraph breaks and tracked deletions, while
+        # offsets (search_in_document return_offsets, getString) count both. On a long document the
+        # range was clamped past its real end and set_selection selected nothing (relato #37).
+        # No clamp is needed at the end: goRight stops at the end of the text on its own.
+        start_offset = max(0, start_offset)
+        end_offset = max(0, end_offset)
         if start_offset > end_offset:
             start_offset, end_offset = end_offset, start_offset
         text = safe_call(model.getText, "Get document text")
         cursor = safe_call(text.createTextCursor, "Create text cursor")
         safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        # Move to start_offset in chunks
+        # Move to start_offset in chunks. A goRight that runs out of text stops at the end and
+        # returns False: stop there, or an offset like 10**12 runs millions of UNO calls.
         remaining = start_offset
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
-            safe_call(cursor.goRight, "Cursor goRight", n, False)
+            if safe_call(cursor.goRight, "Cursor goRight", n, False) is False:
+                return cursor
             remaining -= n
         # Expand selection by (end_offset - start_offset)
         remaining = end_offset - start_offset
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
-            safe_call(cursor.goRight, "Cursor goRight", n, True)
+            if safe_call(cursor.goRight, "Cursor goRight", n, True) is False:
+                break
             remaining -= n
         return cursor
     except UnoObjectError:

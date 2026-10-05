@@ -165,10 +165,15 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     *display_block*: surround the object with paragraph breaks so it occupies
     its own paragraph (display-style math) and center the formula paragraph.
     """
-    text = model.getText()
+    # The cursor's own text: a formula in a frame, cell or header goes into that text, not the body.
+    text = cursor.getText()
+    # What was wrong: a goRight(1) followed each paragraph break, but insertControlCharacter already
+    # leaves the cursor after the break. At the end of the text the extra step is a no-op, which
+    # was the only place display math landed while inserts jumped to the body end; mid-paragraph
+    # it skipped a character: "AAA|BBB" became "AAA" / "B[F]" / "BB", with the next segment
+    # before the formula (checked live). Without it: "AAA" / "[F]" / "BBB".
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.goRight(1, False)
         cursor.setPropertyValue("ParaAdjust", 3)  # 3 = Center alignment
 
     embed = model.createInstance("com.sun.star.text.TextEmbeddedObject")
@@ -181,7 +186,6 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
 
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        cursor.goRight(1, False)
         cursor.setPropertyValue("ParaAdjust", 0)  # 0 = Left / Standard alignment
 
 

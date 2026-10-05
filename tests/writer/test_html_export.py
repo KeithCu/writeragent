@@ -1,4 +1,4 @@
-
+import re
 
 from unittest.mock import MagicMock, patch
 
@@ -188,3 +188,84 @@ def test_inject_ruby_empty_is_noop():
     assert inject_ruby_into_html("<p>漢字です</p>", []) == "<p>漢字です</p>"
     assert inject_ruby_into_html("", [("漢字", "かんじ")]) == ""
     assert inject_ruby_into_html("<p>x</p>", [("漢字", "")]) == "<p>x</p>"
+
+
+def _content_doc(text="Texto do documento"):
+    from unittest.mock import MagicMock
+
+    model = MagicMock()
+    model.getText.return_value.getString.return_value = text
+    return model
+
+
+def test_document_to_content_fails_loudly_when_both_exports_fail():
+    """#63: both exports failing returned "" and get_document_content said ok with empty content."""
+    from unittest.mock import patch
+
+    import pytest
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_export
+
+    model = _content_doc()
+    model.storeToURL.side_effect = OSError("No space left on device")
+    with patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")), \
+         pytest.raises(ToolExecutionError) as err:
+        html_export.document_to_content(model, None, None)
+    message = str(err.value)
+    assert "Permission denied" in message and "No space left on device" in message
+
+
+def test_empty_xhtml_export_of_a_document_with_text_falls_back():
+    from unittest.mock import patch
+
+    from plugin.writer import html_export
+
+    with patch.object(html_export, "_export_xhtml", return_value=""), \
+         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)), \
+         patch.object(html_export.format_mod, "_with_temp_buffer") as buf, \
+         patch("builtins.open") as opener:
+        buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
+        opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
+        out = html_export.document_to_content(_content_doc(), None, None)
+    assert "Texto do documento" in out
+
+
+def test_an_empty_document_still_reads_as_empty():
+    from unittest.mock import patch
+
+    from plugin.writer import html_export
+
+    with patch.object(html_export, "_export_xhtml", return_value=""), \
+         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)):
+        assert html_export.document_to_content(_content_doc(""), None, None) == ""
+def test_shorten_outline_anchor_ids_replaces_picture_data_in_heading_anchor():
+    from plugin.writer.html_export import shorten_outline_anchor_ids
+
+    # Shape of LibreOffice's XHTML export for a heading that holds an embedded picture.
+    long_id = "a__iVBORw0KGgoAAAANSUhEUgAAAxs" + "A" * 40000 + "ErkJgggAODOUTOJUIZODETESTE"
+    html = '<h1><a id="%s"><span/></a>AO DOUTO</h1><p><a href="#%s">ver</a></p>' % (long_id, long_id)
+    out = shorten_outline_anchor_ids(html)
+    ids = re.findall(r'id="([^"]*)"', out)
+    assert len(out) < 200 and ids and re.fullmatch(r"a__[0-9a-f]{8}", ids[0])
+    assert 'href="#%s"' % ids[0] in out  # links to the anchor follow it
+    assert shorten_outline_anchor_ids(html) == out  # stable across reads
+
+
+def test_shorten_outline_anchor_ids_keeps_short_and_other_ids():
+    from plugin.writer.html_export import shorten_outline_anchor_ids
+
+    long_bookmark = "x" * 500  # a user bookmark is not an outline anchor: agents may target it
+    html = '<h2><a id="a__Introducao"><span/></a>Introdução</h2><a id="_mcp_1"></a><a id="%s"></a>' % long_bookmark
+    assert shorten_outline_anchor_ids(html) == html
+
+
+def test_apply_image_export_options_shortens_anchor_with_or_without_images():
+    from plugin.writer.html_export import _apply_image_export_options
+
+    data = "data:image/png;base64," + "QUJD" * 100
+    html = '<h1><a id="a__%s"><span/></a><img src="%s"/>T</h1>' % ("QUJD" * 100, data)
+    with_images = _apply_image_export_options(html, include_images=True)
+    assert data in with_images and "a__QUJD" not in with_images
+    without = _apply_image_export_options(html, include_images=False)
+    assert "QUJD" not in without and 'src=""' in without
