@@ -433,6 +433,45 @@ class TreeService(ServiceBase):
                 raise ToolExecutionError("No heading matching '%s' found" % loc_value)
             return {"para_index": result["para_index"]}
 
+        if loc_type == "table":
+            if not hasattr(doc, "getTextTables"):
+                raise ToolExecutionError("Document does not support tables")
+            tables = doc.getTextTables()
+            if not tables.hasByName(loc_value):
+                raise ToolExecutionError("Table '%s' not found" % loc_value)
+            table = tables.getByName(loc_value)
+            try:
+                anchor = table.getAnchor()
+            except Exception as exc:
+                raise ToolExecutionError(
+                    "Table '%s' anchor is not in the document" % loc_value
+                ) from exc
+            if anchor is None:
+                raise ToolExecutionError(
+                    "Table '%s' anchor is not in the document" % loc_value
+                )
+            para_ranges = self._doc_svc.get_paragraph_ranges(doc)
+            text_obj = doc.getText()
+            para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+            # Same as bookmarks: find_paragraph_for_range returns 0 when the
+            # place fails. confirm_paragraph_index keeps 0 only for a real hit
+            # inside a paragraph. A table in enumeration slot 0 is still valid,
+            # and confirm only checks paragraph getStart, so accept that slot
+            # when the named table is there.
+            placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+            if placed is None:
+                if (
+                    isinstance(para_idx, int)
+                    and 0 <= para_idx < len(para_ranges)
+                    and getattr(para_ranges[para_idx], "getName", lambda: None)() == loc_value
+                ):
+                    placed = para_idx
+                else:
+                    raise ToolExecutionError(
+                        "Table '%s' anchor is not in the document" % loc_value
+                    )
+            return {"para_index": placed, "table_name": loc_value}
+
         raise ToolExecutionError("Unknown Writer locator type: '%s'" % loc_type)
 
     def _resolve_bookmark_locator(self, doc: Any, bookmark_name: str) -> dict[str, Any]:
