@@ -699,15 +699,26 @@ class DocumentService(ServiceBase):
             controller = safe_call(model.getCurrentController, "Get current controller")
             vc = safe_call(controller.getViewCursor, "Get view cursor")
             saved = safe_call(text.createTextCursorByRange, "Create text cursor by range", safe_call(vc.getStart, "Get view cursor start"))
+
+            element, _ = self.find_paragraph_element(model, para_index)
+            if element is None:
+                return 1
+
+            get_anchor = getattr(element, "getAnchor", None)
+            anchor = get_anchor() if callable(get_anchor) else element
+
             safe_call(model.lockControllers, "Lock controllers")
             try:
-                cursor = safe_call(text.createTextCursor, "Create text cursor")
-                safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-                for _unused in range(para_index):
-                    if not safe_call(cursor.gotoNextParagraph, "Cursor gotoNextParagraph", False):
-                        break
-                safe_call(vc.gotoRange, "View cursor gotoRange", cursor, False)
+                safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
                 page = safe_call(vc.getPage, "Get page")
+                if page == 0:
+                    # Layout stall for tables/frames under lockControllers.
+                    safe_call(model.unlockControllers, "Unlock controllers")
+                    try:
+                        safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
+                        page = safe_call(vc.getPage, "Get page")
+                    finally:
+                        safe_call(model.lockControllers, "Lock controllers")
             finally:
                 safe_call(vc.gotoRange, "Restore view cursor", saved, False)
                 safe_call(model.unlockControllers, "Unlock controllers")
