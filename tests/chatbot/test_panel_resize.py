@@ -288,6 +288,35 @@ class TestPanelResizeListenerIntegration:
         assert q.X + q.Width <= 800 - 4
         assert q.Width > 700
 
+    def test_relayout_caps_height_against_parent_window(self):
+        # Calc infinite resize loop fix: cap height against parent window height
+        snapshot = _xdl_snapshot()
+        controls = {
+            name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()
+        }
+        parent = MagicMock()
+        parent.getPosSize.return_value = SimpleNamespace(Width=320, Height=600)
+        root = MagicMock()
+        root.getPosSize.return_value = SimpleNamespace(Width=320, Height=1200)
+        listener = _PanelResizeListener(controls)
+        listener._parent_window = parent
+        listener.relayout_now(root)
+        send = controls["send"].getPosSize()
+        assert send.Y < 600
+
+    def test_relayout_caps_height_at_maximum_limit(self):
+        # Unbounded resize loop ceiling: cap at 3000px max
+        snapshot = _xdl_snapshot()
+        controls = {
+            name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()
+        }
+        root = MagicMock()
+        root.getPosSize.return_value = SimpleNamespace(Width=320, Height=5000)
+        listener = _PanelResizeListener(controls)
+        listener.relayout_now(root)
+        send = controls["send"].getPosSize()
+        assert send.Y < 3000
+
 
 class TestSidebarHeaderButtonListeners:
     def test_settings_button_listener(self):

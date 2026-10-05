@@ -289,6 +289,15 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         w, h = int(r.Width), int(r.Height)
         if w <= 0 or h <= 0:
             return
+        # What was wrong: in Calc's sidebar container, _relayout() continually
+        # expanded control coordinates when bottom controls pushed down in Calc's
+        # sidebar container, leading to an unbounded resize loop (test_e12).
+        # How it happened: Calc's container window resized when child controls
+        # moved down, firing windowResized with a larger height and repeatedly
+        # moving controls further down.
+        # Why this change fixes it: caps calculated height h against parent window
+        # height (getPosSize().Height) and a maximum limit (3000px) so the panel
+        # cannot expand indefinitely.
         if self._parent_window is not None:
             try:
                 pr = self._parent_window.getPosSize()

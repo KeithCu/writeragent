@@ -279,7 +279,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
         _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose, restore_focus=_restore_focus)
         _resize._root_window = root_window
-        _resize._parent_window = getattr(_tp, "parent_window", None)
+        _resize._parent_window = getattr(_tp, "parent_window", None) or getattr(self, "xParentWindow", None)
         root_window.addWindowListener(_resize)
         self._panel_resize_listener = _resize
         if _tp is not None:
