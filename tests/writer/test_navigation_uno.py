@@ -137,5 +137,41 @@ def test_get_surroundings(ctx, doc):
     assert "paragraphs" in res
 
 
+@native_test
+@with_native_doc("writer")
+def test_navigate_table(ctx, doc):
+    text = doc.getText()
+    cursor = text.createTextCursor()
+
+    # 0: Paragraph before table
+    text.insertString(cursor, "Before table.", False)
+    text.insertControlCharacter(cursor, 0, False)
+
+    # Insert Table
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(2, 2)
+    table.setName("MyTable")
+    text.insertTextContent(cursor, table, False)
+
+    # 1: Table itself (anchor)
+
+    # 2: Paragraph after table
+    text.insertString(cursor, "After table.", False)
+    text.insertControlCharacter(cursor, 0, False)
+
+    mock_ctx = MockContext(doc, ctx)
+    tool = NavSurroundings()
+
+    # Use table:MyTable
+    res = tool.execute(mock_ctx, locator="table:MyTable", radius=2)
+    assert res.get("status") == "ok", res
+    assert "paragraphs" in res
+
+    # Test unknown table
+    res2 = tool.execute(mock_ctx, locator="table:UnknownTable", radius=2)
+    assert res2.get("status") == "error", res2
+    assert "Table 'UnknownTable' not found" in res2.get("message", ""), res2
+
+
 if __name__ == "__main__":
     unittest.main()

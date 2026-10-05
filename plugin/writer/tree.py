@@ -433,6 +433,19 @@ class TreeService(ServiceBase):
                 raise ToolExecutionError("No heading matching '%s' found" % loc_value)
             return {"para_index": result["para_index"]}
 
+        if loc_type == "table":
+            if not hasattr(doc, "getTextTables"):
+                raise ToolExecutionError("Document does not support tables")
+            tables = doc.getTextTables()
+            if not tables.hasByName(loc_value):
+                raise ToolExecutionError("Table '%s' not found" % loc_value)
+            table = tables.getByName(loc_value)
+            anchor = table.getAnchor()
+            para_ranges = self._doc_svc.get_paragraph_ranges(doc)
+            text_obj = doc.getText()
+            para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+            return {"para_index": para_idx, "table_name": loc_value}
+
         raise ToolExecutionError("Unknown Writer locator type: '%s'" % loc_type)
 
     def _resolve_bookmark_locator(self, doc: Any, bookmark_name: str) -> dict[str, Any]:
