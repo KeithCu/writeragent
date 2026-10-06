@@ -1219,3 +1219,124 @@ def test_execute_accepts_and_passes_bound_scope() -> None:
          assert mock_enqueue.call_args.kwargs.get("blocking") is True
          assert mock_enqueue.call_args.args[0] is dummy_fn
          assert mock_enqueue.call_args.args[1] == (1, 2)
+
+def test_flush_pending_posts_order_concurrent_enqueue():
+    """A direct enqueue overlapping with flush must not jump ahead of pending posts."""
+    from plugin.framework.queue_executor import QueueExecutor
+    import threading
+    import time
+
+    qe = QueueExecutor()
+    qe._initialized = True
+    qe._async_callback_service = object()  # fake callback service
+
+    # Pre-populate pending posts
+    qe._pending_posts.append((lambda: "pending1", (), {}, None))
+    qe._pending_posts.append((lambda: "pending2", (), {}, None))
+
+    enqueued_items = []
+
+    # original_offer = qe._offer_work_items
+    def slow_offer(items):
+        time.sleep(0.05)
+        enqueued_items.extend(items)
+
+    qe._offer_work_items = slow_offer
+
+    def direct_enqueue():
+        time.sleep(0.01) # let flush start
+        qe._enqueue_work(lambda: "direct", (), {}, blocking=False)
+
+    t = threading.Thread(target=direct_enqueue)
+    t.start()
+
+    qe._flush_pending_posts()
+    t.join()
+
+    assert len(enqueued_items) == 3
+    assert enqueued_items[0].fn() == "pending1"
+    assert enqueued_items[1].fn() == "pending2"
+    assert enqueued_items[2].fn() == "direct"
+
+def test_set_context_wakes_pending_posts():
+    """set_context must create AsyncCallback if there are pending posts."""
+    from plugin.framework.queue_executor import QueueExecutor
+    from unittest.mock import patch, MagicMock
+    from plugin.framework.thread_guard import _unwrap_uno
+
+    qe = QueueExecutor()
+    # Add a pending post
+    qe._pending_posts.append((lambda: "pending", (), {}, None))
+
+    mock_ctx = MagicMock()
+    mock_smgr = MagicMock()
+    mock_callback_service = MagicMock()
+
+    mock_smgr.createInstanceWithContext.return_value = mock_callback_service
+
+    with patch("plugin.framework.uno_context.get_service_manager", return_value=mock_smgr), \
+         patch.object(qe, "_make_callback_instance", return_value=MagicMock()), \
+         patch.object(qe, "_enqueue_work") as mock_enqueue:
+
+        qe.set_context(mock_ctx)
+
+        # Verify that AsyncCallback was created
+        mock_smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.awt.AsyncCallback", _unwrap_uno(mock_ctx))
+        # Verify that _enqueue_work was called
+        mock_enqueue.assert_called_once()
+        assert mock_enqueue.call_args.args[0]() == "pending"
+
+
+def test_callable_is_scheduled_ignores_cancelled():
+    """callable_is_scheduled must return False if the scheduled item is cancelled."""
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+    import uuid
+
+    qe = QueueExecutor()
+    def my_fn(): pass
+
+    item = _WorkItem(str(uuid.uuid4()), my_fn, (), {}, blocking=False)
+    qe._work_queue.put(item)
+
+    assert qe.callable_is_scheduled(my_fn) is True
+
+    item.cancelled = True
+    assert qe.callable_is_scheduled(my_fn) is False
+
+
+def test_process_queue_claim_gap_raises():
+    """An exception between claim and fn() must not leave the waiter blocked forever."""
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+    from unittest.mock import patch
+    import uuid
+
+    qe = QueueExecutor()
+    def my_fn(): pass
+
+    item = _WorkItem(str(uuid.uuid4()), my_fn, (), {}, blocking=True)
+    qe._work_queue.put(item)
+
+    with patch("plugin.framework.queue_executor._fn_label", side_effect=ValueError("label error")):
+        qe.process_queue()
+
+    assert item.event.is_set(), "waiter is blocked forever"
+    assert isinstance(item.exception, ValueError)
+
+
+def test_wait_for_result_shutting_down_raises():
+    """_wait_for_result must raise RuntimeError if sys.is_finalizing() is true while waiting."""
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+    from unittest.mock import patch
+
+    qe = QueueExecutor()
+    item = _WorkItem("id1", lambda: None, (), {}, blocking=True)
+    item._claimed = True # Simulate that process_queue claimed it
+
+    # Initially, wait for timeout fails, entering keep_waiting.
+    # Then item.event.wait(5.0) returns False, and sys.is_finalizing() is true.
+    with patch("sys.is_finalizing", return_value=True, create=True):
+        try:
+            qe._wait_for_result(item, timeout=0.01)
+            assert False, "Should have raised RuntimeError"
+        except RuntimeError as e:
+            assert "outcome unknown: executor shutting down" in str(e)
