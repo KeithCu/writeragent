@@ -904,9 +904,8 @@ class SendHandlersMixin:
                 def status_cb(msg: str) -> None:
                     q.put((StreamQueueKind.STATUS, msg))
 
-                # Always push thinking to the queue so the drain loop stays active
-                # (processEventsToIdle fires each iteration). Display is controlled
-                # by show_thinking in apply_chunk below.
+                # Always push thinking to the queue so the drain stays fed.
+                # Display is controlled by show_thinking in apply_chunk below.
                 def thinking_cb(msg: str) -> None:
                     q.put((StreamQueueKind.THINKING, msg))
 

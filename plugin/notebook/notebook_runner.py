@@ -42,9 +42,10 @@ _running_docs: set[str] = set()
 # SendCancellation on that same thread. ``execute_code`` waits without a VCL
 # pump, so neither click lands during the in-flight cell. Between cells,
 # ``flush_ui_idle`` delivers the click when no drain owns VCL. That flush
-# no-ops while a chat drain is the owner, and the drain is blocked inside
-# this Run All, so a chat-owned sequence uses ``pump_ui_idle`` instead
-# (depth <= 1 still pumps). ``_clear_stop`` does not reset the chat scope.
+# no-ops while a chat drain holds the owner (event-driven drain has already
+# returned to VCL). A chat-owned sequence therefore pumps between cells with
+# ``pump_ui_idle`` instead (depth <= 1 still pumps). ``_clear_stop`` does not
+# reset the chat scope.
 _stop_flags: dict[str, threading.Event] = {}
 _stop_lock = threading.Lock()
 
@@ -1212,12 +1213,13 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
 
     What was wrong: Stop was ignored for the rest of a chat-owned Run All.
     How: ``flush_ui_idle`` calls ``process_events_to_idle``, which does not
-    pump while a drain owner is set. The drain is blocked inside this Run
-    All, so the chat Stop click never runs, and that button never sets the
-    notebook Event.
-    Why: ``pump_ui_idle`` is the owner's pump and still delivers VCL at
-    depth 1. With no owner, keep ``flush_ui_idle`` (hamburger Stop, and the
-    tests that patch it). Do not pump inside ``execute_code`` (LayoutIdle).
+    pump while a drain owner is set. The event-driven drain has already
+    returned, but it still holds the owner across slices, so between-cell
+    ``flush_ui_idle`` no-ops and chat Stop never runs.
+    Why: while an owner is set, call ``pump_ui_idle`` (depth 1 still
+    delivers VCL). With no owner, keep ``flush_ui_idle`` (hamburger Stop,
+    and the tests that patch it). Do not pump inside ``execute_code``
+    (LayoutIdle).
     """
     try:
         from plugin.framework.async_drain_guard import get_drain_owner

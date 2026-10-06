@@ -2113,6 +2113,36 @@ def test_drain_scheduler_override_forces_blocking_and_restores() -> None:
         stream_mod.set_drain_scheduler_override(previous)
 
 
+def test_drain_scheduler_override_none_uses_blocking_path() -> None:
+    """A None hook selects _run_stream_drain_blocking (pumps idle before return)."""
+    from plugin.framework import async_stream as stream_mod
+
+    previous = stream_mod.set_drain_scheduler_override(lambda: None)
+    try:
+        q: queue.Queue = queue.Queue()
+        q.put((StreamQueueKind.CHUNK, "hello"))
+        q.put((StreamQueueKind.STREAM_DONE, "end"))
+        toolkit = DummyToolkit()
+        job_done = [False]
+        applied: list[str] = []
+
+        run_stream_drain_loop(
+            q,
+            toolkit,
+            job_done,
+            lambda text, is_thinking: applied.append(text),
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda _err: None,
+        )
+
+        assert applied == ["hello"]
+        assert job_done[0] is True
+        assert toolkit.idle_calls >= 1
+    finally:
+        stream_mod.set_drain_scheduler_override(previous)
+
+
 def test_event_drain_batches_one_slice_and_stops_on_terminal() -> None:
     """Ready items are one batch. STREAM_DONE ends the session and does not re-arm."""
     rearm = _RecordingRearm()

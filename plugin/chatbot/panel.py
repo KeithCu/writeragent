@@ -2202,13 +2202,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             stop_speech()
         except Exception:
             pass
-        # UNO can deliver this re-entrantly inside processEventsToIdle while
-        # run_stream_drain_loop is still on the stack. The flag is first so
-        # that drain's finally does not write status or start TTS after ctx
-        # is cleared. Cancel the send scope (same object already captured by
-        # resolve_stop_checker) so the drain stop checker fires instead of
-        # streaming into a dead panel. Match StopSendEffect: cancel the scope
-        # and latch the fallback.
+        # Dispose can run on a later VCL turn while an event-driven drain
+        # session is still open. Set the flag first so _finish_send_drain_ui
+        # does not write status or start TTS after ctx is cleared. Cancel the
+        # send scope (same object already captured by resolve_stop_checker) so
+        # the drain stop checker fires instead of streaming into a dead panel.
+        # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True
         self._last_mcp_turn.clear()
         # What was wrong: silence auto-stop lambdas stayed on the recorder and
@@ -2476,9 +2475,9 @@ class ClearButtonListener(BaseActionListener):
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             self.send_listener._finish_inline_web_approval(False)
             return
-        # What was wrong: Clear wiped messages on the UI thread while the
-        # drain was still inside processEventsToIdle, and it did not latch
-        # Stop. The in-flight reply was then appended onto that wiped chat.
+        # What was wrong: Clear wiped messages on the UI thread while a send
+        # drain was still active, and it did not latch Stop. The in-flight
+        # reply was then appended onto that wiped chat.
         send_state = getattr(getattr(self.send_listener, "sidebar_state", None), "send", None)
         if self.send_listener is not None and send_state is not None and send_state.is_busy:
             self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
