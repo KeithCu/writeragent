@@ -1815,7 +1815,6 @@ def test_prepare_auto_spill_with_16384_columns() -> None:
         assert prepared == ("uid-wide", "Sheet1", 0, 1020)
 
 
-
 def test_ragged_results_handling() -> None:
     """Item 4: Ragged results in flatten_result_values and _result_as_spill_grid."""
     # flatten_result_values:
