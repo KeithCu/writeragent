@@ -373,8 +373,8 @@ def test_bypass_thread_guard_still_works_via_registry(monkeypatch):
 
     def bg():
         nonlocal out
-        # bypass=True means registry calls .execute directly (no execute_safe, no assert)
-        out = reg.execute("dummy", ctx, bypass_thread_guard=True)
+        # execute_unguarded calls .execute directly (no execute_safe, no assert)
+        out = reg.execute_unguarded("dummy", ctx)
 
     t = threading.Thread(target=bg)
     t.start()
