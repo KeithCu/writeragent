@@ -651,6 +651,14 @@ class TestPaintMessageItems:
         assert session.messages[0]["content"] == "partial answer\n[Stopped by user]\n"
         assert len(session.messages) == 1
 
+    def test_user_message_already_present_returns_true_without_duplication(self):
+        """User message recorded at send time returns True so panel paints it immediately."""
+        session = MagicMock()
+        session.messages = [{"role": "user", "content": "What is Python?"}]
+        assert fold_transcript_chunk(session, "What is Python?", role="user") is True
+        assert len(session.messages) == 1
+        assert session.messages[0]["content"] == "What is Python?"
+
     def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()
         model = MagicMock()
@@ -909,3 +917,21 @@ class TestFlattenTextTableCopy:
 def test_plain_fallback_text_drops_script_and_unescapes():
     assert _plain_fallback_text("<script>alert(1)</script><p>a &amp; b</p>") == "a & b"
 
+
+def test_plain_transcript_text_strips_html():
+    from plugin.chatbot.rich_text_paste import plain_transcript_text
+    from unittest.mock import MagicMock
+
+    session = MagicMock()
+    session.messages = [
+        {"role": "user", "content": "<b>hello</b>"},
+        {"role": "assistant", "content": "<p>done</p>"},
+    ]
+    plain = plain_transcript_text(session, greeting="<i>Welcome</i>")
+    assert "<p>" not in plain
+    assert "</p>" not in plain
+    assert "<b>" not in plain
+    assert "<i>" not in plain
+    assert "Welcome" in plain
+    assert "hello" in plain
+    assert "done" in plain

@@ -432,7 +432,9 @@ def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | No
     raw_suffix = url_path[4:]
     # `/vs//etc/passwd` makes path[4:] absolute, so os.path.join drops the
     # rocher root. Refuse that form instead of re-rooting it under Monaco.
-    if os.path.isabs(raw_suffix):
+    # On Windows (3.13+) isabs("/etc/passwd") is False (no drive), so check
+    # for a leading separator too.
+    if raw_suffix.startswith(("/", "\\")) or os.path.isabs(raw_suffix):
         return None
     suffix = raw_suffix.lstrip("/")
     candidate = os.path.realpath(os.path.normpath(os.path.join(root, suffix)))

@@ -220,7 +220,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             from plugin.chatbot.dialogs import msgbox
             from plugin.framework.i18n import _
 
-            msgbox(self.ctx, _("Dispatch Error"), _(str(e)), box_type=3)
+            msgbox(self.ctx, _("Dispatch Error"), str(e), box_type=3)
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
         pass

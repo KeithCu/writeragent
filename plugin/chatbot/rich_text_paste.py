@@ -445,13 +445,19 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     if not isinstance(messages, list):
         return False
     if role == "user":
-        # The send path stores the user row first. A second copy would paint
-        # the question twice. Image mode only had the widget line; record it
-        # so the paint has the question.
-        if messages and messages[-1].get("role") == "user":
-            return False
+        # What was wrong: fold_transcript_chunk returned False when the user
+        # row was already in session.messages (e.g. from add_user_message at send time).
+        # That caused panel._paint_from_list to early-return without painting the session,
+        # so the 'You:' row only appeared upon the first stream chunk. If stopped before
+        # the first token, the 'You:' row was never drawn and '[Stopped by user]' was
+        # appended directly under the greeting.
+        # How it happened: early return on duplicate user row was treated as no-op.
+        # Why this change fixes it: returning True without re-appending ensures
+        # panel._paint_from_list paints the session with the user row immediately upon sending.
         if not text or not str(text).strip():
             return False
+        if messages and messages[-1].get("role") == "user":
+            return True
         messages.append({"role": "user", "content": text})
         return True
     if not text or not str(text).strip():
@@ -484,7 +490,12 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
     from plugin.framework.i18n import _
 
-    text = greeting + "\n" if greeting else ""
+    # What was wrong: after File > Reload the plain box showed raw HTML
+    # ("Assistant <p>done</p>") until the rich control took over.
+    # How: panel wiring paints history before the rich control is ready, and
+    # this fallback wrote stored HTML answers verbatim. Why: the plain box is a
+    # text field, so give it the same stripped text the stream stripper shows.
+    text = (_plain_fallback_text(greeting) + "\n") if greeting else ""
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):
         return text
@@ -492,7 +503,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
         if not isinstance(msg, dict):
             continue
         role = msg.get("role", "")
-        content = _visible_message_text(msg.get("content", ""))
+        content = _plain_fallback_text(_visible_message_text(msg.get("content", "")))
         if role == "user":
             text += "\nUser: %s\n" % content
         elif role == "assistant":
@@ -506,6 +517,10 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
 
 def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, str]]:
     """Build (role, content) pairs for session history display (skips system messages)."""
+    # Tool-call lines ("[Running tool: ...]", "[tool: result]") are not restored:
+    # they are live status text only. ChatSession.add_assistant_message writes
+    # only non-empty content to history_db and add_tool_result writes nothing
+    # (panel.py), so a reloaded session has no rows to draw them from.
     items: list[tuple[str, str]] = []
     if greeting:
         items.append(("assistant", greeting))
@@ -548,6 +563,28 @@ def _replace_control_with_plain(
         auto_scroll=True,
         restore_focus=restore_focus,
     )
+
+
+def _force_rich_full_reformat(control: Any) -> None:
+    """Make the RichTextControl EditEngine lay out the whole control again.
+
+    What was wrong: after clear_control and a bulk refill, the EditEngine drew
+    a layout that disagreed with its own text height. Lines were missing and
+    a gap below the last line grew with the transcript, until the sidebar
+    went blank in long sessions. invalidate() and hide/show did not fix it.
+    Why this fixes it: a paper-width change does. Resizing the peer reaches
+    EditEngine::SetPaperSize (editeng/source/editeng/editeng.cxx), which
+    reformats the whole document when the width changes. Narrow by 1px, then
+    restore.
+    """
+    try:
+        ps = control.getPosSize()
+        if ps.Width <= 2:
+            return
+        control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
+        control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
+    except Exception:
+        log.debug("_force_rich_full_reformat failed", exc_info=True)
 
 
 def paint_message_items(
@@ -608,6 +645,8 @@ def paint_message_items(
             if rows[-1][0] == "user":
                 with focus_preserved(ctx, restore):
                     _ensure_trailing_line_break(control)
+            # Reformat before the restick so the scroll target is the real end.
+            _force_rich_full_reformat(control)
             _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             return True
         log.warning("paint_message_items: formatted copy failed; plain paint")

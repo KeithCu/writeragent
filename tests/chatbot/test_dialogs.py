@@ -662,3 +662,41 @@ def test_get_optional_reraises_disposed_and_returns_none_when_missing():
     missing = MagicMock()
     missing.getControl.side_effect = RuntimeException("no such control")
     assert get_optional(missing, "send") is None
+
+def test_msgbox_with_report_long_message_does_not_raise():
+    from plugin.chatbot.dialogs import msgbox_with_report
+    from unittest.mock import MagicMock, patch
+    ctx = MagicMock()
+    dlg = MagicMock()
+    msg_ctrl = MagicMock()
+    msg_model = MagicMock()
+    msg_ctrl.getModel.return_value = msg_model
+    dlg.getControl.side_effect = lambda name: msg_ctrl if name == "Msg" else None
+
+    with patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=dlg):
+        # We also need to mock build_github_issue_url because we aren't testing that.
+        with patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="url"):
+            # 2000 > DEAL_MAX_MSGID (which is probably 1000 or so)
+            long_msg = "x" * 2000
+            # If `_(long_msg)` is called, it will raise deal.PreContractError
+            msgbox_with_report(ctx, "Test Title", long_msg, reportable=True)
+            # The label should be assigned the long message (or translated prefix + long message)
+            assert long_msg in msg_model.Label
+
+def test_msgbox_long_message_does_not_raise():
+    from plugin.chatbot.dialogs import msgbox
+    from unittest.mock import MagicMock, patch
+    ctx = MagicMock()
+    toolkit = MagicMock()
+    ctx.getServiceManager().createInstanceWithContext.return_value = toolkit
+    box = MagicMock()
+    toolkit.createMessageBox.return_value = box
+
+    long_msg = "x" * 2000
+    with patch("plugin.chatbot.dialogs.get_desktop") as mock_desktop:
+        mock_desktop.return_value = MagicMock()
+        msgbox(ctx, "Test Title", long_msg)
+
+    # Verify createMessageBox was called with the raw long message
+    args = toolkit.createMessageBox.call_args[0]
+    assert args[4] == long_msg

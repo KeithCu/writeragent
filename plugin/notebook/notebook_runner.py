@@ -15,7 +15,7 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import is_document_disposed
+from plugin.framework.errors import is_disposed_exception, is_document_disposed
 from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
@@ -1074,13 +1074,18 @@ def _restore_view_to_cell(doc: Any, cell: NotebookCodeCell, saved: Any | None = 
 # ---------------------------------------------------------------------------
 
 
+_FATAL_WORKER_CODES = frozenset({"VENV_TIMEOUT", "WORKER_IPC_ERROR"})
+
+
 def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: NotebookCodeCell, code: str) -> RunResult:
     """Run *code* for *cell* and write outputs. Caller holds the busy key."""
     saved_view = _save_view_cursor(doc)
     result = execute_code(ctx, doc, code)
     # After execute so live smoke can tell ok from a sandbox dunder deny.
     log.info("notebook run cell index=%d field=%s status=%s", cell.index, cell.code_field_name, result.get("status"))
-    if result.get("status") == "stopped" or result.get("status") == "interrupted":
+    # The venv worker reports Stop as an error with code CANCELLED. That cell
+    # did not finish: no traceback, no In [n].
+    if result.get("status") == "stopped" or result.get("code") == "CANCELLED":
         # In [n] / outputs only for cells that actually finished.
         return RunResult("stopped", None, "Stopped.", cells_run=0)
 
@@ -1103,7 +1108,10 @@ def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: Notebo
 
     if result.get("status") != "ok":
         msg = result.get("message") or _("Cell execution failed.")
-        return RunResult("error", execution_count, str(msg), cells_run=1)
+        # The worker was killed or lost; later cells would run in a fresh
+        # kernel without this cell's state. Run All stops after this one.
+        status = "fatal" if result.get("code") in _FATAL_WORKER_CODES else "error"
+        return RunResult(status, execution_count, str(msg), cells_run=1)
     return RunResult("ok", execution_count, cells_run=1)
 
 
@@ -1133,7 +1141,10 @@ def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
     _running_docs.add(busy_key)
     try:
         _clear_stop(busy_key)
-        return _execute_and_apply(ctx, doc, state, cell, code)
+        one = _execute_and_apply(ctx, doc, state, cell, code)
+        if one.status == "fatal":
+            return RunResult("error", one.execution_count, one.message, cells_run=one.cells_run)
+        return one
     finally:
         _running_docs.discard(busy_key)
 
@@ -1270,10 +1281,21 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
             if _is_stop_requested(busy_key):
                 stopped = True
                 break
-            one = _execute_and_apply(ctx, doc, state, cell, code)
+            try:
+                one = _execute_and_apply(ctx, doc, state, cell, code)
+            except Exception as exc:
+                # Document closed mid-batch: stop quietly instead of raising
+                # out of Run All.
+                if is_disposed_exception(exc) or is_document_disposed(doc):
+                    stopped = True
+                    break
+                raise
             if one.status == "stopped":
                 stopped = True
                 break
+            if one.status == "fatal":
+                executed += 1
+                return RunResult("error", one.execution_count, one.message, cells_run=executed)
             executed += 1
             last_count = one.execution_count
             need_drain = True
@@ -1284,6 +1306,8 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
             return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
         return RunResult("ok", last_count, cells_run=executed)
     finally:
+        with _stop_lock:
+            _stop_flags.pop(busy_key, None)
         _running_docs.discard(busy_key)
 
 

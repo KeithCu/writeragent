@@ -604,7 +604,7 @@ class NotebookRunButtonListener(BaseActionListener):
                 if doc is not None:
                     return doc
             except Exception:
-                pass
+                log.debug("notebook controls: doc resolution failed", exc_info=True)
         # Prefer a live wrapper before enumerating the desktop (unit tests and
         # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
         weak = getattr(self, "_doc_weak", None)
@@ -810,6 +810,20 @@ def wire_run_button_listener(ctx: Any, doc: Any, model: Any, hex_id: str) -> boo
         return False
 
 
+def _detach_wiring(container: Any, listener: Any, container_lis: Any) -> None:
+    try:
+        container.removeContainerListener(container_lis)
+    except Exception:
+        log.debug("notebook controls: removeContainerListener failed", exc_info=True)
+    try:
+        controls = container.getControls() if hasattr(container, "getControls") else ()
+        for control in controls or ():
+            if hasattr(control, "removeActionListener"):
+                control.removeActionListener(listener)
+    except Exception:
+        log.debug("notebook controls: removeActionListener failed", exc_info=True)
+
+
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
 
@@ -848,8 +862,6 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         log.debug("notebook controls: form listener already attached doc=%s", doc_key)
         return 1
 
-
-
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
     try:
@@ -875,9 +887,27 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         return 0
 
     with _lock:
-        _listener_refs.append(listener)
-        _listener_refs.append(container_lis)
-        _wired_form_docs.add(doc_key)
+        already_wired = False
+        for lis in _listener_refs:
+            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
+                try:
+                    if uno_same(lis._container, container):
+                        already_wired = True
+                        break
+                except Exception:
+                    already_wired = True
+                    break
+        if not already_wired:
+            _listener_refs.append(listener)
+            _listener_refs.append(container_lis)
+            _wired_form_docs.add(doc_key)
+    if already_wired:
+        # File Open (Dummy-2) and view creation can both get past the first
+        # check. The other call kept its listener; take ours back off so one
+        # ▶ click does not run the cell twice.
+        _detach_wiring(container, listener, container_lis)
+        log.debug("notebook controls: lost wiring race; detached duplicate doc=%s", doc_key)
+        return 1
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1
