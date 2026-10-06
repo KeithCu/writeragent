@@ -15,8 +15,9 @@ hidden undo / locked unit, re-entrancy, Isolated + flag on, flag off.
 from __future__ import annotations
 
 import time
+import unittest
 
-from plugin.testing_runner import native_test, on_github_actions
+from plugin.testing_runner import native_test, on_github_actions, show_window
 from plugin.tests.testing_utils import with_native_doc
 
 # Isolated testing_runner profiles do not inherit user-level unopkg, so sheet
@@ -279,10 +280,9 @@ def _runtime_uid(doc) -> str:
 
 
 def _close_extra_calc_docs(ctx, keep) -> int:
-    """Close other Calcs so soffice leftover Shared sees recorded=1.
+    """Close other Calcs so the leftover test runs against one workbook.
 
-    Full ``make test-uno`` often still has another factory scalc. Each OnNew
-    records a session; leftover then stays ``recorded=2`` / Isolated.
+    Full ``make test-uno`` often still has another factory scalc open.
     """
     from plugin.doc.doc_type import is_calc
     from plugin.framework.uno_context import get_desktop
@@ -558,6 +558,7 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
         _restore_geometric_flag(ctx, previous)
 
 
+@unittest.skipIf(not show_window, "Headless soffice evaluates =PY() off the main thread, so there is no Shared session and A3 cannot see A1's name")
 @native_test
 @with_native_doc("calc")
 def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
@@ -570,13 +571,11 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     41. Precedent-only strip is Phase 4 unit-tested; headless soffice eval
     is off Python MainThread so live ``data is None`` cannot be observed.
 
-    Stay on the reused calc doc. A second factory ``scalc`` makes
-    ``off_main_calc_session_is_unambiguous()`` false, so Shared
-    ``session_id`` is dropped (XAddIn has no calling workbook). Desktop
-    scan records only when exactly one Calc is open. Worker restart must
-    not clear recorded sessions (leftover after cap-hit saw
-    ``recorded=0``). Throwaway ``writeragent.json`` is seeded ``shared``
-    before soffice starts. Persist the geometric flag into that throwaway
+    Visible-only: headless soffice runs ``=PY()`` off the Python main
+    thread. Off main, the add-in passes the caller doc through but gets no
+    Shared ``session_id``, so A3 cannot see A1's name. Stay on the reused
+    calc doc. Throwaway ``writeragent.json`` is seeded ``shared`` before
+    soffice starts. Persist the geometric flag into that throwaway
     profile too — a client-only monkeypatch leaves soffice flag-off.
     Do not seed checkout ``.venv`` as ``python_venv_path`` — that made A3
     Isolated (GHA 33751116865 / 33752809831). Workers use office Python.
