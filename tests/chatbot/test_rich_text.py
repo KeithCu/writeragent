@@ -141,27 +141,27 @@ class TestAppendRichText:
         assert all(count <= 8192 for count, expand in calls)
 
     def test_append_rich_text_anchors_body_start_without_character_count_offset(self):
-        """Appending user message after assistant message anchors to body_start (no color bleed into assistant text)."""
+        """The body range starts one past the prefix's last character, not at a document-start count."""
         from plugin.chatbot.rich_text import append_rich_text, USER_COLOR
 
         doc = MockDoc()
         append_rich_text(doc, "done", role="assistant")
 
-        created_cursors = []
-        original_create = doc.getText().createTextCursor
+        by_range = []
+        original_by_range = doc.getText().createTextCursorByRange
 
-        def patched_create():
-            c = original_create()
-            created_cursors.append(c)
+        def patched_by_range(rng):
+            c = original_by_range(rng)
+            by_range.append(c)
             return c
 
-        doc.getText().createTextCursor = patched_create
+        doc.getText().createTextCursorByRange = patched_by_range
 
         append_rich_text(doc, "how are you?", role="user")
 
-        body_cursor = created_cursors[-1]
-        assert not hasattr(body_cursor, "go_right_calls")
-        assert body_cursor.CharColor == USER_COLOR
+        body_range = by_range[-1]
+        assert body_range.go_right_calls == [(1, False)]
+        assert body_range.CharColor == USER_COLOR
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
@@ -269,12 +269,13 @@ class TestAppendRichText:
         doc = MockDoc()
         body_cursors = []
 
-        def track_body_cursor():
+        def track_body_cursor(rng):
             c = MockTextCursor()
             body_cursors.append(c)
             return c
 
-        doc.getText().createTextCursor = track_body_cursor
+        # The body range is created from the prefix anchor, by range.
+        doc.getText().createTextCursorByRange = track_body_cursor
 
         with patch("plugin.chatbot.rich_text._insert_html_at_cursor"):
             append_rich_text(doc, '<p><span style="color:#ff0000">red</span></p>', role="assistant")
@@ -289,12 +290,13 @@ class TestAppendRichText:
         doc = MockDoc()
         body_cursors = []
 
-        def track_body_cursor():
+        def track_body_cursor(rng):
             c = MockTextCursor()
             body_cursors.append(c)
             return c
 
-        doc.getText().createTextCursor = track_body_cursor
+        # The body range is created from the prefix anchor, by range.
+        doc.getText().createTextCursorByRange = track_body_cursor
         append_rich_text(doc, "plain answer", role="assistant")
 
         assert (len(body_cursors)) >= (2)

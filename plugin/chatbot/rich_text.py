@@ -440,7 +440,13 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
         cursor.gotoEnd(False)
         cursor.CharWeight = CHAT_FONT_WEIGHT  # Reset to normal after bold prefix
         cursor.CharColor = theme.user_color if role == "user" else theme.assistant_color
-        body_start = cursor.getStart()
+        # Anchor on the prefix's last character, one before the insert point.
+        # A range AT the insert point does not stay put: the HTML import
+        # leaves it after the imported body (see html_import._parked_cursor),
+        # which made body_range empty and skipped list tightening. A position
+        # before the insert point is not moved by the insert.
+        body_anchor = text_obj.createTextCursorByRange(cursor.getStart())
+        body_anchor.goLeft(1, False)
 
         if text and text.strip():
             # A tag _HTML_TAG_RE does not list (<script>, a full document the
@@ -482,11 +488,11 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             # by the count of preceding paragraph breaks, landing inside the last word
             # of the preceding assistant message. gotoEnd(True) then extended across that
             # boundary and set CharColor = theme.user_color on the assistant word's tail.
-            # Why this change: anchor body_range directly to body_start (the position
-            # right after the prefix) instead of traversing from document start with character
-            # counts. Each message row stays strictly within its own text bounds.
-            body_range = text_obj.createTextCursor()
-            body_range.gotoRange(body_start, False)
+            # Why this change: start body_range one character after body_anchor (the
+            # end of the prefix) instead of counting characters from the document start,
+            # so each row's color stays inside its own text.
+            body_range = text_obj.createTextCursorByRange(body_anchor.getStart())
+            body_range.goRight(1, False)
             body_range.gotoEnd(True)
             # Plain text gets the role tint; successful HTML import keeps
             # per-span CharColor from the filter (red/blue runs, etc.).
