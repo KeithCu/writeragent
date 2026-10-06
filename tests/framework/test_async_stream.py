@@ -2072,6 +2072,166 @@ def test_defer_until_drain_done_runs_immediately_when_blocking() -> None:
     assert seen == ["now"]
 
 
+def test_event_drain_caps_back_to_back_immediate_rearms(monkeypatch: pytest.MonkeyPatch) -> None:
+    import queue
+    from plugin.framework import async_stream
+
+    q: queue.Queue = queue.Queue()
+    job_done = [False]
+
+    class MockScheduler:
+        def __init__(self):
+            self.posts = []
+
+        def post(self, fn):
+            self.posts.append(("now", fn))
+
+        def post_after(self, delay, fn):
+            self.posts.append(("later", delay, fn))
+
+    scheduler = MockScheduler()
+
+    drain = async_stream._EventDrain(
+        async_stream._DrainState(
+            q=q,
+            apply_chunk_fn=lambda _text, _thinking: None,
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda _e: None,
+            on_status_fn=None,
+            on_approval_required=None,
+            show_search_thinking=False,
+            job_done=job_done
+        ),
+        scheduler,
+        None,
+        None
+    )
+
+    drain.start()
+
+    # start() schedules the first slice via immediate post.
+    assert len(scheduler.posts) == 1
+    assert scheduler.posts[0][0] == "now"
+
+    # Cap is 3 immediate re-arms. We mock q.qsize() since _drain_ready drains it all.
+    with monkeypatch.context() as m:
+        m.setattr(q, "qsize", lambda: 1)
+
+        # 1. First slice -> pending > 0 -> post (streak 1)
+        scheduler.posts.pop(0)[1]()
+        assert len(scheduler.posts) == 1
+        assert scheduler.posts[0][0] == "now"
+        assert drain._immediate_streak == 1
+
+        # 2. Second slice -> pending > 0 -> post (streak 2)
+        scheduler.posts.pop(0)[1]()
+        assert len(scheduler.posts) == 1
+        assert scheduler.posts[0][0] == "now"
+        assert drain._immediate_streak == 2
+
+        # 3. Third slice -> pending > 0 -> post (streak 3)
+        scheduler.posts.pop(0)[1]()
+        assert len(scheduler.posts) == 1
+        assert scheduler.posts[0][0] == "now"
+        assert drain._immediate_streak == 3
+
+        # 4. Fourth slice -> pending > 0 -> streak >= 3 -> post_after (gap)
+        scheduler.posts.pop(0)[1]()
+        assert len(scheduler.posts) == 1
+        assert scheduler.posts[0][0] == "later"
+        assert scheduler.posts[0][1] == async_stream._DRAIN_YIELD_GAP_SEC
+        assert drain._immediate_streak == 0
+
+        # 5. Fifth slice -> pending > 0 -> post (streak 1 again)
+        scheduler.posts.pop(0)[2]() # It's a post_after, fn is index 2
+        assert len(scheduler.posts) == 1
+        assert scheduler.posts[0][0] == "now"
+        assert drain._immediate_streak == 1
+
+
+def test_async_callback_rearm_breaks_reference_cycles(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gc
+    import weakref
+    from unittest.mock import MagicMock
+    import queue
+    from plugin.framework import async_stream
+
+    # Stub the internal factory to a class that keeps a strong reference to fn
+    class FakeSliceCallback:
+        def __init__(self, fn):
+            self.fn = fn
+
+        def notify(self):
+            self.fn()
+
+    monkeypatch.setattr(async_stream, "_new_xcallback", FakeSliceCallback)
+
+    class FakeService:
+        def __init__(self):
+            self.calls = []
+
+        def addCallback(self, cb, data):
+            self.calls.append((cb, data))
+
+    service = FakeService()
+
+    q: queue.Queue = queue.Queue()
+    q.put((async_stream.StreamQueueKind.STREAM_DONE, "test"))
+
+    job_done = [False]
+
+    def run_drain():
+        rearm = async_stream._AsyncCallbackRearm(service)
+        drain = async_stream._EventDrain(
+            async_stream._DrainState(
+                q=q,
+                apply_chunk_fn=MagicMock(),
+                on_stream_done=lambda _item: True,
+                on_stopped=lambda: None,
+                on_error=lambda _e: None,
+                on_status_fn=None,
+                on_approval_required=None,
+                show_search_thinking=False,
+                job_done=job_done
+            ),
+            rearm,
+            None,
+            None
+        )
+        drain.start()
+
+        # Test drive notify
+        if service.calls:
+            cb, _ = service.calls.pop(0)
+            cb.notify()
+
+        return weakref.ref(drain), weakref.ref(rearm), cb
+
+    # Global clear
+    async_stream._event_drain = None
+
+    # Disable GC so cyclic references aren't automatically collected
+    gc.disable()
+    try:
+        drain_ref, rearm_ref, retained_cb = run_drain()
+
+        # Late notify after close does nothing.
+        retained_cb.notify()
+
+        # Now clear retained_cb so that FakeSliceCallback's strong reference to
+        # the bound _notify method (which holds the _AsyncCallbackRearm instance)
+        # is dropped.
+        retained_cb = None
+
+        # The locals have dropped. They should be dead due to breaking the cycle.
+        assert drain_ref() is None
+        assert rearm_ref() is None
+
+    finally:
+        gc.enable()
+
+
 def test_async_callback_for_drain_rearm_keeps_testing_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock-sidebar soffice sets WRITERAGENT_TESTING. Re-arm must still be possible."""
     from plugin.framework import queue_executor as qe
@@ -2140,6 +2300,44 @@ def test_event_drain_batches_one_slice_and_stops_on_terminal() -> None:
         assert toolkit.idle_calls == 0
     finally:
         _clear_event_drain()
+
+
+def test_idle_rearm_thread_retries_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+    from plugin.framework import async_stream
+
+    monkeypatch.setattr(async_stream, "_DRAIN_IDLE_REARM_SEC", 0.01)
+    monkeypatch.setattr(async_stream, "_IDLE_REARM_RETRY_MAX_SEC", 0.01)
+
+    thread = async_stream._IdleRearmThread()
+    calls = []
+    done_event = __import__("threading").Event()
+
+    def failing_fire() -> None:
+        calls.append(time.monotonic())
+        if len(calls) < 2:
+            raise RuntimeError("fire boom")
+        done_event.set()
+
+    thread.arm(0.01, failing_fire)
+    assert done_event.wait(timeout=2.0)
+    assert len(calls) == 2
+
+    # After stop(), a failing fire is not retried.
+    calls.clear()
+    done_event.clear()
+
+    def fire_then_stop() -> None:
+        calls.append(time.monotonic())
+        thread.stop()
+        raise RuntimeError("fire boom after stop")
+
+    thread.arm(0.01, fire_then_stop)
+    time.sleep(0.1)
+    assert len(calls) == 1
+    with thread._cv:
+        assert thread._deadline is None
+    thread.stop()
 
 
 def test_event_drain_rearms_idle_then_next_batch() -> None:

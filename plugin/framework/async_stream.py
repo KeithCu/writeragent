@@ -741,6 +741,15 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
 # 50–100 ms band. Immediate re-arm is used only when items are already queued,
 # so an empty stream does not spin the main thread.
 _DRAIN_IDLE_REARM_SEC = 0.1
+_IDLE_REARM_RETRY_MAX_SEC = 1.0
+
+# LibreOffice evidence: on Qt (vcl/qt5/QtInstance.cxx ImplYield), macOS
+# (vcl/osx/salinst.cxx DoYield) and Windows (PostMessage SAL_MSG_USEREVENT
+# retrieved before input/paint) continuously re-posted user events can starve
+# input and paint; on GTK they can starve VCL repaint idles (user events at
+# G_PRIORITY_HIGH_IDLE+30, scheduler at G_PRIORITY_LOW, vcl/unx/gtk3/gtkdata.cxx).
+_DRAIN_MAX_IMMEDIATE_REARMS = 3
+_DRAIN_YIELD_GAP_SEC = 0.02
 
 # The event-driven session, main thread only. Callers register epilogues on it
 # after ``run_stream_drain_loop`` returns and before the VCL callback unwinds.
@@ -808,6 +817,7 @@ class _IdleRearmThread:
     _deadline: float | None
     _fire: Callable[[], None] | None
     _generation: int
+    _failures: int
     _started: bool
     _stopped: bool
 
@@ -817,6 +827,7 @@ class _IdleRearmThread:
         self._deadline = None
         self._fire = None
         self._generation = 0
+        self._failures = 0
         self._started = False
         self._stopped = False
 
@@ -872,8 +883,21 @@ class _IdleRearmThread:
                 self._fire = None
             try:
                 fire()
+                self._failures = 0
             except Exception:
-                log.exception("drain idle re-arm failed")
+                delay = None
+                with self._cv:
+                    if not self._stopped and self._deadline is None and self._generation == generation:
+                        self._failures += 1
+                        delay = min(_IDLE_REARM_RETRY_MAX_SEC, _DRAIN_IDLE_REARM_SEC * 2**min(self._failures - 1, 4))
+                        self._deadline = time.monotonic() + delay
+                        self._fire = fire
+                        self._cv.notify()
+                if delay is not None:
+                    if self._failures == 1:
+                        log.exception("drain idle re-arm failed")
+                    else:
+                        log.warning("drain idle re-arm failed %d times, retrying in %.2fs", self._failures, delay)
 
 
 def _new_xcallback(fn: Callable[[], None]) -> Any:
@@ -928,6 +952,8 @@ class _AsyncCallbackRearm:
 
     def _poke(self) -> None:
         # crosshair: off
+        if self._callback is None:
+            return
         self._service.addCallback(self._callback, None)
 
     def post(self, fn: Callable[[], None]) -> None:
@@ -949,6 +975,10 @@ class _AsyncCallbackRearm:
     def close(self) -> None:
         # crosshair: off
         self._timer.stop()
+        with self._lock:
+            self._target = None
+        self._callback = None
+        self._service = None
 
 
 class _EventDrain:
@@ -968,6 +998,7 @@ class _EventDrain:
     _held: bool
     _previous_owner: str | None
     _generation: int
+    _immediate_streak: int
 
     def __init__(self, state: _DrainState, scheduler: Any, stop_checker: Callable[[], bool] | None, flush_pending: Callable[[], None] | None) -> None:
         # crosshair: off
@@ -980,6 +1011,7 @@ class _EventDrain:
         self._held = False
         self._previous_owner = None
         self._generation = 0
+        self._immediate_streak = 0
 
     def start(self) -> None:
         """Take the pump owner and arm the first slice. Does not process items."""
@@ -996,7 +1028,7 @@ class _EventDrain:
             self._state.job_done[0] = True
             self._finish()
 
-    def _schedule_next(self, *, idle: bool) -> None:
+    def _schedule_next(self, *, idle: bool, delay: float | None = None) -> None:
         # crosshair: off
         if self.closed:
             return
@@ -1011,6 +1043,8 @@ class _EventDrain:
 
         if idle:
             self._scheduler.post_after(_DRAIN_IDLE_REARM_SEC, _run)
+        elif delay is not None:
+            self._scheduler.post_after(delay, _run)
         else:
             self._scheduler.post(_run)
 
@@ -1076,7 +1110,15 @@ class _EventDrain:
                 pending = state.q.qsize()
             except Exception:
                 pending = 0
-            self._schedule_next(idle=pending == 0)
+            if pending == 0:
+                self._immediate_streak = 0
+                self._schedule_next(idle=True)
+            elif self._immediate_streak >= _DRAIN_MAX_IMMEDIATE_REARMS:
+                self._immediate_streak = 0
+                self._schedule_next(idle=False, delay=_DRAIN_YIELD_GAP_SEC)
+            else:
+                self._immediate_streak += 1
+                self._schedule_next(idle=False)
         except Exception as exc:
             log.exception("event drain slice failed")
             self._report_slice_error(exc)

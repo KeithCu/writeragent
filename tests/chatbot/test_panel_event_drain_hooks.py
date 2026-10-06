@@ -142,6 +142,99 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         # Nothing left to run: the strip and the Hung clear happened once.
         assert rearm.pending == []
 
+        # Validate cleanup asserts
+        from plugin.framework.queue_executor import get_drain_owner, get_drain_depth, _AGENT_OPEN_SCOPES
+        from plugin.framework import async_stream
+
+        assert get_drain_owner() is None
+        assert get_drain_depth() == 0
+        assert _AGENT_OPEN_SCOPES == []
+        assert async_stream._event_drain is None
+
+
+def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
+    from plugin.framework.queue_executor import get_drain_owner, get_drain_depth, _AGENT_OPEN_SCOPES
+    from plugin.framework import async_stream
+    import plugin.framework.logging as logging_mod
+
+    listener = _audio_listener()
+    listener.sidebar_state.agent = MagicMock()
+    listener.sidebar_state.agent.is_closing = False
+
+    status_ctrl = MagicMock()
+    rearm = _Rearm()
+    q: queue.Queue = queue.Queue()
+
+    def _start_turn() -> None:
+        logging_mod.update_activity_state("do_send", status_control=status_ctrl)
+        run_stream_drain_loop(
+            q,
+            MagicMock(),
+            [False],
+            lambda _text, _thinking: None,
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda _e: None,
+            rearm=rearm,
+        )
+
+    with (
+        patch.object(listener, "_do_send", side_effect=_start_turn),
+        patch.object(listener, "_project_closing_line"),
+        patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
+        patch("plugin.chatbot.tool_loop_actions.drop_turn") as drop_turn,
+        patch("plugin.doc.peer_message.kick_pending_peer_starts"),
+        patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
+        patch("plugin.framework.queue_executor.post_to_main_thread"),
+    ):
+        listener._run_send_drain()
+
+        # The first slice has not even run: the turn is still streaming.
+        assert logging_mod._activity_state["phase"] == "do_send"
+
+        # Dispose mid-stream (calls SendButtonListener.disposing() which sets _panel_teardown = True and cancels scope)
+        listener.disposing()
+
+        # Pump the stream next - it should dispatch STOPPED but wait to check the leak asserts
+        q.put((StreamQueueKind.STREAM_DONE, "end"))
+
+        rearm.pump()
+
+        drop_turn.assert_called_once()
+
+        assert get_drain_owner() is None
+        assert get_drain_depth() == 0
+        assert _AGENT_OPEN_SCOPES == []
+        assert async_stream._event_drain is None
+
+
+def test_do_send_raises_before_drain_cleans_up() -> None:
+    from plugin.framework.queue_executor import get_drain_owner, get_drain_depth, _AGENT_OPEN_SCOPES
+    from plugin.framework import async_stream
+    import plugin.framework.logging as logging_mod
+
+    listener = _audio_listener()
+
+    def _start_turn() -> None:
+        raise RuntimeError("boom before drain starts")
+
+    with (
+        patch.object(listener, "_do_send", side_effect=_start_turn),
+        patch.object(listener, "_project_closing_line"),
+        patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
+        patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+        patch("plugin.doc.peer_message.kick_pending_peer_starts"),
+        patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
+        patch("plugin.framework.queue_executor.post_to_main_thread"),
+    ):
+        listener._run_send_drain()
+
+        # It must immediately invoke error path
+        assert get_drain_owner() is None
+        assert get_drain_depth() == 0
+        assert _AGENT_OPEN_SCOPES == []
+        assert async_stream._event_drain is None
+
 
 def test_each_slice_that_applies_chunks_notes_watchdog_activity() -> None:
     from plugin.chatbot.tool_loop_actions import begin_send_turn
