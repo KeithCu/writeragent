@@ -558,11 +558,16 @@ class TestOptionalFlushFileHandler:
         from plugin.framework.logging import _watchdog_check
         import sys
 
+        import plugin.framework.logging as logging_mod
+
         mock_handler = MagicMock(spec=OptionalFlushFileHandler)
         old_h = getattr(sys, "_writeragent_debug_file_handler", None)
         try:
             setattr(sys, "_writeragent_debug_file_handler", mock_handler)
-            _watchdog_check(None)
+            # Idle: no phase. A stalled phase left by an earlier test would
+            # also run the once-per-stall stack dump, which flushes again.
+            with patch.dict(logging_mod._activity_state, {"phase": ""}):
+                _watchdog_check(None)
             mock_handler.flush.assert_called_once_with(force=True)
         finally:
             setattr(sys, "_writeragent_debug_file_handler", old_h)
@@ -812,8 +817,12 @@ def test_watchdog_dumps_thread_stacks_on_stall() -> None:
     assert worker_started.wait(timeout=2.0)
 
     saved_hung = logging_mod._watchdog_hung_shown
+    # The dump is DEBUG. Run alone, the logger is still at its default level.
+    saved_level = logging_mod.log.level
+    logging_mod.log.setLevel(logging.DEBUG)
     try:
         logging_mod._watchdog_hung_shown = False
+        logging_mod._watchdog_stacks_dumped = False
         update_activity_state("chat", round_num=1)
         with logging_mod._activity_lock:
             logging_mod._activity_state["last_activity"] = 0.0
@@ -856,6 +865,7 @@ def test_watchdog_dumps_thread_stacks_on_stall() -> None:
         assert current_thread_name in second_dump
         assert "test-stall-worker-thread" in second_dump
     finally:
+        logging_mod.log.setLevel(saved_level)
         worker_stop.set()
         worker_thread.join(timeout=2.0)
         logging_mod._watchdog_hung_shown = saved_hung
