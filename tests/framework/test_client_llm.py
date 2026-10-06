@@ -2496,6 +2496,83 @@ def test_stream_overloaded_before_tokens_retries(client, _fast_retry_waits):
     assert mock_https.call_count == 2
 
 
+def test_adjust_image_body_for_rejection_matches_and_updates():
+    from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
+
+    body = json.dumps({"prompt": "cat", "resolution": "512", "aspect_ratio": "1:1"}).encode("utf-8")
+    error_text = "No provider supports the requested parameter(s). Provider rejections: Google: resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
+
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is not None
+    data = json.loads(new_body.decode("utf-8"))
+    assert data["resolution"] == "1K"
+    assert data["aspect_ratio"] == "1:1"  # untouched
+
+
+def test_adjust_image_body_for_rejection_conflicting_accepted_removes_param():
+    from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
+
+    body = json.dumps({"prompt": "cat", "aspect_ratio": "16:9"}).encode("utf-8")
+    # Simulating a case where two providers reject, but agree on nothing
+    error_text = "aspect_ratio: not supported. Accepted: 1:1, 4:3 | aspect_ratio: not supported. Accepted: 3:2"
+
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is not None
+    data = json.loads(new_body.decode("utf-8"))
+    assert "aspect_ratio" not in data
+
+
+def test_adjust_image_body_for_rejection_no_match_returns_none():
+    from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
+
+    body = json.dumps({"prompt": "cat", "resolution": "512"}).encode("utf-8")
+    error_text = "Bad request: invalid prompt"
+
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is None
+
+
+def test_image_completion_retries_on_not_supported(client):
+    from plugin.framework.errors import NetworkError
+    client._get_shim = MagicMock()
+    client._get_shim().parse_image_responses.return_value = ["/tmp/retried.png"]
+
+    call_count = 0
+    def mock_request_json(method, path, body, headers, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise NetworkError("HTTP 400: No provider supports the requested parameter(s). Provider rejections: Google: resolution: not supported. Accepted: 1K")
+        assert call_count == 2
+        data = json.loads(body.decode("utf-8"))
+        assert data["resolution"] == "1K"
+        return {"data": [{"url": "http://example.com/img.png"}]}
+
+    with patch.object(client, "_request_json", side_effect=mock_request_json):
+        # we pass width/height such that it puts "resolution" in the body if we use the openrouter shim logic
+        # but actually make_image_request will be called. Let's just mock make_image_request to return our body
+        with patch.object(client, "make_image_request", return_value=("POST", "/images", json.dumps({"resolution": "512"}).encode("utf-8"), {})):
+            res = client.image_completion("cat")
+            assert res == ["/tmp/retried.png"]
+            assert call_count == 2
+
+
+def test_image_completion_non_matching_error_reraises(client):
+    from plugin.framework.errors import NetworkError
+
+    call_count = 0
+    def mock_request_json(method, path, body, headers, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise NetworkError("HTTP 400: Bad Request")
+
+    with patch.object(client, "_request_json", side_effect=mock_request_json):
+        with patch.object(client, "make_image_request", return_value=("POST", "/images", json.dumps({"resolution": "512"}).encode("utf-8"), {})):
+            with pytest.raises(NetworkError, match="Bad Request"):
+                client.image_completion("cat")
+            assert call_count == 1
+
+
 def _pre_emit_snapshot_lines(tail: bytes | None) -> list[bytes]:
     """Role, a buffered <think prefix, usage, and an encrypted reasoning blob.
 

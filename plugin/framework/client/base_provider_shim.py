@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from plugin.framework.url_utils import get_url_path_and_query
@@ -91,6 +92,59 @@ def canonical_resolution(width: int | None = None, height: int | None = None, *,
     if family == "openrouter_chat":
         return "0.5K" if tier == "512" else tier
     return tier
+
+
+def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:
+    """
+    Parse provider errors (like OpenRouter 'not supported. Accepted: <v1>') and adjust the requested params.
+    Returns the new body bytes, or None if no changes were made.
+    """
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
+
+    changed = False
+    # Example text: "resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
+    # or "aspect_ratio: not supported."
+    for param in ("resolution", "aspect_ratio", "size", "output_format"):
+        if param not in data:
+            continue
+
+        pattern = rf"{param}: not supported\.(?: Accepted: ([^|]+))?"
+        matches = list(re.finditer(pattern, error_text))
+        if matches:
+            # all providers rejecting this param must agree on the accepted values
+            accepted_sets = []
+            for m in matches:
+                accepted_str = m.group(1)
+                if accepted_str:
+                    accepted_sets.append([x.strip() for x in accepted_str.split(",")])
+                else:
+                    accepted_sets.append([])
+
+            # find intersection of all non-empty accepted sets
+            # if they disagree, or no accepted values provided, delete the param
+            valid_accepted = [s for s in accepted_sets if s]
+            if valid_accepted:
+                common = set(valid_accepted[0])
+                for s in valid_accepted[1:]:
+                    common.intersection_update(s)
+                if common:
+                    # Just take the first one from the first set that is in common to preserve order preference
+                    new_val = next(x for x in valid_accepted[0] if x in common)
+                    data[param] = new_val
+                    changed = True
+                else:
+                    del data[param]
+                    changed = True
+            else:
+                del data[param]
+                changed = True
+
+    if changed:
+        return json.dumps(data).encode("utf-8")
+    return None
 
 
 def coerce_image_data_url(image_url: str | None = None, source_image: str | None = None) -> str | None:

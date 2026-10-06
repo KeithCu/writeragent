@@ -223,6 +223,7 @@ def test_image_generate_omitted_source_edits_when_selected():
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.get_selected_image_base64", return_value="b64sel"),
+        patch("plugin.writer.images.images.get_selected_image_pixel_size", return_value=(1024, 1024)),
         patch("plugin.writer.images.images.get_selected_image_dimensions_px", return_value=(640, 480)),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_image_in_place", return_value=True) as replace,
@@ -236,6 +237,49 @@ def test_image_generate_omitted_source_edits_when_selected():
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
     assert svc.generate_image.call_args.kwargs.get("source_image") == "b64sel"
+    assert svc.generate_image.call_args.kwargs.get("width") == 1024
+    assert svc.generate_image.call_args.kwargs.get("height") == 1024
+
+    replace_args = replace.call_args[0]
+    assert replace_args[3] == 640 # width
+    assert replace_args[4] == 480 # height
+
+    replace.assert_called_once()
+    insert.assert_not_called()
+
+
+def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_size():
+    """If native size is not available, uses the display size for generating and replacing."""
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/edited.png"], None)
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value="b64sel"),
+        patch("plugin.writer.images.images.get_selected_image_pixel_size", return_value=(None, None)),
+        patch("plugin.writer.images.images.get_selected_image_dimensions_px", return_value=(640, 480)),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.replace_image_in_place", return_value=True) as replace,
+        patch("plugin.writer.images.images.insert_image") as insert,
+        patch("plugin.writer.images.images.get_config_int", return_value=512),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="make it look like a wizard")
+
+    assert res["status"] == "ok"
+    assert "edited" in res["message"].lower()
+    assert svc.generate_image.call_args.kwargs.get("source_image") == "b64sel"
+    assert svc.generate_image.call_args.kwargs.get("width") == 640
+    assert svc.generate_image.call_args.kwargs.get("height") == 480
+
+    replace_args = replace.call_args[0]
+    assert replace_args[3] == 640 # width
+    assert replace_args[4] == 480 # height
+
     replace.assert_called_once()
     insert.assert_not_called()
 

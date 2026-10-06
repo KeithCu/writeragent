@@ -598,6 +598,25 @@ def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, h
         return False
 
 
+def get_selected_image_pixel_size(model: Any) -> tuple[int | None, int | None]:
+    """
+    Returns (width_px, height_px) of the currently selected graphic's native image data,
+    or (None, None) if none or if it's a vector graphic with no pixels.
+    """
+    obj, _unused = _get_selected_graphic_object(model)
+    if obj is None:
+        return None, None
+    try:
+        graphic = _graphic_from_object(obj)
+        if graphic:
+            px = graphic.getPropertyValue("SizePixel")
+            if px.Width > 0 and px.Height > 0:
+                return int(px.Width), int(px.Height)
+    except Exception:
+        pass
+    return None, None
+
+
 def get_selected_image_dimensions_px(model: Any) -> tuple[int | None, int | None]:
     """
     Returns (width_px, height_px) of the currently selected graphic, or (None, None) if none.
