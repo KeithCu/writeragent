@@ -439,7 +439,7 @@ class ToolCallingMixin:
                 })
                 attachments.append("Image")
 
-            audio_content = None
+            audio_content: list[dict[str, Any]] | None = None
             if self.audio_wav_path:
                 from plugin.scripting.audio_recorder_service import append_wav_as_input_audio
 
