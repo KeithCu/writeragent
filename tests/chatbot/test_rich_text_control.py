@@ -541,6 +541,7 @@ class TestRichTextChatWidget:
         from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
 
         assert skip_legacy_assistant_stream_chunk(" AI") is False
+        assert skip_legacy_assistant_stream_chunk("AI: yes") is False
         assert skip_legacy_assistant_stream_chunk("\nAI: ") is True
         assert skip_legacy_assistant_stream_chunk("AI:") is True
         assert skip_legacy_assistant_stream_chunk("[Using chat model abc]") is True

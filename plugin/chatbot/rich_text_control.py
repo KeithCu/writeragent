@@ -350,6 +350,8 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                 model = rich_control.getModel()
                 text = getattr(model, "Text", "") or "" if model is not None else ""
             except Exception:
+                # We treat an unreadable transcript as non-empty, not empty,
+                # because a reinsert would drop text we could not read.
                 text = "?"
             if not text:
                 new_ctrl = _reinsert_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
@@ -505,6 +507,10 @@ def skip_legacy_assistant_stream_chunk(text: str) -> bool:
     if not text:
         return False
     stripped = text.strip()
+    # What was wrong: a bare "AI" and any "AI:..." up to 12 chars were skipped.
+    # panel._append_response runs this on every 250 ms batch before fold_chunk,
+    # so a batch of just " AI" or "AI: yes" was model text lost from the screen
+    # and the session. Only a label with nothing after it is skipped now.
     if stripped.startswith("[Using chat model"):
         return True
     return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
@@ -537,6 +543,8 @@ def _apply_control_surface_colors(control: Any, bg_color: int) -> None:
     """
     if control is None:
         return
+    # We stop at the first property that sets, not set both, because
+    # BackgroundColor and BackColor are alternative names for one color.
     for name, val in (
         ("BackgroundColor", bg_color),
         ("BackColor", bg_color),
@@ -1115,7 +1123,8 @@ def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:  # 
         if peer is None or not hasattr(peer, "queryDispatch"):
             return False
         import uno
-        # _dispatch_rich_uno: We set only URL.Complete, not URLTransformer.parseStrict, because ORichTextPeer::queryDispatch and OSelectAllDispatcher match on URL.Complete.
+        # We set only URL.Complete, not URLTransformer.parseStrict, because
+        # ORichTextPeer::queryDispatch and OSelectAllDispatcher match on URL.Complete.
         url = uno.createUnoStruct("com.sun.star.util.URL")
         setattr(url, "Complete", command)
         disp = peer.queryDispatch(url, "", 0)

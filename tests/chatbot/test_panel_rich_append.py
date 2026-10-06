@@ -44,7 +44,6 @@ class TestRichAppendResponse:
         assert send.session.messages[-1]["content"] == "Report"
         assert send.session.messages[-1]["_open_transcript"] is True
         send.rich_text_widget.paint_session.assert_called_once_with(send.session)
-        send.rich_text_widget.append_assistant_stream_chunk.assert_not_called()
 
     def test_second_chunk_grows_the_open_row(self):
         send = _make_send_listener()
@@ -57,6 +56,16 @@ class TestRichAppendResponse:
         ]
         send.rich_text_widget.paint_session.assert_called_once_with(send.session)
 
+    def test_bare_ai_chunk_reaches_the_session(self):
+        """A 250 ms batch of just " AI" is model text, not the legacy label."""
+        send = _make_send_listener()
+        send.session.messages.append({"role": "assistant", "content": "Ask the", "_open_transcript": True})
+        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+            send._append_response(" AI", role="assistant")
+
+        assert send.session.messages[-1]["content"] == "Ask the AI"
+        send.rich_text_widget.paint_session.assert_called_once_with(send.session)
+
     def test_main_thread_calls_widget_directly(self):
         send = _make_send_listener()
         with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
@@ -64,7 +73,6 @@ class TestRichAppendResponse:
 
         send.queue_executor.post.assert_not_called()
         send.rich_text_widget.paint_session.assert_called_once()
-        send.rich_text_widget.append_assistant_stream_chunk.assert_not_called()
 
     def test_worker_thread_posts_to_queue_executor(self):
         send = _make_send_listener()
@@ -74,7 +82,6 @@ class TestRichAppendResponse:
 
         send.queue_executor.post.assert_called_once()
         send.rich_text_widget.paint_session.assert_not_called()
-        send.rich_text_widget.append_assistant_stream_chunk.assert_not_called()
         assert send.session.messages == []
 
     def test_web_research_final_answer_start_len_after_search_steps(self):
