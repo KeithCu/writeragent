@@ -660,3 +660,4 @@ def test_frame_is_active_window_uses_uno_identity_for_new_wrappers():
     with patch("plugin.framework.uno_context.uno_same", return_value=True) as mock_same:
         assert session.frame_is_active_window() is True
     mock_same.assert_called_once_with(wrapper, frame.getContainerWindow.return_value)
+
