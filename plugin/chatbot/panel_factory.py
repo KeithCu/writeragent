@@ -1319,6 +1319,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 controls["stop"].addActionListener(StopButtonListener(send_listener))
                 attach_stop_mouse_listener(controls["stop"], send_listener)
             send_listener._set_button_states(send_enabled=True, stop_enabled=False)
+            # Stop Rec (send) and Stop (leave hands-free / cancel) look alike;
+            # tooltips explain them without longer labels at 1x.
+            for btn_id, tip in (
+                ("send", _("Send. Record: click to record one message, hold 2 seconds for hands-free. Stop Rec: send the recording (hands-free keeps listening).")),
+                ("stop", _("Stop the reply or speech (also ends hands-free). While recording: the first click leaves hands-free, the next click cancels the recording.")),
+            ):
+                btn_model = controls[btn_id].getModel() if controls.get(btn_id) and hasattr(controls[btn_id], "getModel") else None
+                if btn_model is not None and hasattr(btn_model, "HelpText"):
+                    btn_model.HelpText = tip
         except Exception:
             log.exception("Send/Stop button wiring failed")
 

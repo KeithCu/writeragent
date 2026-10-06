@@ -2191,11 +2191,18 @@ def test_g11_press_stop_not_stop_rec(ctx):
     from plugin.chatbot.sidebar_test_hooks import inject_wav, press_record, press_stop, press_stop_rec, send_state, wait_idle
 
     sl = _g_prep()
+    before = len(_captures())
     inject_wav(_WAV_1S, listener=sl)
     press_record(listener=sl)
     press_stop(listener=sl)
     st = send_state(listener=sl)
     assert not (st.is_busy and st.is_recording)
+    if sl is not None:
+        # Stop on a one-shot take cancels it (StopButtonListener step-down):
+        # nothing sent, back to Record. URP STOP_CLICKED skips that listener.
+        assert st.is_recording is False
+        assert st.is_busy is False
+        assert len(_captures()) == before
     if st.is_recording:
         press_stop_rec(listener=sl)
         assert wait_idle(listener=sl, timeout=60.0)

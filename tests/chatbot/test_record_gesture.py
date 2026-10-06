@@ -3,15 +3,19 @@
 import inspect
 
 from plugin.chatbot.record_gesture import (
+    EMPTY_TAKES_EXIT,
     HANDS_FREE_STATUS,
     RecordGesture,
     StickyRestart,
+    TakeStop,
     exit_sticky,
     gesture_action,
     gesture_hold_elapsed,
     gesture_press,
     gesture_release,
+    hands_free_silence_text,
     hands_free_status_text,
+    stop_during_take,
     sticky_restart,
 )
 
@@ -122,3 +126,27 @@ def test_sticky_restart_matrix() -> None:
 def test_hands_free_status_msgid() -> None:
     assert HANDS_FREE_STATUS in inspect.getsource(hands_free_status_text)
     assert hands_free_status_text() == HANDS_FREE_STATUS
+
+
+def test_stop_during_take_steps_down_one_level() -> None:
+    """Locked take: Stop drops the lock. One-shot take: Stop cancels."""
+    assert stop_during_take(sticky=True) is TakeStop.EXIT_LOCK
+    assert stop_during_take(sticky=False) is TakeStop.CANCEL
+
+
+def test_exit_lock_keeps_the_next_stop_rec_click() -> None:
+    """Stop on a settled locked take must not swallow the Stop Rec that sends it."""
+    gesture, _records = _run(["press", "hold", "release", "action", "exit"])
+    assert gesture.sticky is False
+    assert gesture.suppress_action is False
+
+
+def test_hands_free_silence_text_keeps_mode_visible() -> None:
+    text = hands_free_silence_text(750)
+    assert text.startswith("Hands-free")
+    assert "750" in text
+    assert "_(" in inspect.getsource(hands_free_silence_text)
+
+
+def test_empty_takes_exit_after_two() -> None:
+    assert EMPTY_TAKES_EXIT == 2

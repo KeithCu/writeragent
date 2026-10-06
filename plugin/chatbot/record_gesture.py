@@ -17,6 +17,10 @@ Sticky lives here, not in ``send_state.next_state``. The FSM stays free of
 timers. Silence auto-stop is still ``STOP_REC_CLICKED``; this module only
 decides when the panel should set or clear the flag and when to arm Record
 again after the reply.
+
+Stop during a take steps down one level per click: a locked take becomes a
+one-shot take (still recording, so Stop Rec or silence sends it once), and a
+one-shot take is cancelled. Stop Rec always means send.
 """
 
 from __future__ import annotations
@@ -36,12 +40,36 @@ HANDS_FREE_STATUS = "Hands-free recording..."
 # UpdateUIEffect status from RECORD_CLICKED in send_state.next_state.
 RECORDING_STATUS = "Recording audio..."
 
+# Consecutive "[No speech detected.]" takes that end hands-free. Noise can
+# trip silence auto-stop, and each empty take re-arms Record, so without a
+# cap a loud room loops forever.
+EMPTY_TAKES_EXIT = 2
+
 
 def hands_free_status_text() -> str:
     """Sidebar status while a sticky take is capturing."""
     from plugin.framework.i18n import _
 
     return _("Hands-free recording...")
+
+
+def hands_free_silence_text(silence_ms: int) -> str:
+    """Silence-progress status during a sticky take (keeps the mode visible)."""
+    from plugin.framework.i18n import _
+
+    return _("Hands-free… (%d ms silence)") % silence_ms
+
+
+class TakeStop(Enum):
+    """What Stop does while a take is recording."""
+
+    EXIT_LOCK = auto()
+    CANCEL = auto()
+
+
+def stop_during_take(*, sticky: bool) -> TakeStop:
+    """One step per click: drop the lock first, cancel the take after that."""
+    return TakeStop.EXIT_LOCK if sticky else TakeStop.CANCEL
 
 
 class StickyRestart(Enum):
@@ -160,7 +188,8 @@ def exit_sticky(gesture: RecordGesture) -> RecordGesture:
     """Leave hands-free. Swallow an in-flight Record click so it cannot re-arm.
 
     Stop, Clear, cancel, and an aborting error use this. Stop Rec does not:
-    that send should still restart Record when the reply finishes.
+    that send should still restart Record when the reply finishes. Stop
+    during a locked take uses this too, and leaves the take recording.
     """
     swallow = gesture.holding or gesture.fired or gesture.suppress_action or gesture.action_seen
     return RecordGesture(suppress_action=swallow)

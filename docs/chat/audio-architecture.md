@@ -105,6 +105,10 @@ Sticky is a panel flag on `SendButtonListener`, not a send-FSM state. `send_stat
 | Hold **Record** ~2s | Set sticky and start the take once. Silence and **Stop Rec** still send. After the assistant reply, Record starts again. |
 | **Stop**, **Clear**, cancel, or an error that ends the turn | Clear sticky so it does not loop. |
 | **Stop Rec** during a sticky take | Send, and leave sticky on for the restart. |
+| **Stop** during a take | One step down per click. A sticky take becomes a one-shot take: sticky off, status "Hands-free off", and the mic keeps recording, so **Stop Rec** or silence still sends it once and nothing re-arms. **Stop** on a one-shot take cancels it (`CANCEL_REC_CLICKED`: recorder cleanup, WAV deleted, status "Recording cancelled", nothing sent). |
+| Two empty takes in a row while sticky | "[No speech detected.]" twice clears sticky (`EMPTY_TAKES_EXIT` in `record_gesture.py`), so noise that trips silence auto-stop cannot loop forever. A non-empty transcript resets the count. |
+
+Stop is enabled during every take; it is the only state where Send (as **Stop Rec**) and Stop are both enabled. The step-down runs in `StopButtonListener.on_action_performed` (`SendButtonListener.stop_during_take`). Stop's mousePressed hook only acts while a send is busy, so one click is one step. While sticky, the silence-progress status reads "Hands-free… (N ms silence)". Send and Stop carry tooltips that explain **Stop Rec** = send and **Stop** = leave hands-free / cancel; the labels themselves are unchanged so the 1x button row does not clip.
 
 The mouse listener owns press / hold / release while the label is **Record**. The button's ActionEvent still fires; after a mouse start the label is already **Stop Rec**, so that event is swallowed. Keyboard activation (no mouse press) still goes through ActionEvent.
 

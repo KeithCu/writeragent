@@ -1164,6 +1164,207 @@ class TestHandsFreeRecord:
         assert listener.sidebar_state.send.is_recording is False
 
 
+    def _arm_locked_take(self) -> tuple[SendButtonListener, Any]:
+        listener, send_model = _hands_free_listener()
+        notify_record_mouse_pressed(listener)
+        listener._on_record_hold_elapsed(listener._record_hold_gen)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())
+        assert listener._record_gesture.sticky is True
+        assert listener.sidebar_state.send.is_recording
+        return listener, send_model
+
+    def _press_stop(self, listener: SendButtonListener) -> None:
+        """One real Stop click: mousePressed, then ActionEvent."""
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            notify_stop_mouse_pressed(listener)
+            StopButtonListener(listener).on_action_performed(MagicMock())
+
+    def test_stop_is_enabled_during_a_locked_take(self) -> None:
+        listener, send_model = self._arm_locked_take()
+        assert send_model.Label == "Stop Rec"
+        assert listener.stop_control.getModel().Enabled is True
+
+    def test_stop_during_locked_take_drops_lock_and_keeps_recording(self) -> None:
+        listener, send_model = self._arm_locked_take()
+        self._press_stop(listener)
+        assert listener._record_gesture.sticky is False
+        assert listener.sidebar_state.send.is_recording
+        assert send_model.Label == "Stop Rec"
+        listener.audio_recorder.cleanup.assert_not_called()
+        listener.audio_recorder.stop_recording.assert_not_called()
+        listener.status_control.setText.assert_called_with("Hands-free off")
+        # Stop Rec still sends that take once, and the reply does not re-arm.
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *args, **kwargs: posted.append(fn)
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())
+        assert listener.sidebar_state.send.is_busy
+        assert len(posted) == 1
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            listener.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+            listener._flush_sticky_restart()
+        assert listener.sidebar_state.send.is_recording is False
+        assert listener.audio_recorder.start_recording.call_count == 1
+
+    def test_stop_during_one_shot_take_cancels_without_send_or_error(self, tmp_path: Any) -> None:
+        listener, send_model = _hands_free_listener()
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *args, **kwargs: posted.append(fn)
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        assert listener.sidebar_state.send.is_recording
+        assert listener._record_gesture.sticky is False
+        stale = tmp_path / "take.wav"
+        stale.write_bytes(b"RIFF")
+        listener.audio_wav_path = str(stale)
+        self._press_stop(listener)
+        listener.audio_recorder.cleanup.assert_called_once()
+        assert listener.sidebar_state.send.is_recording is False
+        assert listener.sidebar_state.send.is_busy is False
+        assert listener.sidebar_state.send.has_audio is False
+        assert send_model.Label == "Record"
+        assert posted == []
+        assert listener.audio_wav_path is None
+        assert not stale.exists()
+        statuses = [call.args[0] for call in listener.status_control.setText.call_args_list]
+        assert "Error" not in statuses
+        assert statuses[-1] == "Recording cancelled"
+        assert listener.stop_control.getModel().Enabled is False
+
+    def test_two_stops_from_locked_take_cancel_it(self) -> None:
+        listener, _send_model = self._arm_locked_take()
+        self._press_stop(listener)
+        assert listener.sidebar_state.send.is_recording
+        self._press_stop(listener)
+        assert listener.sidebar_state.send.is_recording is False
+        assert listener.sidebar_state.send.is_busy is False
+        listener.audio_recorder.cleanup.assert_called_once()
+
+    def test_stop_mouse_pressed_alone_does_not_step_down(self) -> None:
+        """One click is one step: only the ActionEvent path steps down."""
+        listener, _send_model = self._arm_locked_take()
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            notify_stop_mouse_pressed(listener)
+        assert listener._record_gesture.sticky is True
+        assert listener.sidebar_state.send.is_recording
+
+    def test_silence_progress_says_hands_free_while_locked(self) -> None:
+        listener, _send_model = self._arm_locked_take()
+        listener._on_audio_silence_progress(750)
+        text = listener.status_control.setText.call_args.args[0]
+        assert text.startswith("Hands-free")
+        assert "750" in text
+        listener.exit_hands_free_record()
+        listener._on_audio_silence_progress(500)
+        assert listener.status_control.setText.call_args.args[0].startswith("Recording audio")
+
+    def test_speech_finished_does_not_grey_out_stop_during_a_take(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener._terminal_status = "Ready"
+        listener._sync_has_text_from_query = MagicMock()
+        listener.queue_executor.post = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        spoken = MagicMock()
+        spoken.messages = [{"role": "assistant", "content": "Hello there"}]
+        captured: dict[str, Any] = {}
+
+        def _speak(_text: str, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+        with (
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak),
+            patch("plugin.audio.tts_service.is_speaking", return_value=True),
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=spoken),
+            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.doc.peer_message.kick_pending_peer_starts"),
+        ):
+            listener._finish_send_drain_ui()
+        assert "on_complete" in captured
+        # User barges in with Record before playback reports done.
+        with patch("plugin.audio.tts_service.stop_speech"):
+            listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+        assert listener.stop_control.getModel().Enabled is True
+        captured["on_complete"]()
+        assert listener.stop_control.getModel().Enabled is True
+
+    def _empty_take_send(self, listener: SendButtonListener) -> None:
+        listener.cached_doc_type = "writer"
+        listener.audio_wav_path = "/tmp/take.wav"
+        listener.query_control = None
+        listener._terminal_status = "Ready"
+        with (
+            patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()),
+            patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
+            patch("plugin.audio.stt_service.uses_local_stt", return_value=True),
+            patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat"),
+            patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+            patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="whisper-1"),
+        ):
+            listener._do_send()
+
+    def test_two_empty_transcripts_exit_hands_free(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener._append_response = MagicMock()
+        listener._transcribe_audio = lambda _path, _model: ""
+        self._empty_take_send(listener)
+        assert listener._terminal_status == "Stopped"
+        assert listener._record_gesture.sticky is True
+        self._empty_take_send(listener)
+        assert listener._record_gesture.sticky is False
+        assert any("Hands-free off" in str(call.args[0]) for call in listener._append_response.call_args_list)
+
+    def test_non_empty_transcript_resets_the_empty_count(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener._append_response = MagicMock()
+        listener._transcribe_audio = lambda _path, _model: ""
+        self._empty_take_send(listener)
+        assert listener._empty_take_count == 1
+        listener._transcribe_audio = lambda _path, _model: "hello"
+
+        class _ChatPathReached(Exception):
+            pass
+
+        # The chat path is not under test; stop right after STT returns.
+        with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", side_effect=_ChatPathReached):
+            with pytest.raises(_ChatPathReached):
+                self._empty_take_send(listener)
+        assert listener._empty_take_count == 0
+        listener._transcribe_audio = lambda _path, _model: ""
+        self._empty_take_send(listener)
+        assert listener._record_gesture.sticky is True
+
+    def test_stop_before_send_starts_clears_pending_audio(self, tmp_path: Any) -> None:
+        listener, _send_model = _hands_free_listener()
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *args, **kwargs: posted.append(fn)
+        listener._do_send = MagicMock()
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())  # Record click's own ActionEvent (swallowed)
+        take = tmp_path / "take.wav"
+        take.write_bytes(b"RIFF")
+        listener.audio_recorder.stop_recording.return_value = str(take)
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())  # Stop Rec
+        assert listener.audio_wav_path == str(take)
+        assert len(posted) == 1
+        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        posted[0]()
+        listener._do_send.assert_not_called()
+        assert listener.audio_wav_path is None
+        assert not take.exists()
+        assert listener.sidebar_state.send.is_busy is False
+
 class TestStopPreservesAudioWavPath:
     def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
         listener = _make_send_listener()

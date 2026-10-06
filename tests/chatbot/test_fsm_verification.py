@@ -108,6 +108,7 @@ def test_send_state_mutual_exclusion_oracle() -> None:
         SendEvent(SendEventKind.SEND_CLICKED),
         SendEvent(SendEventKind.EXTRACTED_SEND),
         SendEvent(SendEventKind.STOP_CLICKED),
+        SendEvent(SendEventKind.CANCEL_REC_CLICKED),
         SendEvent(SendEventKind.SEND_COMPLETED),
         SendEvent(SendEventKind.ERROR_OCCURRED),
     ]
@@ -117,11 +118,13 @@ def test_send_state_mutual_exclusion_oracle() -> None:
             assert not (tr.state.is_busy and tr.state.is_recording)
             for e in tr.effects:
                 if isinstance(e, UpdateUIEffect):
-                    assert not (e.send_enabled and e.stop_enabled)
+                    # A take is the one state with both: Stop Rec sends, Stop steps down.
+                    if not tr.state.is_recording:
+                        assert not (e.send_enabled and e.stop_enabled)
                     if e.send_enabled:
                         assert not tr.state.is_busy
                     if e.stop_enabled:
-                        assert tr.state.is_busy
+                        assert tr.state.is_busy or tr.state.is_recording
 
 
 def test_audio_error_always_reports_error_status() -> None:
@@ -180,16 +183,17 @@ def _hyp_n(key: str) -> int:
 @given(state=send_button_states(), event=send_events())
 @settings(max_examples=_hyp_n("send"), deadline=None)
 def test_hypothesis_send_state_invariants(state: SendButtonState, event: SendEvent) -> None:
-    """Deal ensure: never busy+recording; send/stop UI mutually exclusive."""
+    """Deal ensure: never busy+recording; send/stop UI exclusive outside a take."""
     tr = send_next_state(state, event)
     assert not (tr.state.is_busy and tr.state.is_recording)
     for e in tr.effects:
         if isinstance(e, UpdateUIEffect):
-            assert not (e.send_enabled and e.stop_enabled)
+            if not tr.state.is_recording:
+                assert not (e.send_enabled and e.stop_enabled)
             if e.send_enabled:
                 assert not tr.state.is_busy
             if e.stop_enabled:
-                assert tr.state.is_busy
+                assert tr.state.is_busy or tr.state.is_recording
 
 
 @given(state=audio_recorder_states(), event=audio_recorder_events())
