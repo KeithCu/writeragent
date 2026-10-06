@@ -186,7 +186,9 @@ from plugin.framework.prompts import get_chat_system_prompt_for_document, get_gr
 from plugin.doc.doc_type import get_document_type, DocumentType
 from plugin.doc.udprops import get_document_property, set_document_property
 
-log = logging.getLogger(__name__)
+# Explicit name: LibreOffice loads this file as a UNO component, so __name__
+# is not under plugin.* and records would miss the debug log handler.
+log = logging.getLogger("plugin.chatbot.panel_factory")
 
 # XDL path inside the .oxt
 XDL_PATH = "Dialogs/ChatPanelDialog.xdl"
