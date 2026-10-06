@@ -236,13 +236,15 @@ class SendHandlersMixin:
         Whisper's ``subprocess.run`` still waited out 900s. The transcript
         was then posted anyway.
 
-        Why: ``capture_send_stop`` freezes the scope from this send. The
-        worker closes over that checker and must not call
-        ``resolve_stop_checker`` again. Stop kills the child through the
-        scope hook and ``_stt_kill``. A re-entrant call returns without
-        deleting the first WAV or clearing the first client's stop latch.
-        The STT client is intentionally not registered with the send scope
-        so that Stop does not close its socket during transcription.
+        Why: ``capture_send_stop`` freezes the scope from this send, and the
+        checker is read once more after the transcript returns. Stop does
+        not kill local Whisper or close the endpoint socket: transcription
+        finishes and ``_do_send`` puts the words back in the Ask box instead
+        of sending them (see the StopSendEffect invariant in ``panel``).
+        Only sidebar teardown kills the child, through ``_stt_kill``. A
+        re-entrant call returns without deleting the first WAV or clearing
+        the first client's stop latch. The STT client is not registered with
+        the send scope for the same reason.
         """
         from plugin.audio.stt_service import SttStopped, status_for_transcription, terminate_stt_process, transcribe
         from plugin.framework.queue_executor import post_to_main_thread
@@ -286,8 +288,8 @@ class SendHandlersMixin:
                 def _kill() -> None:
                     terminate_stt_process(proc)
 
-                # StopSendEffect calls this when the panel field no longer
-                # points at cancel_scope (a second send replaced it).
+                # Sidebar teardown (_kill_inflight_stt) calls this. Stop does
+                # not: the transcript is kept for the Ask box.
                 self._stt_kill = _kill
 
             def _call() -> str:
@@ -301,8 +303,8 @@ class SendHandlersMixin:
 
             try:
                 # Do not pass stop_checker here. That raises BlockingWaitStopped
-                # and returns before the worker reaps the child. The worker
-                # polls the frozen checker and kills the process first.
+                # and returns before the worker reaps the child, and Stop is
+                # meant to keep the transcript, so the worker runs to the end.
                 transcript_text = run_blocking_in_thread(self.ctx, _call)
             except SttStopped:
                 log.info("Speech-to-text stopped")
