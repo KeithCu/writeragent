@@ -231,18 +231,26 @@ class CellManipulator:
         if c0 > c1 or r0 > r1:
             return
 
-        for r in range(r0, r1 + 1):
-            for c in range(c0, c1 + 1):
-                existing = self._array_block(sheet, c, r)
-                if not existing:
-                    continue
-                if allow_contained:
-                    if existing.StartColumn >= start_col and existing.EndColumn <= end_col and existing.StartRow >= start_row and existing.EndRow <= end_row:
+        # Only formula cells can belong to an array, so probe just those
+        # (CellFlags.FORMULA = 16) instead of every cell: a big clear stays cheap.
+        formula_ranges = sheet.getCellRangeByPosition(c0, r0, c1, r1).queryContentCells(16)
+        contained: list[Any] = []
+        for fa in formula_ranges.getRangeAddresses():
+            for r in range(fa.StartRow, fa.EndRow + 1):
+                for c in range(fa.StartColumn, fa.EndColumn + 1):
+                    if any(b.StartColumn <= c <= b.EndColumn and b.StartRow <= r <= b.EndRow for b in contained):
                         continue
+                    existing = self._array_block(sheet, c, r)
+                    if not existing:
+                        continue
+                    if allow_contained:
+                        if existing.StartColumn >= start_col and existing.EndColumn <= end_col and existing.StartRow >= start_row and existing.EndRow <= end_row:
+                            contained.append(existing)
+                            continue
 
-                cell_name = f"{index_to_column(c)}{r + 1}"
-                arr_name = f"{index_to_column(existing.StartColumn)}{existing.StartRow + 1}:{index_to_column(existing.EndColumn)}{existing.EndRow + 1}"
-                raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
+                    cell_name = f"{index_to_column(c)}{r + 1}"
+                    arr_name = f"{index_to_column(existing.StartColumn)}{existing.StartRow + 1}:{index_to_column(existing.EndColumn)}{existing.EndRow + 1}"
+                    raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
 
     def _is_valid_cell_address(self, address: str) -> bool:
         """Validate if a string is a valid cell address (e.g., A1)."""
