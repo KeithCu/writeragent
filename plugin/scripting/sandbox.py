@@ -15,7 +15,6 @@ import subprocess
 import sys
 from typing import Any, Optional
 
-
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
     DEAL_MAX_CMD_ARGS,
@@ -739,6 +738,7 @@ def is_safe_workspace_path(target_path: str, root_dir: str) -> bool:
     except Exception:
         return False
 
+
 def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
     if sys.platform == "win32":
@@ -767,9 +767,8 @@ def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         if fallback and proc.poll() is None:
             proc.kill()
         elif pgid == os.getpgrp():
-            # Bugfix: If session setup failed or group resolution incorrectly yielded the host pgid,
-            # killing the process group would kill LibreOffice and the entire host environment.
-            # Fallback to a safe proc.kill() instead of taking down the user's application.
+            # Bugfix: killpg on the host's own group (no new session, or a reused
+            # pid) would kill LibreOffice. Kill only the child in that case.
             if proc.poll() is None:
                 proc.kill()
         else:
@@ -781,17 +780,23 @@ def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
 
 def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
     """Terminate the Windows process tree; ``TerminateProcess`` does not kill grandchildren."""
+    from plugin.framework.worker_pool import get_subprocess_creationflags
+
     pid = proc.pid
     if not pid:
+        proc.kill()
         return
     try:
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(pid)],
-            check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            timeout=2,
+            timeout=10,
+            check=False,
+            **get_subprocess_creationflags(),
         )
-    except Exception:
-        pass
+    except (OSError, subprocess.TimeoutExpired):
+        proc.kill()
+        return
+    if proc.poll() is None:
+        proc.kill()
