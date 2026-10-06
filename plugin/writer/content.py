@@ -581,7 +581,7 @@ class ApplyDocumentContent(ToolBase):
                     session, doc,
                     lambda: format_support.replace_single_range_with_content(
                         doc, found, content, ctx.ctx, config_svc),
-                    track_reviewable, original_preview=original, proposed_preview=plain_preview)
+                    original_preview=original, proposed_preview=plain_preview)
 
         def run() -> list[dict[str, Any]]:
             mutate()
@@ -1045,7 +1045,7 @@ class ApplyDocumentContent(ToolBase):
                 record_html_atomically(
                     session, ctx.doc,
                     lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content, config_svc=config_svc),
-                    track_reviewable, proposed_preview=_plain_preview(content))
+                    proposed_preview=_plain_preview(content))
             return {"status": "ok", "message": "Replaced entire document."}, session
         if target == "end":
             with session:
@@ -1064,7 +1064,7 @@ class ApplyDocumentContent(ToolBase):
                 record_html_atomically(
                     session, ctx.doc,
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc),
-                    track_reviewable, proposed_preview=_plain_preview(content))
+                    proposed_preview=_plain_preview(content))
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at selection."}, anchor), session
         if target == "beginning":
@@ -1345,7 +1345,7 @@ class ApplyDocumentContent(ToolBase):
             with session:
                 record_html_atomically(
                     session, doc, _insert_next_to_match,
-                    track_reviewable, proposed_preview=_plain_preview(content))
+                    proposed_preview=_plain_preview(content))
             where = ("%s the paragraph that contains the match (block content cannot go mid-paragraph "
                      "without splitting it)" % position) if snapped else "%s the old_content match" % position
             insert_resp: dict[str, object] = {
