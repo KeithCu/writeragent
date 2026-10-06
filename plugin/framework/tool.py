@@ -39,8 +39,13 @@ import queue
 from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar, cast
 
-from plugin.framework.errors import make_tool_error
-import plugin.framework.errors as plugin_framework_errors
+from plugin.framework.errors import (
+    WriterAgentException,
+    format_error_payload,
+    is_document_disposed,
+    is_tool_document_disposed,
+    make_tool_error,
+)
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
@@ -351,12 +356,12 @@ class ToolBase(ABC):
         try:
             # Defense in depth: ToolRegistry.execute marshals sync tools to the main thread;
             # this assert still catches direct execute_safe calls from background workers.
-            # An explicit bypass_thread_guard=True keyword skips this method. A model
-            # dict spread into execute cannot: that True is ignored.
+            # Only ToolRegistry.execute_unguarded skips this method. A model
+            # argument named bypass_thread_guard is dropped by execute().
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
                 if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
-                    if plugin_framework_errors.is_document_disposed(ctx.doc):
+                    if is_document_disposed(ctx.doc):
                         return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED")
             # Async / review-wait tools skip this probe so wait can run off the main thread.
             # EditReviewSession.wait_for_review must detect dispose itself. Do not "fix" by
@@ -365,8 +370,6 @@ class ToolBase(ABC):
             return self.execute(ctx, **kwargs)
 
         except Exception as e:
-            from plugin.framework.errors import is_tool_document_disposed
-
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
             doc = getattr(ctx, "doc", None) if ctx is not None else None
             if is_tool_document_disposed(e, doc):
@@ -374,8 +377,6 @@ class ToolBase(ABC):
             # Returning _tool_error() already keeps the code. Raising
             # ToolPermissionError / ConfigError used to be rewritten as
             # TOOL_EXECUTION_ERROR and lose details.
-            from plugin.framework.errors import WriterAgentException, format_error_payload
-
             if isinstance(e, WriterAgentException):
                 return format_error_payload(e)
             # Bare RuntimeException often has an empty message; fall back to the type name.
@@ -437,7 +438,8 @@ class ToolBaseDummy:
     def _tool_error(self, message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
         """Standardized JSON payload for tool errors.
 
-        We keep _tool_error on the dummy base, not a bare marker, because disabled tools still call self._tool_error and pyright checks them.
+        We keep _tool_error on the dummy base, not a bare marker, because
+        disabled tools still call self._tool_error and pyright checks them.
         """
         return make_tool_error(message, code=code, **details)
 
@@ -471,23 +473,6 @@ _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"}
 # Sync tools that declare timeout= cannot enforce it. Warn once per name.
 _sync_timeout_warned: set[str] = set()
 _UNSET_EXCLUDE_TIERS = object()
-# A **params operand is one of these loads. A dict literal is BUILD_MAP /
-# BUILD_CONST_KEY_MAP and must not count as an explicit keyword.
-_SPREAD_LOADS = frozenset({"LOAD_FAST", "LOAD_FAST_BORROW", "LOAD_DEREF", "LOAD_NAME", "LOAD_GLOBAL"})
-
-
-def _const_tuple(ins: Any, code: Any) -> tuple[Any, ...] | None:
-    """Keyword-name tuple carried by KW_NAMES or the LOAD_CONST before CALL_KW."""
-    # crosshair: off
-    val = ins.argval
-    if isinstance(val, tuple):
-        return val
-    arg = ins.arg
-    consts = getattr(code, "co_consts", ())
-    if isinstance(arg, int) and 0 <= arg < len(consts) and isinstance(consts[arg], tuple):
-        return consts[arg]
-    return None
-
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
@@ -865,6 +850,8 @@ class ToolRegistry:
             dict: Result from the tool execution (status ``ok`` or ``error``).
         """
         # crosshair: off
+        # A model could send an argument named bypass_thread_guard. Drop it so
+        # only execute_unguarded() can skip the main-thread marshal.
         kwargs.pop("bypass_thread_guard", None)
         return self._execute_impl(tool_name, ctx, False, **kwargs)
 
@@ -961,7 +948,10 @@ class ToolRegistry:
             if bypass_thread_guard or tool.is_async():
                 result = _invoke()
             else:
-                # We let the marshal TimeoutError become TOOL_REGISTRY_ERROR, not a TOOL_TIMEOUT/cancel path, because QueueExecutor raises it only for work that never started (started work is waited out), so nothing lands late and a retry is safe.
+                # We let the marshal TimeoutError become TOOL_REGISTRY_ERROR, not a
+                # TOOL_TIMEOUT/cancel path, because QueueExecutor raises it only for
+                # work that never started (started work is waited out), so nothing
+                # lands late and a retry is safe.
                 result = execute_on_main_thread(_invoke)
 
             # Ensure any returned dict with status='error' includes full context details

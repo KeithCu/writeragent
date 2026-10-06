@@ -513,7 +513,6 @@ def get_content_as_html() -> str:
                 "get_document_content",
                 ctx,
                 scope="full",
-
             )
             if isinstance(res, dict) and res.get("status") == "ok":
                 return _compact_writer_html(res.get("content", "") or "")
