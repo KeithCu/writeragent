@@ -339,11 +339,7 @@ def _assert_stopped_banner(before: str) -> None:
     assert "[Stopped by user]" in suffix or "[Stopped by user]" in body, (
         "expected [Stopped by user], got %r" % body[-500:]
     )
-    # Stop before any token stores and paints "No response." then the stop
-    # line. The banner must still come after it, not be replaced by it.
-    assert suffix.rfind("No response.") < suffix.rfind("[Stopped by user]"), (
-        "Stopped banner replaced by No response.: %r" % suffix[-400:]
-    )
+    assert "No response." not in suffix, "Stopped banner replaced by No response.: %r" % suffix[-400:]
     # B1c: do not HTML-rerender the full ramble over the Stopped marker.
     assert "word199" not in suffix.lower() or "[Stopped by user]" in suffix, (
         "ramble HTML wiped Stopped banner: %r" % suffix[-400:]

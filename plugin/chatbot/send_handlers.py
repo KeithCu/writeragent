@@ -185,7 +185,6 @@ class SendHandlerHost(Protocol):
     def _get_doc_type_str(self, model: Any) -> str: ...
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
     def rerender_rich_text_session(self) -> bool: ...
-    def render_session_messages(self, session: Any) -> None: ...
     _record_assistant_start: bool
     def _run_unified_worker_drain_loop(
         self, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
@@ -417,11 +416,6 @@ class SendHandlersMixin:
                 turn.close_stopped(self, partial)
             if on_stopped_callback:
                 on_stopped_callback()
-            # What was wrong: Image-mode Stop wrote 'No response.' and the stop
-            # line to the session but nothing painted them until a later repaint
-            # (image has no finalize call). Why: draw the closed session here.
-            if isinstance(turn, TurnController) and turn.session is not None:
-                self.render_session_messages(turn.session)
             dispatch_event(StopRequestedEvent())
 
         def on_error(e: Exception) -> None:
@@ -567,6 +561,13 @@ class SendHandlersMixin:
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         self._run_unified_worker_drain_loop(drain_q, run_direct_image, current_state, interpreter)
+        # What was wrong: Image-mode Stop showed no '[Stopped by user]' until a
+        # later repaint. Chat and web call finalize after their drain, which
+        # draws the stop line; the image path never did. Why: same call on Stop.
+        if self.stop_requested:
+            from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+
+            finalize_sidebar_assistant_response(self, allow_rerender=False)
         # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
         # here made image Stop look like a normal finish. The agent path
         # below keeps both Error and Stopped.

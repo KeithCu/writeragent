@@ -50,9 +50,6 @@ class DummyChatbotPanel(SendHandlersMixin):
     def rerender_rich_text_session(self):
         pass
 
-    def render_session_messages(self, session):
-        pass
-
 
 def test_get_mcp_url_uses_schema_keys_only():
     """Agent backends must not read mcp.host (not in module.yaml)."""
@@ -2021,32 +2018,12 @@ def test_direct_image_records_user_message_only_once():
     assert [m for m in messages if m.get("role") == "user"] == [{"role": "user", "content": "draw an apple"}]
 
 
-def test_unified_drain_on_stopped_calls_render_session_messages():
-    """Stopping a send handler must render the stopped session to the UI."""
-    from plugin.chatbot.tool_loop_actions import TurnController
-
+def test_direct_image_stop_finalizes_with_stop_line():
+    """Image-mode Stop must draw the stop line like chat and web (Scrolly QA)."""
     panel = DummyChatbotPanel()
-    turn = MagicMock(spec=TurnController)
-    turn.alive = True
-    turn.session = MagicMock()
-    turn.queue = None
-    panel._turn = turn
-    panel.render_session_messages = MagicMock()
-
+    panel.stop_requested = True
     state = SendHandlerState(handler_type="image", status="ready")
     interpreter = EffectInterpreter(panel)
-    q = queue.Queue()
-
-    def dummy_worker():
-        pass
-
-    with patch("plugin.chatbot.send_handlers.run_async_worker_with_drain") as mock_drain:
-        def fake_drain(*args, **kwargs):
-            on_stopped_fn = kwargs.get("on_stopped_fn") or kwargs.get("on_stopped")
-            if on_stopped_fn:
-                on_stopped_fn()
-        mock_drain.side_effect = fake_drain
-        panel._run_unified_worker_drain_loop(q, dummy_worker, state, interpreter)  # type: ignore
-
-    turn.close_stopped.assert_called_once()
-    panel.render_session_messages.assert_called_once_with(turn.session)
+    with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.rich_text.finalize_sidebar_assistant_response") as fin:
+        panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)  # type: ignore
+    fin.assert_called_once_with(panel, allow_rerender=False)
