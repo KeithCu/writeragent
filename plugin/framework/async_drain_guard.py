@@ -164,6 +164,15 @@ def add_drain_idle_callback(fn: Callable[[], None]) -> None:
             _drain_idle_callbacks.append(fn)
 
 
+def remove_drain_idle_callback(fn: Callable[[], None]) -> None:
+    """Remove *fn* from the idle callbacks if it is registered."""
+    with _drain_lock:
+        try:
+            _drain_idle_callbacks.remove(fn)
+        except ValueError:
+            pass
+
+
 def _notify_drain_idle() -> None:
     """Invoke idle callbacks. Never raise into the drain ``finally``."""
     # Copy under the lock, then drop it before calling. Peer ``_on_drain_idle``
