@@ -80,6 +80,9 @@ def msgbox(ctx: Any, title: Any, message: Any, *, box_type: int = 1) -> None:
 
     Args:
         box_type: LO message box type (1=INFO, 2=WARNING, 3=ERROR, 4=QUERY).
+
+    *message* is shown as given: callers translate catalog strings. Runtime text
+    (tracebacks, exception text) through ``_()`` breaks the DEAL_MAX_MSGID contract.
     """
     if not ctx:
         log.info("MSGBOX (no ctx) - %s: %s", title, message)

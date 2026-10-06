@@ -827,12 +827,16 @@ class ApplyDocumentContent(ToolBase):
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = threading.current_thread() is threading.main_thread()
         if kwargs.get("dry_run"):
+            # The preview reads ranges and text through UNO, so a worker-thread call
+            # (tool-sync-apply_document_content) marshals it like the edit path does.
             if on_main:
                 return self._dry_run_preview(ctx, **kwargs)
-            else:
-                from plugin.framework.queue_executor import execute_on_main_thread
-                result, _ = execute_on_main_thread(lambda: (self._dry_run_preview(ctx, **kwargs), None), timeout=60.0)
-                return result
+            from plugin.framework.queue_executor import execute_on_main_thread
+
+            def _preview() -> dict[str, Any]:
+                return self._dry_run_preview(ctx, **kwargs)
+
+            return execute_on_main_thread(_preview, timeout=60.0)
         wait_seconds = self._review_wait_seconds(ctx.ctx)
         if get_agent_edit_review_mode(ctx.ctx) != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
