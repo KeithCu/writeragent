@@ -529,7 +529,7 @@ def test_get_desktop_skips_create_when_proc_exe_is_uno_bin():
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
+    proc = ("/usr/lib64/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"])
     reset_desktop_create_is_unsafe_for_tests()
     try:
         with (

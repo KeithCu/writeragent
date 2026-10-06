@@ -185,7 +185,7 @@ def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
         reset_desktop_create_is_unsafe_for_tests()
         with (
             patch.object(sys, "argv", ["soffice"]),
-            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=("/usr/lib64/libreoffice/program/soffice.bin", "soffice.bin", ["/usr/lib64/libreoffice/program/soffice.bin"])),
         ):
             assert not go.desktop_create_is_unsafe()
     finally:
@@ -198,7 +198,7 @@ def test_desktop_create_is_unsafe_when_pythonloader_rewrites_argv() -> None:
 
     from plugin.framework.uno_context import reset_desktop_create_is_unsafe_for_tests
 
-    proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
+    proc = ("/usr/lib64/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"])
     reset_desktop_create_is_unsafe_for_tests()
     try:
         with (

@@ -123,7 +123,9 @@ def _desktop_create_is_unsafe_now() -> bool:
     if exe_sys and _basename_is_uno_helper(exe_sys):
         return True
     exe, comm, cmdline = _linux_process_tokens()
-    # BUGFIX: We only match against the exe basename, comm, and cmdline[0].
+    # We match the exe, comm and cmdline[0] only, not every cmdline token,
+    # because a soffice argument such as /home/u/uno would otherwise mark the
+    # whole session as a no-VCL helper and disable Desktop.
     if exe and _basename_is_uno_helper(exe):
         return True
     if comm and _basename_is_uno_helper(comm):
@@ -344,6 +346,14 @@ def get_desktop(ctx: Any | None = None) -> Any:
     return _guard_returned_uno(desktop)
 
 
+def _close_scratch_doc(doc: Any) -> None:
+    """Close a hidden scratch document we are about to abandon, so it does not leak."""
+    try:
+        doc.close(True)
+    except Exception:
+        log.debug("new_blank_writer: doc.close() failed", exc_info=True)
+
+
 def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
     """Hidden, **empty** Writer used as a scratch buffer.
 
@@ -377,19 +387,11 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
         except Exception as e:
             _reraise_document_disposed(e, "Writer")
             log.debug("new_blank_writer: body unreadable after clear", exc_info=True)
-            # BUGFIX: The scratch document was returning None on failure paths but leaving the hidden doc open.
-            try:
-                doc.close(True)
-            except Exception:
-                log.debug("new_blank_writer: doc.close() failed", exc_info=True)
+            _close_scratch_doc(doc)
             return None
         if (leftover or "").strip():
             log.debug("new_blank_writer: default template text survived clear_writer_body")
-            # BUGFIX: The scratch document was returning None on failure paths but leaving the hidden doc open.
-            try:
-                doc.close(True)
-            except Exception:
-                log.debug("new_blank_writer: doc.close() failed", exc_info=True)
+            _close_scratch_doc(doc)
             return None
     # Other document lookups wrap the model so a later off-thread use is
     # caught by the dev thread guard. This factory used to return it raw.
