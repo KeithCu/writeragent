@@ -35,7 +35,7 @@ from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, 
 log = logging.getLogger(__name__)
 
 # Shown when the venv cannot ``import faster_whisper``. Record does not run it.
-FASTER_WHISPER_PIP_INSTALL = "uv pip install faster-whisper"
+FASTER_WHISPER_PIP_INSTALL = 'uv pip install faster-whisper "av<14"'
 
 STT_PROVIDER_ENDPOINT = "endpoint"
 STT_PROVIDER_LOCAL = "local"
