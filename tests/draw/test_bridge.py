@@ -556,12 +556,12 @@ def test_create_slide_reports_index_one_when_front_exchange_fails():
         raise RuntimeError("exchange failed")
 
     bridge._exchange_page_contents = _boom  # type: ignore[method-assign]
-    page, idx = bridge.create_slide(0, switch=False)
-    assert idx == 1
-    assert page is pages.pages[1]
-    assert page.getCount() == 0
+    import pytest
+    with pytest.raises(RuntimeError, match="Failed to exchange new page with first page"):
+        bridge.create_slide(0, switch=False)
+    # The new page should have been removed
+    assert len(pages.pages) == 2
     assert pages.pages[0].Name == "A"
-    assert pages.pages[0].shapes[0].getString() == "a"
 
 
 def test_insert_slide_from_master_lands_after_requested_slide():

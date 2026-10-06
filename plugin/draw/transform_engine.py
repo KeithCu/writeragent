@@ -362,27 +362,53 @@ class SlideCommandEngine:
             self.current_slide = new_idx
             self.pages = self.bridge.get_pages()
             self.applied.append("InsertMasterSlide:%d" % new_idx)
-        except ValueError as e:
+        except Exception as e:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(e):
+                raise
             self.warnings.append(f"InsertMasterSlide: {e}")
 
     def _delete_slide(self, val: Any) -> None:
-        idx = _parse_slide_index(val, self.current_slide, self._page_count())
-        if idx is None:
-            self.warnings.append("Invalid DeleteSlide: %r" % val)
+        if val == "" or val is None:
+            idx = self.current_slide
+        elif isinstance(val, str) and val.strip().lower() == "last":
+            idx = max(0, self._page_count() - 1)
+        else:
+            try:
+                idx = int(val)
+            except (TypeError, ValueError):
+                self.warnings.append("Invalid DeleteSlide: %r" % val)
+                return
+
+        if idx < 0 or idx >= self._page_count():
+            self.warnings.append("Invalid DeleteSlide: index out of range")
             return
+
         if self._page_count() <= 1:
             self.warnings.append("Cannot delete the only slide")
             return
+
         self.bridge.delete_slide(idx)
         self.pages = self.bridge.get_pages()
         self.current_slide = _current_after_delete(self.current_slide, idx, self._page_count())
         self.applied.append("DeleteSlide:%d" % idx)
 
     def _duplicate_slide(self, val: Any) -> None:
-        idx = _parse_slide_index(val, self.current_slide, self._page_count())
-        if idx is None:
-            self.warnings.append("Invalid DuplicateSlide: %r" % val)
+        if val == "" or val is None:
+            idx = self.current_slide
+        elif isinstance(val, str) and val.strip().lower() == "last":
+            idx = max(0, self._page_count() - 1)
+        else:
+            try:
+                idx = int(val)
+            except (TypeError, ValueError):
+                self.warnings.append("Invalid DuplicateSlide: %r" % val)
+                return
+
+        if idx < 0 or idx >= self._page_count():
+            self.warnings.append("Invalid DuplicateSlide: index out of range")
             return
+
         self.bridge.duplicate_slide(idx, switch=True)
         self.pages = self.bridge.get_pages()
         self.current_slide = min(idx + 1, self._page_count() - 1)
@@ -490,18 +516,18 @@ class SlideCommandEngine:
         if isinstance(uno_spec, dict):
             name = uno_spec.get("name") or uno_spec.get("Name")
             args = uno_spec.get("arguments") or uno_spec.get("Arguments") or {}
-            self._dispatch_uno_named(str(name), args)
-            self.applied.append("UnoCommand:%s" % name)
+            if self._dispatch_uno_named(str(name), args):
+                self.applied.append("UnoCommand:%s" % name)
         else:
-            self._dispatch_uno_string(uno_spec)
-            self.applied.append("UnoCommand")
+            if self._dispatch_uno_string(uno_spec):
+                self.applied.append("UnoCommand")
 
-    def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None) -> None:
+    def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None) -> bool:
         if not isinstance(cmd, str):
-            return
+            return False
         cmd = cmd.strip()
         if not cmd:
-            return
+            return False
         # ".uno:Bold" or '.uno:Color {"Color.Color":...}'
         parts = cmd.split(None, 1)
         uno_name = parts[0]
@@ -517,14 +543,14 @@ class SlideCommandEngine:
         # Selecting the shape and dispatching formats every character.
         if _text_cursor_is_partial_selection(cursor, shape):
             if _apply_cursor_uno_format(cursor, uno_name, parsed):
-                return
+                return True
             self.warnings.append("UnoCommand %s was not applied to the text selection" % uno_name)
-            return
+            return False
         props = self._uno_props_from_dict(parsed) if parsed else ()
         try:
             controller = self.doc.getCurrentController()
             if controller is None:
-                return
+                return False
             frame = controller.getFrame()
             smgr = self.tctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
@@ -537,25 +563,31 @@ class SlideCommandEngine:
                         raise
                     pass
             dispatcher.executeDispatch(frame, uno_name, "", 0, props)
+            return True
         except Exception as exc:
             from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(exc):
                 raise
             self.warnings.append("UnoCommand %s failed: %s" % (uno_name, exc))
+            return False
 
-    def _dispatch_uno_named(self, name: str, arguments: dict[str, Any]) -> None:
+    def _dispatch_uno_named(self, name: str, arguments: dict[str, Any]) -> bool:
         props = self._uno_props_from_dict(arguments)
         try:
             controller = self.doc.getCurrentController()
+            if controller is None:
+                return False
             frame = controller.getFrame()
             smgr = self.tctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
             dispatcher.executeDispatch(frame, name, "", 0, props)
+            return True
         except Exception as exc:
             from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(exc):
                 raise
             self.warnings.append("UnoCommand %s failed: %s" % (name, exc))
+            return False
 
     def _uno_props_from_dict(self, arguments: dict[str, Any]) -> tuple[Any, ...]:
         from com.sun.star.beans import PropertyValue
