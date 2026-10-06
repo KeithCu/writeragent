@@ -204,12 +204,7 @@ class TurnController:
         later result is discarded. Document side effects may still land.
         Rows already written stay. The open assistant row is committed, each
         tool call with no tool row gets one cancelled row, and the stop line
-        is folded into the partial reply as one assistant message.
-        ``tool_calls`` are not removed.
-
-        Why one row, not partial + a separate stop row: the separate row was
-        repainted as its own block and sent to the model as an extra
-        assistant turn.
+        is an ordinary assistant message. ``tool_calls`` are not removed.
         """
         if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
@@ -224,11 +219,13 @@ class TurnController:
             chosen = fallback
         else:
             chosen = ""
+        if chosen:
+            self.persist_assistant(host, content=chosen)
         messages = self.messages if isinstance(self.messages, list) and self.same_messages() else None
-        if messages is not None:
-            _append_cancelled_tool_rows(messages)
-        content = chosen.rstrip() + "\n\n" + _STOP_LINE.strip() if chosen else _STOP_LINE
-        self.persist_assistant(host, content=content)
+        closed = _append_cancelled_tool_rows(messages) if messages is not None else 0
+        if not chosen and closed == 0:
+            self.persist_assistant(host, content="No response.")
+        self.persist_assistant(host, content=_STOP_LINE)
 
 
 def _discard_batcher(batcher: Any) -> None:

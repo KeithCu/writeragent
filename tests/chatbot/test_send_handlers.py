@@ -698,12 +698,11 @@ def test_agent_stop_stores_partial_or_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "agent")
-    # One assistant row: the partial reply with the Stop line folded in.
-    calls = panel.session.add_assistant_message.call_args_list
-    assert len(calls) == 1
-    content = str(calls[0].kwargs.get("content") or "")
-    assert content.startswith("partial")
-    assert "[Stopped by user]" in content
+    panel.session.add_assistant_message.assert_any_call(content="partial")
+    assert any(
+        "[Stopped by user]" in str(call.kwargs.get("content") or "")
+        for call in panel.session.add_assistant_message.call_args_list
+    )
 
 
 def test_agent_stop_with_no_chunks_stores_placeholder():
@@ -713,10 +712,11 @@ def test_agent_stop_with_no_chunks_stores_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "agent")
-    # No text: the Stop line alone is the assistant row (no extra "No response." turn).
-    calls = panel.session.add_assistant_message.call_args_list
-    assert len(calls) == 1
-    assert "[Stopped by user]" in str(calls[0].kwargs.get("content") or "")
+    panel.session.add_assistant_message.assert_any_call(content="No response.")
+    assert any(
+        "[Stopped by user]" in str(call.kwargs.get("content") or "")
+        for call in panel.session.add_assistant_message.call_args_list
+    )
 
 
 def test_brainstorm_finish_runs_on_stream_done():
@@ -1490,9 +1490,8 @@ def test_web_and_image_stop_persist_emitted_text():
             q.put((StreamQueueKind.STOPPED, None))
 
         _drive_unified_drain(panel, worker, handler_type)
-        assert len(panel.session.stored) == 1
-        assert panel.session.stored[0].startswith("partial answer")
-        assert "[Stopped by user]" in panel.session.stored[0]
+        assert panel.session.stored[0] == "partial answer"
+        assert "[Stopped by user]" in panel.session.stored[1]
 
 
 def test_web_stop_without_emitted_text_stores_placeholder():
@@ -1502,10 +1501,11 @@ def test_web_stop_without_emitted_text_stores_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "web")
-    # No text: the Stop line alone is the assistant row (no extra "No response." turn).
-    calls = panel.session.add_assistant_message.call_args_list
-    assert len(calls) == 1
-    assert "[Stopped by user]" in str(calls[0].kwargs.get("content") or "")
+    panel.session.add_assistant_message.assert_any_call(content="No response.")
+    assert any(
+        "[Stopped by user]" in str(call.kwargs.get("content") or "")
+        for call in panel.session.add_assistant_message.call_args_list
+    )
 
 
 def test_specialized_tool_errors_persist_assistant_row():

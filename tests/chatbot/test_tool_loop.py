@@ -204,11 +204,10 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_con
 
     mock_drain_loop.side_effect = mock_drain_impl
     panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
-    # Stop line is folded into the partial reply: one assistant row, not two.
+    assert session.messages[-2]["role"] == "assistant"
+    assert session.messages[-2]["content"] == "kept tokens"
     assert session.messages[-1]["role"] == "assistant"
-    assert session.messages[-1]["content"].startswith("kept tokens")
     assert "[Stopped by user]" in session.messages[-1]["content"]
-    assert sum(1 for m in session.messages if m.get("role") == "assistant") == 1
 
 
 def test_handle_stream_error_persists_banner():
