@@ -2228,7 +2228,9 @@ def test_execute_ipc_attempts_stop_checker_aborts(monkeypatch: pytest.MonkeyPatc
 
     assert stop_called[0]
 
-    # select
+    # select (POSIX only: on win32 the select path delegates to the PeekNamedPipe reader)
+    if sys.platform == "win32":
+        return
     stop_called2 = [False]
     def stop_checker2():
         stop_called2[0] = True

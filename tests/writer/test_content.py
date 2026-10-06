@@ -45,6 +45,38 @@ def test_dry_run_requires_search_target():
 
 
 @pytest.mark.timeout(5)
+def test_dry_run_marshals_to_main_thread(monkeypatch):
+    from plugin.writer.content import ApplyDocumentContent
+    import threading
+
+    r1 = MagicMock()
+    r1.getString.return_value = "clause 3.2 text"
+    ctx = _edit_ctx()
+
+    fake_bg = MagicMock()
+    fake_bg.name = "worker-thread"
+    monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
+    monkeypatch.setattr(threading, "main_thread", lambda: MagicMock())
+
+    posts = []
+
+    def fake_execute(fn, *args, **kwargs):
+        posts.append(fn)
+        # Mock executing the lambda and returning a tuple with result
+        return fn()
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_execute), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[r1]), \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.format.content_has_markup", return_value=False):
+        res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
+
+    assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 1
+    assert len(posts) == 1
+
+
+@pytest.mark.timeout(5)
 def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
     """A preview that uses a different matcher than the commit is worse than none: with
     regex=true, dry_run must route through find_ranges_regex_case with the RAW pattern."""

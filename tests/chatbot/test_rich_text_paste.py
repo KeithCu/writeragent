@@ -651,6 +651,14 @@ class TestPaintMessageItems:
         assert session.messages[0]["content"] == "partial answer\n[Stopped by user]\n"
         assert len(session.messages) == 1
 
+    def test_user_message_already_present_returns_true_without_duplication(self):
+        """User message recorded at send time returns True so panel paints it immediately."""
+        session = MagicMock()
+        session.messages = [{"role": "user", "content": "What is Python?"}]
+        assert fold_transcript_chunk(session, "What is Python?", role="user") is True
+        assert len(session.messages) == 1
+        assert session.messages[0]["content"] == "What is Python?"
+
     def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()
         model = MagicMock()

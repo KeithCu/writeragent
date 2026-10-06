@@ -257,9 +257,13 @@ def test_manual_stop_returns_path_while_silence_monitor_runs(ctx, tmp_path):
     assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
 
 
+# More than the 44-byte WAV header: a header-only file has no audio.
+_WAV_WITH_AUDIO = b"RIFF" + b"\x00" * 60
+
+
 def test_stop_keeps_nonempty_wav_when_handshake_fails(ctx, tmp_path):
     wav_path = tmp_path / "keep.wav"
-    wav_path.write_bytes(b"RIFF")
+    wav_path.write_bytes(_WAV_WITH_AUDIO)
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = MagicMock()
@@ -279,7 +283,7 @@ def test_stop_keeps_nonempty_wav_when_handshake_fails(ctx, tmp_path):
         returned = recorder.stop_recording()
     assert returned == str(wav_path)
     assert wav_path.is_file()
-    assert wav_path.read_bytes() == b"RIFF"
+    assert wav_path.read_bytes() == _WAV_WITH_AUDIO
 
 
 def test_stop_deletes_empty_wav_when_handshake_fails(ctx, tmp_path):
@@ -310,7 +314,7 @@ def test_stdout_error_after_ready_keeps_nonempty_wav(ctx, tmp_path):
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
     wav_path = tmp_path / "partial.wav"
-    wav_path.write_bytes(b"RIFF")
+    wav_path.write_bytes(_WAV_WITH_AUDIO)
     recorder = AudioRecorder(ctx)
     recorder.state = AudioRecorderState(status="recording")
     recorder.temp_filename = str(wav_path)
@@ -320,14 +324,14 @@ def test_stdout_error_after_ready_keeps_nonempty_wav(ctx, tmp_path):
 
     assert recorder.state.status == "error"
     assert recorder.temp_filename == str(wav_path)
-    assert wav_path.read_bytes() == b"RIFF"
+    assert wav_path.read_bytes() == _WAV_WITH_AUDIO
 
 
 def test_stdout_error_callback_does_not_apply_on_monitor(ctx, tmp_path):
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
     wav_path = tmp_path / "partial.wav"
-    wav_path.write_bytes(b"RIFF")
+    wav_path.write_bytes(_WAV_WITH_AUDIO)
     recorder = AudioRecorder(ctx)
     recorder.state = AudioRecorderState(status="recording")
     recorder.temp_filename = str(wav_path)
@@ -510,3 +514,14 @@ def test_host_callback_writeframes_error_is_swallowed(ctx, tmp_path, monkeypatch
     real_wav.close()
     captured["callback"](b"\x00\x00", 1, None, None)
     boom.writeframes.assert_called_once()
+
+
+def test_wav_file_has_bytes_treats_header_only_as_empty(tmp_path):
+    from plugin.chatbot.audio_recorder import _wav_file_has_bytes
+
+    header_only = tmp_path / "header.wav"
+    header_only.write_bytes(b"\x00" * 44)
+    with_audio = tmp_path / "audio.wav"
+    with_audio.write_bytes(_WAV_WITH_AUDIO)
+    assert _wav_file_has_bytes(str(header_only)) is False
+    assert _wav_file_has_bytes(str(with_audio)) is True
