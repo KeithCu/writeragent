@@ -385,6 +385,36 @@ def _chunk_text(turn: Any, text: str, role: str, *, strip_non_assistant: bool) -
     return text
 
 
+def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
+    """Change a sidebar button's label without moving it or losing its mnemonic.
+
+    What was wrong: after a reply the Send/Record relabel also set the button
+    to a fixed send width (the old ``_fixed_send_width``), measured from the
+    XDL before the panel layout shared the button row. Record shrank (1x) or grew over Stop
+    (2x) until the next relayout. Setting the label also dropped the
+    mnemonic VCL had added (``~Record``), so the R underline went away.
+    Why: keep the rect the layout gave the button, and put back the
+    mnemonic VCL chose for that label the last time the button showed it.
+    The model keeps the plain label that the click handlers compare.
+    """
+    model = ctrl.getModel()
+    if model is None or model.Label == label:
+        return
+    rect = ctrl.getPosSize()
+    peer = ctrl.getPeer()
+    if peer is not None:
+        shown = peer.getProperty("Label")
+        if isinstance(shown, str) and "~" in shown:
+            mnemonics[shown.replace("~", "")] = shown
+    model.Label = label
+    if peer is not None and label in mnemonics:
+        peer.setProperty("Label", mnemonics[label])
+    if rect is not None and rect.Width > 0:
+        cur = ctrl.getPosSize()
+        if (cur.X, cur.Y, cur.Width, cur.Height) != (rect.X, rect.Y, rect.Width, rect.Height):
+            ctrl.setPosSize(rect.X, rect.Y, rect.Width, rect.Height, 15)
+
+
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
@@ -517,7 +547,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
-        self._fixed_send_width: int | None = None
+        self._button_mnemonics: dict[str, str] = {}
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
         # The queue, stripper, and document model live on ``_turn``.
         self._turn = None
@@ -806,20 +836,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         with suppress_disposed("begin_inline_web_approval", logger=log):
             if self.send_control and self.send_control.getModel():
                 m = self.send_control.getModel()
-                m.Label = _("Accept")
+                _relabel_button(self.send_control, _("Accept"), self._mnemonic_cache())
                 m.Enabled = True
-                if self._fixed_send_width:
-                    with suppress_disposed("begin_inline_web_approval setPosSize", logger=log):
-                        r = self.send_control.getPosSize()
-                        if r.Width != self._fixed_send_width:
-                            self.send_control.setPosSize(r.X, r.Y, self._fixed_send_width, r.Height, 15)
             if self.stop_control and self.stop_control.getModel():
                 m = self.stop_control.getModel()
-                m.Label = _("Change")
+                _relabel_button(self.stop_control, _("Change"), self._mnemonic_cache())
                 m.Enabled = True
             if self.clear_control and self.clear_control.getModel():
                 m = self.clear_control.getModel()
-                m.Label = _("Reject")
+                _relabel_button(self.clear_control, _("Reject"), self._mnemonic_cache())
                 m.Enabled = True
 
         # Approval is inline (Accept / Change / Reject); search preview is already in the transcript.
@@ -849,20 +874,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self.send_control and self.send_control.getModel():
                 m = self.send_control.getModel()
                 if "send_label" in b:
-                    m.Label = b["send_label"]
+                    _relabel_button(self.send_control, b["send_label"], self._mnemonic_cache())
                 if "send_enabled" in b:
                     m.Enabled = b["send_enabled"]
             if self.stop_control and self.stop_control.getModel():
                 m = self.stop_control.getModel()
                 if "stop_label" in b:
-                    m.Label = b["stop_label"]
+                    _relabel_button(self.stop_control, b["stop_label"], self._mnemonic_cache())
                 if "stop_enabled" in b:
                     m.Enabled = b["stop_enabled"]
             if self.clear_control and self.clear_control.getModel() and "clear_enabled" in b:
                 cm = self.clear_control.getModel()
                 cm.Enabled = b["clear_enabled"]
                 if "clear_label" in b:
-                    cm.Label = b["clear_label"]
+                    _relabel_button(self.clear_control, b["clear_label"], self._mnemonic_cache())
             if self.status_control and "status_text" in b:
                 self.status_control.setText(b["status_text"])
         try:
@@ -1182,8 +1207,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
         return None
 
-    def set_fixed_send_width(self, width_px: int) -> None:
-        self._fixed_send_width = width_px
+    def _mnemonic_cache(self) -> dict[str, str]:
+        """Plain label -> label with the mnemonic VCL gave it (see _relabel_button)."""
+        cache = getattr(self, "_button_mnemonics", None)
+        if cache is None:
+            cache = {}
+            self._button_mnemonics = cache
+        return cache
 
     def _set_button_states(self, send_enabled: bool, stop_enabled: bool) -> None:
         """Set Send/Stop enabled flags (per-control try/except so one UNO failure cannot strand the other)."""
@@ -1402,14 +1432,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._set_button_states(effect.send_enabled, effect.stop_enabled)
 
                 if self.send_control and self.send_control.getModel():
-                    btn_model = self.send_control.getModel()
-                    if btn_model.Label != _(effect.send_label):
-                        btn_model.Label = _(effect.send_label)
-                    if self._fixed_send_width:
-                        with suppress_disposed("set pos size for send_control", logger=log):
-                            r = self.send_control.getPosSize()
-                            if r.Width != self._fixed_send_width:
-                                self.send_control.setPosSize(r.X, r.Y, self._fixed_send_width, r.Height, 15)
+                    with suppress_disposed("relabel send_control", logger=log):
+                        _relabel_button(self.send_control, _(effect.send_label), self._mnemonic_cache())
 
                 if effect.status_text is not None and effect.status_text != "":
                     # Sticky takes share the Record transition; only the status line differs.
