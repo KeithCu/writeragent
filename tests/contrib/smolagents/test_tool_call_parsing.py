@@ -109,3 +109,31 @@ def test_action_step_to_messages_uses_action_json_not_calling_tools_repr():
     assert "Calling tools:" not in text
     assert '"name": "web_search"' in text
     assert "Population Shanghai" in text
+
+
+def test_get_tool_json_schema_normalizes_nullable_scalars():
+    """Verify smolagents get_tool_json_schema normalizes optional parameters to ['type', 'null']."""
+    from plugin.contrib.smolagents.models import get_tool_json_schema
+    from plugin.contrib.smolagents.tools import Tool
+
+    class DummyImageTool(Tool):
+        name = "image_generate"
+        description = "Generate an image"
+        inputs = {
+            "prompt": {"type": "string", "description": "The prompt", "nullable": False},
+            "source_image": {"type": "string", "description": "Optional image", "nullable": True},
+        }
+        output_type = "string"
+        skip_forward_signature_validation = True
+
+        def forward(self, prompt: str, source_image: str | None = None) -> str:
+            return "done"
+
+    schema = get_tool_json_schema(DummyImageTool())
+    fn = schema["function"]
+    params = fn["parameters"]
+    assert params["type"] == "object"
+    assert params["required"] == ["prompt"]
+    assert params["properties"]["prompt"]["type"] == "string"
+    assert params["properties"]["source_image"]["type"] == ["string", "null"]
+    assert "nullable" not in params["properties"]["source_image"]

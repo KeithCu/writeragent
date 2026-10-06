@@ -541,6 +541,21 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
             if getattr(turn, "_stop_banner_appended", False):
                 return
             turn._stop_banner_appended = True
+        # What was wrong: Stop before the first token appended only the marker
+        # to the control tail, so it sat under the greeting with no You: row,
+        # and 'No response.' stayed unpainted until a later repaint.
+        # How: close_stopped had already written the closed turn to the session;
+        # this path pasted one line instead of drawing that list.
+        # Why: paint the closed session, so the control matches the list.
+        render_fn = getattr(listener, "render_session_messages", None)
+        if callable(render_fn) and isinstance(turn, TurnController) and turn.session is not None:
+            run_rich = getattr(listener, "_run_rich_ui", None)
+            if callable(run_rich):
+                run_rich(render_fn, turn.session)
+            else:
+                render_fn(turn.session)
+            return
+
         from plugin.chatbot.tool_loop_actions import _STOP_LINE
         from plugin.chatbot.dialogs import get_control_text, set_control_text
 

@@ -169,3 +169,17 @@ class TestPanelHTMLStripper:
         _turn(send).stripper = None
         finalize_sidebar_assistant_response(send)
         send.rerender_rich_text_session.assert_called_once()
+
+    def test_finalize_stopped_calls_render_session_messages(self):
+        """When stopped, finalize must call render_session_messages to paint the closed turn."""
+        send = _make_plain_send_listener()
+        send.session = MagicMock()
+        msgs: list[dict[str, str]] = []
+        send.session.messages = msgs
+        _turn(send).session = send.session
+        _turn(send).messages = msgs
+        send.render_session_messages = MagicMock()
+        send.stop_requested = True
+        _turn(send).stripper = None
+        finalize_sidebar_assistant_response(send, allow_rerender=False)
+        send.render_session_messages.assert_called_once_with(send.session)

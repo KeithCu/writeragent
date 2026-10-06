@@ -185,6 +185,7 @@ class SendHandlerHost(Protocol):
     def _get_doc_type_str(self, model: Any) -> str: ...
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
     def rerender_rich_text_session(self) -> bool: ...
+    def render_session_messages(self, session: Any) -> None: ...
     _record_assistant_start: bool
     def _run_unified_worker_drain_loop(
         self, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
@@ -416,6 +417,11 @@ class SendHandlersMixin:
                 turn.close_stopped(self, partial)
             if on_stopped_callback:
                 on_stopped_callback()
+            # What was wrong: Image-mode Stop wrote 'No response.' and the stop
+            # line to the session but nothing painted them until a later repaint
+            # (image has no finalize call). Why: draw the closed session here.
+            if isinstance(turn, TurnController) and turn.session is not None:
+                self.render_session_messages(turn.session)
             dispatch_event(StopRequestedEvent())
 
         def on_error(e: Exception) -> None:
@@ -467,6 +473,14 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="image", status="ready")
 
+        # What was wrong: Image mode painted 'You: <prompt>' twice. The StartEvent
+        # user append folded the prompt into the session, then the spawn effect
+        # called add_user_message again. Why: store it once here, before the
+        # append, like web research; the fold then sees it and only paints.
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is not None:
+            turn_session.add_user_message(query_text)
+
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "image"))
         current_state = step.state
@@ -475,10 +489,7 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
-        turn_session = _turn_session_or_stop(self)
-        if turn_session is not None:
-            turn_session.add_user_message(query_text)
-
+        # The user row was stored by _do_send_direct_image before StartEvent.
         drain_q, q = _send_worker_queues(self)
         # Probe on the UI thread. The tool re-reads the selection when it
         # executes; this flag only decides whether to request img2img.
@@ -526,7 +537,11 @@ class SendHandlersMixin:
                     image_args["source_image"] = source_image
                 res = get_tools().execute("image_generate", tctx, bypass_thread_guard=False, **image_args)
                 if isinstance(res, dict) and res.get("status") == "error":
-                    log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
+                    # An ordinary user Stop is not a failure; keep it out of ERROR.
+                    if stop_checker():
+                        log.debug("generate_image (direct) stopped by user: %s", res.get("message"))
+                    else:
+                        log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
                 result = json.dumps(res, default=str) if isinstance(res, dict) else str(res)
                 data = safe_json_loads(result, default={})
                 if isinstance(data, dict):
@@ -544,8 +559,10 @@ class SendHandlersMixin:
                 q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": note_line.strip()}))
             except Exception as e:
                 doc_type = getattr(self, "cached_doc_type", None) or "unknown"
-                log.exception("Direct image path failed in _do_send_direct_image [doc: %s]", doc_type)
-
+                if stop_checker():
+                    log.debug("Direct image path cancelled by Stop [doc: %s]: %s", doc_type, e)
+                else:
+                    log.exception("Direct image path failed in _do_send_direct_image [doc: %s]", doc_type)
 
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 

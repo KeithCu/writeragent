@@ -50,6 +50,9 @@ class DummyChatbotPanel(SendHandlersMixin):
     def rerender_rich_text_session(self):
         pass
 
+    def render_session_messages(self, session):
+        pass
+
 
 def test_get_mcp_url_uses_schema_keys_only():
     """Agent backends must not read mcp.host (not in module.yaml)."""
@@ -1992,3 +1995,58 @@ class TestSTTClientReset:
         ):
             host._transcribe_audio("fake.wav", "stt-model")
             assert mock_llm_client.called
+
+
+def test_direct_image_records_user_message_only_once():
+    """Image mode stored the prompt twice: the StartEvent user append folded it,
+    then the spawn effect called add_user_message again (Scrolly QA)."""
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+
+    messages: list[dict[str, str]] = []
+    session = MagicMock()
+    session.messages = messages
+    session.add_user_message.side_effect = lambda txt: messages.append({"role": "user", "content": txt})
+
+    class FoldingPanel(DummyChatbotPanel):
+        def _append_response(self, text, is_thinking=False, role="assistant"):
+            super()._append_response(text, is_thinking, role)
+            if role == "user":
+                fold_transcript_chunk(session, text, role="user")
+
+    panel = FoldingPanel()
+    setattr(panel, "session", session)
+    with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"):
+        panel._do_send_direct_image("draw an apple", MagicMock())  # type: ignore
+
+    assert [m for m in messages if m.get("role") == "user"] == [{"role": "user", "content": "draw an apple"}]
+
+
+def test_unified_drain_on_stopped_calls_render_session_messages():
+    """Stopping a send handler must render the stopped session to the UI."""
+    from plugin.chatbot.tool_loop_actions import TurnController
+
+    panel = DummyChatbotPanel()
+    turn = MagicMock(spec=TurnController)
+    turn.alive = True
+    turn.session = MagicMock()
+    turn.queue = None
+    panel._turn = turn
+    panel.render_session_messages = MagicMock()
+
+    state = SendHandlerState(handler_type="image", status="ready")
+    interpreter = EffectInterpreter(panel)
+    q = queue.Queue()
+
+    def dummy_worker():
+        pass
+
+    with patch("plugin.chatbot.send_handlers.run_async_worker_with_drain") as mock_drain:
+        def fake_drain(*args, **kwargs):
+            on_stopped_fn = kwargs.get("on_stopped_fn") or kwargs.get("on_stopped")
+            if on_stopped_fn:
+                on_stopped_fn()
+        mock_drain.side_effect = fake_drain
+        panel._run_unified_worker_drain_loop(q, dummy_worker, state, interpreter)  # type: ignore
+
+    turn.close_stopped.assert_called_once()
+    panel.render_session_messages.assert_called_once_with(turn.session)

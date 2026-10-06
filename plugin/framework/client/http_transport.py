@@ -523,8 +523,9 @@ class LlmHttpTransport:
             # How: only when this socket was already open. A failure while
             # connecting a new socket is a real error and still uses the budget.
             # Why: close and send this same request once. The retry budget,
-            # the host gap, and the status line stay unused.
-            if not reused_socket or not _stale_resend:
+            # the host gap, and the status line stay unused. Do not reconnect if
+            # stop was requested.
+            if (stop_checker is not None and stop_checker()) or not reused_socket or not _stale_resend:
                 raise
             log.debug("Keep-alive socket failed before a response; reconnecting once")
             self._drop_stopped_connection(conn)
@@ -777,11 +778,16 @@ class LlmHttpTransport:
 
     def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1, model: str | None = None, secrets: list[str] | None = None) -> RetryAction:
         """Close failed connections and decide whether a request should retry."""
+        # What was wrong: user Stop during streaming/request closed the socket and logged
+        # ERROR lines ("Broken pipe", "Connection error, closing", etc.).
+        # How it happened: handle_connection_error unconditionally logged log.error before checking stop_checker.
+        # Why this change fixes it: checking stop_checker first downgrades the log to debug level on user cancel.
+        if stop_checker and stop_checker():
+            log.debug("Connection closed by user stop; exiting streaming loop")
+            self.close()
+            return "stop"
         log.error("Connection error, closing: %s" % redact_secrets(str(err), secrets))
         self.close()
-        if stop_checker and stop_checker():
-            log.error("Connection error during stop; exiting streaming loop")
-            return "stop"
         if retries_left > 0 and self.enable_local_ssl_fallback(err):
             # Immediate reopen: TLS mode just changed; do not add backoff.
             return "retry"

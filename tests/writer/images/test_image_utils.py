@@ -248,6 +248,27 @@ class TestEndpointImageProvider:
         kwargs = mock_client.image_completion.call_args[1]
         assert (kwargs.get("source_image")) == (b64)
 
+    @patch('plugin.writer.images.image_utils.LlmClient')
+    def test_image_generation_downgrades_to_debug_on_stop(self, mock_client_cls, caplog):
+        """User cancel during image generation must log at debug instead of error."""
+        import logging
+        from plugin.framework.errors import NetworkError
+
+        mock_client = create_mock_client()
+        mock_client.image_completion.side_effect = NetworkError("aborted", code="STOPPED")
+        mock_client_cls.return_value = mock_client
+        provider = EndpointImageProvider({"model": "test"}, MockContext())
+        provider.client = mock_client
+
+        with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
+            paths, err = provider.generate("test prompt", stop_checker=lambda: True)
+
+        assert paths == []
+        assert "aborted" in err
+        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
+        assert any("Image generation cancelled by Stop" in r.message for r in caplog.records)
+
+
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_make_image_request_body_includes_image_url_when_source_image(self, mock_init):
         """Non-OpenRouter image requests keep OpenAI-style image_url for source_image."""
