@@ -1856,3 +1856,64 @@ def test_endpoint_and_native_do_not_split():
     assert "sentences" not in captured
     assert oneshot == {"system": "Hi. Not done yet"}
 
+
+def test_clean_text_for_speech_identifiers():
+    assert clean_text_for_speech("my_var_name") == "my var name"
+    assert clean_text_for_speech("**my_var_name**") == "my var name"
+
+@patch("plugin.audio.tts_service._popen_for_speech")
+@patch("plugin.audio.tts_service.shutil.which")
+def test_speak_system_security(mock_which, mock_popen):
+    from plugin.audio.tts_service import _speak_system
+    import sys
+
+    # Test curl quotes, backticks, leading dashes
+    text = "don't `rm -rf` --version"
+
+    # Test macOS
+    with patch("sys.platform", "darwin"):
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["/usr/bin/say", "-r", "175", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Test Linux spd-say
+    with patch("sys.platform", "linux"):
+        mock_which.side_effect = lambda x: "/usr/bin/spd-say" if x == "spd-say" else None
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["spd-say", "-r", "0", "-w", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Test Linux espeak
+    with patch("sys.platform", "linux"):
+        mock_which.side_effect = lambda x: "/usr/bin/espeak" if x == "espeak" else None
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["espeak", "-s", "160", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Test Windows SAPI
+    text_with_quotes = "hello 'world' ‘curly’ “quotes” $var `backticks`"
+    with patch("sys.platform", "win32"), patch("os.environ", {"SOME_VAR": "val"}):
+        _speak_system(text_with_quotes, speed=1.0)
+        args, kwargs = mock_popen.call_args
+        cmd = args[0]
+        assert "powershell" in cmd[0]
+        assert "Speak($env:SAPI_TEXT)" in cmd[-1]
+        assert "hello" not in cmd[-1]  # ensure text is not embedded
+        assert kwargs.get("env") == {"SOME_VAR": "val", "SAPI_TEXT": text_with_quotes}
+
+
+def test_stop_speech_stops_spd_only_for_own_spd_say():
+    from plugin.audio import tts_service
+
+    spd = MagicMock()
+    spd.args = ["spd-say", "-w", "--", "hi"]
+    spd.poll.return_value = None
+    other = MagicMock()
+    other.args = ["paplay", "/tmp/x.wav"]
+    other.poll.return_value = None
+    assert tts_service._is_spd_say(spd) is True
+    assert tts_service._is_spd_say(other) is False
+    assert tts_service._is_spd_say(None) is False
