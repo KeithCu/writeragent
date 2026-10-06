@@ -49,6 +49,9 @@ from plugin.mcp import wire_types
 
 log = logging.getLogger("writeragent.mcp.protocol")
 
+# Longest an SSE keepalive wait goes without checking HttpServer.stop's flag.
+_SSE_STOP_POLL_SEC = 0.5
+
 # Local binding for headers/handlers; canonical constant is wire_types.MCP_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
 _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05", "2025-06-18", "2025-03-26"})
@@ -510,8 +513,19 @@ class MCPProtocolHandler:
 
                 # Wait for client disconnect, the keepalive interval, or
                 # stop() shutting this socket down (readable / error).
+                # Sliced: on Windows a shutdown()/close() from another thread
+                # does not wake select, so the stop flag is re-checked each
+                # slice (GHA 37401464435: thread still alive after stop).
+                readable: list[Any] = []
+                wait_until = time.monotonic() + interval
                 try:
-                    readable, _unused, _unused2 = select.select([sock], [], [], interval)
+                    while not stop_event.is_set():
+                        left = wait_until - time.monotonic()
+                        if left <= 0:
+                            break
+                        readable, _unused, _unused2 = select.select([sock], [], [], min(left, _SSE_STOP_POLL_SEC))
+                        if readable:
+                            break
                 except (OSError, ValueError):
                     break
                 if stop_event.is_set():

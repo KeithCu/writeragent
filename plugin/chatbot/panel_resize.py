@@ -32,7 +32,13 @@ _OVERLAY_CONTROLS = frozenset({"slash_popup"})
 
 # ChatPanelDialog.xdl: response top=16 height=110, status top=128 -> gap=2.
 _XDL_GAP_BELOW_RESPONSE = 2
-_BOTTOM_MARGIN = 10
+# What was wrong: at 1x scale, the bottom row of Image-mode controls
+# (base_size_input, aspect_ratio_selector, model_selector) was partly clipped
+# by the deck container bottom border.
+# How it happened: _BOTTOM_MARGIN was set to 10, which was too tight for 1x scale.
+# Why this change fixes it: increasing _BOTTOM_MARGIN to 20 (matching python_sidebar.py)
+# lifts the bottom cluster so all controls fit cleanly without clipping.
+_BOTTOM_MARGIN = 20
 _MIN_RESPONSE_HEIGHT = 30
 _RIGHT_MARGIN = 4
 

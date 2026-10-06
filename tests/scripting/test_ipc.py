@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import signal
 import pickle
 import subprocess
 import sys
@@ -301,6 +302,7 @@ def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
     assert ipc.exchange_tool_call("get_named_python_script", {"name": "a"}) == {"n": 1}
 
 
+@pytest.mark.skipif(not hasattr(signal, "alarm"), reason="signal.alarm is POSIX")
 def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
     """SIGALRM during the tool read used to desync the next cell. Consume the reply first."""
     import signal
@@ -339,6 +341,7 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
     assert reads["n"] == 1
 
 
+@pytest.mark.skipif(not hasattr(signal, "alarm"), reason="signal.alarm is POSIX")
 def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
     import signal
 
@@ -459,6 +462,7 @@ def test_drain_queued_pipe_bytes_returns_when_idle():
         stream.close()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the mismatch drain needs non-blocking pipe reads (POSIX)")
 def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
     """A foreign frame plus bytes already in the stdin buffer must not desync the next call.
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -324,6 +325,7 @@ class TestFormulaPoolSupervisor:
         finally:
             worker.kill()
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="zombie reaping and SIGKILL are POSIX")
     def test_spawn_reaps_exited_child(self, tmp_path) -> None:
         """Replacing a dead Popen must wait() it so the pid is not a zombie."""
         import signal
@@ -528,6 +530,7 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="the in-child cell timeout uses signal.alarm; Windows falls back to the host kill")
     def test_shared_timeout_keeps_other_session(self) -> None:
         """A cell timeout must not SIGKILL the worker and drop other workbooks on it."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
@@ -1079,6 +1082,7 @@ class TestFormulaPoolSupervisor:
         past = time.monotonic() - 10.0
         assert remaining_sec(past, floor=0.05) == 0.05
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="uses SIGKILL")
     def test_shared_session_dies_with_its_process(self) -> None:
         """Killing the pid drops the session. A respawn is not the same workbook."""
         import signal
@@ -1117,6 +1121,7 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="the in-child cell timeout uses signal.alarm; Windows falls back to the host kill")
     def test_timeout_does_not_sigkill_healthy_shared_kernel(self) -> None:
         """A sleep past the cell budget returns an error frame. The pid stays.
 

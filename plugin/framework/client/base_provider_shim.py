@@ -206,6 +206,25 @@ class BaseProviderShim:
             message = {}
         _normalize_delta(message)
         finish_reason = choice.get("finish_reason") or response_data.get("finish_reason") or response_data.get("done_reason")
+        err_obj = choice.get("error") or response_data.get("error")
+        if finish_reason == "error" or err_obj:
+            from plugin.framework.errors import NetworkError
+            from plugin.framework.i18n import _
+
+            err_msg = ""
+            if isinstance(err_obj, dict):
+                err_msg = str(err_obj.get("message") or err_obj.get("type") or "").strip()
+            elif isinstance(err_obj, str):
+                err_msg = err_obj.strip()
+            if not err_msg:
+                err_msg = _("Stream ended with finish_reason=error")
+            # What was wrong: sync LLM path ignored finish_reason == 'error' and
+            # choices[0].error, returning empty content to the delegate caller.
+            # How it happened: parse_sync_response extracted content and finish_reason
+            # without raising NetworkError like the streaming loop does.
+            # Why this change fixes it: raising NetworkError fails fast on provider
+            # errors instead of burning turns in an empty/broken loop.
+            raise NetworkError(err_msg, code="STREAM_ERROR")
 
         raw_content = message.get("content")
         content = _normalize_message_content(raw_content) or ""

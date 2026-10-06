@@ -135,7 +135,8 @@ def _session_snapshot_fields(sl: Any) -> dict[str, Any]:
             len(str(m.get("content") or "")) for m in messages if isinstance(m, dict)
         ],
         "has_compaction": compaction is not None,
-        "last_compact_reason": getattr(sl, "_last_compact_reason", None) if sl is not None else None,
+        # Per-turn now (TurnController); None once the drain dropped the turn.
+        "last_compact_reason": getattr(getattr(sl, "_turn", None), "_last_compact_reason", None) if sl is not None else None,
     }
 
 

@@ -297,11 +297,6 @@ def get_tool_json_schema(tool: Tool) -> dict:
     properties = deepcopy(tool.inputs)
     required = []
     for key, value in properties.items():
-        if value["type"] == "any":
-            value["type"] = "string"
-        if not ("nullable" in value and value["nullable"]):
-            required.append(key)
-
         # parse anyOf
         if "anyOf" in value:
             types = []
@@ -323,16 +318,34 @@ def get_tool_json_schema(tool: Tool) -> dict:
 
             value.pop("anyOf")
 
+        if value.get("type") == "any":
+            value["type"] = "string"
+        is_nullable = bool(value.pop("nullable", False))
+        if not is_nullable:
+            required.append(key)
+
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    }
+    # What was wrong: smolagents delegate schemas retained nullable: true and un-normalized
+    # schemas, causing strict providers like Groq to fail with validation errors (e.g.,
+    # 'source_image expected string, but got null').
+    # How it happened: delegate path bypassed _normalize_schema_for_strict_providers
+    # which main chat and MCP use to add 'null' to optional scalar type unions.
+    # Why this change fixes it: normalizing the schema adds null to optional scalar types
+    # and strips empty required lists so strict providers accept null values for optional args.
+    from plugin.framework.tool_schema import _normalize_schema_for_strict_providers
+
+    parameters = _normalize_schema_for_strict_providers(parameters)
+
     return {
         "type": "function",
         "function": {
             "name": tool.name,
             "description": tool.description,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            },
+            "parameters": parameters,
         },
     }
 
