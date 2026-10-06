@@ -739,7 +739,20 @@ class LlmClient:
 
         # Image generate/edit used sync_request, which Stop cannot abort and
         # which does not retry 429/503. The persistent transport does both.
-        res = self._request_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
+        try:
+            res = self._request_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
+        except NetworkError as e:
+            if "not supported" in str(e):
+                from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
+                new_body = adjust_image_body_for_rejection(body, str(e))
+                if new_body and (stop_checker is None or not stop_checker()):
+                    log.warning("Image API rejected params, retrying with adjusted body: %s", new_body.decode("utf-8"))
+                    res = self._request_json(method, path, new_body, headers, stop_checker=stop_checker, status_callback=status_callback)
+                else:
+                    raise
+            else:
+                raise
+
         if not res:
             return []
 
