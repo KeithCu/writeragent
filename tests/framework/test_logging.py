@@ -955,7 +955,6 @@ def test_watchdog_hung_goes_to_sender_control():
 
 def test_watchdog_ending_turn_clears_hung():
     import plugin.framework.logging as logging_mod
-    import time
 
     class MockCtrl:
         def __init__(self):

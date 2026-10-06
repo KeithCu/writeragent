@@ -189,7 +189,7 @@ _TTS_INSTALL_CMD = (
 )
 # Separate from the TTS recipe so a missing Whisper package does not print
 # the Kokoro/Piper install line (and the reverse).
-_WHISPER_INSTALL_CMD = "uv pip install faster-whisper"
+_WHISPER_INSTALL_CMD = 'uv pip install faster-whisper "av<14"'
 
 
 def _audio_linux_portaudio_hint() -> str:
