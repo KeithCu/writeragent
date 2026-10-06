@@ -396,17 +396,16 @@ def _doc_key(doc: Any) -> str:
     different PyUNO wrappers of the same document — one ▶ click then ran
     the cell multiple times (``[In [4]]`` jumped to ``[In [7]]``).
     ``RuntimeUID`` is the same object for every wrapper of that document.
-    """
-    # do not hop to main / get_runtime_uid; File Open runs on Dummy-2 and that deadlocks (#402).
 
-    # What was wrong: this called ``get_runtime_uid``. With the dev UNO thread
-    # guard on, that raises off the main thread. How: File Open
-    # ``XFilter.filter`` runs on Dummy-2 and the extensionless detect reload
-    # on Dummy-3 (see the wire_all comment above). ``filter()`` caught the
-    # ``RuntimeError`` and returned False, so ``loadComponentFromURL`` returned
-    # None. Why: ``_read_runtime_uid`` is the same ladder without
-    # ``@main_thread_only``. Decorating this path or hopping to the main thread
-    # deadlocks the waiting host (#402).
+    What was wrong: this called ``get_runtime_uid``. With the dev UNO thread
+    guard on, that raises off the main thread. How: File Open
+    ``XFilter.filter`` runs on Dummy-2 and the extensionless detect reload
+    on Dummy-3 (see the wire_all comment above). ``filter()`` caught the
+    ``RuntimeError`` and returned False, so ``loadComponentFromURL`` returned
+    None. Why: ``_read_runtime_uid`` is the same ladder without
+    ``@main_thread_only``. Decorating this path or hopping to the main thread
+    deadlocks the waiting host (#402).
+    """
     from plugin.framework.uno_context import _read_runtime_uid
 
     uid = _read_runtime_uid(doc)
@@ -811,6 +810,20 @@ def wire_run_button_listener(ctx: Any, doc: Any, model: Any, hex_id: str) -> boo
         return False
 
 
+def _detach_wiring(container: Any, listener: Any, container_lis: Any) -> None:
+    try:
+        container.removeContainerListener(container_lis)
+    except Exception:
+        log.debug("notebook controls: removeContainerListener failed", exc_info=True)
+    try:
+        controls = container.getControls() if hasattr(container, "getControls") else ()
+        for control in controls or ():
+            if hasattr(control, "removeActionListener"):
+                control.removeActionListener(listener)
+    except Exception:
+        log.debug("notebook controls: removeActionListener failed", exc_info=True)
+
+
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
 
@@ -888,6 +901,13 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
             _listener_refs.append(listener)
             _listener_refs.append(container_lis)
             _wired_form_docs.add(doc_key)
+    if already_wired:
+        # File Open (Dummy-2) and view creation can both get past the first
+        # check. The other call kept its listener; take ours back off so one
+        # ▶ click does not run the cell twice.
+        _detach_wiring(container, listener, container_lis)
+        log.debug("notebook controls: lost wiring race; detached duplicate doc=%s", doc_key)
+        return 1
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1

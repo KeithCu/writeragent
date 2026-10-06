@@ -1430,6 +1430,83 @@ def test_run_cells_error_continues_unless_stopped():
     assert state.next_execution_count == 4
 
 
+def _run_cells_with(exec_fn, apply_fn=None):
+    ctx = MagicMock()
+    state = NotebookDocState(code_cells=_three_cells(), next_execution_count=1)
+    doc = MagicMock()
+    applied: list[str] = []
+
+    def _apply(_doc, _cell, result, *, ctx=None):
+        applied.append(str(result.get("status")))
+        if apply_fn is not None:
+            apply_fn(result)
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=exec_fn),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.msgbox"),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+    return result, applied, state
+
+
+def test_run_cells_worker_cancelled_is_a_stop_not_an_error():
+    def _exec(_ctx, _doc, code):
+        if code == "y = x + 1":
+            return {"status": "error", "code": "CANCELLED", "message": "Python worker stopped by user"}
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    result, applied, state = _run_cells_with(_exec)
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    # No traceback written and no In [n] spent on the cancelled cell.
+    assert applied == ["ok"]
+    assert state.next_execution_count == 2
+
+
+def test_run_cells_worker_timeout_aborts_the_batch_with_its_message():
+    def _exec(_ctx, _doc, code):
+        if code == "y = x + 1":
+            return {"status": "error", "code": "VENV_TIMEOUT", "message": "Python worker timed out"}
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    result, applied, _state = _run_cells_with(_exec)
+    assert result.status == "error"
+    assert result.message == "Python worker timed out"
+    assert result.cells_run == 2
+    assert applied == ["ok", "error"]
+
+
+def test_run_cells_document_disposed_mid_batch_stops_quietly():
+    class DisposedException(Exception):
+        pass
+
+    def _exec(_ctx, _doc, code):
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    seen = {"applies": 0}
+
+    def _apply(_result):
+        seen["applies"] += 1
+        if seen["applies"] == 2:
+            raise DisposedException("document closed")
+
+    with patch(
+        "plugin.notebook.notebook_runner.is_disposed_exception",
+        side_effect=lambda e: isinstance(e, DisposedException),
+    ):
+        result, applied, _state = _run_cells_with(_exec, _apply)
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert applied == ["ok", "ok"]
+
+
 def test_run_cells_does_not_pump_idle_during_execute():
     ctx = MagicMock()
     cells = _three_cells()[:2]
