@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Verbose per-create Writer document logging (enumerates every paragraph).
+SHAPE_VERBOSE_DEBUG = False
+
 _DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
 
 # LibreOffice interprets CustomShapeGeometry as EnhancedCustomShapeGeometry when this engine is set.
@@ -154,6 +157,8 @@ def _log_shape_property_names_sample(shape: Any, phase: str, limit: int = 60) ->
 
 def _log_writer_document_shape_context(doc: Any) -> None:
     """Writer-only: body enumeration count and URL (helps compare empty doc runs)."""
+    if not SHAPE_VERBOSE_DEBUG:
+        return
     try:
         if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
             return
@@ -395,9 +400,8 @@ class DrawShapes:
         ``XDrawPage`` is not a reliable ``createInstance`` source in UNO.
 
         For CustomShape, ``EnhancedCustomShapeGeometry`` must be applied **before**
-        ``page.add`` (after position/size). Applying Type after add replaces the live
-        ``SdrRectObj`` and can abort LibreOffice; Writer also fails to display the
-        shape. ``RectangleShape`` etc. are unaffected.
+        ``page.add`` to prevent an immediate abort on some LibreOffice versions. Writer
+        and Calc will require re-applying it after add to paint correctly.
         """
         try:
             if doc is None:
@@ -484,20 +488,25 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
         pass
 
 
-def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
-    """Helper to apply rich formatting properties to a shape."""
+def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
+    """Helper to apply rich formatting properties to a shape. Returns list of failed property names."""
+    failed_props = []
+
     # "text" in kwargs (not truthy) so paper-form fills can write "" or keep a Name-only edit.
     if "text" in kwargs and hasattr(shape, "setString"):
-        # Schema already exposes font_size/font_name; explicit font_size opts out of AUTOFIT.
-        apply_autofit = "font_size" not in kwargs
-        _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
-        shape.setString("" if kwargs["text"] is None else str(kwargs["text"]))
+        try:
+            # Schema already exposes font_size/font_name; explicit font_size opts out of AUTOFIT.
+            apply_autofit = "font_size" not in kwargs
+            _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
+            shape.setString("" if kwargs["text"] is None else str(kwargs["text"]))
+        except Exception:
+            failed_props.append("text")
 
     if kwargs.get("name") and hasattr(shape, "Name"):
         try:
             shape.Name = str(kwargs["name"])
         except Exception:
-            pass
+            failed_props.append("name")
 
     # Background/Fill Color
     if kwargs.get("fill_color"):
@@ -509,7 +518,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
 
                 shape.setPropertyValue("FillStyle", FillStyle.NONE)
             except Exception:
-                pass
+                failed_props.append("fill_color")
         else:
             color = _parse_color(color_str)
             if color is not None:
@@ -518,7 +527,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
                 try:
                     shape.setPropertyValue(prop, color)
                 except Exception:
-                    pass
+                    failed_props.append("fill_color")
 
     # Fill Style (solid, transparent, etc)
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
@@ -536,7 +545,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
             elif style_str == "solid":
                 shape.setPropertyValue("FillStyle", fill_enum.SOLID)
         except Exception:
-            pass
+            failed_props.append("fill_style")
 
     # Line Color
     if kwargs.get("line_color") and hasattr(shape, "LineColor"):
@@ -545,14 +554,14 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
             try:
                 shape.setPropertyValue("LineColor", color)
             except Exception:
-                pass
+                failed_props.append("line_color")
 
     # Line Width
     if kwargs.get("line_width") is not None and hasattr(shape, "LineWidth"):
         try:
             shape.setPropertyValue("LineWidth", int(kwargs["line_width"]))
         except Exception:
-            pass
+            failed_props.append("line_width")
 
     # Line Style (ensure border is visible when colored or sized)
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
@@ -564,11 +573,14 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
                 from com.sun.star.drawing import LineStyle as line_enum
             shape.setPropertyValue("LineStyle", line_enum.SOLID)
         except Exception:
-            pass
+            failed_props.append("line_style")
 
     # Text Properties (Font Size, Name, Color)
     if kwargs.get("text_color") or kwargs.get("font_size") or kwargs.get("font_name"):
-        apply_character_properties(shape, font_name=kwargs.get("font_name"), font_size_pt=kwargs.get("font_size"), color=kwargs.get("text_color"))
+        try:
+            apply_character_properties(shape, font_name=kwargs.get("font_name"), font_size_pt=kwargs.get("font_size"), color=kwargs.get("text_color"))
+        except Exception:
+            failed_props.append("text_properties")
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
@@ -576,7 +588,9 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
             # Angle is in 100ths of a degree
             shape.setPropertyValue("RotateAngle", int(kwargs["rotation_angle"] * 100))
         except Exception:
-            pass
+            failed_props.append("rotation_angle")
+
+    return failed_props
 
 
 # CustomShape flowchart-* type strings (valid at runtime; omitted from create_shape schema description for brevity):
@@ -716,19 +730,29 @@ class UpsertShape(ToolDrawShapeBase):
             except DrawError as e:
                 return self._tool_error(e.message)
 
-            _try_writer_at_page_shape_finalize(ctx.doc, bridge, page, shape)
-            _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+            try:
+                _try_writer_at_page_shape_finalize(ctx.doc, bridge, page, shape)
+                _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
 
-            # Re-apply EnhancedCustomShapeGeometry after add. Writer needs this after
-            # AT_PAGE anchor (pre-#527). Calc needs it too: pre-add Type alone stays
-            # Type-only (no Path/ViewBox) and CustomShapes do not paint on the sheet.
-            if is_custom_shape and custom_shape_type and ctx.doc is not None and (ctx.doc.supportsService("com.sun.star.text.TextDocument") or ctx.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")):
-                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
+                # Re-apply EnhancedCustomShapeGeometry after add. While Draw works with the pre-add
+                # geometry, Writer (after AT_PAGE anchor) and Calc require re-applying it so
+                # CustomShapes actually paint correctly on the sheet/page.
+                if is_custom_shape and custom_shape_type and ctx.doc is not None and (ctx.doc.supportsService("com.sun.star.text.TextDocument") or ctx.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")):
+                    geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
-            _apply_shape_properties(shape, kwargs)
-            # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
-            _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
-            _try_writer_invalidate_and_pump(ctx.doc)
+                failed_props = _apply_shape_properties(shape, kwargs)
+                # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
+                _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+                _try_writer_invalidate_and_pump(ctx.doc)
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                # Cleanup the shape if any exception occurs during formatting or anchor set
+                try:
+                    page.remove(shape)
+                except Exception:
+                    pass
+                return self._tool_error(f"Failed to create shape fully: {e}")
             # Do not select after create: selected Writer AT_PAGE CustomShapes often
             # show handles-only / no fill on Arch and headed Universal Sample.
             _log_shape_uno_snapshot("after_formatting", shape)
@@ -749,6 +773,8 @@ class UpsertShape(ToolDrawShapeBase):
                 if geometry_error:
                     result["geometry_error"] = geometry_error
                     result["warning"] = f"Custom shape geometry failed: {geometry_error}"
+            if failed_props:
+                result["warnings"] = result.get("warnings", []) + [f"Failed to apply properties: {', '.join(failed_props)}"]
 
             return result
 
@@ -769,12 +795,15 @@ class UpsertShape(ToolDrawShapeBase):
                 size = shape.getSize()
                 shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
-            _apply_shape_properties(shape, kwargs)
+            failed_props = _apply_shape_properties(shape, kwargs)
             if "text" in kwargs and ("width" in kwargs or "height" in kwargs):
                 size = shape.getSize()
                 shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
-            return {"status": "ok", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
+            result = {"status": "ok", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
+            if failed_props:
+                result["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
+            return result
 
         # validate() rejects other actions; keep execute total so the ToolBase
         # override is dict[str, Any] (Calc/Writer inherit this class).
@@ -1110,6 +1139,12 @@ class CreateDiagram(ToolDrawShapeBase):
         page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
+        connections = kwargs.get("connections") or []
+        known_ids = {str(nid) for nid in ids}
+        for conn in connections:
+            if str(conn.get("from")) not in known_ids or str(conn.get("to")) not in known_ids:
+                return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
+
         layout = kwargs.get("layout") or "horizontal_flow"
         page_w = int(getattr(page, "Width", 28000) or 28000)
         page_h = int(getattr(page, "Height", 15750) or 15750)
@@ -1120,7 +1155,22 @@ class CreateDiagram(ToolDrawShapeBase):
 
         upsert = UpsertShape()
         id_to_index: dict[str, int] = {}
-        created = []
+        created: list[dict[str, Any]] = []
+
+        def cleanup_shapes() -> None:
+            try:
+                # Delete backward so indices don't shift
+                for cr in reversed(created):
+                    shape_idx = cr.get("index")
+                    if shape_idx is not None:
+                        try:
+                            shape = page.getByIndex(shape_idx)
+                            page.remove(shape)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
         for node, box in zip(nodes, boxes):
             x, y, w, h = box
             create_kwargs = {"action": "create", "page": actual_idx, "shape_type": node.get("shape_type") or "rectangle", "x": x, "y": y, "width": w, "height": h, "text": node.get("text") or ""}
@@ -1128,26 +1178,29 @@ class CreateDiagram(ToolDrawShapeBase):
                 create_kwargs["fill_color"] = node["fill_color"]
             result = upsert.execute(ctx, **create_kwargs)
             if isinstance(result, dict) and result.get("status") != "ok":
+                cleanup_shapes()
                 return result
             idx = result.get("index")
             if not isinstance(idx, int):
+                cleanup_shapes()
                 return self._tool_error("shape_upsert did not return a shape index.")
             id_to_index[str(node["id"])] = idx
             created.append({"id": node["id"], "index": idx, "x": x, "y": y, "width": w, "height": h})
 
-        connections = kwargs.get("connections") or []
         connect = ConnectShapes()
         connected = []
         for conn in connections:
             src = id_to_index.get(str(conn.get("from")))
             dst = id_to_index.get(str(conn.get("to")))
             if src is None or dst is None:
+                cleanup_shapes()
                 return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
             conn_kwargs = {"start": src, "end": dst, "page": actual_idx}
             if conn.get("line_color"):
                 conn_kwargs["line_color"] = conn["line_color"]
             result = connect.execute(ctx, **conn_kwargs)
             if isinstance(result, dict) and result.get("status") != "ok":
+                cleanup_shapes()
                 return result
             connected.append({"from": conn.get("from"), "to": conn.get("to"), "index": result.get("index")})
 

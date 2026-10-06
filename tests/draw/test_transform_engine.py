@@ -104,11 +104,12 @@ def test_delete_after_current_keeps_index() -> None:
 
 
 def test_delete_past_end_clamps_current() -> None:
-    # Index 99 is clamped to the last slide, then current follows that delete.
+    # Index 99 is out of range: warn instead of deleting the last slide.
     eng, _deck, bridge = _engine(3, 4)
     eng._delete_slide(99)
-    assert bridge.deleted == 3
-    assert eng.current_slide == 2
+    assert bridge.deleted is None
+    assert "Invalid DeleteSlide: 99 (no such slide)" in eng.warnings
+    assert eng.current_slide == 3
 
 
 def test_delete_only_slide_is_refused() -> None:

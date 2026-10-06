@@ -28,6 +28,10 @@ from plugin.framework.thread_guard import main_thread_only
 log = logging.getLogger(__name__)
 
 
+class PageExchangeRollbackError(RuntimeError):
+    """A page exchange failed and putting its shapes back failed too."""
+
+
 class _SingleDrawPageContainer:
     """Writer/Calc expose one ``XDrawPage``, not ``XDrawPages``. Shape tools still use getCount/getByIndex."""
 
@@ -294,9 +298,17 @@ class DrawBridge:
                 if is_disposed_exception(exc):
                     raise
                 log.exception("create_slide could not place the new page at index 0")
-                # The blank page is still at index 1. Report that, so callers
-                # do not edit page 0 or copy its master onto itself.
-                return pages.getByIndex(1), 1
+                if isinstance(exc, PageExchangeRollbackError):
+                    # Shapes may sit on page 1 or the temp page. Removing a page
+                    # here could delete them; report where they are instead.
+                    raise
+                try:
+                    pages.remove(pages.getByIndex(1))
+                except Exception as rm_exc:
+                    if is_disposed_exception(rm_exc):
+                        raise
+                    log.debug("create_slide could not remove the new page: %s", rm_exc)
+                raise RuntimeError("Failed to place the new slide at index 0: %s" % exc) from exc
             return pages.getByIndex(0), 0
         # 0 < index < count: insert after the page that should precede it.
         # insertNewByIndex(index-1) lands at index.
@@ -400,7 +412,8 @@ class DrawBridge:
         if copy is None:
             return False
         try:
-            self._take_page_name(source, copy)
+            if not self._take_page_name(source, copy):
+                log.warning("move_slide: failed to transfer the page name")
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
@@ -414,7 +427,8 @@ class DrawBridge:
                 raise
             log.debug("move_slide remove source failed: %s", exc)
             try:
-                self._take_page_name(copy, source)
+                if not self._take_page_name(copy, source):
+                    log.warning("move_slide undo: failed to restore the page name")
             except Exception as restore_exc:
                 if is_disposed_exception(restore_exc):
                     raise
@@ -469,6 +483,7 @@ class DrawBridge:
         moved_first = False
         moved_second = False
         moved_onto_second = False
+        rollback_failed = False
         try:
             temp = pages.insertNewByIndex(pages.getCount() - 1)
             if temp is None:
@@ -480,17 +495,23 @@ class DrawBridge:
             self._move_shapes(first_shapes, temp, second)
             moved_onto_second = True
             self._swap_page_meta(first, second)
-        except Exception:
-            self._rollback_exchange(first, second, temp, first_shapes, second_shapes, moved_first, moved_second, moved_onto_second)
+        except Exception as exc:
+            if not self._rollback_exchange(first, second, temp, first_shapes, second_shapes, moved_first, moved_second, moved_onto_second):
+                rollback_failed = True
+                raise PageExchangeRollbackError(
+                    "Slide exchange failed and its rollback failed. Some shapes are on the "
+                    "last slide (temporary page). Original error: %s" % exc
+                ) from exc
             raise
         finally:
-            if temp is not None:
+            if temp is not None and not rollback_failed:
                 self._remove_page_quietly(pages, temp)
 
-    def _rollback_exchange(self, first: Any, second: Any, temp: Any, first_shapes: list[Any], second_shapes: list[Any], moved_first: bool, moved_second: bool, moved_onto_second: bool) -> None:
-        """Put shapes back on *first* and *second*. Metadata undo is inside the swap."""
+    def _rollback_exchange(self, first: Any, second: Any, temp: Any, first_shapes: list[Any], second_shapes: list[Any], moved_first: bool, moved_second: bool, moved_onto_second: bool) -> bool:
+        """Put shapes back on *first* and *second*. Metadata undo is inside the swap.
+        Returns True if rollback succeeded, False if it failed."""
         if temp is None:
-            return
+            return True
         try:
             if moved_onto_second:
                 self._move_shapes(first_shapes, second, temp)
@@ -501,8 +522,10 @@ class DrawBridge:
                 self._move_shapes(first_shapes, temp, first)
             elif moved_first:
                 self._move_shapes(first_shapes, temp, first)
+            return True
         except Exception:
             log.exception("move_slide restore exchanged pages failed")
+            return False
 
     def _snapshot_shapes(self, page: Any) -> list[Any]:
         try:
@@ -747,15 +770,16 @@ class DrawBridge:
                 raise
             log.debug("move_slide rollback remove failed: %s", exc)
 
-    def _take_page_name(self, source: Any, dest: Any) -> None:
+    def _take_page_name(self, source: Any, dest: Any) -> bool:
         try:
             name = str(source.Name or "")
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
-            return
+            log.warning("move_slide: failed to read source page name: %s", exc)
+            return False
         if not name:
-            return
+            return True
         # Two pages cannot share a name. Park the source name, then give it
         # to the copy. Put it back if the destination rejects it.
         parked = name + "\u200b"
@@ -764,16 +788,22 @@ class DrawBridge:
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
+            log.warning("move_slide: failed to park source page name: %s", exc)
+            return False
         try:
             dest.Name = name
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
+            log.warning("move_slide: failed to assign name to destination page: %s", exc)
             try:
                 source.Name = name
             except Exception as restore_exc:
                 if is_disposed_exception(restore_exc):
                     raise
+                log.warning("move_slide: failed to restore original name: %s", restore_exc)
+            return False
+        return True
 
     def rename_slide(self, index: int, name: str) -> bool:
         page = self.get_pages().getByIndex(index)
