@@ -37,7 +37,7 @@ from plugin.chatbot.rich_text_paste import (
 
 
 @contextmanager
-def _immediate_focus(_ctx, _restore=None):
+def _immediate_focus(_ctx, _restore=None, **_kwargs):
     yield
 
 
@@ -179,6 +179,34 @@ class TestAppendRichTextViaClipboard:
 
         assert seen == [42]
         doc.close.assert_called_once_with(True)
+
+    def test_trailing_break_restores_through_the_frame_session_callback(self):
+        """BUG A fix 3: the paint path's focus_preserved must use the gated callback."""
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="")
+        query = MagicMock(name="query")
+        restore_focus = MagicMock(name="restore_focus")
+        calls: list[tuple[object, dict]] = []
+
+        @contextmanager
+        def _recording_focus(_ctx, restore=None, **kwargs):
+            calls.append((restore, kwargs))
+            yield
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=MagicMock()), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _recording_focus), \
+             patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break"):
+            append_rich_text_via_clipboard(
+                MagicMock(), control, "hello", role="user", restore=query, restore_focus=restore_focus,
+            )
+
+        assert calls, "user row should restore focus around the trailing break"
+        assert all(kwargs.get("restore_focus") is restore_focus for _restore, kwargs in calls)
 
     def test_not_success_when_later_element_skipped(self):
         control = MagicMock()

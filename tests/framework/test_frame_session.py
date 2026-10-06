@@ -65,9 +65,17 @@ class _Controller:
         self.removed.append(handler)
 
 
+def _set_active_top(frame: MagicMock, top: object) -> None:
+    """Make the toolkit report *top* as the active top window for *frame*."""
+    container = frame.getContainerWindow.return_value
+    container.getToolkit.return_value.getActiveTopWindow.return_value = top
+
+
 def _frame(controller: _Controller) -> MagicMock:
     frame = MagicMock()
     frame.getController.return_value = controller
+    # Default: this frame's window is the active one, so restore_focus runs.
+    _set_active_top(frame, frame.getContainerWindow.return_value)
     return frame
 
 
@@ -580,3 +588,76 @@ def test_second_sidebar_still_attaches_when_the_first_listener_is_live():
     query_b.addFocusListener.assert_called_once()
     _install(session_b, query_b)
     query_b.addFocusListener.assert_called_once()
+
+
+def _active_session(doc: str = "doc") -> tuple[FrameSession, MagicMock, MagicMock]:
+    frame = _frame(_Controller())
+    session = open_frame_session(frame, doc)
+    query = MagicMock(name="query-" + doc)
+    session.set_focus_pin(query)
+    session.note_user_wants_query()
+    return session, frame, query
+
+
+def test_restore_focus_skips_when_another_window_is_active():
+    """BUG A: a streaming background doc must not GrabFocus its Ask field."""
+    session, frame, query = _active_session()
+    _set_active_top(frame, MagicMock(name="other-doc-window"))
+    session.restore_focus()
+    query.setFocus.assert_not_called()
+
+
+def test_restore_focus_skips_when_office_is_not_the_focused_app():
+    session, frame, query = _active_session()
+    _set_active_top(frame, None)
+    session.restore_focus()
+    query.setFocus.assert_not_called()
+
+
+def test_restore_focus_skips_when_the_window_probe_fails():
+    session, frame, query = _active_session()
+    frame.getContainerWindow.side_effect = RuntimeError("disposed")
+    session.restore_focus()
+    query.setFocus.assert_not_called()
+
+
+def test_restore_focus_off_main_thread_makes_no_uno_calls():
+    session, frame, query = _active_session()
+    frame.getContainerWindow.reset_mock()
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        session.restore_focus()
+    frame.getContainerWindow.assert_not_called()
+    query.setFocus.assert_not_called()
+
+
+def test_restore_focus_resumes_when_the_user_returns_to_the_frame():
+    """Skipping while inactive keeps the restore flag, so no new Ask click is needed."""
+    session, frame, query = _active_session()
+    container = frame.getContainerWindow.return_value
+    _set_active_top(frame, MagicMock(name="other-doc-window"))
+    session.restore_focus()
+    _set_active_top(frame, container)
+    session.restore_focus()
+    query.setFocus.assert_called_once()
+
+
+def test_only_the_active_frame_restores_focus():
+    session_a, frame_a, query_a = _active_session("doc-a")
+    session_b, frame_b, query_b = _active_session("doc-b")
+    # The user switched to doc A while doc B streams.
+    _set_active_top(frame_b, frame_a.getContainerWindow.return_value)
+    session_a.restore_focus()
+    session_b.restore_focus()
+    query_a.setFocus.assert_called_once()
+    query_b.setFocus.assert_not_called()
+
+
+def test_frame_is_active_window_uses_uno_identity_for_new_wrappers():
+    """PyUNO returns a fresh wrapper per call; identity goes through uno_same."""
+    session, frame, _query = _active_session()
+    wrapper = MagicMock(name="same-window-new-wrapper")
+    _set_active_top(frame, wrapper)
+    with patch("plugin.framework.uno_context.uno_same", return_value=True) as mock_same:
+        assert session.frame_is_active_window() is True
+    mock_same.assert_called_once_with(wrapper, frame.getContainerWindow.return_value)
+

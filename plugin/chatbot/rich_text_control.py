@@ -1441,9 +1441,10 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         color = theme.assistant_color if char_color is None else char_color
         _insert_string_at_rich_cursor(model, cursor, text, color)
         if auto_scroll:
+            # _scroll_rich_to_tail already restores before and after SelectAll.
+            # A third restore here repeated the second with nothing in between,
+            # and each one is a GrabFocus on this frame (release QA BUG A).
             _scroll_rich_to_tail(control, ctx, query, restore_focus)
-            if callable(restore_focus):
-                restore_focus()
             process_events_to_idle(ctx, force=True)
 
     try:

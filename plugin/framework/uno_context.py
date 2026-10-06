@@ -44,7 +44,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER, EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.thread_guard import main_thread_only, on_main_thread
@@ -595,7 +595,7 @@ def get_toolkit(ctx: Any | None = None) -> Any:
 
 
 @contextmanager
-def focus_preserved(ctx: Any, restore: Any = None) -> Generator[None, None, None]:
+def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[], None] | None = None) -> Generator[None, None, None]:
     """Restore focus after a block that may steal it (RichTextControl reveal).
 
     *restore* is the query field of the panel that is running this block.
@@ -603,7 +603,22 @@ def focus_preserved(ctx: Any, restore: Any = None) -> Generator[None, None, None
     ``setFocus`` here. When *restore* is omitted, the toolkit focus window
     at entry is restored — which is the Send button after a click, so
     callers that own an Ask field pass it.
+
+    *restore_focus* is the panel's ``FrameSession.restore_focus`` callback.
+    When given, it runs on exit instead of ``restore.setFocus()``. Why: a
+    raw ``setFocus`` here ignored the frame session (closed, user left the
+    Ask field, frame not the active window) and pulled focus back into a
+    background document window (release QA BUG A, fix 3).
     """
+    if callable(restore_focus):
+        try:
+            yield
+        finally:
+            try:
+                restore_focus()
+            except Exception as e:
+                log.debug("focus_preserved restore_focus: %s", e)
+        return
     saved = restore
     if saved is None:
         try:
