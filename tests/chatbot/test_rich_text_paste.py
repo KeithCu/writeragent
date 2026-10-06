@@ -917,3 +917,21 @@ class TestFlattenTextTableCopy:
 def test_plain_fallback_text_drops_script_and_unescapes():
     assert _plain_fallback_text("<script>alert(1)</script><p>a &amp; b</p>") == "a & b"
 
+
+def test_plain_transcript_text_strips_html():
+    from plugin.chatbot.rich_text_paste import plain_transcript_text
+    from unittest.mock import MagicMock
+
+    session = MagicMock()
+    session.messages = [
+        {"role": "user", "content": "<b>hello</b>"},
+        {"role": "assistant", "content": "<p>done</p>"},
+    ]
+    plain = plain_transcript_text(session, greeting="<i>Welcome</i>")
+    assert "<p>" not in plain
+    assert "</p>" not in plain
+    assert "<b>" not in plain
+    assert "<i>" not in plain
+    assert "Welcome" in plain
+    assert "hello" in plain
+    assert "done" in plain
