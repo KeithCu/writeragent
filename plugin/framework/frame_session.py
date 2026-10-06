@@ -30,7 +30,7 @@ listeners, the focus pin, and the panel. Dispose removes only this session.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger("writeragent.frame_session")
 
@@ -178,6 +178,10 @@ class FrameSession:
         self._trackers: list[Any] = []
         self._frame_listener: Any = None
         self._closed = False
+        self._close_hooks: list[Callable[[], None]] = []
+
+    def add_close_hook(self, hook: Callable[[], None]) -> None:
+        self._close_hooks.append(hook)
 
     def bind_panel(self, panel: Any) -> None:
         """This sidebar is the one the session owns."""
@@ -375,6 +379,12 @@ class FrameSession:
         if self._closed:
             return
         self._closed = True
+        for hook in self._close_hooks:
+            try:
+                hook()
+            except Exception:
+                log.debug("Error in FrameSession close hook", exc_info=True)
+        self._close_hooks.clear()
         self.release_listeners()
         self._frame_listener = None
         self.focus_pin = None
