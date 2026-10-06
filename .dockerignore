@@ -1,0 +1,10 @@
+.git
+.venv
+venv
+build/
+dist/
+**/__pycache__
+*.pyc
+node_modules
+.pytest_cache/
+htmlcov/

@@ -166,7 +166,7 @@ class ComputeSettings:
 
     host: str = "127.0.0.1"
     port: int = 8000
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     max_body_bytes: int = 32 * 1024 * 1024
     default_timeout_sec: int = 30
     max_timeout_sec: int = 600
