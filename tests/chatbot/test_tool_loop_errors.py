@@ -542,6 +542,9 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
     compact_inside_lane = {"value": False}
 
     class _Lane:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
         def __enter__(self):
             compact_inside_lane["in"] = True
             return self

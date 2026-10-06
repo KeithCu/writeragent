@@ -206,10 +206,3 @@ def test_re_raise_disposed_exception():
 
     with pytest.raises(DisposedException):
         manipulator.safe_get_cell_value(sheet, "A1")
-
-def test_manipulator_hint_mapping():
-    from plugin.calc.manipulator import CellManipulator
-    from unittest.mock import MagicMock
-
-    bridge = MagicMock()
-    manip = CellManipulator(bridge)

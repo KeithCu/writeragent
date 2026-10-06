@@ -37,7 +37,7 @@ from plugin.chatbot.rich_text_paste import (
 
 
 @contextmanager
-def _immediate_focus(_ctx, _restore=None):
+def _immediate_focus(_ctx, _restore=None, **_kwargs):
     yield
 
 
@@ -180,6 +180,34 @@ class TestAppendRichTextViaClipboard:
         assert seen == [42]
         doc.close.assert_called_once_with(True)
 
+    def test_trailing_break_restores_through_the_frame_session_callback(self):
+        """BUG A fix 3: the paint path's focus_preserved must use the gated callback."""
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="")
+        query = MagicMock(name="query")
+        restore_focus = MagicMock(name="restore_focus")
+        calls: list[tuple[object, dict]] = []
+
+        @contextmanager
+        def _recording_focus(_ctx, restore=None, **kwargs):
+            calls.append((restore, kwargs))
+            yield
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=MagicMock()), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _recording_focus), \
+             patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break"):
+            append_rich_text_via_clipboard(
+                MagicMock(), control, "hello", role="user", restore=query, restore_focus=restore_focus,
+            )
+
+        assert calls, "user row should restore focus around the trailing break"
+        assert all(kwargs.get("restore_focus") is restore_focus for _restore, kwargs in calls)
+
     def test_not_success_when_later_element_skipped(self):
         control = MagicMock()
         model = MagicMock()
@@ -288,6 +316,32 @@ class TestHistoryMessageBatching:
             ("assistant", "answer"),
             ("assistant", "[Thinking...]"),
         ]
+
+    def test_session_history_items_puts_the_stop_line_inside_the_stopped_answer(self):
+        """No empty 'Assistant:' row and no trailing blank line for the stop banner."""
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+
+        session = MagicMock()
+        session.messages = [
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "content": "Paragraph 1\n\nParagraph 2 can press"},
+            {"role": "assistant", "content": _STOP_LINE},
+            {"role": "user", "content": "q2"},
+        ]
+        assert session_history_items(session) == [
+            ("user", "q"),
+            ("assistant", "Paragraph 1\n\nParagraph 2 can press\n\n[Stopped by user]"),
+            ("user", "q2"),
+        ]
+        session.messages[1]["content"] = "<p>partial</p>"
+        assert session_history_items(session)[1] == ("assistant", "<p>partial</p><p>[Stopped by user]</p>")
+
+    def test_session_history_items_stop_before_first_token_keeps_a_bare_banner_row(self):
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+
+        session = MagicMock()
+        session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": _STOP_LINE}]
+        assert session_history_items(session) == [("user", "q"), ("assistant", "[Stopped by user]")]
 
     def test_append_rich_messages_single_batch(self):
         control = MagicMock()
@@ -484,6 +538,20 @@ class TestListPrefix:
         counters: dict = {}
         assert _list_prefix_for_paragraph(para, counters) == "1. "
         assert _list_prefix_for_paragraph(para, counters) == "2. "
+
+    def test_ordered_list_uses_writer_label_for_start_value(self):
+        """<ol start="11"> was drawn from 1: the counter ignored the start value."""
+        for label, expected in (("11.", "11. "), ("iv.", "iv. "), ("", "1. ")):
+            para = MagicMock()
+            para.getPropertyValue.side_effect = lambda name, label=label: {
+                "NumberingIsNumber": True,
+                "NumberingLevel": 0,
+                "ListId": "L1",
+                "NumberingType": 4,
+                "NumberingRules": None,
+                "ListLabelString": label,
+            }[name]
+            assert _list_prefix_for_paragraph(para, {}) == expected
 
 
 class TestRichInsertFallbackLogging:
@@ -811,6 +879,40 @@ class TestFlattenTextTableCopy:
         assert ("before", False, False) in header_flags
         assert ("after", False, False) in header_flags
 
+    def test_list_number_is_inserted_normal_weight(self):
+        """The first number after "Assistant: " drew bold (sticky label weight)."""
+        control = MagicMock()
+        model = MagicMock()
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        src_doc = MagicMock()
+        label = _body_paragraph("Assistant: ")
+        item = _body_paragraph("alpha")
+        src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([label, item])
+        theme = MagicMock(user_color=1, assistant_color=2)
+        calls: list[tuple[str, object, object]] = []
+
+        def _capture(_model, _cursor, text, char_color=None, **kwargs):
+            calls.append((text, kwargs.get("bold"), kwargs.get("underline")))
+
+        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch(
+                 "plugin.chatbot.rich_text_paste._list_prefix_for_paragraph",
+                 side_effect=lambda para, _counters: "1. " if para is item else "",
+             ), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+            )
+
+        assert ok is True, reason
+        assert ("1. ", False, False) in calls
+
     def test_copy_applies_tab_stops_from_max_width(self):
         control = MagicMock()
         model = MagicMock()
@@ -917,3 +1019,21 @@ class TestFlattenTextTableCopy:
 def test_plain_fallback_text_drops_script_and_unescapes():
     assert _plain_fallback_text("<script>alert(1)</script><p>a &amp; b</p>") == "a & b"
 
+
+def test_plain_transcript_text_strips_html():
+    from plugin.chatbot.rich_text_paste import plain_transcript_text
+    from unittest.mock import MagicMock
+
+    session = MagicMock()
+    session.messages = [
+        {"role": "user", "content": "<b>hello</b>"},
+        {"role": "assistant", "content": "<p>done</p>"},
+    ]
+    plain = plain_transcript_text(session, greeting="<i>Welcome</i>")
+    assert "<p>" not in plain
+    assert "</p>" not in plain
+    assert "<b>" not in plain
+    assert "<i>" not in plain
+    assert "Welcome" in plain
+    assert "hello" in plain
+    assert "done" in plain

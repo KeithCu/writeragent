@@ -47,7 +47,9 @@ try:
 except ImportError:
     TOOLPANEL = 3
 
-log = logging.getLogger(__name__)
+# Explicit name: LibreOffice loads this file as a UNO component, so __name__
+# is not under plugin.* and records would miss the debug log handler.
+log = logging.getLogger("plugin.librepy.panel_factory")
 
 XDL_PATH = "Dialogs/PythonSidebarDialog.xdl"
 _PRE_NEGOTIATION_PANEL_WIDTH = 220

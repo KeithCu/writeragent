@@ -297,9 +297,9 @@ def populate_combobox_with_lru(
 
     fetch_succeeded = False
     to_show: list[str] = []
+    # get_config LRU values are JSON-shaped; normalize to str ids for the filter.
+    lru_clean = [str(m) for m in lru if not _is_model_combobox_placeholder(str(m))]
     if not auth_blocked:
-        # get_config LRU values are JSON-shaped; normalize to str ids for the filter.
-        lru_clean = [str(m) for m in lru if not _is_model_combobox_placeholder(str(m))]
         to_show = _filter_models_for_provider(lru_clean, provider)
 
         # We do NOT inline-fetch for known massive providers (openrouter, together).
@@ -351,7 +351,13 @@ def populate_combobox_with_lru(
 
     curr_val_str = _sanitize_model_combobox_value(current_val)
     if not auth_blocked and not curr_val_str and req_cap == "text":
-        if provider:
+        # After an endpoint switch, use this endpoint's last-used model (the
+        # LRU is scoped per endpoint, newest first) before the provider default.
+        lru_for_provider = _filter_models_for_provider(lru_clean, provider)
+        if lru_for_provider:
+            curr_val_str = lru_for_provider[0]
+
+        if not curr_val_str and provider:
             from plugin.framework.default_models import get_provider_defaults
 
             curr_val_str = str(get_provider_defaults(provider).get("text_model", "") or "").strip()

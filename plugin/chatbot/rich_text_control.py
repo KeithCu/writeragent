@@ -159,6 +159,15 @@ class RichTextChatWidget:
         self._shown: list[tuple[str, str]] | None = None
         self._formatted_rows: int = 0
         self._formatted_len: int | None = None
+        # Greeting row painted above the session rows (load, Clear). It is not
+        # a session message, so every paint and diff adds it the same way.
+        # What was wrong: the greeting was painted on load and Clear, but the
+        # first stream update diffed against the session without it, saw a
+        # changed prefix and wiped and refilled the control at send time.
+        # Plain text appended right after that clear-and-refill was drawn from
+        # a stale layout: turn 1 after load streamed with lines missing
+        # ("Assistant: Paragraph 1 of 10. This slow", "10. This slow mock").
+        self._greeting: str = ""
 
     def get_text_length(self) -> int | None:
         """Get the length of the text currently in the control.
@@ -193,9 +202,12 @@ class RichTextChatWidget:
 
     def append_chunk(self, text: str, auto_scroll: bool = True) -> None:
         """Append a plain text chunk (e.g. streaming tokens) using theme colors."""
-        # Text outside the message list (the Stop banner). The next stream
-        # update cannot diff against it, so mark the control unknown.
-        self._shown = None
+        # Text outside the formatted prefix (the Stop banner). Record it as a
+        # plain tail row: the next update then cuts the tail at the prefix end
+        # and writes it again, instead of wiping and refilling the whole
+        # control (same stale-layout case as the greeting above).
+        if self._shown is not None:
+            self._shown = self._shown + [("assistant", text)]
         append_text_chunk(
             self.control,
             text,
@@ -206,7 +218,7 @@ class RichTextChatWidget:
             restore_focus=self.restore_focus,
         )
 
-    def paint_session(self, session: Any, greeting: str = "") -> None:
+    def paint_session(self, session: Any, greeting: str | None = None) -> None:
         """Draw the control from ``session.messages``. The hidden doc is that paint.
 
         Full repaint: load/switch, Stop, Clear, and an unknown control state.
@@ -214,10 +226,12 @@ class RichTextChatWidget:
         """
         from plugin.chatbot.rich_text_paste import session_history_items
 
+        if greeting is not None:
+            self._greeting = greeting
         if session is None:
             self.clear()
             return
-        self._paint_items(session_history_items(session, greeting))
+        self._paint_items(session_history_items(session, self._greeting))
 
     def _paint_items(self, items: list[tuple[str, str]]) -> None:
         """Replace the control with a formatted paint of *items*."""
@@ -242,11 +256,13 @@ class RichTextChatWidget:
     def _repaint_prefix_then_plain_tail(self, items: list[tuple[str, str]]) -> None:
         """Full paint up to the last user row; this turn's later rows as plain text.
 
-        Runs on the first stream update after load, Stop or Clear, when the
-        control no longer matches the list. The open assistant row lands in
-        the plain tail, so the next chunks take the append path again.
+        Runs only when the control no longer matches the list (unknown state,
+        or a change inside the formatted prefix). Load, Clear and Stop keep a
+        matching prefix, so turn 1 and the turn after Stop do not come here.
+        The open assistant row lands in the plain tail, so the next chunks
+        take the append path again.
         """
-        from plugin.chatbot.rich_text_paste import _force_rich_full_reformat, _plain_append_messages
+        from plugin.chatbot.rich_text_paste import _plain_append_messages
 
         k = 0
         for idx, (role, _content) in enumerate(items):
@@ -268,13 +284,6 @@ class RichTextChatWidget:
                 self.control, tail, self.ctx, self.style_window,
                 auto_scroll=True, restore_focus=self.restore_focus,
             )
-            # What was wrong: on turn 1 after load the first mid-stream frame
-            # was missing the start of the reply. The paint above reformats
-            # the prefix only; the tail is then inserted straight after that
-            # clear-and-refill, the same stale-layout case the reformat is
-            # there for. Reformat once more so the layout covers the tail.
-            _force_rich_full_reformat(self.control)
-            _scroll_rich_to_tail(self.control, self.ctx, restore_focus=self.restore_focus)
         self._shown = list(items)
 
     def stream_session(self, session: Any) -> None:
@@ -303,7 +312,7 @@ class RichTextChatWidget:
         if session is None:
             self.clear()
             return
-        items = session_history_items(session)
+        items = session_history_items(session, self._greeting)
         if not self._formatted_prefix_ok(items):
             self._repaint_prefix_then_plain_tail(items)
             return
@@ -396,6 +405,7 @@ class RichTextChatWidget:
         """
         from plugin.chatbot.rich_text_paste import (
             _ensure_message_separator,
+            _force_rich_full_reformat,
             _rollback_rich_insert,
             append_rich_messages_via_clipboard,
             session_history_items,
@@ -417,7 +427,7 @@ class RichTextChatWidget:
         content = final_msg.get("content", "")
         if not content or not str(content).strip():
             return False
-        items = session_history_items(session)
+        items = session_history_items(session, self._greeting)
         if not self._formatted_prefix_ok(items):
             log_rich_scroll("turn_end_full_paint", control=self.control, rows=len(items))
             self.paint_session(session)
@@ -433,19 +443,24 @@ class RichTextChatWidget:
                 self.ctx, self.control, tail, style_window=self.style_window,
                 restore=self.query, restore_focus=self.restore_focus,
             )
+        # A long cut (two turns after a Stop: partial answer, banner, the next
+        # turn) then a formatted refill left the same stale layout as a full
+        # repaint: an 80px gap under the reply at Ready. One reformat per turn,
+        # outside the stream drain, so it settles before the next send.
+        _force_rich_full_reformat(self.control)
         _scroll_rich_to_tail(self.control, self.ctx, restore_focus=self.restore_focus)
         self._set_formatted_state(items)
         return True
 
     def clear_and_greeting(self, greeting: str = "") -> None:
         """Replace the transcript with the greeting. The old HTML is not edited."""
+        self._greeting = greeting or ""
         if not greeting:
             self.clear()
             return
+        # Recorded as the formatted prefix, so the first send after Clear
+        # appends its rows under the greeting instead of repainting.
         self._paint_items([("assistant", greeting)])
-        # The greeting is not a session row, so the next stream update cannot
-        # diff against it and repaints.
-        self._set_formatted_state(None)
 
     def render_session_history(self, session: Any, greeting: str = "") -> None:
         """Replace the control with a paint of the session message list."""
@@ -1426,9 +1441,10 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         color = theme.assistant_color if char_color is None else char_color
         _insert_string_at_rich_cursor(model, cursor, text, color)
         if auto_scroll:
+            # _scroll_rich_to_tail already restores before and after SelectAll.
+            # A third restore here repeated the second with nothing in between,
+            # and each one is a GrabFocus on this frame (release QA BUG A).
             _scroll_rich_to_tail(control, ctx, query, restore_focus)
-            if callable(restore_focus):
-                restore_focus()
             process_events_to_idle(ctx, force=True)
 
     try:

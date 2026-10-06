@@ -102,6 +102,25 @@ def register_debug_live_panel(element: Any) -> None:
         panels.add(element)
 
 
+def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control: Any) -> None:
+    """Closing the document window tears down this sidebar's turn.
+
+    FrameSession.dispose alone only removed listeners: the stream kept
+    painting into the dead window, the reply was saved to history, and the
+    LLM lane stayed held so other documents could not send.
+    """
+
+    def on_frame_close() -> None:
+        if getattr(session, "panel", None) is panel:
+            from plugin.chatbot.tool_loop_actions import current_turn
+            turn = current_turn(send_listener)
+            if turn is not None:
+                turn.closed_by_document = True
+            release_live_sidebar(panel, query_control)
+    if hasattr(session, "add_close_hook"):
+        session.add_close_hook(on_frame_close)
+
+
 def unregister_debug_live_panel(element: Any) -> None:
     """debug-only: omitted in release."""
     panels = _live_chat_panels()
@@ -167,7 +186,9 @@ from plugin.framework.prompts import get_chat_system_prompt_for_document, get_gr
 from plugin.doc.doc_type import get_document_type, DocumentType
 from plugin.doc.udprops import get_document_property, set_document_property
 
-log = logging.getLogger(__name__)
+# Explicit name: LibreOffice loads this file as a UNO component, so __name__
+# is not under plugin.* and records would miss the debug log handler.
+log = logging.getLogger("plugin.chatbot.panel_factory")
 
 # XDL path inside the .oxt
 XDL_PATH = "Dialogs/ChatPanelDialog.xdl"
@@ -1274,6 +1295,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     session.doc_uid = uid
                 session.bind_panel(self)
                 send_listener.frame_session = session
+                _bind_close_hook(session, self, send_listener, controls.get("query"))
+
             register_live_panel(self._live_panel_uid, self)
 
 

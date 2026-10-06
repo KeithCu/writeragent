@@ -353,6 +353,14 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
 
     if _is_ordered_numbering_type(num_type):
         order_counters[key] = order_counters.get(key, 0) + 1
+        # Writer's own label honors <ol start="11"> and letter/roman types;
+        # the counter always started at 1.
+        try:
+            label = para.getPropertyValue("ListLabelString")
+        except Exception:
+            label = None
+        if isinstance(label, str) and label.strip():
+            return "%s%s " % (indent, label.strip())
         return "%s%d. " % (indent, order_counters[key])
 
     ch = (bullet_char or "\u2022").strip()
@@ -490,7 +498,12 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
     from plugin.framework.i18n import _
 
-    text = greeting + "\n" if greeting else ""
+    # What was wrong: after File > Reload the plain box showed raw HTML
+    # ("Assistant <p>done</p>") until the rich control took over.
+    # How: panel wiring paints history before the rich control is ready, and
+    # this fallback wrote stored HTML answers verbatim. Why: the plain box is a
+    # text field, so give it the same stripped text the stream stripper shows.
+    text = (_plain_fallback_text(greeting) + "\n") if greeting else ""
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):
         return text
@@ -498,7 +511,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
         if not isinstance(msg, dict):
             continue
         role = msg.get("role", "")
-        content = _visible_message_text(msg.get("content", ""))
+        content = _plain_fallback_text(_visible_message_text(msg.get("content", "")))
         if role == "user":
             text += "\nUser: %s\n" % content
         elif role == "assistant":
@@ -512,6 +525,10 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
 
 def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, str]]:
     """Build (role, content) pairs for session history display (skips system messages)."""
+    # Tool-call lines ("[Running tool: ...]", "[tool: result]") are not restored:
+    # they are live status text only. ChatSession.add_assistant_message writes
+    # only non-empty content to history_db and add_tool_result writes nothing
+    # (panel.py), so a reloaded session has no rows to draw them from.
     items: list[tuple[str, str]] = []
     if greeting:
         items.append(("assistant", greeting))
@@ -522,10 +539,40 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
             items.append(("user", _visible_message_text(content)))
         elif role == "assistant":
             if content:
-                items.append(("assistant", _visible_message_text(content)))
+                text = _visible_message_text(content)
+                if text.strip() == _STOP_BANNER:
+                    _append_stop_banner(items, text)
+                else:
+                    items.append(("assistant", text))
             elif msg.get("tool_calls"):
                 items.append(("assistant", "[Thinking...]"))
     return items
+
+
+# Body of tool_loop_actions._STOP_LINE ("\n[Stopped by user]\n"), stored by
+# close_stopped as its own assistant message.
+_STOP_BANNER = "[Stopped by user]"
+
+
+def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
+    """Show the stop line as the last paragraph of the answer it stopped.
+
+    What was wrong: the stop line is a separate assistant message whose
+    content is "\n[Stopped by user]\n". Painted as its own row it gave a bold
+    "Assistant:" label with nothing after it, the banner on the next line,
+    and a double blank gap before the next "You:" row (every full repaint of a
+    stopped turn, and the turn-end format after a Stop). Display only:
+    session.messages and the model context keep the separate message.
+    """
+    if items and items[-1][0] == "assistant" and items[-1][1].strip():
+        prev = items[-1][1]
+        looks_html = bool(_HTML_TAG_RE.search(prev)) or contains_html_tag(prev)
+        joined = prev + ("<p>%s</p>" % _STOP_BANNER if looks_html else "\n\n" + _STOP_BANNER)
+        items[-1] = ("assistant", joined)
+        return
+    # Stop before the first token: no answer to attach to. Keep the row, without
+    # the newlines that made the empty label line and the extra gap.
+    items.append(("assistant", text.strip()))
 
 
 def _hidden_doc_text(doc: Any) -> str:
@@ -634,7 +681,7 @@ def paint_message_items(
             restore_focus=restore_focus,
         ):
             if rows[-1][0] == "user":
-                with focus_preserved(ctx, restore):
+                with focus_preserved(ctx, restore, restore_focus=restore_focus):
                     _ensure_trailing_line_break(control)
             # Reformat before the restick so the scroll target is the real end.
             _force_rich_full_reformat(control)
@@ -751,7 +798,11 @@ def _copy_formatted_from_hidden_doc_to_control(
                         if not txt:
                             continue
                         if line_prefix and not prefix_inserted:
-                            _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
+                            # Force normal: right after "Assistant: " the number
+                            # took the label's bold (EditEngine sticky attrs).
+                            _insert_string_at_rich_cursor(
+                                model, dest_cursor, line_prefix, default_color, bold=False, underline=False
+                            )
                             dest_cursor.gotoEnd(False)
                             prefix_inserted = True
                         portion_color = _resolve_portion_char_color(
@@ -774,7 +825,9 @@ def _copy_formatted_from_hidden_doc_to_control(
                         dest_cursor.gotoEnd(False)
                         inserted = True
                     if line_prefix and not prefix_inserted:
-                        _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
+                        _insert_string_at_rich_cursor(
+                            model, dest_cursor, line_prefix, default_color, bold=False, underline=False
+                        )
                         inserted = True
                 except Exception:
                     # Skipping this element used to leave `inserted` true from
@@ -801,7 +854,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             copy_failed_with_exception = True
 
     if ctx is not None:
-        with focus_preserved(ctx, restore):
+        with focus_preserved(ctx, restore, restore_focus=restore_focus):
             _do_copy()
     else:
         _do_copy()
@@ -1106,7 +1159,7 @@ def append_rich_text_via_clipboard(
             )
             _rollback_rich_insert(control, before)
         if inserted and role == "user":
-            with focus_preserved(ctx, restore):
+            with focus_preserved(ctx, restore, restore_focus=restore_focus):
                 _ensure_trailing_line_break(control)
             if auto_scroll:
                 # Do not reveal_caret. That setFocus GetFocus-es the viewport,

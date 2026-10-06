@@ -240,7 +240,6 @@ class CellManipulator:
                     if existing.StartColumn >= start_col and existing.EndColumn <= end_col and existing.StartRow >= start_row and existing.EndRow <= end_row:
                         continue
 
-                from plugin.calc.address_utils import index_to_column
                 cell_name = f"{index_to_column(c)}{r + 1}"
                 arr_name = f"{index_to_column(existing.StartColumn)}{existing.StartRow + 1}:{index_to_column(existing.EndColumn)}{existing.EndRow + 1}"
                 raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
@@ -497,9 +496,16 @@ class CellManipulator:
         """
         try:
             cell_range = self.bridge.resolve_range_or_address(range_str)
+            # clearContents on part of an array formula silently does nothing, so
+            # refuse with a clear message unless the range covers the whole array.
+            addr = _uno_range_address(cell_range)
+            sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+            self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=True)
             # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
             cell_range.clearContents(23)
             log.info("Range %s cleared.", range_str.upper())
+        except CalcError:
+            raise
         except Exception as e:
             if is_disposed_exception(e):
                 raise
@@ -1190,11 +1196,11 @@ class CellManipulator:
                 err = int(cell.Error)
                 if err:
                     shown = cell.getString()
-                    hint = ""
-                    if err == 533:
+                    # #NAME? (525) means an unknown function, not an empty FILTER.
+                    if err == 525:
+                        hint = " — unknown function name (this LibreOffice may lack TAKE/VSTACK etc.)"
+                    else:
                         hint = " — e.g. FILTER with no matching row gives #CALC!"
-                    elif err == 525:
-                        hint = " — e.g. unknown function (LO 25.2 may lack TAKE/VSTACK etc.)"
                     raise CalcError("The formula returns an error (%s, code %d)%s." % (shown or "error", err, hint))
                 sizes.append(int(round(cell.getValue())))
         finally:

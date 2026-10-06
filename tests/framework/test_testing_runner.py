@@ -306,6 +306,33 @@ def test_native_suite_sort_key_windows_defers_html_paste_after_doc_research(
     assert names[-1] == "test_peer_message_uno.py"
 
 
+def test_native_suite_sort_key_windows_runs_designs_before_bridge(
+    monkeypatch,
+) -> None:
+    """GHA 37406913485: designs must not inherit the bridge suite's recycle."""
+    import plugin.testing_runner as tr
+
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+    paths = [
+        "/tmp/tests/draw/test_draw_forms_uno.py",
+        "/tmp/tests/draw/test_bridge_uno.py",
+        "/tmp/tests/doc/test_visual_helpers_uno.py",
+        "/tmp/tests/draw/test_designs_uno.py",
+        "/tmp/tests/calc/test_cells_uno.py",
+        "/tmp/tests/draw/test_draw_uno.py",
+    ]
+    ordered = sorted(paths, key=_native_suite_sort_key)
+    names = [p.rsplit("/", 1)[-1] for p in ordered]
+    assert names == [
+        "test_cells_uno.py",
+        "test_visual_helpers_uno.py",
+        "test_designs_uno.py",
+        "test_bridge_uno.py",
+        "test_draw_forms_uno.py",
+        "test_draw_uno.py",
+    ]
+
+
 def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
     """Linux PR CI must not defer draw_uno; POSIX still closes Math OLE."""
     import plugin.testing_runner as tr
@@ -315,6 +342,8 @@ def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
         "/tmp/tests/chatbot/test_peer_message_uno.py",
         "/tmp/tests/draw/test_draw_uno.py",
         "/tmp/tests/notebook/test_import_filter_uno.py",
+        "/tmp/tests/draw/test_designs_uno.py",
+        "/tmp/tests/draw/test_bridge_uno.py",
     ]
     assert sorted(paths, key=_native_suite_sort_key) == sorted(paths)
 

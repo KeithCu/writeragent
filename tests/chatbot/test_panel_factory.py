@@ -869,3 +869,19 @@ def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_p
     # The target chat must not be overwritten by the source chat
     assert history(new_id, db_path).get_messages()[0]["content"] == "pre-existing target chat"
     assert len(history(new_id, db_path).get_messages()) == 1
+
+
+def test_module_logger_name():
+    # Tests import these as plugin.*, so __name__ would pass a name check here.
+    # LibreOffice loads them as UNO components where __name__ is not under
+    # plugin, so the source must use the explicit names.
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for rel, name in (
+        ("plugin/chatbot/panel_factory.py", "plugin.chatbot.panel_factory"),
+        ("plugin/librepy/panel_factory.py", "plugin.librepy.panel_factory"),
+    ):
+        src = (root / rel).read_text(encoding="utf-8")
+        assert "getLogger(__name__)" not in src, rel
+        assert 'log = logging.getLogger("%s")' % name in src, rel
