@@ -215,6 +215,43 @@ class CellManipulator:
 
     # ── Internal helpers ───────────────────────────────────────────────
 
+    def _raise_if_intersects_array(self, sheet: Any, start_col: int, start_row: int, end_col: int, end_row: int, allow_contained: bool = False) -> None:
+        '''Raise CalcError if the range intersects an array formula.
+
+        If allow_contained is True, it's permissible for the range to fully enclose an array formula
+        (e.g., when clearing a large area). It's an error only if the array formula is partially outside the range.
+        '''
+        cursor = sheet.createCursor()
+        cursor.gotoEndOfUsedArea(False)
+        used = cursor.getRangeAddress()
+
+        c0, r0 = start_col, start_row
+        c1, r1 = min(end_col, used.EndColumn), min(end_row, used.EndRow)
+
+        if c0 > c1 or r0 > r1:
+            return
+
+        # Only formula cells can belong to an array, so probe just those
+        # (CellFlags.FORMULA = 16) instead of every cell: a big clear stays cheap.
+        formula_ranges = sheet.getCellRangeByPosition(c0, r0, c1, r1).queryContentCells(16)
+        contained: list[Any] = []
+        for fa in formula_ranges.getRangeAddresses():
+            for r in range(fa.StartRow, fa.EndRow + 1):
+                for c in range(fa.StartColumn, fa.EndColumn + 1):
+                    if any(b.StartColumn <= c <= b.EndColumn and b.StartRow <= r <= b.EndRow for b in contained):
+                        continue
+                    existing = self._array_block(sheet, c, r)
+                    if not existing:
+                        continue
+                    if allow_contained:
+                        if existing.StartColumn >= start_col and existing.EndColumn <= end_col and existing.StartRow >= start_row and existing.EndRow <= end_row:
+                            contained.append(existing)
+                            continue
+
+                    cell_name = f"{index_to_column(c)}{r + 1}"
+                    arr_name = f"{index_to_column(existing.StartColumn)}{existing.StartRow + 1}:{index_to_column(existing.EndColumn)}{existing.EndRow + 1}"
+                    raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
+
     def _is_valid_cell_address(self, address: str) -> bool:
         """Validate if a string is a valid cell address (e.g., A1)."""
         if not address:
@@ -467,9 +504,16 @@ class CellManipulator:
         """
         try:
             cell_range = self.bridge.resolve_range_or_address(range_str)
+            # clearContents on part of an array formula silently does nothing, so
+            # refuse with a clear message unless the range covers the whole array.
+            addr = _uno_range_address(cell_range)
+            sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+            self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=True)
             # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
             cell_range.clearContents(23)
             log.info("Range %s cleared.", range_str.upper())
+        except CalcError:
+            raise
         except Exception as e:
             if is_disposed_exception(e):
                 raise
@@ -723,7 +767,70 @@ class CellManipulator:
             applied += (r1 - r0 + 1) * (c1 - c0 + 1)
         return applied
 
-    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None, *, literal_text: bool = False) -> str | dict[str, Any]:
+    def prepare_array_formula_if_needed(self, range_str: str, formula_or_values: Any, array: Any = None) -> tuple[int, int] | None:
+        '''Run the array formula measure and occupancy check without committing.
+
+        Returns (rows, cols) if an array formula was measured, else None.
+        We use a hidden undo context, not lock(), because Calc still records API edits while
+        XUndoManager is locked. This merges the probe's temporary actions cleanly without leaving
+        a phantom Ctrl+Z step.
+        '''
+        if isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
+            cell_range = self.bridge.resolve_range_or_address(range_str)
+            addr = _uno_range_address(cell_range)
+            start = (addr.StartColumn, addr.StartRow)
+            end = (addr.EndColumn, addr.EndRow)
+
+            single_cell_range = start == end
+            parsed = _parse_formula_or_values_string(formula_or_values, single_cell_range=single_cell_range)
+            if parsed is not None:
+                formula_or_values = parsed
+
+            if isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
+                sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+                doc = self.bridge.get_active_document()
+
+                was_modified = doc.isModified()
+                undo_mgr = doc.getUndoManager() if hasattr(doc, "getUndoManager") else None
+
+                was_possible = False
+                hidden_context_entered = False
+
+                if undo_mgr:
+                    was_possible = undo_mgr.isUndoPossible()
+                    try:
+                        undo_mgr.enterHiddenUndoContext()
+                        hidden_context_entered = True
+                    except Exception as e:
+                        if "EmptyUndoStackException" in type(e).__name__:
+                            pass
+                        else:
+                            raise
+                try:
+                    c2, r2 = end
+                    rows, cols = self._measure_array(sheet, formula_or_values, avoid_col=c2, avoid_start_row=start[1], avoid_end_row=r2)
+                    self._write_array_formula(sheet, formula_or_values, start, end, measure_only=True, premeasured_array_size=(rows, cols))
+                    return (rows, cols)
+                finally:
+                    if hidden_context_entered and undo_mgr:
+                        try:
+                            undo_mgr.leaveUndoContext()
+                        except Exception:
+                            pass
+                    elif undo_mgr and not was_possible:
+                        try:
+                            undo_mgr.clear()
+                        except Exception:
+                            pass
+
+                    if not was_modified:
+                        try:
+                            doc.setModified(False)
+                        except Exception:
+                            pass
+        return None
+
+    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None, *, literal_text: bool = False, premeasured_array_size: tuple[int, int] | None = None) -> str | dict[str, Any]:
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -748,6 +855,7 @@ class CellManipulator:
             Summary string, or a dict with ``array_range`` / ``rows`` /
             ``cols`` when an array formula was written.
         """
+        expand_overwrite_warning: str | None = None
         try:
             # Handle empty values as a clear_range operation
             is_empty = formula_or_values is None or formula_or_values == "" or formula_or_values == [] or formula_or_values == "[]" or formula_or_values == "{}"
@@ -780,7 +888,7 @@ class CellManipulator:
             # instead of fill-down. =SUM(FILTER()) stays scalar.
             if not literal_text and isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
                 sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
-                return self._write_array_formula(sheet, formula_or_values, start, end)
+                return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
 
             if isinstance(formula_or_values, (list, tuple)):
                 if len(formula_or_values) > 0 and isinstance(formula_or_values[0], (list, tuple)):
@@ -793,6 +901,17 @@ class CellManipulator:
                         num_rows = end[1] - start[1] + 1
                         num_cols = end[0] - start[0] + 1
                         total_cells = num_rows * num_cols
+
+                        sheet = cell_range.getSpreadsheet()
+
+                        non_empty_count = 0
+                        for r in range(start[1], end[1] + 1):
+                            for c in range(start[0], end[0] + 1):
+                                cell = sheet.getCellByPosition(c, r)
+                                if cell.getFormula() or cell.getString():
+                                    non_empty_count += 1
+                        if non_empty_count > 0:
+                            expand_overwrite_warning = f"overwrote {non_empty_count} non-empty cell(s)"
 
                         range_str = f"{self.bridge._index_to_column(start[0])}{start[1] + 1}:{self.bridge._index_to_column(end[0])}{end[1] + 1}"
 
@@ -911,13 +1030,61 @@ class CellManipulator:
                             dest_categories[(col, row)] = category_cache[key]
                     cell_idx += 1
 
-            cell_range.setDataArray(tuple(tuple(r) for r in data_array))
+            # We write cell by cell, not plain setDataArray, because LO's setDataArray
+            # undo does not clear previously-empty cells; threshold 2000 trades undo
+            # correctness for speed on big writes.
+            UNDO_CLEAR_THRESHOLD = 2000
+            use_set_data_array = True
+
+            if total_cells <= UNDO_CLEAR_THRESHOLD:
+                # Check if there's any empty cell in the target range
+                has_empty = False
+                try:
+                    from com.sun.star.table import CellContentType
+                    empty_type = CellContentType.EMPTY
+                except ImportError:
+                    empty_type = None
+
+                for r in range(start[1], end[1] + 1):
+                    for c in range(start[0], end[0] + 1):
+                        cell = sheet.getCellByPosition(c, r)
+                        if empty_type is not None and cell.getType() == empty_type:
+                            has_empty = True
+                            break
+                        elif cell.getFormula() == "" and cell.getString() == "" and cell.getValue() == 0.0:
+                            has_empty = True
+                            break
+                    if has_empty:
+                        break
+
+                if has_empty:
+                    use_set_data_array = False
+
+            if use_set_data_array:
+                cell_range.setDataArray(tuple(tuple(r) for r in data_array))
+            else:
+                for r_idx, row in enumerate(range(start[1], end[1] + 1)):
+                    for c_idx, col in enumerate(range(start[0], end[0] + 1)):
+                        val = data_array[r_idx][c_idx]
+                        if val == "":
+                            sheet.getCellByPosition(col, row).setString("")
+                        elif isinstance(val, (int, float)):
+                            sheet.getCellByPosition(col, row).setValue(float(val))
+                        else:
+                            sheet.getCellByPosition(col, row).setString(str(val))
 
             for col, row, key in s29_snapshots:
                 sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
 
+            formula_warning = ""
             for col, row, formula in formula_cells:
-                sheet.getCellByPosition(col, row).setFormula(formula)
+                cell = sheet.getCellByPosition(col, row)
+                cell.setFormula(formula)
+                if not formula_warning:
+                    err = int(cell.Error)
+                    if err != 0:
+                        hint = " (hint: Calc uses ';' as the argument separator)" if err in (508, 525, 501) else ""
+                        formula_warning = f"; warning: formula gives Err:{err}{hint}"
 
             for col, row, text_value in literal_text_cells:
                 sheet.getCellByPosition(col, row).setString(text_value)
@@ -983,7 +1150,11 @@ class CellManipulator:
             detail = f" ({', '.join(parts)})" if parts else ""
             n_vals = len(values)
             values_word = "value" if n_vals == 1 else "values"
-            msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}."
+            msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}{formula_warning}."
+
+            if expand_overwrite_warning:
+                msg = f"{msg} ({expand_overwrite_warning})"
+
             log.info("%s", msg)
             return msg
         except CalcError:
@@ -993,6 +1164,17 @@ class CellManipulator:
         except Exception as e:
             if is_disposed_exception(e):
                 raise
+            # Check if this cell intersects an array formula
+            try:
+                cell_range = self.bridge.resolve_range_or_address(range_str)
+                addr = _uno_range_address(cell_range)
+                sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+                self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=False)
+            except CalcError:
+                raise
+            except Exception:
+                pass
+
             # UNO often yields str(e) == ""; keep a usable message for the agent.
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__
             log.exception("Range formula write failed for %s", range_str)
@@ -1044,7 +1226,12 @@ class CellManipulator:
                 err = int(cell.Error)
                 if err:
                     shown = cell.getString()
-                    raise CalcError("The formula returns an error (%s, code %d) — e.g. FILTER with no matching row gives #CALC!." % (shown or "error", err))
+                    # #NAME? (525) means an unknown function, not an empty FILTER.
+                    if err == 525:
+                        hint = " — unknown function name (this LibreOffice may lack TAKE/VSTACK etc.)"
+                    else:
+                        hint = " — e.g. FILTER with no matching row gives #CALC!"
+                    raise CalcError("The formula returns an error (%s, code %d)%s." % (shown or "error", err, hint))
                 sizes.append(int(round(cell.getValue())))
         finally:
             for row in (row0, row0 + 1):
@@ -1074,7 +1261,7 @@ class CellManipulator:
                 raise
             return None
 
-    def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int]) -> dict[str, Any]:
+    def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int], measure_only: bool = False, premeasured_array_size: tuple[int, int] | None = None) -> dict[str, Any]:
         """Enter *formula* as an array formula so its whole result shows.
 
         From a single cell, the result range is sized from the result and
@@ -1086,7 +1273,10 @@ class CellManipulator:
         c1, r1 = start
         c2, r2 = end
         explicit = (c1, r1) != (c2, r2)
-        rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_start_row=r1, avoid_end_row=r2)
+        if premeasured_array_size:
+            rows, cols = premeasured_array_size
+        else:
+            rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_start_row=r1, avoid_end_row=r2)
 
         def block_name(a: int, b: int, c: int, d: int) -> str:
             return "%s%d:%s%d" % (index_to_column(a), b + 1, index_to_column(c), d + 1)
@@ -1131,6 +1321,9 @@ class CellManipulator:
         if occupied:
             block_c, block_r = occupied[0]
             raise CalcError("The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere." % (block_name(*target), len(occupied), "%s%d" % (index_to_column(block_c), block_r + 1)))
+
+        if measure_only:
+            return {}
 
         if replaced_box is not None:
             sheet.getCellRangeByPosition(*replaced_box).setArrayFormula("")
