@@ -96,13 +96,13 @@ def _disable_dev_llm_prefix_for_deterministic_http_tests():
 
 
 @pytest.fixture(autouse=True)
-def _reset_calc_session_manager_state():
-    """Ensure Calc session state does not leak between unit tests."""
-    from plugin.scripting.session_manager import clear_active_calc_session
+def _reset_python_addin_cache():
+    """Ensure cached =PY() scalar results do not leak between unit tests."""
+    from plugin.calc.python.function import clear_python_addin_cache
 
-    clear_active_calc_session()
+    clear_python_addin_cache()
     yield
-    clear_active_calc_session()
+    clear_python_addin_cache()
 
 
 @pytest.fixture(autouse=True)

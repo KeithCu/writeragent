@@ -28,6 +28,8 @@ _PYTHON_ARGS = ("The Python code to execute. Assign output to 'result'.", "Optio
 _PYTHON_SPEC = CalcFunctionSpec(display_name="PYTHON", programmatic_name="python", description="Executes Python code in the configured venv and returns the result.", arg_names=("code", "data"), arg_descriptions=_PYTHON_ARGS, optional_from=1)
 _PY_SPEC = CalcFunctionSpec(display_name="PY", programmatic_name="py", description="Executes Python code in the configured venv and returns the result.", arg_names=("code", "data"), arg_descriptions=_PYTHON_ARGS, optional_from=1)
 PYTHON_FUNCTION_SPECS = (_PY_SPEC, _PYTHON_SPEC)
+# Returned when LibreOffice passes no calling document. Never guess one.
+MISSING_CALLER_ERROR = "Error: no calling document"
 
 try:
     from org.extension.writeragent.PythonFunction import (  # type: ignore
@@ -44,14 +46,12 @@ except ImportError:
 class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
     """Calc add-in: org.extension.writeragent.PythonFunction (=PY / =PYTHON)."""
 
-    doc: Any
     _true_strings: set[str]
     _false_strings: set[str]
 
-    def __init__(self, ctx: Any, doc: Any | None = None) -> None:
+    def __init__(self, ctx: Any) -> None:
         log.debug("=== PythonFunction.__init__ ===")
         super().__init__(ctx, PYTHON_FUNCTION_SPECS)
-        self.doc = doc
         self._true_strings, self._false_strings = self._get_localized_booleans()
 
     def _get_localized_booleans(self) -> tuple[set[str], set[str]]:
@@ -88,21 +88,13 @@ class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright:
         return true_strs, false_strs
 
     def python(self, caller: Any, code: str, data: Any = None) -> Any:
-        # What was wrong: XAddIn had no caller argument, so execute_python_addin
-        # had to guess the document from the front window, targeting the wrong
-        # workbook when multiple documents were open during recalc.
-        # How: LO's SC_ADDINARG_CALLER passes the calling document as an
-        # XPropertySet first argument (hidden from formula users).
-        # Why: resolve doc from caller if it is a SpreadsheetDocument; otherwise
-        # fall back to self.doc.
-        doc = self.doc
-        if caller is not None:
-            try:
-                if hasattr(caller, "supportsService") and caller.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
-                    doc = caller
-            except Exception:
-                log.debug("Failed checking supportsService on caller arg", exc_info=True)
-        return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings, doc=doc)
+        # *caller* is LibreOffice's hidden SC_ADDINARG_CALLER argument (the
+        # XPropertySet first parameter in XPythonFunction.idl): the document
+        # whose cell is being calculated. It is the only document source.
+        # Do not call UNO on it here; this can run off the main thread.
+        if caller is None:
+            return MISSING_CALLER_ERROR
+        return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings, doc=caller)
 
     def py(self, caller: Any, code: str, data: Any = None) -> Any:
         return self.python(caller, code, data)

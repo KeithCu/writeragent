@@ -362,11 +362,7 @@ def _set_session_mode(ctx, mode: str) -> None:
 def _leftover_shared_diag(ctx, a1, a3) -> str:
     """Config + cell snapshot when leftover Shared does not become 41."""
     from plugin.framework.config import get_config_str
-    from plugin.scripting.session_manager import (
-        off_main_calc_session_is_unambiguous,
-        python_session_mode,
-        recorded_calc_session_count,
-    )
+    from plugin.scripting.session_manager import python_session_mode
     from plugin.testing_runner import _progress_verbose as _progress
 
     try:
@@ -376,8 +372,7 @@ def _leftover_shared_diag(ctx, a1, a3) -> str:
         mode = "<unreadable %s>" % exc
         venv = ""
     lines = [
-        "leftover diag client_mode=%s venv=%r recorded=%s unambiguous=%s"
-        % (mode, venv, recorded_calc_session_count(), off_main_calc_session_is_unambiguous()),
+        "leftover diag client_mode=%s venv=%r" % (mode, venv),
         "leftover diag A1 value=%r error=%r string=%r formula=%r"
         % (a1.getValue(), a1.getError(), a1.getString(), a1.getFormula()),
         "leftover diag A3 value=%r error=%r string=%r formula=%r"
@@ -898,14 +893,11 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
-    """§9.3 / §10: Isolated + flag on — no Shared globals; strip when unambiguous.
+    """§9.3 / §10: Isolated + flag on — no Shared globals; strip with the caller doc.
 
-    Isolated + no init never records via init-kwargs. UI load/repair must
-    call ``record_geometric_calc_session`` (``calc:`` + ``_workbook_session_key``,
-    never empty) so the no-init case can pass the unambiguous check.
-    Stay on the reused Calc — a second factory ``scalc`` makes
-    ``off_main_calc_session_is_unambiguous()`` false. Do not assert Isolated
-    always leaves ``_RECORDED_CALC_SESSION_IDS`` empty.
+    UI load/repair keys the map with ``geometric_workbook_key`` (``calc:`` +
+    ``_workbook_session_key``, never empty); eval strips with the same key
+    read from the caller document.
     """
     from plugin.calc.python.geometric_recalc import (
         current_geometric_strip_safe,
@@ -914,13 +906,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         maybe_strip_geometric_eval_args,
         reset_geometric_runtime_for_tests,
     )
-    from plugin.scripting.session_manager import (
-        clear_active_calc_session,
-        get_cached_calc_session_id,
-        off_main_calc_session_is_unambiguous,
-        recorded_calc_session_count,
-        workbook_session_id,
-    )
+    from plugin.scripting.session_manager import workbook_session_id
     from plugin.testing_runner import _progress_verbose as _progress
 
     reset_geometric_runtime_for_tests()
@@ -929,27 +915,13 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     try:
         _set_session_mode(ctx, "isolated")
         _settle_soffice_config()
-        # Isolated + no init: do not set an init script. Clear only so this
-        # test can prove the UI path records — not that Isolated "always"
-        # leaves the set empty (non-empty init already records).
-        clear_active_calc_session()
+        # Isolated + no init: do not set an init script.
         maybe_geometric_on_document_open(ctx, doc)
         sid = geometric_workbook_key(doc)
-        _progress(
-            "geometric isolated sid=%r cached=%r recorded=%s unambiguous=%s"
-            % (
-                sid,
-                get_cached_calc_session_id(),
-                recorded_calc_session_count(),
-                off_main_calc_session_is_unambiguous(),
-            )
-        )
+        _progress("geometric isolated sid=%r" % (sid,))
         assert sid.startswith("calc:"), sid
         assert sid != "calc:"
         assert sid[5:], sid
-        assert get_cached_calc_session_id() == sid
-        assert recorded_calc_session_count() >= 1
-        assert off_main_calc_session_is_unambiguous() is True
         assert workbook_session_id(ctx, doc) is None
 
         sheet = doc.getSheets().getByIndex(0)
@@ -979,7 +951,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         ), safe
         col = ((10.0,), (20.0,), (30.0,))
         pred = ((0.0,),)
-        assert maybe_strip_geometric_eval_args(mean_code, [col, pred]) == [col]
+        assert maybe_strip_geometric_eval_args(mean_code, [col, pred], doc=doc) == [col]
 
         # Isolated is a no-op for Python globals (Shared names do not appear).
         # Do not wait for 41 — that is the Shared leftover. One or two

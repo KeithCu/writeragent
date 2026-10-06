@@ -36,7 +36,6 @@ from plugin.calc.python.geometric_recalc import (
     maybe_geometric_on_document_open,
     maybe_strip_geometric_eval_args,
     notify_geometric_cap_hit,
-    record_geometric_calc_session,
     reconcile_geometric_document,
     replace_geometric_strip_safe,
     reset_geometric_runtime_for_tests,
@@ -50,6 +49,13 @@ from plugin.calc.python.geometric_recalc import (
 
 
 WB = "calc:file:///pipe.ods"
+
+
+def _wb_doc(url: str = "file:///pipe.ods") -> object:
+    """Caller document whose geometric workbook key is ``calc:`` + *url*."""
+    from plugin.tests.testing_utils import CalcDocStub
+
+    return CalcDocStub(url=url)
 
 
 def _cell(addr: str, formula: str, code: str | None = None) -> GeometricCell:
@@ -701,19 +707,10 @@ def test_cap_hit_user_message_names_the_sheet():
 
 def _reset_geo(monkeypatch=None):
     reset_geometric_runtime_for_tests()
-    from plugin.scripting import session_manager as sm
-
-    sm.clear_active_calc_session()
 
 
-def test_isolated_record_active_calc_session_never_empty():
-    """Isolated UI load/repair records calc:+_workbook_session_key (same string eval reads).
-
-    Isolated + no init still never records on its own — this geometric call is
-    required for that case. Do not assert Isolated always leaves
-    ``_RECORDED_CALC_SESSION_IDS`` empty: a non-empty init script already
-    records via ``build_python_eval_init_kwargs`` → ``calc_init_session_id``.
-    """
+def test_isolated_workbook_key_never_empty():
+    """Isolated UI load/repair keys on calc:+_workbook_session_key (same string eval reads)."""
     from plugin.scripting import session_manager as sm
     from plugin.tests.testing_utils import CalcDocStub
 
@@ -723,10 +720,8 @@ def test_isolated_record_active_calc_session_never_empty():
         "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
     ):
         assert sm.workbook_session_id(None, doc) is None
-        sid = record_geometric_calc_session(doc)
+        sid = geometric_workbook_key(doc)
     assert sid == "calc:file:///isolated.ods"
-    assert sm.get_cached_calc_session_id() == sid
-    assert sm.off_main_calc_session_is_unambiguous()
     assert sid.startswith("calc:")
     assert sid != "calc:"
     assert geometric_workbook_key(doc) == sid
@@ -741,7 +736,7 @@ def test_unsaved_workbook_key_is_never_empty():
         "plugin.scripting.session_manager._workbook_session_key",
         return_value="unsaved-stable-id",
     ):
-        sid = record_geometric_calc_session(doc)
+        sid = geometric_workbook_key(doc)
         assert geometric_workbook_key(doc) == sid
     assert sid == "calc:unsaved-stable-id"
     assert sid != "calc:"
@@ -960,17 +955,19 @@ def _mean_range_and_pred():
 def test_strip_np_mean_data_stays_single_range():
     """=PY("np.mean(data)"; B1:B10; pred) still packs one CalcRange, not a list."""
     from plugin.calc.python.function import execute_python_addin
-    from plugin.scripting import session_manager as sm
     from plugin.scripting.calc_range import is_calc_range_payload
     from plugin.scripting.payload_codec import is_multi_data
 
     _reset_geo()
-    sm.record_active_calc_session(WB)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key("np.mean(data)", 2)}))
-    with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+    with (
+        patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
+        # The caller doc is a stub; keep the strip-safe set this test installed.
+        patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
+    ):
         mock_run.return_value = {"status": "ok", "result": 2.0}
-        out = execute_python_addin(object(), "np.mean(data)", (col, pred))
+        out = execute_python_addin(object(), "np.mean(data)", (col, pred), doc=_wb_doc())
         assert out == 2.0
         wire = mock_run.call_args.kwargs["data"]
         assert not is_multi_data(wire)
@@ -981,17 +978,19 @@ def test_strip_np_mean_data_stays_single_range():
 def test_strip_ranges_minus_one_is_user_range_not_pred():
     """Indexed multi-data branch: ranges[-1] is B1:B10, not the predecessor."""
     from plugin.calc.python.function import execute_python_addin
-    from plugin.scripting import session_manager as sm
     from plugin.scripting.payload_codec import is_multi_data
 
     _reset_geo()
-    sm.record_active_calc_session(WB)
     code = "ranges[-1].shape"
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key(code, 2)}))
-    with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+    with (
+        patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
+        # The caller doc is a stub; keep the strip-safe set this test installed.
+        patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
+    ):
         mock_run.return_value = {"status": "ok", "result": (3, 1)}
-        execute_python_addin(object(), code, (col, pred))
+        execute_python_addin(object(), code, (col, pred), doc=_wb_doc())
         wire = mock_run.call_args.kwargs["data"]
         # After strip, only B1:B10 remains. Indexed multi-data must not see pred.
         from plugin.scripting.calc_range import is_calc_range_payload
@@ -1004,15 +1003,16 @@ def test_strip_ranges_minus_one_is_user_range_not_pred():
 def test_strip_runs_before_matrix_index_peel():
     """Last geometric 1-cell must not become index_arg (silent wrong numbers)."""
     from plugin.calc.python.function import execute_python_addin
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key("np.mean(data)", 2)}))
-    with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+    with (
+        patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
+        # The caller doc is a stub; keep the strip-safe set this test installed.
+        patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
+    ):
         mock_run.return_value = {"status": "ok", "result": [10, 20, 30]}
-        out = execute_python_addin(object(), "np.mean(data)", (col, pred))
+        out = execute_python_addin(object(), "np.mean(data)", (col, pred), doc=_wb_doc())
         # Without strip, pred 0 would be index_arg and return 10. Strip first
         # so finalize sees no index and returns the first scalar of the list.
         assert out == 10
@@ -1023,34 +1023,24 @@ def test_strip_runs_before_matrix_index_peel():
 
 
 def test_fill_down_both_strip():
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     code = "np.mean(data)"
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key(code, 2)}))
-    stripped = maybe_strip_geometric_eval_args(code, [col, pred])
+    stripped = maybe_strip_geometric_eval_args(code, [col, pred], doc=_wb_doc())
     assert stripped == [col]
-    assert maybe_strip_geometric_eval_args(code, [col, ((1.0,),)]) == [col]
+    assert maybe_strip_geometric_eval_args(code, [col, ((1.0,),)], doc=_wb_doc()) == [col]
 
 
 def test_mixed_poison_neither_strips():
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     # Triple not in the map → no strip (mixed poisons the whole triple).
     col, pred = _mean_range_and_pred()
-    assert maybe_strip_geometric_eval_args("f", [col, pred]) == [col, pred]
+    assert maybe_strip_geometric_eval_args("f", [col, pred], doc=_wb_doc()) == [col, pred]
 
 
-def test_two_workbooks_unambiguous_false_no_strip_at_eval():
-    from plugin.scripting import session_manager as sm
-
+def test_no_caller_doc_no_strip_at_eval():
     _reset_geo()
-    sm.record_active_calc_session("calc:file:///a.ods")
-    sm.record_active_calc_session("calc:file:///b.ods")
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(
         "calc:file:///a.ods",
@@ -1060,13 +1050,11 @@ def test_two_workbooks_unambiguous_false_no_strip_at_eval():
 
 
 def test_two_workbooks_ui_thread_doc_still_strips():
-    """Focused / caller doc is a real key — F9 this book even if another is open."""
-    from plugin.scripting import session_manager as sm
+    """The caller doc is a real key — F9 this book even if another is open."""
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
-    sm.record_active_calc_session("calc:file:///a.ods")
-    sm.record_active_calc_session("calc:file:///b.ods")
+    replace_geometric_strip_safe("calc:file:///b.ods", frozenset({_key("np.mean(data)", 2, "calc:file:///b.ods")}))
     doc = CalcDocStub(url="file:///a.ods")
     sid = geometric_workbook_key(doc)
     col, pred = _mean_range_and_pred()
@@ -1078,13 +1066,10 @@ def test_two_workbooks_ui_thread_doc_still_strips():
 
 
 def test_two_workbooks_off_main_doc_does_not_strip():
-    """Off-main must not use *doc* (UNO). Two recorded sessions → no strip."""
-    from plugin.scripting import session_manager as sm
+    """Off-main must not use *doc* (UNO), so nothing strips there."""
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
-    sm.record_active_calc_session("calc:file:///a.ods")
-    sm.record_active_calc_session("calc:file:///b.ods")
     doc = CalcDocStub(url="file:///a.ods")
     sid = geometric_workbook_key(doc)
     col, pred = _mean_range_and_pred()
@@ -1095,7 +1080,7 @@ def test_two_workbooks_off_main_doc_does_not_strip():
         ) == [col, pred]
 
 
-def test_isolated_unambiguous_session_strips():
+def test_isolated_caller_doc_strips():
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
@@ -1103,10 +1088,11 @@ def test_isolated_unambiguous_session_strips():
     with patch(
         "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
     ):
-        sid = record_geometric_calc_session(doc)
+        sid = geometric_workbook_key(doc)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
-    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred]) == [col]
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [col]
 
 
 def test_ensure_strip_index_hydrates_from_udprop():
@@ -1136,7 +1122,7 @@ def test_ensure_strip_index_hydrates_from_udprop():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
-    assert maybe_strip_geometric_eval_args("x", [((41.0,),)]) == []
+        assert maybe_strip_geometric_eval_args("x", [((41.0,),)], doc=doc) == []
 
 
 def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch):
@@ -1254,29 +1240,23 @@ def test_ensure_strip_index_off_main_is_noop():
 
 
 def test_user_1x1_not_in_map_no_strip():
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     col, pred = _mean_range_and_pred()
     # User 1×1 last arg, no map record, no mixed chain → do not strip.
-    assert maybe_strip_geometric_eval_args("g", [col, pred]) == [col, pred]
+    assert maybe_strip_geometric_eval_args("g", [col, pred], doc=_wb_doc()) == [col, pred]
 
 
 def test_strip_helper_does_not_use_1x1_or_uniqueness():
     """Never fall back to 1×1, uniqueness, or ≥1-hit — only unanimous-ours."""
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     col, pred = _mean_range_and_pred()
     # Unique code + 1×1 last arg is still no-strip without a map mark.
-    assert maybe_strip_geometric_eval_args("unique_snippet_xyz", [col, pred]) == [col, pred]
+    assert maybe_strip_geometric_eval_args("unique_snippet_xyz", [col, pred], doc=_wb_doc()) == [col, pred]
     # ≥1-hit would strip if any cell is ours; we require the triple in strip_safe.
     from plugin.calc.python.geometric_recalc import GEOMETRIC_RECORDS
 
     GEOMETRIC_RECORDS[(WB, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
-    assert maybe_strip_geometric_eval_args("f", [col, pred]) == [col, pred]
+    assert maybe_strip_geometric_eval_args("f", [col, pred], doc=_wb_doc()) == [col, pred]
 
 
 def test_mixed_same_code_n_args_overpoisons_other_range():
@@ -1287,10 +1267,7 @@ def test_mixed_same_code_n_args_overpoisons_other_range():
     missed the key and skipped strip on the edited cell).
     """
     from plugin.calc.python.geometric_recalc import compute_eval_index
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     code = "np.mean(data)"
     range_a = ((1.0,), (2.0,), (3.0,))
     range_b = ((10.0,), (20.0,), (30.0,))
@@ -1308,8 +1285,8 @@ def test_mixed_same_code_n_args_overpoisons_other_range():
     safe = compute_eval_index(cells, formulas, records, WB)
     assert _key(code, 2) not in safe
     replace_geometric_strip_safe(WB, safe)
-    assert maybe_strip_geometric_eval_args(code, [range_a, pred]) == [range_a, pred]
-    assert maybe_strip_geometric_eval_args(code, [range_b, pred]) == [range_b, pred]
+    assert maybe_strip_geometric_eval_args(code, [range_a, pred], doc=_wb_doc()) == [range_a, pred]
+    assert maybe_strip_geometric_eval_args(code, [range_b, pred], doc=_wb_doc()) == [range_b, pred]
 
 
 def test_data_value_edit_still_strips():
@@ -1319,29 +1296,23 @@ def test_data_value_edit_still_strips():
     key still strips. Phase 3 rebuilds the index on modify; do not inject
     a fingerprint.
     """
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     code = "np.mean(data)"
     replace_geometric_strip_safe(WB, frozenset({_key(code, 2)}))
     edited_col = ((1.0,), (99.0,), (3.0,))
     pred = ((0.0,),)
-    assert maybe_strip_geometric_eval_args(code, [edited_col, pred]) == [edited_col]
+    assert maybe_strip_geometric_eval_args(code, [edited_col, pred], doc=_wb_doc()) == [edited_col]
 
 
 def test_flag_off_still_strips_leftover_attached_arg(monkeypatch):
     """§9.4: flag-off leaves leftover refs; strip must still drop the last arg."""
-    from plugin.scripting import session_manager as sm
-
     _reset_geo()
-    sm.record_active_calc_session(WB)
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
     )
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key("np.mean(data)", 2)}))
-    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred]) == [col]
+    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=_wb_doc()) == [col]
 
 
 def test_strip_safe_snapshot_is_rebound_not_mutated():

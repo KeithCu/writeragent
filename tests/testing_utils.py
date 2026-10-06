@@ -1699,9 +1699,9 @@ class TestingFactory:
         if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
             _NATIVE_DOC_POOL.mark_clean(doc, False)
         try:
-            from plugin.scripting.session_manager import clear_active_calc_session
+            from plugin.calc.python.function import clear_python_addin_cache
 
-            clear_active_calc_session()
+            clear_python_addin_cache()
         except Exception:
             pass
         try:
@@ -1856,9 +1856,9 @@ class TestingFactory:
                 else:
                     _native_teardown_progress("native_doc: teardown reset done")
                     try:
-                        from plugin.scripting.session_manager import clear_active_calc_session
+                        from plugin.calc.python.function import clear_python_addin_cache
 
-                        clear_active_calc_session()
+                        clear_python_addin_cache()
                     except Exception:
                         pass
             else:

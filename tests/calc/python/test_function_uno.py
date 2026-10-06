@@ -19,7 +19,6 @@ from plugin.calc.calc_addin_data import calc_addin_data_to_python
 from plugin.calc.python.function import _py_scoped_dir_bindings
 from plugin.doc.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
-from plugin.scripting.session_manager import clear_active_calc_session
 from plugin.testing_runner import native_test, teardown
 from plugin.writer.format import create_property_value
 
@@ -70,13 +69,7 @@ def _pack_named_range_from_row(doc, name: str, sheet_name: str, row_1based: int)
 
 
 def _close_leftover_showcase_docs(ctx) -> int:
-    """Close leftover python_showcase_demo workbooks so later UNO suites stay isolated.
-
-    Opening a saved showcase file records ``calc:file:…/python_showcase_demo.*``.
-    Those ids stay in ``_RECORDED_CALC_SESSION_IDS`` until the doc is closed and
-    the cache is cleared. A later Shared-kernel geometric test then sees
-    ``unambiguous=False`` and cannot bind A3 to A1's name.
-    """
+    """Close leftover python_showcase_demo workbooks so later UNO suites stay isolated."""
     desktop = get_desktop(ctx)
     comps = getattr(desktop, "getComponents", lambda: None)()
     if comps is None or not hasattr(comps, "createEnumeration"):
@@ -111,27 +104,19 @@ def _close_leftover_showcase_docs(ctx) -> int:
 
 
 def _close_doc_and_clear_sessions(ctx, doc) -> None:
-    """Close first, then wipe recorded sessions.
-
-    Clear-then-close was not enough: close / OnLoadFinished can re-record
-    ``calc:file:`` ids after the cache wipe, and OnUnload only discards the
-    listener's early uuid — not the file-URL sibling. Later geometric suites
-    in the same soffice then see recorded>1.
-    """
+    """Close the doc and any leftover showcase workbooks."""
     if doc is not None:
         try:
             doc.close(True)
         except Exception:
             pass
     _close_leftover_showcase_docs(ctx)
-    clear_active_calc_session()
 
 
 @teardown
 def _teardown_showcase_sessions(ctx) -> None:
     """Suite-level isolation for the next native module in the same soffice."""
     _close_leftover_showcase_docs(ctx)
-    clear_active_calc_session()
 
 
 @native_test

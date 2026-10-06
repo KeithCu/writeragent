@@ -43,7 +43,7 @@ def test_python_matrix_via_index_argument(ctx, doc):
     with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [int(p) for p in primes]}
         for row, expected in enumerate(primes):
-            res = func.python(None, code, row)
+            res = func.python(doc, code, row)
             assert res == expected, f"row {row}: expected {expected}, got {res}"
         assert mock_run.call_count == 6
 
@@ -67,9 +67,9 @@ def test_python_matrix_via_session_counter(ctx, doc):
     func = PythonFunction(ctx)
     with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
-        assert func.python(None, code) == 2.0
-        assert func.python(None, code) == 3.0
-        assert func.python(None, code) == 5.0
+        assert func.python(doc, code) == 2.0
+        assert func.python(doc, code) == 3.0
+        assert func.python(doc, code) == 5.0
 
 
 @native_test
@@ -88,6 +88,6 @@ def test_python_matrix_array_formula_block_with_single_cell_selected(ctx, doc):
     func = PythonFunction(ctx)
     with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
-        assert func.python(None, code) == 2.0
-        assert func.python(None, code) == 3.0
-        assert func.python(None, code) == 5.0
+        assert func.python(doc, code) == 2.0
+        assert func.python(doc, code) == 3.0
+        assert func.python(doc, code) == 5.0

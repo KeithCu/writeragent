@@ -282,13 +282,11 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             except Exception:
                 log.debug("python_workbook_lifecycle: geometric state clear failed", exc_info=True)
             try:
-                from plugin.scripting.session_manager import clear_active_calc_session
+                from plugin.calc.python.function import clear_python_addin_cache
 
-                for sid in session_ids:
-                    if isinstance(sid, str) and sid.startswith("calc:"):
-                        clear_active_calc_session(sid)
+                clear_python_addin_cache()
             except Exception:
-                log.debug("python_workbook_lifecycle: active session clear failed", exc_info=True)
+                log.debug("python_workbook_lifecycle: add-in cache clear failed", exc_info=True)
         if reset_sessions:
             self._reset_sessions(session_ids)
 

@@ -27,50 +27,6 @@ def _clear_sessions():
     clear_all_sandbox_sessions()
 
 
-def test_clearing_calc_init_script_does_not_wipe_the_other_workbook():
-    """INIT clear follows the edited document, not whichever file was focused."""
-    from plugin.scripting import session_manager
-
-    class _UrlDoc(_DocWithUserDefinedProperties):
-        def __init__(self, props, url: str):
-            super().__init__(props)
-            self._url = url
-
-        def getURL(self):
-            return self._url
-
-    doc_a = _UrlDoc(_UserDefinedProperties(), "file:///a.ods")
-    doc_b = _UrlDoc(_UserDefinedProperties(), "file:///b.ods")
-    session_manager.clear_active_calc_session()
-    try:
-        assert set_calc_init_script(doc_b, "B = 2") is None
-        session_manager.record_active_calc_session("calc:file:///b.ods")
-        assert set_calc_init_script(doc_a, "") is None
-        session_manager.clear_active_calc_session("calc:file:///a.ods")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "B = 2"
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_clearing_calc_init_script_clears_cached_init():
-    """Removing the workbook init must drop it from the off-main cache."""
-    from plugin.scripting import session_manager
-
-    props = _UserDefinedProperties()
-    doc = _DocWithUserDefinedProperties(props)
-    session_manager.clear_active_calc_session()
-    try:
-        assert set_calc_init_script(doc, "A = 1") is None
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
-        assert set_calc_init_script(doc, "") is None
-        assert get_calc_init_script(doc) == ""
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-    finally:
-        session_manager.clear_active_calc_session()
-
-
 def test_get_set_calc_init_script_roundtrip():
     from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP, set_document_scripts
     import json
@@ -334,12 +290,9 @@ def test_run_code_forwards_init_kwargs():
 
 
 def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.scripting.session_manager import clear_active_calc_session, workbook_session_id
+    from plugin.scripting.session_manager import workbook_session_id
 
-    # Reset any cached session from prior test cases
-    clear_active_calc_session()
-
-    # Off-main threads must return None without blocking or deadlocking (#402)
+    # No caller doc: None without a desktop lookup or deadlock (#402)
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
     monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda ctx: "shared")
 

@@ -53,34 +53,34 @@ def test_py_data_arg_dag_chain_uno(ctx, doc):
     # 1. Direct PythonFunction add-in calls with single-cell values & tuples
     func = PythonFunction(ctx)
 
-    res_a1 = func.py(None, "result = 2")
+    res_a1 = func.py(doc, "result = 2")
     assert res_a1 == 2.0
 
-    res_b1 = func.py(None, "result = data + 3", ((res_a1,),))
+    res_b1 = func.py(doc, "result = data + 3", ((res_a1,),))
     assert res_b1 == 5.0
 
-    res_c1 = func.py(None, "result = data * 4", ((res_b1,),))
+    res_c1 = func.py(doc, "result = data * 4", ((res_b1,),))
     assert res_c1 == 20.0
 
     # Fan-out direct calls
-    res_fan_b = func.py(None, "result = data", ((res_a1,),))
-    res_fan_c = func.py(None, "result = data", ((res_a1,),))
+    res_fan_b = func.py(doc, "result = data", ((res_a1,),))
+    res_fan_c = func.py(doc, "result = data", ((res_a1,),))
     assert res_fan_b == 2.0
     assert res_fan_c == 2.0
 
     # 3. Issue #413: Boolean return (does not need a registered sheet add-in)
-    res_bool_true = func.py(None, "result = True")
+    res_bool_true = func.py(doc, "result = True")
     assert res_bool_true == 1.0
     assert isinstance(res_bool_true, float)
 
-    res_bool_false = func.py(None, "result = False")
+    res_bool_false = func.py(doc, "result = False")
     assert res_bool_false == 0.0
     assert isinstance(res_bool_false, float)
 
-    res_bool_chain = func.py(None, "result = 'YES' if data else 'NO'", ((res_bool_true,),))
+    res_bool_chain = func.py(doc, "result = 'YES' if data else 'NO'", ((res_bool_true,),))
     assert res_bool_chain == "YES"
 
-    res_bool_chain_false = func.py(None, "result = 'YES' if data else 'NO'", ((res_bool_false,),))
+    res_bool_chain_false = func.py(doc, "result = 'YES' if data else 'NO'", ((res_bool_false,),))
     assert res_bool_chain_false == "NO"
 
     # 4. Live Calc Sheet DAG: C2.4.1 (Chain of three) & C2.4.3 (Fan-out)
