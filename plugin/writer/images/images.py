@@ -147,6 +147,7 @@ class ImageGenerate(ToolWriterImageBase):
         explicit_edit = bool(source_image and source_image.lower() == "selection")
         source_b64 = None
         edit_width, edit_height = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
+        display_width, display_height = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
         is_edit = False
 
         # Peek selection when the caller asked to edit, or omitted source_image
