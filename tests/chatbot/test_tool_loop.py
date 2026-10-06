@@ -117,9 +117,12 @@ def test_chat_stream_batch_interval_is_250ms():
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_stream_done_no_tools(mock_get_config, mock_drain_loop):
+def test_stream_done_no_tools(mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
+    begin_send_turn(panel, "chat")
 
     results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
@@ -142,8 +145,9 @@ def test_stream_done_no_tools(mock_get_config, mock_drain_loop):
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_drain_loop):
+def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_get_config_int, mock_drain_loop):
     """First LLM worker spawn takes round_num from ToolLoopState, not a host mirror."""
     panel, _session = setup_mock_panel()
     mock_drain_loop.side_effect = lambda *a, **k: None
@@ -158,8 +162,10 @@ def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_drain_loop):
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
+def test_control_state_lives_only_on_sm_state(mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     """After STREAM_DONE with tools, pending/round live on _sm_state; host has no mirror attrs."""
     panel, _session = setup_mock_panel()
     tool_calls = [
@@ -184,12 +190,15 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_loop):
+def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_config_int, mock_drain_loop):
     from plugin.chatbot.tool_loop import note_stop_partial
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
 
     panel, session = setup_mock_panel()
-    note_stop_partial(panel, {"content": "kept tokens", "tool_calls": None})
+    begin_send_turn(panel, "chat")
+    note_stop_partial(current_turn(panel), {"content": "kept tokens", "tool_calls": None})
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
         on_stopped()
@@ -213,9 +222,12 @@ def test_handle_stream_error_persists_banner():
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_drain_loop):
+def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, _session = setup_mock_panel()
+    begin_send_turn(panel, "chat")
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
         on_stopped()
@@ -229,8 +241,10 @@ def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_drain_lo
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_stream_done_with_tools(mock_get_config, mock_drain_loop):
+def test_stream_done_with_tools(mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -266,8 +280,10 @@ def test_stream_done_with_tools(mock_get_config, mock_drain_loop):
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_next_tool_advances_round(mock_get_config, mock_drain_loop):
+def test_next_tool_advances_round(mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []
@@ -286,9 +302,11 @@ def test_next_tool_advances_round(mock_get_config, mock_drain_loop):
     panel._spawn_llm_worker.assert_called()
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_drain_loop):
+def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -336,9 +354,11 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_config, mock_drain_loop):
+def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -393,9 +413,11 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
     assert session.messages[2]["tool_call_id"] == "call_2"
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_drain_loop):
+def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []
@@ -431,9 +453,11 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mock_drain_loop):
+def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -516,8 +540,10 @@ def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_d
     panel._spawn_final_stream.assert_called()
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_final_done_handling(mock_get_config, mock_drain_loop):
+def test_final_done_handling(mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []
@@ -536,8 +562,10 @@ def test_final_done_handling(mock_get_config, mock_drain_loop):
     assert session.messages[0]["content"] == "This is the final word."
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_error_handling_in_loop(mock_get_config, mock_drain_loop):
+def test_error_handling_in_loop(mock_get_config, mock_get_config_int, mock_drain_loop):
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []
@@ -668,7 +696,7 @@ def mock_ctx(registry):
 def _mock_get_config_int_for_sub_agent(key):
     if key == "chat_max_tokens":
         return 2048
-    if key == "chat_max_tool_rounds":
+    if key in ("chat_max_tool_rounds", "chatbot.max_tool_rounds"):
         return 25
     return _real_get_config_int(key)
 
@@ -1097,3 +1125,30 @@ def test_final_stream_keeps_spawn_scope_after_next_send():
         ToolCallingMixin._spawn_final_stream(panel, q, client, 100)
 
     _run_captured_llm_worker(spawn)
+
+def test_toolkit_unavailable_persists_assistant_row():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+    panel, session = setup_mock_panel()
+    begin_send_turn(panel, "chat")
+
+    with patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None), patch("plugin.chatbot.tool_loop.get_config_int", return_value=10), patch("plugin.chatbot.tool_loop.get_config", return_value=False):
+        panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+
+    assert len(session.messages) >= 1
+    assert session.messages[-1]["role"] == "assistant"
+    assert "Toolkit unavailable" in session.messages[-1]["content"]
+
+
+def test_compaction_state_per_turn():
+    from plugin.chatbot.tool_loop_actions import TurnController
+    turn1 = TurnController(None, "chat")
+    turn1._overflow_compact_attempts = 1
+    turn1._last_compact_reason = "overflow"
+    turn1._last_compact_tokens_before = 2000
+    turn1._last_compact_tokens_after = 1000
+
+    turn2 = TurnController(None, "chat")
+    assert turn2._overflow_compact_attempts == 0
+    assert turn2._last_compact_reason is None
+    assert turn2._last_compact_tokens_before is None
+    assert turn2._last_compact_tokens_after is None
