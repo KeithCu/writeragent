@@ -283,17 +283,14 @@ class JSONHistory:
             raise
 
     def clear(self) -> None:
-        if os.path.exists(self.file_path):
-            try:
-                os.remove(self.file_path)
-            except OSError:
-                log.exception("JSONHistory: Error clearing history")
+        self.replace_messages([])
 
     def replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Replace this session file in one ``os.replace``.
 
-        ``clear`` swallows ``OSError`` and leaves the old rows. A later append
-        then duplicates them. This write replaces the file or raises.
+        ``clear`` used to swallow an ``os.remove`` ``OSError`` and leave the old
+        rows, so a later append duplicated them. Both now write the file in one
+        ``os.replace`` or raise.
         """
         self._replace_messages(list(messages))
 

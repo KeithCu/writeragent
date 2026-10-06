@@ -1992,3 +1992,38 @@ class TestSTTClientReset:
         ):
             host._transcribe_audio("fake.wav", "stt-model")
             assert mock_llm_client.called
+
+
+def test_direct_image_records_user_message_only_once():
+    """Image mode stored the prompt twice: the StartEvent user append folded it,
+    then the spawn effect called add_user_message again (Scrolly QA)."""
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+
+    messages: list[dict[str, str]] = []
+    session = MagicMock()
+    session.messages = messages
+    session.add_user_message.side_effect = lambda txt: messages.append({"role": "user", "content": txt})
+
+    class FoldingPanel(DummyChatbotPanel):
+        def _append_response(self, text, is_thinking=False, role="assistant"):
+            super()._append_response(text, is_thinking, role)
+            if role == "user":
+                fold_transcript_chunk(session, text, role="user")
+
+    panel = FoldingPanel()
+    setattr(panel, "session", session)
+    with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"):
+        panel._do_send_direct_image("draw an apple", MagicMock())  # type: ignore
+
+    assert [m for m in messages if m.get("role") == "user"] == [{"role": "user", "content": "draw an apple"}]
+
+
+def test_direct_image_stop_finalizes_with_stop_line():
+    """Image-mode Stop must draw the stop line like chat and web (Scrolly QA)."""
+    panel = DummyChatbotPanel()
+    panel.stop_requested = True
+    state = SendHandlerState(handler_type="image", status="ready")
+    interpreter = EffectInterpreter(panel)
+    with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.rich_text.finalize_sidebar_assistant_response") as fin:
+        panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)  # type: ignore
+    fin.assert_called_once_with(panel, allow_rerender=False)

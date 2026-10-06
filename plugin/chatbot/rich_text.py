@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 _GO_RIGHT_CHUNK = 8192
 
-def _go_right(cursor: Any, n: int, expand: bool) -> bool:
+def _go_right(cursor: Any, n: int, expand: bool) -> bool:  # pyright: ignore[reportUnusedFunction]  # used by rich_text_control.truncate_control_from
     """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
     while n > 0:
         step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
@@ -439,7 +439,14 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
         # Body content via HTML import
         cursor.gotoEnd(False)
         cursor.CharWeight = CHAT_FONT_WEIGHT  # Reset to normal after bold prefix
-        pre_len = doc.CharacterCount
+        cursor.CharColor = theme.user_color if role == "user" else theme.assistant_color
+        # Anchor on the prefix's last character, one before the insert point.
+        # A range AT the insert point does not stay put: the HTML import
+        # leaves it after the imported body (see html_import._parked_cursor),
+        # which made body_range empty and skipped list tightening. A position
+        # before the insert point is not moved by the insert.
+        body_anchor = text_obj.createTextCursorByRange(cursor.getStart())
+        body_anchor.goLeft(1, False)
 
         if text and text.strip():
             # A tag _HTML_TAG_RE does not list (<script>, a full document the
@@ -473,10 +480,19 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
                 restore_writer_text(text_obj, previous)
                 return False
 
-            # Build a range covering only the newly inserted content
-            body_range = text_obj.createTextCursor()
-            body_range.gotoStart(False)
-            _go_right(body_range, pre_len, False)
+            # What was wrong: the tail of assistant words was drawn in the blue 'You'
+            # color (e.g. in 'done' the 'one' was blue, in 'written.' the 'ten.' was blue).
+            # How: pre_len used doc.CharacterCount, a document statistic that excludes
+            # paragraph breaks (\n\n between messages). When body_range moved via
+            # _go_right(body_range, pre_len, False) from document start, it stopped short
+            # by the count of preceding paragraph breaks, landing inside the last word
+            # of the preceding assistant message. gotoEnd(True) then extended across that
+            # boundary and set CharColor = theme.user_color on the assistant word's tail.
+            # Why this change: start body_range one character after body_anchor (the
+            # end of the prefix) instead of counting characters from the document start,
+            # so each row's color stays inside its own text.
+            body_range = text_obj.createTextCursorByRange(body_anchor.getStart())
+            body_range.goRight(1, False)
             body_range.gotoEnd(True)
             # Plain text gets the role tint; successful HTML import keeps
             # per-span CharColor from the filter (red/blue runs, etc.).
@@ -541,3 +557,18 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
             if getattr(turn, "_stop_banner_appended", False):
                 return
             turn._stop_banner_appended = True
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+        from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+        widget = getattr(listener, "rich_text_widget", None)
+        if widget is not None:
+            run_rich = getattr(listener, "_run_rich_ui", None)
+            if callable(run_rich):
+                run_rich(lambda: widget.append_chunk(_STOP_LINE))
+            else:
+                widget.append_chunk(_STOP_LINE)
+        else:
+            control = getattr(listener, "response_control", None)
+            if control is not None and control.getModel():
+                cur = get_control_text(control, default="") or ""
+                set_control_text(control, cur + _STOP_LINE)

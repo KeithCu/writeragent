@@ -994,7 +994,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             msgbox_with_report(
                 self.ctx,
                 _("Dispatch Error"),
-                _(str(e)),
+                str(e),
                 box_type=3,
                 reportable=True,
                 report_title="Dispatch Error",

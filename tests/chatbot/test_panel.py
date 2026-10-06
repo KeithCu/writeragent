@@ -1160,8 +1160,6 @@ class TestHandsFreeRecord:
         listener._poll_sticky_rerecord(3)
         assert listener.sidebar_state.send.is_recording is False
 
-
-
 class TestStopPreservesAudioWavPath:
     def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
         listener = _make_send_listener()
@@ -1297,10 +1295,6 @@ class TestClearButtonAndPeerDrain:
                             mock_kick.assert_called_once()
 
 
-
-
-
-
 def test_do_send_restores_query_text_on_error() -> None:
     from plugin.chatbot.panel import SendButtonListener
     from unittest.mock import MagicMock, patch
@@ -1311,7 +1305,7 @@ def test_do_send_restores_query_text_on_error() -> None:
         listener.query_control.getModel.return_value = MagicMock()
         listener.query_control.getModel().Text = "hello text"
 
-        with patch("plugin.chatbot.dialogs.get_control_text", return_value="hello text"), patch("plugin.chatbot.dialogs.set_control_text") as mock_set, \
+        with patch("plugin.chatbot.dialogs.get_control_text", return_value="hello text"), patch.object(listener, "_restore_query_text") as mock_set, \
              patch("plugin.audio.stt_service.uses_local_stt", return_value=True), \
              patch("plugin.framework.client.model_fetcher.get_text_model", return_value="model"), \
              patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt"), \
@@ -1322,7 +1316,19 @@ def test_do_send_restores_query_text_on_error() -> None:
             listener._transcribe_audio = MagicMock(side_effect=Exception("Test Exception"))
             listener._do_send()
 
-            # set_control_text should be called twice: once to clear, once to restore
-            assert mock_set.call_count == 2
-            assert mock_set.call_args_list[0][0][1] == ""
-            assert mock_set.call_args_list[1][0][1] == "hello text"
+            # _restore_query_text should be called on error
+            assert mock_set.call_count == 1
+            assert mock_set.call_args_list[0][0][0] == "hello text"
+
+def test_normal_turn_end_does_not_set_focus() -> None:
+    from plugin.chatbot.panel import SendButtonListener
+    from unittest.mock import MagicMock, patch
+
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.panel.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.frame_session = MagicMock()
+    listener.frame_session.restore_focus = MagicMock()
+
+    # Check that a non-stop button state update does not restore focus
+    listener._set_button_states(True, False)
+    listener.frame_session.restore_focus.assert_not_called()

@@ -739,3 +739,48 @@ def test_reused_socket_timeout_is_not_a_free_resend():
         sock.close()
 
 
+def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
+    """When stop_checker() becomes True, broken pipe must not reconnect."""
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport._pacer.min_interval_sec = 0
+    sock = _open_socket()
+    conn = MagicMock()
+    conn.sock = sock
+    stopped = [False]
+
+    def raise_broken_pipe(*a, **k):
+        stopped[0] = True
+        raise BrokenPipeError("broken pipe")
+
+    conn.request.side_effect = raise_broken_pipe
+    try:
+        with pytest.raises(BrokenPipeError):
+            transport.send(
+                "POST",
+                "/v1/chat/completions",
+                b"{}",
+                {"User-Agent": "test"},
+                connection_getter=lambda: conn,
+                stop_checker=lambda: stopped[0],
+            )
+        assert conn.request.call_count == 1
+    finally:
+        sock.close()
+
+
+def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
+    """When stopped, handle_connection_error must exit with 'stop' and log at debug rather than error."""
+    import logging
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    with caplog.at_level(logging.DEBUG, logger="plugin.framework.client.http_transport"):
+        action = transport.handle_connection_error(
+            BrokenPipeError("broken pipe"),
+            path="/v1/chat/completions",
+            retries_left=2,
+            retry_log_message="retrying",
+            stop_checker=lambda: True,
+        )
+    assert action == "stop"
+    assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+    assert any("Connection closed by user stop" in r.message for r in caplog.records)

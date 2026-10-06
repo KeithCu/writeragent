@@ -76,6 +76,11 @@ class TurnController:
     stripper: StreamingHTMLStripper | None
     _alive: bool
     _stop_banner_appended: bool
+    _stop_partial_text: str | None
+    _overflow_compact_attempts: int
+    _last_compact_reason: str | None
+    _last_compact_tokens_before: int | None
+    _last_compact_tokens_after: int | None
 
     def __init__(self, session: Any, mode: str, model: Any = None) -> None:
         self.mode = str(mode or "")
@@ -87,6 +92,11 @@ class TurnController:
         self.stripper = StreamingHTMLStripper()
         self._alive = True
         self._stop_banner_appended = False
+        self._stop_partial_text = None
+        self._overflow_compact_attempts = 0
+        self._last_compact_reason = None
+        self._last_compact_tokens_before = None
+        self._last_compact_tokens_after = None
 
     @property
     def alive(self) -> bool:

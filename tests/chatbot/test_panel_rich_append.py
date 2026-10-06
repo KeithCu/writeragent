@@ -43,7 +43,7 @@ class TestRichAppendResponse:
         send.rich_text_widget.get_text_length.assert_called_once()
         assert send.session.messages[-1]["content"] == "Report"
         assert send.session.messages[-1]["_open_transcript"] is True
-        send.rich_text_widget.paint_session.assert_called_once_with(send.session)
+        send.rich_text_widget.stream_session.assert_called_once_with(send.session)
 
     def test_second_chunk_grows_the_open_row(self):
         send = _make_send_listener()
@@ -54,7 +54,7 @@ class TestRichAppendResponse:
         assert send.session.messages == [
             {"role": "assistant", "content": "Hello world", "_open_transcript": True},
         ]
-        send.rich_text_widget.paint_session.assert_called_once_with(send.session)
+        send.rich_text_widget.stream_session.assert_called_once_with(send.session)
 
     def test_bare_ai_chunk_reaches_the_session(self):
         """A 250 ms batch of just " AI" is model text, not the legacy label."""
@@ -64,7 +64,7 @@ class TestRichAppendResponse:
             send._append_response(" AI", role="assistant")
 
         assert send.session.messages[-1]["content"] == "Ask the AI"
-        send.rich_text_widget.paint_session.assert_called_once_with(send.session)
+        send.rich_text_widget.stream_session.assert_called_once_with(send.session)
 
     def test_main_thread_calls_widget_directly(self):
         send = _make_send_listener()
@@ -72,7 +72,7 @@ class TestRichAppendResponse:
             send._append_response("search step", role="assistant")
 
         send.queue_executor.post.assert_not_called()
-        send.rich_text_widget.paint_session.assert_called_once()
+        send.rich_text_widget.stream_session.assert_called_once()
 
     def test_worker_thread_posts_to_queue_executor(self):
         send = _make_send_listener()

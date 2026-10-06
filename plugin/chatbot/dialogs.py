@@ -80,6 +80,9 @@ def msgbox(ctx: Any, title: Any, message: Any, *, box_type: int = 1) -> None:
 
     Args:
         box_type: LO message box type (1=INFO, 2=WARNING, 3=ERROR, 4=QUERY).
+
+    *message* is shown as given: callers translate catalog strings. Runtime text
+    (tracebacks, exception text) through ``_()`` breaks the DEAL_MAX_MSGID contract.
     """
     if not ctx:
         log.info("MSGBOX (no ctx) - %s: %s", title, message)
@@ -93,7 +96,7 @@ def msgbox(ctx: Any, title: Any, message: Any, *, box_type: int = 1) -> None:
         window = frame.getContainerWindow()
         smgr = ctx.getServiceManager()
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        box = toolkit.createMessageBox(window, box_type, 1, _(title), _(message))  # OK button
+        box = toolkit.createMessageBox(window, box_type, 1, _(title), str(message))  # OK button
         log.debug("msgbox execute start title=%s", title)
         try:
             box.execute()
@@ -428,7 +431,7 @@ def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None
 
         msg_ctrl = dlg.getControl("Msg")
         if msg_ctrl is not None:
-            msg_ctrl.getModel().Label = _(message)
+            msg_ctrl.getModel().Label = str(message)
 
         class _CopyListener(BaseActionListener):
             _dlg: Any
@@ -498,7 +501,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
 
         msg_ctrl = dlg.getControl("Msg")
         if msg_ctrl is not None:
-            msg_ctrl.getModel().Label = _(message)
+            msg_ctrl.getModel().Label = str(message)
 
         class _CopyListener(BaseActionListener):
             _dlg: Any

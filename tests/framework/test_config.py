@@ -1286,4 +1286,4 @@ def test_resolve_config_path_from_ctx_rejects_mock_and_invalid_user_config():
     ps_valid.UserConfig = "/home/user/.config/libreoffice/4/user"
     ctx_valid.getServiceManager.return_value.createInstanceWithContext.return_value = ps_valid
     path = _resolve_config_path_from_ctx(ctx_valid)
-    assert path == "/home/user/.config/libreoffice/4/user/writeragent.json"
+    assert path == os.path.join("/home/user/.config/libreoffice/4/user", "writeragent.json")

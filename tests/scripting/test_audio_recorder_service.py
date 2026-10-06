@@ -189,3 +189,80 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     texts = [str(call.args[0]) for call in host._append_response.call_args_list]
     assert any("Falling back to STT" in text for text in texts)
     assert not any("No speech detected" in text for text in texts)
+
+
+def test_audio_history_replacement():
+    from plugin.scripting.audio_recorder_service import _replace_audio_with_text
+    from unittest.mock import MagicMock
+
+    class DummyHost:
+        def __init__(self):
+            self.session = MagicMock()
+
+            # Use list instead of MagicMock for messages so pop() works normally
+            # Then we can assert what is inside it.
+            self.session.messages = [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": "test"}}]}]
+            self.session.db = MagicMock()
+
+    host = DummyHost()
+    _replace_audio_with_text(host, "hello text")
+
+    host.session.add_user_message.assert_called_once_with("hello text")
+    host.session.db.replace_messages.assert_called_once_with(host.session.messages)
+    assert len(host.session.messages) == 0  # pop was called
+
+def test_stt_not_registered_in_cancel_scope():
+    from plugin.chatbot.send_handlers import SendHandlersMixin
+    from unittest.mock import MagicMock, patch
+
+    host = SendHandlersMixin()
+    host.audio_wav_path = "test.wav"
+    cl = MagicMock()
+    host.client = cl
+    host._set_status = MagicMock()
+    host._append_response = MagicMock()
+    host.ctx = MagicMock()
+
+    scope = MagicMock()
+    scope.is_cancelled.return_value = False
+
+    # We test the condition inside `_transcribe_audio` directly without running full loop
+    with patch("plugin.chatbot.send_handlers.capture_send_stop", return_value=(scope, lambda: False)), \
+         patch("plugin.chatbot.send_handlers.get_api_config", return_value={}), \
+         patch("plugin.chatbot.send_handlers.LlmClient", return_value=cl), \
+         patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing..."), \
+         patch("plugin.chatbot.send_handlers.run_blocking_in_thread", return_value="test text"), \
+         patch("os.remove"):
+        host._transcribe_audio("test.wav", "stt_model")
+
+        # It should not register client if transcribing
+        scope.register_client.assert_not_called()
+
+def test_stt_put_transcript_in_ask_box_on_stop():
+    from plugin.chatbot.panel import SendButtonListener
+    from unittest.mock import MagicMock, patch
+
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.panel.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+        listener.query_control = MagicMock()
+        listener.query_control.getModel.return_value = MagicMock()
+        listener.query_control.getModel().Text = "hello text"
+
+        with patch("plugin.chatbot.dialogs.get_control_text", return_value="hello text"), patch.object(listener, "_restore_query_text") as mock_restore, \
+             patch("plugin.audio.stt_service.uses_local_stt", return_value=True), \
+             patch("plugin.framework.client.model_fetcher.get_text_model", return_value="model"), \
+             patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt"), \
+             patch("plugin.framework.config.get_current_endpoint", return_value="endpoint"):
+
+            listener._get_document_model = MagicMock()
+            listener.cached_doc_type = "writer"
+            listener.audio_wav_path = "test.wav"
+
+            # Simulate STT being stopped, returning transcript but _terminal_status="Stopped"
+            listener._terminal_status = "Stopped"
+            listener._transcribe_audio = MagicMock(return_value="my speech transcript")
+            listener._do_send()
+
+            # Should have restored with the COMBINED text!
+            assert mock_restore.call_count == 1
+            assert mock_restore.call_args_list[0][0][0] == "hello text\nmy speech transcript"

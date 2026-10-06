@@ -156,6 +156,7 @@ class SilenceDetector:
         if is_speech:
             if not self._in_speech:
                 self._in_speech = True
+                self._last_reported_silence_ms = -1
                 self._thresholds_frozen = True
                 log.info(
                     "audio VAD: speech started (rms=%.4f peak=%.4f silence_thr=%.4f speech_thr=%.4f)",
