@@ -1268,6 +1268,33 @@ def test_post_to_soffice_vcl_inits_async_callback(monkeypatch) -> None:
     assert posted
 
 
+def test_handle_debug_sidebar_fsm_op_inits_async_callback_before_post(fake_listener, monkeypatch) -> None:
+    """Packet P: STOP_CLICKED on a fresh panel must not sit queued until KICK_PEERS.
+
+    Force-marshal post skips AsyncCallback init. Without the init the poke was
+    a no-op, and the stale Stop later cancelled Calc's peer turn mid-flight.
+    """
+    order: list[str] = []
+    posted: list = []
+
+    def _post(fn, *a, **k) -> None:
+        order.append("post")
+        posted.append(fn)
+
+    fake_listener.queue_executor = SimpleNamespace(
+        _get_async_callback=lambda: order.append("init"),
+        post=_post,
+    )
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners", lambda: 0)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: fake_listener)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks._write_debug_snapshot", lambda sl: {})
+    handle_debug_sidebar_command("chatbot.debug_sidebar.STOP_CLICKED")
+    assert order == ["init", "post"]
+    posted[0]()
+    kinds = [e.kind for e in fake_listener.events if hasattr(e, "kind")]
+    assert SendEventKind.STOP_CLICKED in kinds
+
+
 def test_adopt_chat_sidebar_shows_deck_on_doc(monkeypatch) -> None:
     doc = SimpleNamespace(
         getCurrentController=lambda: SimpleNamespace(getFrame=lambda: "calc-frame")
