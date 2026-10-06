@@ -756,6 +756,7 @@ class LlmClient:
         import os
         import base64
         from plugin.framework.client.model_fetcher import has_native_audio
+        from plugin.framework.url_utils import get_url_path_and_query
 
         # Determine model
         # Client dict may carry the Speech-tab key or the legacy top-level key.
@@ -834,7 +835,10 @@ class LlmClient:
         log.debug("STT Model: %s" % model_name)
 
         # Same transport as chat so Stop closes the socket and 429/503 retries.
-        res = self._request_json("POST", api_path + "/audio/transcriptions", body_bytes, headers, stop_checker=stop_checker, status_callback=status_callback)
+        # What was wrong: passing api_path drops the endpoint's own path prefix.
+        # Why: get_url_path_and_query keeps both the prefix and the API path.
+        req_path = get_url_path_and_query(url)
+        res = self._request_json("POST", req_path, body_bytes, headers, stop_checker=stop_checker, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
     def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
