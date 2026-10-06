@@ -633,7 +633,13 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
         pass
 
 
-def update_activity_state(phase: str, round_num: Any = None, tool_name: str | None = None) -> None:
+def note_activity() -> None:
+    """Note recent activity to prevent false Hung statuses, without changing phase or logging."""
+    with _activity_lock:
+        _activity_state["last_activity"] = time.monotonic()
+
+
+def update_activity_state(phase: str, round_num: Any = None, tool_name: str | None = None, status_control: Any = None) -> None:
     """Update shared activity state (call from main thread at phase boundaries).
     Pass phase='' when returning control to LibreOffice so the watchdog stops checking."""
     with _activity_lock:
@@ -643,6 +649,20 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
             _activity_state["round_num"] = round_num
         if tool_name is not None:
             _activity_state["tool_name"] = tool_name
+        if status_control is not None:
+            _activity_state["status_control"] = status_control
+
+        ctrl_to_clear = _activity_state.get("status_control")
+        if not phase:
+            _activity_state["status_control"] = None
+
+    if not phase and ctrl_to_clear is not None:
+        try:
+            from plugin.framework.queue_executor import post_to_main_thread
+
+            post_to_main_thread(_clear_hung_status, ctrl_to_clear)
+        except Exception:
+            pass
 
 
 def _clear_hung_status(status_control: Any) -> None:
@@ -697,17 +717,20 @@ def _watchdog_check(status_control: Any) -> None:
         round_num = _activity_state["round_num"]
         tool_name = _activity_state["tool_name"]
         last = _activity_state["last_activity"]
+        active_status_control: Any = _activity_state.get("status_control", status_control)
+    if active_status_control is None:
+        active_status_control = status_control
     if not phase:
         return
     last_val = last if isinstance(last, (int, float)) else 0.0
     elapsed = time.monotonic() - last_val
     if elapsed < _watchdog_threshold_sec:
         _watchdog_stacks_dumped = False
-        if _watchdog_hung_shown and status_control is not None:
+        if _watchdog_hung_shown and active_status_control is not None:
             try:
                 from plugin.framework.queue_executor import post_to_main_thread
 
-                post_to_main_thread(_clear_hung_status, status_control)
+                post_to_main_thread(_clear_hung_status, active_status_control)
                 _watchdog_hung_shown = False
             except Exception:
                 log.debug("watchdog: failed to clear Hung status", exc_info=True)
@@ -720,14 +743,14 @@ def _watchdog_check(status_control: Any) -> None:
         _dump_thread_stacks()
         # Write it now; a hang that ends in a crash may not reach the next tick.
         _flush_debug_log()
-    if status_control:
+    if active_status_control:
         hung_text = "Hung: %s round %s" % (phase, round_num)
         if tool_name:
             hung_text += " %s" % tool_name
         try:
             from plugin.framework.queue_executor import post_to_main_thread
 
-            post_to_main_thread(status_control.setText, hung_text)
+            post_to_main_thread(active_status_control.setText, hung_text)
             _watchdog_hung_shown = True
         except Exception:
             log.debug("watchdog: failed to post Hung status to main thread", exc_info=True)

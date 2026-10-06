@@ -18,6 +18,7 @@ class MockSession:
     def __init__(self):
         self.messages = [{"role": "system", "content": "test"}]
         self.document_context = ""
+        self.db = None
 
     def set_system_context(self, base_prompt, doc_text=""):
         self.document_context = doc_text

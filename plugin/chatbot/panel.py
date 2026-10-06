@@ -997,6 +997,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             widget = getattr(self, "rich_text_widget", None)
             if widget:
                 from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+                from plugin.framework.logging import note_activity
 
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
                 # "AI:" / "Using chat model" are plain-sidebar labels. The paint
@@ -1004,6 +1005,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if role != "user" and skip_legacy_assistant_stream_chunk(text):
                     return
                 clean_text = _chunk_text(turn, text, role, strip_non_assistant=False)
+                note_activity()
                 # A held tag fragment is not a list change. Drawing now would
                 # rebuild the same paint.
                 if role == "assistant" and not clean_text:
@@ -1059,6 +1061,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
                 from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+                from plugin.framework.logging import note_activity
 
                 # A session list is the transcript. Hosts with no list (unit
                 # tests) still append onto the control.
@@ -1066,6 +1069,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     if role != "user" and skip_legacy_assistant_stream_chunk(text):
                         return
                     clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
+                    note_activity()
                     if role == "assistant" and not clean_text:
                         return
                     if isinstance(turn, TurnController):
@@ -1513,6 +1517,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # AI/DEV INVARIANT: Do NOT clear audio_wav_path or kill in-flight STT here.
                 # If Stop is clicked while recording or transcribing, we want speech-to-text to finish
                 # and populate the query box so the user's spoken words are preserved and not discarded.
+                # The STT client is not registered with the send scope, so this Stop
+                # does not abort transcription HTTP requests.
 
                 self._stop_requested_fallback = True
                 from plugin.doc.peer_message import drop_listener_queue
@@ -1721,8 +1727,27 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
             # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
             # finally so no early return or TTS exception can leak active_turns.
-            from plugin.chatbot.tool_loop_actions import drop_turn
+            from plugin.chatbot.tool_loop_actions import drop_turn, session_for_turn
             from plugin.doc.peer_message import kick_pending_peer_starts
+
+            # This runs once per turn, from the deferred drain-done close
+            # (_close_send_drain), on success, Stop and error alike. A slice
+            # returning mid-stream does not reach here, so the audio the model
+            # is still answering is not stripped early.
+            sess = session_for_turn(self) or getattr(self, "session", None)
+            if sess and getattr(sess, "messages", None):
+                # Ensure in-memory audio is not resent on the next turn.
+                # Iterate backwards to find the last user message.
+                for msg in reversed(sess.messages):
+                    if msg.get("role") == "user":
+                        content = msg.get("content")
+                        if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
+                            kept_parts = [c for c in content if c.get("type") != "input_audio"]
+                            if kept_parts:
+                                msg["content"] = kept_parts
+                            else:
+                                msg["content"] = _("[Voice message]")
+                        break
 
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
@@ -1761,7 +1786,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Mode and the document are filled in once this send knows them.
         begin_send_turn(self, "")
         self._set_status(_("Starting..."))
-        update_activity_state("do_send")
+        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
         log.info("=== _do_send START ===")
 
         # Ensure extension directory is on sys.path (injected by panel_factory to avoid circular import)
@@ -2093,7 +2118,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         begin_send_turn(self, CHAT_MODE_CHAT)
         self._set_status(_("Starting..."))
-        update_activity_state("do_send")
+        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
         if self.ensure_path_fn:
             self.ensure_path_fn(self.ctx)
         model = self._get_document_model()

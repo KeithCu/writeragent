@@ -1979,6 +1979,28 @@ def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
     assert panel._stt_inflight is False
 
 class TestSTTClientReset:
+    def test_transcribe_cancelling_send_scope_does_not_stop_stt_client(self) -> None:
+        from plugin.framework.queue_executor import SendCancellation
+
+        panel = DummyChatbotPanel()
+        scope = SendCancellation()
+        panel._send_cancellation = scope
+        panel.ctx = MagicMock()
+
+        # Stop effect is intercepted so we just observe the scope
+        with (
+            patch("plugin.chatbot.send_handlers.get_api_config", return_value={"model": "fake", "provider": "openai"}),
+            patch("plugin.framework.client.llm_client.LlmClient.stop") as mock_stop,
+            patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing..."),
+            patch("plugin.chatbot.send_handlers.run_blocking_in_thread", return_value="hello world")
+        ):
+            panel._transcribe_audio("fake.wav", "stt-model")
+
+        # Cancelling the scope must not call stop on the created LlmClient
+        scope.cancel()
+        mock_stop.assert_not_called()
+
+
     def test_transcribe_builds_fresh_client(self) -> None:
         host = DummyChatbotPanel()
         host.client = MagicMock()
