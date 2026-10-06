@@ -51,34 +51,25 @@ def _set_shape_text(shape: Any, text: str) -> None:
         shape.setString(text)
 
 
-def _parse_slide_index(val: Any, current: int, page_count: int) -> int | None:
+def _parse_slide_index(val: Any, current: int, page_count: int, *, clamp: bool = True) -> int | None:
+    """Slide index from "", "last", or a number. None when it is not valid.
+
+    clamp=False rejects an out-of-range number. DeleteSlide and DuplicateSlide
+    use that: clamping made {"DeleteSlide": 99} delete the last slide.
+    """
     if val == "" or val is None:
         return current
     if isinstance(val, str) and val.strip().lower() == "last":
         return max(0, page_count - 1)
     try:
         idx = int(val)
-        return max(0, min(idx, page_count - 1))
     except (TypeError, ValueError):
         return None
-
-
-def _parse_existing_slide_index(val: Any, current: int, page_count: int) -> tuple[int | None, str]:
-    """Like _parse_slide_index, but an out-of-range index is an error, not clamped.
-
-    Clamping made {"DeleteSlide": 99} delete the last slide.
-    """
-    if val == "" or val is None:
-        return current, ""
-    if isinstance(val, str) and val.strip().lower() == "last":
-        return max(0, page_count - 1), ""
-    try:
-        idx = int(val)
-    except (TypeError, ValueError):
-        return None, repr(val)
+    if clamp:
+        return max(0, min(idx, page_count - 1))
     if idx < 0 or idx >= page_count:
-        return None, "index out of range"
-    return idx, ""
+        return None
+    return idx
 
 
 def _current_after_move(current: int, from_idx: int, to_idx: int) -> int:
@@ -387,26 +378,23 @@ class SlideCommandEngine:
             self.warnings.append(f"InsertMasterSlide: {e}")
 
     def _delete_slide(self, val: Any) -> None:
-        idx, problem = _parse_existing_slide_index(val, self.current_slide, self._page_count())
+        idx = _parse_slide_index(val, self.current_slide, self._page_count(), clamp=False)
         if idx is None:
-            self.warnings.append("Invalid DeleteSlide: %s" % problem)
+            self.warnings.append("Invalid DeleteSlide: %r (no such slide)" % val)
             return
-
         if self._page_count() <= 1:
             self.warnings.append("Cannot delete the only slide")
             return
-
         self.bridge.delete_slide(idx)
         self.pages = self.bridge.get_pages()
         self.current_slide = _current_after_delete(self.current_slide, idx, self._page_count())
         self.applied.append("DeleteSlide:%d" % idx)
 
     def _duplicate_slide(self, val: Any) -> None:
-        idx, problem = _parse_existing_slide_index(val, self.current_slide, self._page_count())
+        idx = _parse_slide_index(val, self.current_slide, self._page_count(), clamp=False)
         if idx is None:
-            self.warnings.append("Invalid DuplicateSlide: %s" % problem)
+            self.warnings.append("Invalid DuplicateSlide: %r (no such slide)" % val)
             return
-
         self.bridge.duplicate_slide(idx, switch=True)
         self.pages = self.bridge.get_pages()
         self.current_slide = min(idx + 1, self._page_count() - 1)
