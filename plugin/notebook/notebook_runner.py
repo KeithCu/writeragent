@@ -15,7 +15,7 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import is_document_disposed
+from plugin.framework.errors import DocumentDisposedError, is_document_disposed
 from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
@@ -102,16 +102,14 @@ def _clear_stop(busy_key: str) -> None:
 
 
 def request_stop(doc: Any) -> None:
-    """Ask the in-flight cell / remaining Run All sequence to stop.
-
-    Must not check ``_running_docs`` — the busy guard skips a second ▶, but
-    Stop has to land while that key is held.
-    """
+    """Ask the in-flight cell / remaining Run All sequence to stop."""
+    # must not check _running_docs; Stop has to land while the busy key is held.
     _stop_event(_doc_key(doc)).set()
 
 
 def stop_for_doc(doc: Any) -> None:
     """Menu/toolbar Stop. Never blocked by the busy guard."""
+    # must not check _running_docs; Stop has to land while the busy key is held.
     if doc is None:
         return
     request_stop(doc)
@@ -119,6 +117,8 @@ def stop_for_doc(doc: Any) -> None:
 
 def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     """Run *code* in the notebook kernel off the UI thread without a VCL pump.
+
+    never pump VCL inside a cell (processEventsToIdle livelocks in LayoutIdle on notebooks with many controls); pump only between cells.
 
     ``pump_idle=False``: ``processEventsToIdle`` waits for ``LayoutIdle``, which
     livelocks (92% CPU, never returns) on notebooks with many in-flow form
@@ -732,6 +732,7 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     *next* paragraph. Still ``setString`` whitespace-only ranges so leftover empty
     paragraphs do not accumulate under the cell.
     """
+    # setString on a range containing the bookmark deletes it; start at the next paragraph.
     _reanchor_output_bookmark(doc, cell)
     text = doc.getText()
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
@@ -954,6 +955,7 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     deleted those ``ControlShape``s (TextPortionType ``Frame``). ▶ now sits on the
     ``In [n]:`` gutter; rewrite leading Text portions only, never the Frame.
     """
+    # never setString a range containing ControlShapes; it deletes the run button and code field.
     try:
         enum = para.createEnumeration()
     except Exception:
@@ -1076,35 +1078,41 @@ def _restore_view_to_cell(doc: Any, cell: NotebookCodeCell, saved: Any | None = 
 
 def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: NotebookCodeCell, code: str) -> RunResult:
     """Run *code* for *cell* and write outputs. Caller holds the busy key."""
-    saved_view = _save_view_cursor(doc)
-    result = execute_code(ctx, doc, code)
-    # After execute so live smoke can tell ok from a sandbox dunder deny.
-    log.info("notebook run cell index=%d field=%s status=%s", cell.index, cell.code_field_name, result.get("status"))
-    if result.get("status") == "stopped" or result.get("status") == "interrupted":
-        # In [n] / outputs only for cells that actually finished.
+    try:
+        saved_view = _save_view_cursor(doc)
+        result = execute_code(ctx, doc, code)
+        # After execute so live smoke can tell ok from a sandbox dunder deny.
+        log.info("notebook run cell index=%d field=%s status=%s", cell.index, cell.code_field_name, result.get("status"))
+        if result.get("status") == "stopped" or result.get("code") == "CANCELLED":
+            # In [n] / outputs only for cells that actually finished.
+            return RunResult("stopped", None, "Stopped.", cells_run=0)
+
+        execution_count = state.next_execution_count
+
+        clear_cell_output(doc, cell)
+        try:
+            apply_run_result(doc, cell, result, ctx=ctx)
+        finally:
+            if result.get("status") == "ok":
+                cell.last_run_status = "ok"
+            else:
+                cell.last_run_status = "error"
+            cell.execution_count = execution_count
+            state.next_execution_count = execution_count + 1
+            update_in_prompt(doc, cell, execution_count)
+            save_registry(doc, state)
+        # Skip processEventsToIdle: same LayoutIdle livelock as post-import flush
+        # on notebooks with many in-flow form controls.
+        _restore_view_to_cell(doc, cell, saved_view)
+
+        if result.get("status") != "ok":
+            msg = result.get("message") or _("Cell execution failed.")
+            if result.get("code") in ("VENV_TIMEOUT", "WORKER_IPC_ERROR"):
+                return RunResult("fatal", execution_count, str(msg), cells_run=1)
+            return RunResult("error", execution_count, str(msg), cells_run=1)
+        return RunResult("ok", execution_count, cells_run=1)
+    except DocumentDisposedError:
         return RunResult("stopped", None, "Stopped.", cells_run=0)
-
-    if result.get("status") == "ok":
-        cell.last_run_status = "ok"
-    else:
-        cell.last_run_status = "error"
-
-    execution_count = state.next_execution_count
-    cell.execution_count = execution_count
-    state.next_execution_count = execution_count + 1
-
-    clear_cell_output(doc, cell)
-    apply_run_result(doc, cell, result, ctx=ctx)
-    update_in_prompt(doc, cell, execution_count)
-    save_registry(doc, state)
-    # Skip processEventsToIdle: same LayoutIdle livelock as post-import flush
-    # on notebooks with many in-flow form controls.
-    _restore_view_to_cell(doc, cell, saved_view)
-
-    if result.get("status") != "ok":
-        msg = result.get("message") or _("Cell execution failed.")
-        return RunResult("error", execution_count, str(msg), cells_run=1)
-    return RunResult("ok", execution_count, cells_run=1)
 
 
 def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
@@ -1251,39 +1259,45 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
         cells = list(state.code_cells[max(0, start_index) :])
         need_drain = False
         for cell in cells:
-            if _is_stop_requested(busy_key):
-                stopped = True
-                break
-            code = form_lookup.read_code_from_field(doc, cell.code_field_name)
-            if code is None:
-                log.warning("notebook run: code field %r missing for cell %d; skipping", cell.code_field_name, cell.index)
-                continue
-            if not code.strip():
-                continue
-            if need_drain:
-                # LayoutIdle livelock is during execute, not this between-cell pump.
-                # Stop clicks are delivered here; check the flag before the next cell.
-                _pump_between_notebook_cells(ctx)
-            if is_document_disposed(doc):
-                stopped = True
-                break
-            if _is_stop_requested(busy_key):
-                stopped = True
-                break
-            one = _execute_and_apply(ctx, doc, state, cell, code)
-            if one.status == "stopped":
-                stopped = True
-                break
-            executed += 1
-            last_count = one.execution_count
-            need_drain = True
-            if _is_stop_requested(busy_key):
+            try:
+                if _is_stop_requested(busy_key):
+                    stopped = True
+                    break
+                code = form_lookup.read_code_from_field(doc, cell.code_field_name)
+                if code is None:
+                    log.warning("notebook run: code field %r missing for cell %d; skipping", cell.code_field_name, cell.index)
+                    continue
+                if not code.strip():
+                    continue
+                if need_drain:
+                    # LayoutIdle livelock is during execute, not this between-cell pump.
+                    # Stop clicks are delivered here; check the flag before the next cell.
+                    _pump_between_notebook_cells(ctx)
+                if is_document_disposed(doc):
+                    stopped = True
+                    break
+                if _is_stop_requested(busy_key):
+                    stopped = True
+                    break
+                one = _execute_and_apply(ctx, doc, state, cell, code)
+                if one.status == "stopped" or one.status == "fatal":
+                    stopped = True
+                    break
+                executed += 1
+                last_count = one.execution_count
+                need_drain = True
+                if _is_stop_requested(busy_key):
+                    stopped = True
+                    break
+            except DocumentDisposedError:
                 stopped = True
                 break
         if stopped:
             return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
         return RunResult("ok", last_count, cells_run=executed)
     finally:
+        with _stop_lock:
+            _stop_flags.pop(busy_key, None)
         _running_docs.discard(busy_key)
 
 

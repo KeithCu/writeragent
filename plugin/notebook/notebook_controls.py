@@ -396,16 +396,17 @@ def _doc_key(doc: Any) -> str:
     different PyUNO wrappers of the same document — one ▶ click then ran
     the cell multiple times (``[In [4]]`` jumped to ``[In [7]]``).
     ``RuntimeUID`` is the same object for every wrapper of that document.
-
-    What was wrong: this called ``get_runtime_uid``. With the dev UNO thread
-    guard on, that raises off the main thread. How: File Open
-    ``XFilter.filter`` runs on Dummy-2 and the extensionless detect reload
-    on Dummy-3 (see the wire_all comment above). ``filter()`` caught the
-    ``RuntimeError`` and returned False, so ``loadComponentFromURL`` returned
-    None. Why: ``_read_runtime_uid`` is the same ladder without
-    ``@main_thread_only``. Decorating this path or hopping to the main thread
-    deadlocks the waiting host (#402).
     """
+    # do not hop to main / get_runtime_uid; File Open runs on Dummy-2 and that deadlocks (#402).
+
+    # What was wrong: this called ``get_runtime_uid``. With the dev UNO thread
+    # guard on, that raises off the main thread. How: File Open
+    # ``XFilter.filter`` runs on Dummy-2 and the extensionless detect reload
+    # on Dummy-3 (see the wire_all comment above). ``filter()`` caught the
+    # ``RuntimeError`` and returned False, so ``loadComponentFromURL`` returned
+    # None. Why: ``_read_runtime_uid`` is the same ladder without
+    # ``@main_thread_only``. Decorating this path or hopping to the main thread
+    # deadlocks the waiting host (#402).
     from plugin.framework.uno_context import _read_runtime_uid
 
     uid = _read_runtime_uid(doc)
@@ -604,7 +605,7 @@ class NotebookRunButtonListener(BaseActionListener):
                 if doc is not None:
                     return doc
             except Exception:
-                pass
+                log.debug("notebook controls: doc resolution failed", exc_info=True)
         # Prefer a live wrapper before enumerating the desktop (unit tests and
         # prune_dead_listeners). PyUNO often cannot weakref; then use UID.
         weak = getattr(self, "_doc_weak", None)
@@ -848,8 +849,6 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         log.debug("notebook controls: form listener already attached doc=%s", doc_key)
         return 1
 
-
-
     listener = NotebookFormRunListener(ctx, doc)
     attached = 0
     try:
@@ -875,9 +874,20 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         return 0
 
     with _lock:
-        _listener_refs.append(listener)
-        _listener_refs.append(container_lis)
-        _wired_form_docs.add(doc_key)
+        already_wired = False
+        for lis in _listener_refs:
+            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
+                try:
+                    if uno_same(lis._container, container):
+                        already_wired = True
+                        break
+                except Exception:
+                    already_wired = True
+                    break
+        if not already_wired:
+            _listener_refs.append(listener)
+            _listener_refs.append(container_lis)
+            _wired_form_docs.add(doc_key)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1
