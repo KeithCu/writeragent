@@ -1217,6 +1217,51 @@ class TestStoppedTTS:
             listener._run_send_drain()
             mock_speak.assert_not_called()
 
+    def test_session_messages_has_no_input_audio_after_turn_finishes(self) -> None:
+        """Audio parts are stripped from the session message so they are not resent."""
+        listener = _make_send_listener()
+        listener._terminal_status = ""
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+
+        # Give the session a message that has input_audio
+        audio_part = {"type": "input_audio", "input_audio": {"data": "YmFzZTY0", "format": "wav"}}
+        text_part = {"type": "text", "text": "hello"}
+        listener.session.messages = [{"role": "user", "content": [text_part, audio_part]}]
+
+        with (
+            patch.object(listener, "_do_send"),
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
+            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.doc.peer_message.kick_pending_peer_starts")
+        ):
+            listener._run_send_drain()
+
+            # The message should retain the text part but drop the audio part
+            assert listener.session.messages[-1]["content"] == [text_part]
+
+    def test_session_messages_has_no_input_audio_preserves_images(self) -> None:
+        """Audio parts are stripped but image parts are kept."""
+        listener = _make_send_listener()
+        listener._terminal_status = ""
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+
+        audio_part = {"type": "input_audio"}
+        image_part = {"type": "image_url", "image_url": {"url": "..."}}
+        listener.session.messages = [{"role": "user", "content": [image_part, audio_part]}]
+
+        with (
+            patch.object(listener, "_do_send"),
+            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
+            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.doc.peer_message.kick_pending_peer_starts")
+        ):
+            listener._run_send_drain()
+
+            # The message should retain the image part
+            assert listener.session.messages[-1]["content"] == [image_part]
+
     def test_do_send_empty_stt_does_not_invoke_tts(self) -> None:
         listener = _make_send_listener()
         # Not "Ready" and not "Stopped"

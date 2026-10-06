@@ -1513,6 +1513,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # AI/DEV INVARIANT: Do NOT clear audio_wav_path or kill in-flight STT here.
                 # If Stop is clicked while recording or transcribing, we want speech-to-text to finish
                 # and populate the query box so the user's spoken words are preserved and not discarded.
+                # The STT client is not registered with the send scope, so this Stop
+                # does not abort transcription HTTP requests.
 
                 self._stop_requested_fallback = True
                 from plugin.doc.peer_message import drop_listener_queue
@@ -1688,8 +1690,23 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
                 # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
                 # finally so no early return or TTS exception can leak active_turns.
-                from plugin.chatbot.tool_loop_actions import drop_turn
+                from plugin.chatbot.tool_loop_actions import drop_turn, session_for_turn
                 from plugin.doc.peer_message import kick_pending_peer_starts
+
+                sess = session_for_turn(self) or getattr(self, "session", None)
+                if sess and getattr(sess, "messages", None):
+                    # Ensure in-memory audio is not resent on the next turn.
+                    # Iterate backwards to find the last user message.
+                    for msg in reversed(sess.messages):
+                        if msg.get("role") == "user":
+                            content = msg.get("content")
+                            if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
+                                kept_parts = [c for c in content if c.get("type") != "input_audio"]
+                                if kept_parts:
+                                    msg["content"] = kept_parts
+                                else:
+                                    msg["content"] = _("[Voice message]")
+                            break
 
                 # Spoken text was copied above. Later callbacks must not find this turn.
                 drop_turn(self)

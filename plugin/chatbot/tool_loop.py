@@ -439,15 +439,35 @@ class ToolCallingMixin:
                 })
                 attachments.append("Image")
 
+            audio_content: list[dict[str, Any]] | None = None
             if self.audio_wav_path:
                 from plugin.scripting.audio_recorder_service import append_wav_as_input_audio
 
-                if append_wav_as_input_audio(content_list, self.audio_wav_path):
+                audio_content = []
+                if append_wav_as_input_audio(audio_content, self.audio_wav_path):
                     attachments.append("Audio")
                 else:
                     self.audio_wav_path = None
 
-            turn_session.add_user_message(content_list)
+            # Add only text (and images) to DB to avoid 404s when reading history
+            if not content_list and attachments == ["Audio"]:
+                from plugin.framework.i18n import _
+                turn_session.add_user_message(_("[Voice message]"))
+            else:
+                turn_session.add_user_message(content_list)
+
+            if audio_content and turn_session.messages:
+                # Append audio to the in-memory message so it's sent this turn
+                last_msg = turn_session.messages[-1]
+                if isinstance(last_msg.get("content"), list):
+                    last_msg["content"].extend(audio_content)
+                else:
+                    existing_text = last_msg.get("content", "")
+                    new_content = []
+                    if existing_text:
+                        new_content.append({"type": "text", "text": existing_text})
+                    new_content.extend(audio_content)
+                    last_msg["content"] = new_content
 
             attach_str = " & ".join(attachments)
             if attach_str:
