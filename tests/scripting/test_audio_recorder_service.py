@@ -170,7 +170,10 @@ def test_native_audio_stt_fallback_replaces_db_row():
     # Session has the audio-included message in memory
     audio_msg = {"role": "user", "content": [{"type": "text", "text": "typed query"}, {"type": "input_audio"}]}
     host.session.messages = [audio_msg]
+
+    db_rows = [{"role": "system", "content": "hello"}, {"role": "user", "content": "[Voice message]"}]
     host.session.db = MagicMock()
+    host.session.db.get_messages.return_value = db_rows
 
     def _stopped(_path, _model):
         return "spoken words"
@@ -189,7 +192,10 @@ def test_native_audio_stt_fallback_replaces_db_row():
     assert recovered is True
     assert len(host.session.messages) == 1
     assert host.session.messages[0]["content"] == "typed query\nspoken words"
-    host.session.db.replace_messages.assert_called_once_with(host.session.messages)
+
+    # DB replacement must use the database rows (including system prompt, etc) with only the user row updated
+    expected_db_rows = [{"role": "system", "content": "hello"}, {"role": "user", "content": "typed query\nspoken words"}]
+    host.session.db.replace_messages.assert_called_once_with(expected_db_rows)
     host.session.add_user_message.assert_not_called()
 
 

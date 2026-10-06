@@ -1682,19 +1682,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
                 # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
                 # finally so no early return or TTS exception can leak active_turns.
-                from plugin.chatbot.tool_loop_actions import drop_turn
+                from plugin.chatbot.tool_loop_actions import drop_turn, session_for_turn
                 from plugin.doc.peer_message import kick_pending_peer_starts
 
-                if getattr(self, "session", None) and getattr(self.session, "messages", None):
+                sess = session_for_turn(self) or getattr(self, "session", None)
+                if sess and getattr(sess, "messages", None):
                     # Ensure in-memory audio is not resent on the next turn.
                     # Iterate backwards to find the last user message.
-                    for msg in reversed(self.session.messages):
+                    for msg in reversed(sess.messages):
                         if msg.get("role") == "user":
                             content = msg.get("content")
                             if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
-                                text_parts = [c.get("text") for c in content if c.get("type") == "text" and c.get("text")]
-                                if text_parts:
-                                    msg["content"] = "\n".join(text_parts)
+                                kept_parts = [c for c in content if c.get("type") != "input_audio"]
+                                if kept_parts:
+                                    msg["content"] = kept_parts
                                 else:
                                     msg["content"] = _("[Voice message]")
                             break

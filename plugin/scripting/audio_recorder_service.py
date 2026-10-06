@@ -597,8 +597,16 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
             combined = (host._active_query_text + "\n" + transcript).strip() if host._active_query_text else transcript
             if host.session.messages and host.session.messages[-1].get("role") == "user":
                 host.session.messages[-1]["content"] = combined
-                if host.session.db:
-                    host.session.db.replace_messages(host.session.messages)
+                if getattr(host.session, "db", None):
+                    rows = host.session.db.get_messages()
+                    # Find the last user row and replace it
+                    for row in reversed(rows):
+                        if row.get("role") == "user":
+                            row["content"] = combined
+                            break
+                    else:
+                        rows.append({"role": "user", "content": combined})
+                    host.session.db.replace_messages(rows)
             else:
                 host.session.add_user_message(combined)
             host._active_query_text = combined

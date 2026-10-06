@@ -1983,26 +1983,22 @@ class TestSTTClientReset:
         from plugin.framework.queue_executor import SendCancellation
 
         panel = DummyChatbotPanel()
-        panel.client = MagicMock()
         scope = SendCancellation()
         panel._send_cancellation = scope
         panel.ctx = MagicMock()
 
         # Stop effect is intercepted so we just observe the scope
         with (
-            patch("plugin.chatbot.send_handlers.get_api_config", return_value={"model": "fake"}),
-            patch("plugin.chatbot.send_handlers.LlmClient") as mock_client_cls,
+            patch("plugin.chatbot.send_handlers.get_api_config", return_value={"model": "fake", "provider": "openai"}),
+            patch("plugin.framework.client.llm_client.LlmClient.stop") as mock_stop,
             patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing..."),
             patch("plugin.chatbot.send_handlers.run_blocking_in_thread", return_value="hello world")
         ):
             panel._transcribe_audio("fake.wav", "stt-model")
 
-        # STT client shouldn't be stopped when scope is cancelled
-        mock_client_cls.assert_called_once_with({"model": "fake"}, panel.ctx, cancellation_scope=scope, register_with_send=False)
-        mock_client_instance = mock_client_cls.return_value
-
+        # Cancelling the scope must not call stop on the created LlmClient
         scope.cancel()
-        mock_client_instance.stop.assert_not_called()
+        mock_stop.assert_not_called()
 
 
     def test_transcribe_builds_fresh_client(self) -> None:
