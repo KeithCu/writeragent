@@ -262,9 +262,6 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                     level="warning",
                 )
 
-        if doc is None:
-            _egress_fail("no Calc document for image insertion")
-
         ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None
 
         if sheet is None:

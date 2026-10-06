@@ -997,13 +997,14 @@ class QueueExecutor:
         # is not a background task. A tagged worker falls through to enqueue,
         # or to the pending list when AsyncCallback is missing. Untagged
         # threads still inline.
-        if self._should_run_inline() and not bg_task:
-            if not self._may_run_marshal_inline() and (None if _force_marshal_mode else self._get_async_callback()) is not None:
-                pass
-            else:
-                log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
-                fn(*args, **kwargs)
-                return
+        # An untagged worker (e.g. a spill timer) also queues when AsyncCallback
+        # exists; inlining there touched UNO off the main thread. With no
+        # AsyncCallback it still inlines. _should_run_inline() is already False
+        # under force-marshal, so that mode needs no extra check here.
+        if self._should_run_inline() and not bg_task and (self._may_run_marshal_inline() or self._get_async_callback() is None):
+            log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
+            fn(*args, **kwargs)
+            return
 
         svc = None if _force_marshal_mode else self._get_async_callback()
         if svc is None and not _force_marshal_mode:
