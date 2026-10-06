@@ -1274,6 +1274,18 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     session.doc_uid = uid
                 session.bind_panel(self)
                 send_listener.frame_session = session
+
+                def on_frame_close() -> None:
+                    if getattr(session, "panel", None) is self:
+                        from plugin.chatbot.tool_loop_actions import current_turn
+                        turn = current_turn(send_listener)
+                        if turn is not None:
+                            turn.closed_by_document = True
+                        release_live_sidebar(self, controls.get("query"))
+
+                if hasattr(session, "add_close_hook"):
+                    session.add_close_hook(on_frame_close)
+
             register_live_panel(self._live_panel_uid, self)
 
 
