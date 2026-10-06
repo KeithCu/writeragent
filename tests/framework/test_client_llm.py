@@ -3203,3 +3203,61 @@ def test_fresh_remote_disconnected_still_shows_provider_busy(client):
 
 
 
+
+def test_stream_without_done_is_connection_lost(client):
+    """A stream that closes without [DONE] or finish_reason is a drop."""
+    from plugin.framework.errors import NetworkError
+    import json
+    resp = create_mock_http_response(sse_lines=[f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}'.encode()])
+    chunks: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        with pytest.raises(NetworkError) as err:
+            client.stream_chat_response([{"role": "user", "content": "Hi"}], max_tokens=10, append_callback=chunks.append)
+    assert err.value.code == "CONNECTION_LOST"
+    assert chunks == ["Hello"]
+
+
+def test_stream_on_content_disposed_exception_propagates_unchanged(client):
+    """An on_content callback that raises a disposed exception propagates unchanged (not wrapped in NetworkError)."""
+    from plugin.framework.errors import DocumentDisposedError
+    import json
+
+    resp = create_mock_http_response(sse_lines=[f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}'.encode()])
+
+    def raise_disposed(_text):
+        raise DocumentDisposedError("mock disposed")
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        with pytest.raises(DocumentDisposedError):
+            client.stream_chat_response([{"role": "user", "content": "Hi"}], max_tokens=10, append_callback=raise_disposed)
+
+
+def test_stream_error_too_many_tokens_is_not_overload(client, _fast_retry_waits):
+    """An error message containing "too many tokens" is not treated as overload / not retried."""
+    from plugin.framework.errors import NetworkError
+    import json
+
+    payload = json.dumps({"error": {"message": "too many tokens"}}).encode()
+    bad = create_mock_http_response(sse_lines=[b"data: " + payload])
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert err.value.code == "STREAM_ERROR"
+    assert "too many" in str(err.value)
+    assert mock_https.call_count == 1
+    _fast_retry_waits["transport"].assert_not_called()
+
+def test_stream_without_done_no_emit_retries(client, _fast_retry_waits):
+    """A stream that closes without [DONE] and without emitting anything is retried."""
+    import json
+    bad = create_mock_http_response(sse_lines=[])
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert result["content"] == "Recovered"
+    assert mock_https.call_count == 2

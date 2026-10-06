@@ -1943,7 +1943,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """
         from plugin.framework.i18n import _
         from plugin.framework.queue_executor import SendCancellation, agent_session
-        from plugin.doc.peer_message import kick_pending_peer_starts
 
         query_text = getattr(self, "_extracted_peer_query", "") or ""
         already_appended = bool(getattr(self, "_extracted_peer_already_appended", True))
@@ -1991,8 +1990,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # turn after SEND_COMPLETED, never before, so the next peer turn
                 # starts only once this one is finished.
                 from plugin.chatbot.tool_loop_actions import drop_turn
+                from plugin.doc.peer_message import kick_pending_peer_starts
 
                 drop_turn(self)
+                # We kick inline here, not via post like _on_drain_idle, because
+                # SEND_COMPLETED and drop_turn already ran; nesting is bounded by
+                # one full peer turn per hop.
                 kick_pending_peer_starts()
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:

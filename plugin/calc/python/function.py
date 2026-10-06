@@ -58,10 +58,13 @@ def flatten_result_values(result: Any) -> list[Any]:
         return [result]
     if not result:
         return []
-    if isinstance(result[0], (list, tuple)):
+    if any(isinstance(row, (list, tuple)) for row in result):
         flat: list[Any] = []
         for row in result:
-            flat.extend(row)
+            if isinstance(row, (list, tuple)):
+                flat.extend(row)
+            else:
+                flat.append(row)
         return flat
     return list(result)
 
@@ -70,7 +73,11 @@ def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
     """True when arg 1 is one number (matrix index), not a data range."""
     if py_data is None:
         return False
-    return count_cells(py_data) == 1
+    if count_cells(py_data) != 1:
+        return False
+    val = _unwrap_single_cell(py_data)
+    return isinstance(val, (int, float)) and not isinstance(val, bool) and not math.isnan(val)
+
 
 
 def _unwrap_single_cell(py_data: Any) -> Any:
@@ -179,9 +186,8 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
         # The Calc add-in bridge renders a raw NaN double as a cascading error (#NUM! or #VALUE!).
         # Python None is mapped to "" (empty cell). We intentionally do NOT collapse NaN here.
         # ±inf passes through (may also error in formulas). Do not collapse inf to empty.
-        if math.isnan(val):
-            return val
         return val
+
     if isinstance(val, str):
         return val
     if isinstance(val, datetime.datetime):
@@ -228,9 +234,8 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
     if hasattr(val, "__float__") and not isinstance(val, (bytes, list, tuple, dict, set)):
         try:
             f = float(val)  # type: ignore[arg-type]
-            if math.isnan(f):
-                return f
             return f
+
         except (ValueError, TypeError, OverflowError):
             pass
     if isinstance(val, (list, tuple)):
@@ -279,8 +284,9 @@ def _get_calc_doc(ctx: Any) -> Any | None:
                 if model and hasattr(model, "getSheets"):
                     return guard_uno(model)
     except Exception:
-        pass
+        log.debug("_get_calc_doc lookup failed", exc_info=True)
     return None
+
 
 
 def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
@@ -305,11 +311,10 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     try:
         target = doc
         if target is None:
-            from plugin.framework.thread_guard import on_main_thread
-
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
                 if hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager"):
+
                     target = _get_calc_doc(ctx)
         if target is not None:
             url_val = getattr(target, "getURL", lambda: "")()
@@ -332,15 +337,17 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
 class WorkerResultSession:
     """Caches one worker list result across multiple =PY() calls in a recalc pass."""
 
-    __slots__: ClassVar[tuple[str, ...]] = ("raw", "flat", "next_index")
+    __slots__: ClassVar[tuple[str, ...]] = ("raw", "flat", "next_index", "timestamp")
     raw: Any
     flat: tuple[Any, ...]
     next_index: int
+    timestamp: float
 
-    def __init__(self, raw: Any, flat: list[Any]) -> None:
+    def __init__(self, raw: Any, flat: list[Any], timestamp: float | None = None) -> None:
         self.raw = raw
         self.flat = tuple(flat)
         self.next_index = 0
+        self.timestamp = time.monotonic() if timestamp is None else timestamp
 
 
 def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None) -> float | str | bool:
@@ -350,15 +357,21 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
         return ""
     tid = threading.get_ident()
     sk = session_key(ctx, code, doc=doc)
-    if len(sk) < 5 or not sk[4]:
+    if not sk[4]:
         # Ambiguous formula identity: do not share next_index across duplicate =PY() cells.
         return flat[0] if flat else ""
     key = (tid, sk, repr(worker_data))
+    now = time.monotonic()
     with _MATRIX_SCALAR_SESSIONS_LOCK:
         state = _MATRIX_SCALAR_SESSIONS.get(key)
-        if not isinstance(state, WorkerResultSession) or state.flat != tuple(flat):
-            state = WorkerResultSession(result, flat)
+        if (
+            not isinstance(state, WorkerResultSession)
+            or state.flat != tuple(flat)
+            or (now - state.timestamp) > _PY_PASS_GAP_SEC
+        ):
+            state = WorkerResultSession(result, flat, timestamp=now)
             _MATRIX_SCALAR_SESSIONS[key] = state
+        state.timestamp = now
         idx = state.next_index
         state.next_index = idx + 1
         if state.next_index >= len(state.flat):
@@ -366,6 +379,7 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     if 0 <= idx < len(state.flat):
         return state.flat[idx]
     return state.flat[-1] if state.flat else ""
+
 
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
@@ -781,6 +795,7 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
             reg_key = (live_key, sheet_name, formula_row, formula_col)
 
             # 1. Clear previously spilled cells
+            # We overwrite previously spilled cells, not #SPILL! on user edits, because the registry stores coordinates only, not the values we wrote.
             previous_spills = SPILL_REGISTRY.get(reg_key, [])
             for r, c in previous_spills:
                 if (r, c) != (formula_row, formula_col):
@@ -829,6 +844,7 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
                 cell_metas.append(meta_row)
 
             # 4. Spill new values using setDataArray to avoid O(N) individual cell writes
+            # We write with setDataArray, not setFormulaArray, so result strings starting with '=' stay text.
             if num_cols > 1:
                 first_row_range = sheet.getCellRangeByPosition(formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row)
                 first_row_range.setDataArray((tuple(coerced_grid[0][1:]),))
@@ -836,6 +852,7 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
             if num_rows > 1:
                 remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
                 remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
+
 
             new_spills = []
             for r_offset in range(num_rows):
@@ -928,14 +945,30 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
 
 def _result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]]:
     """Normalize a 1D list or 2D list-of-lists into a rectangular spill grid."""
-    first_elem = result[0]
-    if isinstance(first_elem, (list, tuple)):
-        return [list(row) for row in result]
+    if not result:
+        return []
+    if any(isinstance(row, (list, tuple)) for row in result):
+        return [list(row) if isinstance(row, (list, tuple)) else [row] for row in result]
     return [[x] for x in result]
+
+
+def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
+    """True when the located formula cell is part of a multi-cell array formula block."""
+    try:
+        if hasattr(sheet, "createCursorByRange") and cell is not None:
+            cursor = sheet.createCursorByRange(cell)
+            if hasattr(cursor, "collapseToCurrentArray"):
+                cursor.collapseToCurrentArray()
+                addr = cursor.getRangeAddress()
+                return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
+    except Exception:
+        pass
+    return False
 
 
 def _selection_is_multi_cell(target_doc: Any) -> bool:
     """True when the current UI selection spans more than one cell (matrix entry)."""
+
     ctrl = target_doc.getCurrentController() if target_doc is not None else None
     if ctrl is None:
         return False
@@ -1023,15 +1056,30 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     except ImportError:
         EMPTY = cast("Any", 0)
 
+    max_cols = 1024
+    max_rows = 1048576
+    try:
+        if hasattr(sheet, "getColumns"):
+            cols_obj = sheet.getColumns()
+            if hasattr(cols_obj, "getCount"):
+                max_cols = int(cols_obj.getCount())
+        if hasattr(sheet, "getRows"):
+            rows_obj = sheet.getRows()
+            if hasattr(rows_obj, "getCount"):
+                max_rows = int(rows_obj.getCount())
+    except Exception:
+        pass
+
     for r_idx in range(num_rows):
         for c_idx in range(num_cols):
             if r_idx == 0 and c_idx == 0:
                 continue
             target_r = formula_row + r_idx
             target_c = formula_col + c_idx
-            if target_r >= 1048576 or target_c >= 1024:
+            if target_r >= max_rows or target_c >= max_cols:
                 log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
                 return "#SPILL!"
+
             if (target_r, target_c) == (formula_row, formula_col):
                 continue
             if (target_r, target_c) in prev_spill_set:
@@ -1139,7 +1187,12 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                         if on_main_thread():
                             target_doc = _get_calc_doc(ctx)
                     if target_doc is not None:
-                        is_matrix = _selection_is_multi_cell(target_doc)
+                        located = locate_formula_cell_in_doc(ctx, target_doc, code)
+                        if located is not None:
+                            sheet, cell, _coord = located
+                            is_matrix = _cell_is_matrix(sheet, cell)
+                        if not is_matrix:
+                            is_matrix = _selection_is_multi_cell(target_doc)
                 except Exception:
                     pass
         else:
@@ -1152,6 +1205,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                     spill_doc = _spill_target_doc(ctx, doc)
                     if _off_main_may_auto_spill(spill_doc):
                         _queue_off_main_auto_spill(ctx, code, grid_to_spill, spill_doc)
+                    # We return the corner as to_calc_compatible (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
                     return to_calc_compatible(grid_to_spill[0][0])
 
                 target_doc = _spill_target_doc(ctx, doc)
@@ -1161,8 +1215,10 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                         return "#SPILL!"
                     if isinstance(prepared, tuple):
                         _queue_deferred_spill_write(ctx, code, grid_to_spill, target_doc, prepared)
+                        # We return the corner as to_calc_compatible (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
                         return to_calc_compatible(grid_to_spill[0][0])
             except Exception:
+
                 log.exception("Error checking spill collision or locating formula cell")
 
     if isinstance(result, (list, tuple)):
@@ -1522,13 +1578,18 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
 
         tid = threading.get_ident()
         sk = session_key(ctx, code, doc=target_doc)
-        unique_origin = bool(sk[4]) if len(sk) > 4 else False
+        unique_origin = bool(sk[4])
         cache_key = (tid, sk, repr(worker_data))
+        now = time.monotonic()
         with _MATRIX_SCALAR_SESSIONS_LOCK:
             cached = _MATRIX_SCALAR_SESSIONS.get(cache_key) if unique_origin else None
+            if cached is not None and (now - cached.timestamp) > _PY_PASS_GAP_SEC:
+                _MATRIX_SCALAR_SESSIONS.pop(cache_key, None)
+                cached = None
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             used_cache = True
             res = {"status": "ok", "result": cached.raw}
+
         else:
             session_id = workbook_session_id(ctx, doc=target_doc)
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)

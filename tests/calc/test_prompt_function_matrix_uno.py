@@ -70,3 +70,27 @@ def test_python_matrix_via_session_counter(ctx, doc):
         assert func.python(code) == 2.0
         assert func.python(code) == 3.0
         assert func.python(code) == 5.0
+
+
+@native_test
+@with_native_doc("calc")
+def test_python_matrix_array_formula_block_with_single_cell_selected(ctx, doc):
+    from plugin.calc.python.addin import PythonFunction
+    from plugin.calc.python.function import clear_python_addin_cache
+
+    code = "result = [2, 3, 5]"
+    sheet = doc.getCurrentController().getActiveSheet()
+    range_obj = sheet.getCellRangeByPosition(0, 0, 0, 2)
+    range_obj.setArrayFormula('=PYTHON("result = [2, 3, 5]")')
+    doc.getCurrentController().select(sheet.getCellByPosition(5, 5))
+    clear_python_addin_cache()
+
+    func = PythonFunction(ctx)
+    with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
+        assert func.python(code) == 2.0
+        assert func.python(code) == 3.0
+        assert func.python(code) == 5.0
+
+
+

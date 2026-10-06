@@ -6,6 +6,7 @@
 
 import json
 import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -751,3 +752,96 @@ def test_is_async_uses_long_running_path():
 
             payload = _payload(result)
             assert payload.get("from_long_running") is True
+
+
+def test_initialize_with_supported_older_version_passes(mcp_server, monkeypatch):
+    """Test 1: initialize with 2025-06-18 then a POST with that MCP-Protocol-Version header passes."""
+    import urllib.request
+    import json
+
+    # Init
+    init_payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}
+    }
+    req = urllib.request.Request(f"{mcp_server}/mcp", method="POST", data=json.dumps(init_payload).encode("utf-8"))
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.status == 200
+        res = json.loads(response.read().decode())
+        assert res["result"]["protocolVersion"] == "2025-06-18"
+
+    # POST
+    post_payload = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "ping"
+    }
+    req2 = urllib.request.Request(f"{mcp_server}/mcp", method="POST", data=json.dumps(post_payload).encode("utf-8"))
+    req2.add_header("Content-Type", "application/json")
+    req2.add_header("Mcp-Protocol-Version", "2025-06-18")
+    with urllib.request.urlopen(req2, timeout=5) as response2:
+        assert response2.status == 200
+
+def test_initialize_with_unsupported_version_returns_server_version(mcp_server, monkeypatch):
+    """Test 2: initialize with foo returns the server version."""
+    import urllib.request
+    import json
+    from plugin.mcp.wire_types import MCP_PROTOCOL_VERSION
+
+    init_payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {"protocolVersion": "foo", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}
+    }
+    req = urllib.request.Request(f"{mcp_server}/mcp", method="POST", data=json.dumps(init_payload).encode("utf-8"))
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.status == 200
+        res = json.loads(response.read().decode())
+        assert res["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
+
+
+def test_sse_post_registers_keepalive(mcp_server, monkeypatch):
+    """Test 3: a /sse POST registers and forgets the keepalive."""
+    import urllib.request
+    import json
+
+    events = []
+
+    # Patch note_sse_keepalive and forget_sse_keepalive
+    import plugin.mcp.mcp_protocol as prot
+    orig_note = prot.note_sse_keepalive
+    orig_forget = prot.forget_sse_keepalive
+
+    def fake_note(server, sock):
+        events.append("note")
+        return orig_note(server, sock)
+
+    def fake_forget(server, sock):
+        events.append("forget")
+        return orig_forget(server, sock)
+
+    monkeypatch.setattr(prot, "note_sse_keepalive", fake_note)
+    monkeypatch.setattr(prot, "forget_sse_keepalive", fake_forget)
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ping"
+    }
+    req = urllib.request.Request(f"{mcp_server}/sse", method="POST", data=json.dumps(payload).encode("utf-8"))
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.status == 200
+
+    assert "note" in events
+    # The server forgets the keepalive in a finally after the response is
+    # written, so the client can see the response first. Wait for it briefly.
+    deadline = time.monotonic() + 5
+    while "forget" not in events and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert "forget" in events
