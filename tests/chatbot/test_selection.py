@@ -99,6 +99,10 @@ def test_stream_completion_tasks_defers_next_task():
 
     # snapshot callbacks to ensure we clean up after ourselves
     original_callbacks = list(_drain_idle_callbacks)
+    # Start from an empty list: other tests (e.g. Calc multi-cell selection)
+    # can leave a stream_completion_tasks one-shot registered under xdist, and
+    # the peer-message idle hook is not under test here. Restored in finally.
+    _drain_idle_callbacks.clear()
     reset_sentry_state()
 
     try:
@@ -147,7 +151,7 @@ def test_stream_completion_tasks_defers_next_task():
         assert not errors
         assert completed_prompts == [str(i) for i in range(8)]
         # After it's all done, any added idle callbacks should have unregistered
-        assert len(_drain_idle_callbacks) == len(original_callbacks)
+        assert list(_drain_idle_callbacks) == []
     finally:
         reset_sentry_state()
         _drain_idle_callbacks.clear()
@@ -163,6 +167,10 @@ def test_stream_completion_tasks_waits_for_existing_owner():
     completed_prompts = []
 
     original_callbacks = list(_drain_idle_callbacks)
+    # Start from an empty list: other tests (e.g. Calc multi-cell selection)
+    # can leave a stream_completion_tasks one-shot registered under xdist, and
+    # the peer-message idle hook is not under test here. Restored in finally.
+    _drain_idle_callbacks.clear()
     reset_sentry_state()
 
     try:
@@ -221,7 +229,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
 
         assert not errors
         assert completed_prompts == ["1", "2"]
-        assert len(_drain_idle_callbacks) == len(original_callbacks)
+        assert list(_drain_idle_callbacks) == []
     finally:
         reset_sentry_state()
         _drain_idle_callbacks.clear()
