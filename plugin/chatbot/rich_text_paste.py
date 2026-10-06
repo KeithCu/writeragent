@@ -643,7 +643,7 @@ def paint_message_items(
             restore_focus=restore_focus,
         ):
             if rows[-1][0] == "user":
-                with focus_preserved(ctx, restore):
+                with focus_preserved(ctx, restore, restore_focus=restore_focus):
                     _ensure_trailing_line_break(control)
             # Reformat before the restick so the scroll target is the real end.
             _force_rich_full_reformat(control)
@@ -810,7 +810,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             copy_failed_with_exception = True
 
     if ctx is not None:
-        with focus_preserved(ctx, restore):
+        with focus_preserved(ctx, restore, restore_focus=restore_focus):
             _do_copy()
     else:
         _do_copy()
@@ -1115,7 +1115,7 @@ def append_rich_text_via_clipboard(
             )
             _rollback_rich_insert(control, before)
         if inserted and role == "user":
-            with focus_preserved(ctx, restore):
+            with focus_preserved(ctx, restore, restore_focus=restore_focus):
                 _ensure_trailing_line_break(control)
             if auto_scroll:
                 # Do not reveal_caret. That setFocus GetFocus-es the viewport,

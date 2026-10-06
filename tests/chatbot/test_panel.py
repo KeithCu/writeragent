@@ -737,8 +737,11 @@ class TestSendDispose:
         other.set_focus_pin(other_query)
         other.note_user_wants_query()
         notify_stop_mouse_entered(listener)
-        session.restore_focus()
-        other.restore_focus()
+        # This test is about the per-frame restore flag, not the active-window
+        # gate, so treat both frames as active.
+        with patch.object(FrameSession, "frame_is_active_window", return_value=True):
+            session.restore_focus()
+            other.restore_focus()
         query.setFocus.assert_not_called()
         other_query.setFocus.assert_called_once()
 

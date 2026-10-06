@@ -173,7 +173,7 @@ class TestRichControlHelpers:
 
 
 @contextmanager
-def _immediate_focus(_ctx, _restore=None):
+def _immediate_focus(_ctx, _restore=None, **_kwargs):
     yield
 
 
@@ -275,7 +275,10 @@ class TestAppendTextChunk:
 
         mock_idle.assert_called()
         mock_scroll.assert_called_once()
-        restore.assert_called_once()
+        # The only restores per chunk are the pair inside _scroll_rich_to_tail
+        # (patched out here). A third one after it was a redundant GrabFocus.
+        assert mock_scroll.call_args.args[3] is restore
+        restore.assert_not_called()
         mock_reveal.assert_not_called()
         control.setFocus.assert_not_called()
 
