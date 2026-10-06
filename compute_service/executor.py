@@ -23,43 +23,81 @@ from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 
 
+def clamp_timeout_sec(
+    timeout: Any,
+    *,
+    is_ms: bool = False,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec,
+) -> int:
+    """Normalize and clamp a timeout in seconds or milliseconds to integer seconds.
 
-def clamp_timeout_sec(timeout_sec: float | int | None, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
-    if timeout_sec is None:
+    Rejects booleans, non-numeric values, and non-finite floats (inf/nan), falling
+    back to default_timeout_sec. When is_ms is True, rounds up to the next second.
+    When max_timeout_sec is None, upper-bound clamping is skipped so caller bounds
+    (e.g. host-configured max_timeout_sec=1800) are honored.
+    """
+    if timeout is None or isinstance(timeout, bool):
         return default_timeout_sec
-    # In Python, bool is a subclass of int (isinstance(True, int) is True). Reject booleans.
-    if isinstance(timeout_sec, bool):
+    if not isinstance(timeout, (int, float)):
         return default_timeout_sec
-    # In Python, int(float('inf')) raises OverflowError, which does not inherit from ValueError.
-    # Non-finite floats (inf/nan) must fall back to default_timeout_sec.
-    if isinstance(timeout_sec, float) and not math.isfinite(timeout_sec):
+    if isinstance(timeout, float) and not math.isfinite(timeout):
         return default_timeout_sec
-    try:
-        sec = int(timeout_sec)
-    except (TypeError, ValueError, OverflowError):
-        return default_timeout_sec
-    return max(1, min(max_timeout_sec, sec))
+
+    if is_ms:
+        if timeout <= 0:
+            return default_timeout_sec
+        # Round up so 1500ms -> 2s, not 1s
+        sec = (int(timeout) + 999) // 1000
+    else:
+        try:
+            sec = int(timeout)
+        except (TypeError, ValueError, OverflowError):
+            return default_timeout_sec
+
+    clamped = max(1, sec)
+    if max_timeout_sec is not None:
+        clamped = min(max_timeout_sec, clamped)
+    return clamped
 
 
-def timeout_ms_to_sec(timeout_ms: Any, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
-    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)):
-        return default_timeout_sec
-    # +Infinity is a float that passes ``> 0`` and then OverflowError in int().
-    # Multipart meta rejects it; this keeps a direct caller from escaping the handler.
-    if isinstance(timeout_ms, float) and not math.isfinite(timeout_ms):
-        return default_timeout_sec
-    if timeout_ms <= 0:
-        return default_timeout_sec
-    # Round up so 1500ms → 2s, not 1s
-    return clamp_timeout_sec((int(timeout_ms) + 999) // 1000, default_timeout_sec=default_timeout_sec, max_timeout_sec=max_timeout_sec)
+def timeout_ms_to_sec(
+    timeout_ms: Any,
+    *,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec,
+) -> int:
+    """Convert a millisecond timeout to clamped seconds (convenience alias)."""
+    return clamp_timeout_sec(
+        timeout_ms,
+        is_ms=True,
+        default_timeout_sec=default_timeout_sec,
+        max_timeout_sec=max_timeout_sec,
+    )
 
 
 def execute_code(
-    code: str, data: Any = None, session_id: str | None = None, timeout_sec: int | None = None, *, mode: str = "isolated", init_script: str | None = None, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec
+    code: str,
+    data: Any = None,
+    session_id: str | None = None,
+    timeout_sec: int | None = None,
+    *,
+    mode: str = "isolated",
+    init_script: str | None = None,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int | None = None,
 ) -> dict[str, Any]:
-    """Execute *code* under AST sandboxing; return §8-shaped dumb-JSON payload."""
+    """Execute *code* under AST sandboxing; return §8-shaped dumb-JSON payload.
+
+    The host already clamps request timeouts to configured bounds (e.g. 1800s);
+    the worker does not impose a second 600s clamp when max_timeout_sec is None.
+    """
     # Always pass an explicit timeout so the sandbox never consults WriterAgent defaults.
-    timeout_sec = clamp_timeout_sec(timeout_sec, default_timeout_sec=default_timeout_sec, max_timeout_sec=max_timeout_sec)
+    timeout_sec = clamp_timeout_sec(
+        timeout_sec,
+        default_timeout_sec=default_timeout_sec,
+        max_timeout_sec=max_timeout_sec,
+    )
 
     # Shared kernel only when explicitly requested *and* a session id is provided.
     use_session: str | None = None

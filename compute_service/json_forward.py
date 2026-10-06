@@ -50,6 +50,26 @@ class ExecuteRequestError(ValueError):
     """Raised when an execute request or response does not match the one schema."""
 
 
+def _reject_json_constant(token: str) -> None:
+    """``json.loads`` accepts NaN/Infinity. The peel walker does not.
+
+    ``timeout_ms: Infinity`` then raised OverflowError outside the execute
+    try, and ``id: NaN`` failed the kit dump. Reject the tokens here.
+    """
+    raise ValueError(token)
+
+
+def _reject_nonfinite_number(value: Any) -> None:
+    """Reject ``inf`` from numeric overflow, not only NaN/Infinity tokens.
+
+    ``json.loads`` turns ``1e9999`` into ``inf`` without calling
+    ``parse_constant``. The HTTP 400 path then echoed that ``id`` through
+    ``allow_nan=False`` and the WSGI callable crashed.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ExecuteRequestError("non-finite JSON number")
+
+
 def require_execute_mode(mode: Any) -> str:
     """Return ``isolated`` or ``shared``.
 
@@ -528,26 +548,6 @@ def _disposition_name(value: str) -> str:
     return found
 
 
-def _reject_json_constant(token: str) -> None:
-    """``json.loads`` accepts NaN/Infinity. The peel walker does not.
-
-    ``timeout_ms: Infinity`` then raised OverflowError outside the execute
-    try, and ``id: NaN`` failed the kit dump. Reject the tokens here.
-    """
-    raise ValueError(token)
-
-
-def _reject_nonfinite_number(value: Any) -> None:
-    """Reject ``inf`` from numeric overflow, not only NaN/Infinity tokens.
-
-    ``json.loads`` turns ``1e9999`` into ``inf`` without calling
-    ``parse_constant``. The HTTP 400 path then echoed that ``id`` through
-    ``allow_nan=False`` and the WSGI callable crashed.
-    """
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ExecuteRequestError("non-finite JSON number")
-
-
 def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     if len(meta_bytes) > MAX_META_BYTES:
         raise ExecuteRequestError("meta part exceeds size cap")
@@ -569,16 +569,21 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     return req_id, obj.get("mode"), timeout_ms, "session_id" in obj
 
 
-from compute_service.json_peel import peel_execute_request
-
-
 def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteRequestParts:
     """MIME dispatch: multipart (long-term) vs JSON-object peel (transitional)."""
     if is_multipart_content_type(content_type):
         return parse_multipart_execute(body, content_type or "")
     # Transitional Collabora contract. Keep until kit ships multipart;
     # then delete this peel branch. Multipart is the long-term ingress.
+    from compute_service.json_peel import peel_execute_request
+
     return peel_execute_request(body)
 
 
+def __getattr__(name: str) -> Any:
+    if name == "peel_execute_request":
+        from compute_service.json_peel import peel_execute_request
+
+        return peel_execute_request
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

@@ -231,3 +231,15 @@ def test_execute_respawn_respects_request_deadline() -> None:
     assert res.get("code") == "WORKER_SPAWN_FAILED"
     assert len(respawn_timeouts) == 1
     assert respawn_timeouts[0] <= 0.25
+
+
+def test_set_pdeathsig() -> None:
+    import signal
+    import sys
+    from compute_service.worker_base import set_pdeathsig
+
+    if sys.platform != "linux":
+        assert set_pdeathsig(signal.SIGKILL) is False
+    else:
+        assert set_pdeathsig(signal.SIGKILL) is True
+

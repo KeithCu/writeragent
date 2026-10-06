@@ -213,6 +213,16 @@ class TestTimeoutHelpers:
         assert timeout_ms_to_sec(float("-inf")) == 30
         assert clamp_timeout_sec(99999) == 600
 
+    def test_max_timeout_sec_1800_honored(self) -> None:
+        assert clamp_timeout_sec(1200, max_timeout_sec=1800) == 1200
+        assert clamp_timeout_sec(99999, max_timeout_sec=1800) == 1800
+        res = execute_code("result = 42", timeout_sec=1200, max_timeout_sec=1800)
+        assert res["status"] == "ok"
+        assert res["result"] == 42
+        res2 = execute_code("result = 43", timeout_sec=1200)
+        assert res2["status"] == "ok"
+        assert res2["result"] == 43
+
 
 class TestExecuteLocal:
     def test_mode_isolated_ignores_session(self) -> None:
@@ -1610,6 +1620,58 @@ class TestSessionResetHttp:
         assert ok_status.startswith("200")
         assert ok_body.get("status") == "ok"
         assert ran == ["result = 1"]
+
+    def test_early_error_drains_body_401_and_413(self) -> None:
+        """401 and 413 must drain wsgi.input (bounded for 413) so the connection is not broken."""
+        key = "drain-secret-key"
+        settings = ComputeSettings(
+            api_key=key,
+            max_body_bytes=1024,
+        )
+        app = create_wsgi_app(settings)
+
+        # 1. 401 Unauthorized drains the body
+        body_401 = b"some request body for 401"
+        stream_401 = io.BytesIO(body_401)
+        status_holder: list[str] = []
+
+        def start_response_401(status: str, headers: list) -> None:
+            status_holder.append(status)
+
+        environ_401 = {
+            "PATH_INFO": "/v1/execute",
+            "REQUEST_METHOD": "POST",
+            "QUERY_STRING": "",
+            "CONTENT_LENGTH": str(len(body_401)),
+            "wsgi.input": stream_401,
+            "HTTP_AUTHORIZATION": "Bearer wrong-key",
+        }
+        res_iter = app(environ_401, start_response_401)
+        _ = b"".join(res_iter)
+        assert status_holder[0].startswith("401")
+        assert stream_401.tell() == len(body_401)
+
+        # 2. 413 Payload Too Large drains the body bounded to 64 KiB
+        large_len = 100 * 1024  # 100 KiB > max_body_bytes (1024)
+        stream_413 = io.BytesIO(b"x" * large_len)
+        status_holder.clear()
+
+        def start_response_413(status: str, headers: list) -> None:
+            status_holder.append(status)
+
+        environ_413 = {
+            "PATH_INFO": "/v1/execute",
+            "REQUEST_METHOD": "POST",
+            "QUERY_STRING": "",
+            "CONTENT_LENGTH": str(large_len),
+            "wsgi.input": stream_413,
+            "HTTP_AUTHORIZATION": f"Bearer {key}",
+        }
+        res_iter = app(environ_413, start_response_413)
+        _ = b"".join(res_iter)
+        assert status_holder[0].startswith("413")
+        # Bounded drain: should have read exactly 64 KiB (65536 bytes), NOT all 100 KiB
+        assert stream_413.tell() == 64 * 1024
 
     def test_execute_queue_timeout_from_pool_is_503(self) -> None:
         """The pool's own deadline check must not answer 200.

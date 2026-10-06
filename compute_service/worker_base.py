@@ -23,12 +23,16 @@ import io
 import logging
 import os
 import pickle
+import queue
+import signal
 import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
-from typing import IO, Any, Generic, TypeVar, cast
+from typing import IO, TYPE_CHECKING, Any, Generic, TypeVar, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
@@ -127,8 +131,29 @@ class PoolSingleton(Generic[_PoolT]):
                 self._pool = None
 
 
+def set_pdeathsig(sig: int = signal.SIGKILL) -> bool:
+    """Set parent death signal on Linux via prctl so child worker terminates on hard host exit.
+
+    Guarded so non-Linux platforms (macOS/Windows) safely return False without error.
+    """
+    if sys.platform != "linux":
+        return False
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        PR_SET_PDEATHSIG = 1
+        res = libc.prctl(PR_SET_PDEATHSIG, ctypes.c_ulong(sig), 0, 0, 0)
+        return res == 0
+    except Exception:
+        return False
+
+
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
+    # Ensure worker subprocess terminates immediately if master HTTP process dies abruptly
+    set_pdeathsig(signal.SIGKILL)
+
     stdin_bin = sys.stdin.buffer
 
     # Duplicate fd 1 (stdout) to a private descriptor for the IPC frame channel,
@@ -553,6 +578,13 @@ class BaseProcessPool:
         self._cond = threading.Condition(self._lock)
         self._reaper_stop_event = threading.Event()
         self._idle_reaper_thread: threading.Thread | None = None
+        self._recycle_queue: queue.Queue[BaseProcessWorker | None] = queue.Queue()
+        self._recycle_thread: threading.Thread = threading.Thread(
+            target=self._recycle_loop,
+            name=f"{self.worker_name}-recycle-loop",
+            daemon=True,
+        )
+        self._recycle_thread.start()
 
         if self.num_workers > 0:
             for i in range(self.num_workers):
@@ -755,15 +787,15 @@ class BaseProcessPool:
 
         if recycle:
             log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
-            # Per AGENTS.md, prefer run_in_background in the LibreOffice extension.
-            # In compute_service, standard threading.Thread is intentionally used
-            # to keep the standalone compute microservice completely free of plugin.framework.
-            threading.Thread(
-                target=self._recycle_worker_async,
-                args=(worker,),
-                name=f"{self.worker_name}-recycle-{worker.worker_id}",
-                daemon=True,
-            ).start()
+            self._recycle_queue.put(worker)
+
+    def _recycle_loop(self) -> None:
+        """Persistent worker thread for recycling child processes without thread-exit PDEATHSIG races."""
+        while True:
+            worker = self._recycle_queue.get()
+            if worker is None:
+                break
+            self._recycle_worker_async(worker)
 
     def _recycle_worker_async(self, worker: BaseProcessWorker) -> None:
         """Kill and respawn recycled worker off the request path."""
@@ -790,6 +822,7 @@ class BaseProcessPool:
     def shutdown(self) -> None:
         """Terminate all worker processes."""
         self._reaper_stop_event.set()
+        self._recycle_queue.put(None)
         with self._cond:
             if self._is_shutdown:
                 return
