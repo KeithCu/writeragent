@@ -113,6 +113,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _do_send_chat_with_tools=MagicMock(),
         _do_send_direct_image=MagicMock(),
         _do_send_via_agent_backend=MagicMock(),
+        _restore_query_text=MagicMock(),
     )
 
 
