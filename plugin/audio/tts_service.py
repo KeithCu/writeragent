@@ -201,9 +201,22 @@ def _terminate_proc(proc: subprocess.Popen[Any] | None) -> None:
     if proc is None:
         return
     try:
+        if proc.stdin:
+            proc.stdin.close()
+    except Exception:
+        pass
+    try:
         log.info("Terminating speech process (PID %s)", proc.pid)
         proc.terminate()
-        proc.poll()
+        try:
+            proc.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                import subprocess as sp
+                sp.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], check=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+            else:
+                proc.kill()
+            proc.wait()
     except Exception as exc:
         log.debug("speech terminate error: %s", exc)
 
@@ -250,8 +263,11 @@ def clean_text_for_speech(text: str) -> str:
     # Remove markdown headers #, ##, etc.
     cleaned = re.sub(r"^#{1,6}\s+", "", cleaned, flags=re.MULTILINE)
 
-    # Remove bold/italic markers
-    cleaned = re.sub(r"[*_]{1,3}([^*_]+)[*_]{1,3}", r"\1", cleaned)
+    # Preserve underscores in identifiers like my_var_name by converting them to spaces.
+    cleaned = cleaned.replace("_", " ")
+
+    # Remove bold/italic markers (now only checking for *)
+    cleaned = re.sub(r"[*]{1,3}([^*]+)[*]{1,3}", r"\1", cleaned)
 
     # Remove HTML/XML tags
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
@@ -308,6 +324,10 @@ def stop_speech() -> None:
     _terminate_proc(play)
     for proc in synths:
         _terminate_proc(proc)
+
+    if sys.platform not in ("darwin", "win32") and shutil.which("spd-say"):
+        import subprocess as sp
+        sp.run(["spd-say", "-C"], check=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
     if cancel_token is not None:
         try:
             from plugin.audio.kokoro_pool import cancel_kokoro_inflight
@@ -389,6 +409,9 @@ def _popen_for_speech(
     stdin: Any = None,
     stderr: Any = subprocess.DEVNULL,
     text: bool = False,
+    encoding: str | None = None,
+    errors: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.Popen[Any] | None:
     """Spawn a play or synth process and register it so ``stop_speech`` can kill it."""
     global _play_proc
@@ -402,6 +425,9 @@ def _popen_for_speech(
             stdout=subprocess.DEVNULL,
             stderr=stderr,
             text=text,
+            encoding=encoding,
+            errors=errors,
+            env=env,
         )
         if slot == "play":
             _play_proc = proc
@@ -1178,32 +1204,33 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
     """Speak text using built-in OS speech synthesis utilities."""
     cmd: list[str] | None = None
 
+    env = None
     if sys.platform == "darwin":
         # macOS native say command
         rate = int(175 * speed)
-        cmd = ["/usr/bin/say", "-r", str(rate), text]
+        cmd = ["/usr/bin/say", "-r", str(rate), "--", text]
     elif sys.platform == "win32":
         # Windows SAPI via PowerShell
         # Rate is integer from -10 to 10
         rate_int = int((speed - 1.0) * 5)
         rate_int = max(-10, min(10, rate_int))
-        escaped = text.replace('"', '`"').replace("'", "''")
         ps_script = (
-            f"Add-Type -AssemblyName System.Speech; "
-            f"$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            "Add-Type -AssemblyName System.Speech; "
+            "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
             f"$synth.Rate = {rate_int}; "
-            f"$synth.Speak('{escaped}')"
+            "$synth.Speak($env:SAPI_TEXT)"
         )
         cmd = ["powershell", "-NoProfile", "-Command", ps_script]
+        env = {**os.environ, "SAPI_TEXT": text}
     else:
         # Linux native
         if shutil.which("spd-say"):
             rate_pct = int((speed - 1.0) * 100)
             rate_pct = max(-100, min(100, rate_pct))
-            cmd = ["spd-say", "-r", str(rate_pct), "-w", text]
+            cmd = ["spd-say", "-r", str(rate_pct), "-w", "--", text]
         elif shutil.which("espeak"):
             speed_wpm = int(160 * speed)
-            cmd = ["espeak", "-s", str(speed_wpm), text]
+            cmd = ["espeak", "-s", str(speed_wpm), "--", text]
 
     if not cmd:
         log.warning("No OS native text-to-speech utility (say/spd-say/espeak) found on system.")
@@ -1212,7 +1239,7 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
     proc: subprocess.Popen[Any] | None = None
     try:
         log.info("Speaking via system command: %s", " ".join(cmd[:3]))
-        proc = _popen_for_speech(cmd, generation, slot="play")
+        proc = _popen_for_speech(cmd, generation, slot="play", env=env)
         if proc is None:
             return
         proc.wait()
@@ -1420,9 +1447,11 @@ def _download_endpoint_speech(
             url = f"{url}/v1/audio/speech"
 
     eff_voice = _resolve_tts_voice(model, voice)
-    response_format = cached_tts_response_format(model) or "mp3"
+    response_format = cached_tts_response_format(model)
+    if not response_format:
+        response_format = "wav" if sys.platform == "win32" else "mp3"
     if response_format not in ("mp3", "pcm", "wav"):
-        response_format = "mp3"
+        response_format = "wav" if sys.platform == "win32" else "mp3"
 
     headers = {
         "Content-Type": "application/json",
@@ -1915,7 +1944,7 @@ def _kokoro_oneshot_to_file(
     cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
     proc: subprocess.Popen[Any] | None = None
     try:
-        proc = _popen_for_speech(cmd, generation, slot="synth", stderr=subprocess.PIPE, text=True)
+        proc = _popen_for_speech(cmd, generation, slot="synth", stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
         if proc is None:
             _release_temp(tmp_wav)
             return None
@@ -2105,6 +2134,8 @@ def _piper_audio_file(
             stdin=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if proc is None:
             _release_temp(tmp_wav)
@@ -2263,6 +2294,11 @@ def _run_sentence_pipeline(
                 if not ready.put(clip, generation):
                     _release_temp(clip.path)
                     return
+        except Exception:
+            log.exception("Prefetch thread failed")
+            if not _playback_blocked(generation):
+                fallback_clip = _ReadyClip(None, " ".join(sentences), 0, True)
+                ready.put(fallback_clip, generation)
         finally:
             ready.close()
 

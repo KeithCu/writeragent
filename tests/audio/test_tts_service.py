@@ -1856,3 +1856,37 @@ def test_endpoint_and_native_do_not_split():
     assert "sentences" not in captured
     assert oneshot == {"system": "Hi. Not done yet"}
 
+
+def test_clean_text_for_speech_identifiers():
+    assert clean_text_for_speech("my_var_name") == "my var name"
+    assert clean_text_for_speech("**my_var_name**") == "my var name"
+
+@patch("plugin.audio.tts_service._popen_for_speech")
+@patch("plugin.audio.tts_service.shutil.which")
+def test_speak_system_security(mock_which, mock_popen):
+    from plugin.audio.tts_service import _speak_system
+    import sys
+
+    # Test curl quotes, backticks, leading dashes
+    text = "don't `rm -rf` --version"
+
+    # Test macOS
+    with patch("sys.platform", "darwin"):
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["/usr/bin/say", "-r", "175", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Test Linux spd-say
+    with patch("sys.platform", "linux"):
+        mock_which.side_effect = lambda x: "/usr/bin/spd-say" if x == "spd-say" else None
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["spd-say", "-r", "0", "-w", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Test Linux espeak
+    with patch("sys.platform", "linux"):
+        mock_which.side_effect = lambda x: "/usr/bin/espeak" if x == "espeak" else None
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["espeak", "-s", "160", "--", text], None, slot="play", env=None)
