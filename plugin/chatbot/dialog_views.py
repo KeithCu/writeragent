@@ -1371,6 +1371,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _timer: threading.Timer | None
     _synced_endpoint: str | None
     _applied_catalog: tuple[str, str] | None
+    _painted_provider: str | None
+    _has_painted: bool
     post_to_main_thread: Callable[..., Any]
     run_in_background: Callable[..., Any]
     get_api_key_for_endpoint: Callable[..., Any]
@@ -1419,7 +1421,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # Endpoint + live key last painted from the in-memory catalog.
         # A later keystroke with the same pair must not refetch or rewrite.
         self._applied_catalog = None
-        
+        # Provider the model combos were last filled for. None until the
+        # first fill; that fill compares against the saved endpoint.
+        self._painted_provider = None
+        self._has_painted = False
+
         self.post_to_main_thread = post_to_main_thread
         self.run_in_background = run_in_background
         self.get_api_key_for_endpoint = get_api_key_for_endpoint
@@ -1525,8 +1531,26 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         api_key_ov = self._live_api_key()
         skip_remote = bool(skip_fetch)
         resolved_provider = self.get_provider_from_endpoint(resolved)
-        saved_provider = self.get_provider_from_endpoint(get_current_endpoint())
-        same_provider = bool(resolved_provider and resolved_provider == saved_provider)
+        # What was wrong: this compared against the saved endpoint on every
+        # fill. After switching OpenRouter -> Together (not yet OK'd), each
+        # later fill (catalog landing, API key typing, Test Connection)
+        # discarded the combo text again: a typed Text model went back to
+        # the Together default and the Image model jumped to the catalog's
+        # first id, so a Text model edit looked like it changed Image too.
+        # How: the first fill still compares against the saved endpoint's
+        # provider; every later fill compares against the provider this
+        # listener last filled for (_painted_provider).
+        # Why: the combos only hold ids from the wrong provider right after
+        # the provider changes. Once filled for Together, a repaint for
+        # Together must keep what the user typed or picked; switching back to
+        # the saved provider must still drop the Together ids.
+        if self._has_painted:
+            baseline_provider = self._painted_provider
+        else:
+            baseline_provider = self.get_provider_from_endpoint(get_current_endpoint())
+        same_provider = bool(resolved_provider and resolved_provider == baseline_provider)
+        self._painted_provider = resolved_provider
+        self._has_painted = True
 
         text_ctrl = get_optional(self._dlg, "text_model")
         if text_ctrl:
