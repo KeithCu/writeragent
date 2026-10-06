@@ -73,6 +73,7 @@ def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DEL
         prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
         access.setPropertyValue("givenname", insert_author)
         access.setPropertyValue("sn", "")
+        # We commit the author swap to the profile, not hold it uncommitted, because LibreOffice stamps redlines with the committed UserProfile name; begin/end bracket one synchronous main-thread edit, so we do not add startup recovery.
         access.commitChanges()
         armed = True
     except Exception:

@@ -325,6 +325,30 @@ def test_review_payload_reports_real_outcome_on_reliable_snapshot():
     assert payload["changes"][0]["outcome"] == "accepted"
 
 
+def test_outcome_when_anchor_is_gone():
+    from unittest.mock import patch as _patch
+
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+
+    # 1. Rejected pure insertion (rejected_text == "") -> "rejected"
+    rec_ins = ChangeRecord("t1", "bm1", accepted_text="new text", rejected_text="", original_preview="", proposed_preview="")
+    with _patch.object(session, "_change_text_at_anchor", return_value=None):
+        assert session._outcome(rec_ins, pending_tokens=set(), pending_reliable=True) == "rejected"
+
+    # 2. Accepted pure deletion (accepted_text == "") -> "accepted"
+    rec_del = ChangeRecord("t2", "bm2", accepted_text="", rejected_text="old text", original_preview="", proposed_preview="")
+    with _patch.object(session, "_change_text_at_anchor", return_value=None):
+        assert session._outcome(rec_del, pending_tokens=set(), pending_reliable=True) == "accepted"
+
+    # 3. Modification where anchor is gone -> "modified"
+    rec_mod = ChangeRecord("t3", "bm3", accepted_text="new", rejected_text="old", original_preview="", proposed_preview="")
+    with _patch.object(session, "_change_text_at_anchor", return_value=None):
+        assert session._outcome(rec_mod, pending_tokens=set(), pending_reliable=True) == "modified"
+
+
 def test_review_payload_header_and_outcomes_stay_consistent_on_unreliable_rescan():
     # Even if the caller passes complete=True (its loop scan was clean), a transient UNRELIABLE re-scan
     # inside the payload must downgrade complete to False so the header matches the all-"pending"

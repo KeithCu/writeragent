@@ -571,7 +571,7 @@ def test_html_atomic_rolls_back_partial_edit_on_import_failure():
         raise RuntimeError("import boom")        # then the HTML import fails after the delete
 
     with pytest.raises(RuntimeError, match="import boom"):
-        record_html_atomically(session, FakeDoc(um), mutate, True, proposed_preview="x")
+        record_html_atomically(session, FakeDoc(um), mutate, proposed_preview="x")
 
     assert len(um.entered) == 1 and um.entered[0].startswith(_AGENT_EDIT_UNDO_TITLE)
     assert um.leaves == 1
@@ -582,7 +582,7 @@ def test_html_atomic_rolls_back_partial_edit_on_import_failure():
 def test_html_atomic_success_opens_and_closes_context():
     um = FakeUndoManager()
     session = FakeSession()
-    record_html_atomically(session, FakeDoc(um), lambda: um.record_action(), True, proposed_preview="x")
+    record_html_atomically(session, FakeDoc(um), lambda: um.record_action(), proposed_preview="x")
 
     assert len(um.entered) == 1 and um.entered[0].startswith(_AGENT_EDIT_UNDO_TITLE)
     assert um.leaves == 1 and um.undos == 0   # closed cleanly; no rollback on success
@@ -600,7 +600,7 @@ def test_html_atomic_refuses_when_no_undo_manager():
     calls = {"n": 0}
     with pytest.raises(ToolExecutionError):
         record_html_atomically(session, NoUndoDoc(), lambda: calls.__setitem__("n", calls["n"] + 1),
-                                True, proposed_preview="x")
+                                proposed_preview="x")
     assert calls["n"] == 0          # refused before running the mutation
     assert session.changes == []
 
@@ -611,7 +611,7 @@ def test_html_atomic_refuses_when_undo_manager_locked():
     calls = {"n": 0}
     with pytest.raises(ToolExecutionError):
         record_html_atomically(session, FakeDoc(um), lambda: calls.__setitem__("n", calls["n"] + 1),
-                                True, proposed_preview="x")
+                                proposed_preview="x")
     assert um.entered == []         # never opened (a locked context is a no-op)
     assert calls["n"] == 0          # never mutated
     assert session.changes == []
@@ -629,7 +629,7 @@ def test_html_not_recording_is_still_atomic_on_success():
         calls["n"] += 1
         um.record_action()
 
-    record_html_atomically(session, FakeDoc(um), ok_mutate, False, proposed_preview="x")
+    record_html_atomically(session, FakeDoc(um), ok_mutate, proposed_preview="x")
     assert calls["n"] == 1
     assert len(um.entered) == 1 and um.leaves == 1 and um.undos == 0
     assert len(session.changes) == 1
@@ -646,6 +646,6 @@ def test_html_not_recording_rolls_back_partial_on_failure():
         raise RuntimeError("import blew up")      # ...then the HTML import throws
 
     with pytest.raises(RuntimeError):
-        record_html_atomically(session, FakeDoc(um), failing_mutate, False, proposed_preview="x")
+        record_html_atomically(session, FakeDoc(um), failing_mutate, proposed_preview="x")
     assert um.undos == 1                          # the stranded deletion was rolled back
     assert session.changes == []

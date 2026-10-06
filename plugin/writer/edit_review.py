@@ -5,6 +5,8 @@
 """Edit review session: agent edits land as reviewable tracked changes, and the agent
 learns the per-change outcome.
 
+We keep the session, streamed sessions and surgical helpers in one module, not split them, because they share the undo/redline helpers and many call sites import from here.
+
 One module owns the whole review story (recording state, author scoping, change tagging,
 anchoring, outcome detection, wait-for-review, cleanup), so entry points don't sprinkle
 ``RecordChanges`` / author toggles around::
@@ -364,6 +366,7 @@ class EditReviewSession:
         if not self._active:
             return apply_fn()
 
+        # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at _MAX_SURGICAL_RUNS.
         before, before_ok = self._redline_idents()
         result = apply_fn()
         if not before_ok:
@@ -544,8 +547,13 @@ class EditReviewSession:
         current = self._change_text_at_anchor(record)
         if current is None:
             # The anchor bookmark is gone: a rejected pure insertion can take its whole span (and
-            # the bookmark) with it; anything else means the user reworked/removed the area.
-            return "rejected" if record.rejected_text == "" else "modified"
+            # the bookmark) with it; an accepted pure deletion does the same; anything else means
+            # the user reworked/removed the area.
+            if record.rejected_text == "":
+                return "rejected"
+            if record.accepted_text == "":
+                return "accepted"
+            return "modified"
         if current == record.accepted_text:
             return "accepted"
         if current == record.rejected_text:
@@ -598,6 +606,7 @@ class EditReviewSession:
 
     def cleanup(self) -> None:
         """Remove this session's anchor bookmarks. Safe to call more than once."""
+        # We do not reject record_mutation after cleanup, because cleanup runs only from wait_for_review after the last edit.
         if self._cleaned:
             return
         self._cleaned = True
@@ -643,6 +652,7 @@ class EditReviewSession:
                     # The region's text as it reads NOW (after the user's accept/reject/edit), so the
                     # agent knows what actually resulted -- not just what it proposed. "" if the
                     # anchor paragraph is gone (e.g. a rejected pure insertion removed it).
+                    # We read the anchor again here, not reuse _outcome's read, because this runs once per change after review and keeps _outcome self-contained.
                     "final_text": _preview(self._change_text_at_anchor(record) or ""),
                 }
                 for record in self.changes
@@ -782,8 +792,6 @@ def next_surgical_undo_title() -> str:
     return "%s#%d" % (_SURGICAL_UNDO_TITLE, next(_surgical_batch_counter))
 
 
-_next_surgical_undo_title = next_surgical_undo_title
-
 _AGENT_EDIT_UNDO_TITLE = "WriterAgent edit"
 
 
@@ -792,7 +800,15 @@ def next_agent_edit_undo_title() -> str:
     return "%s#%d" % (_AGENT_EDIT_UNDO_TITLE, next(_surgical_batch_counter))
 
 
-_next_agent_edit_undo_title = next_agent_edit_undo_title
+def _try_enter_undo_context(doc: Any, title: str) -> Any | None:
+    try:
+        mgr = doc.getUndoManager()
+        if mgr.isLocked():
+            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
+        mgr.enterUndoContext(title)
+        return mgr
+    except Exception:
+        return None
 
 
 def close_surgical_context(undo_mgr: Any, session: EditReviewSession, changes_before: int,
@@ -833,23 +849,11 @@ def close_surgical_context(undo_mgr: Any, session: EditReviewSession, changes_be
                     "record(s) so the partial edit stays reviewable", kept)
 
 
-_close_surgical_context = close_surgical_context
-
-
-
 def _apply_in_undo_context(doc: Any, session: EditReviewSession, run: Callable[[bool], Any]) -> None:
     """Run *run(in_undo_context)* -- which must perform exactly ONE session.record_mutation -- inside a
     fresh grouped-undo context when one can be opened, so a split-author delete+insert stays atomic."""
-    undo_mgr = None
-    undo_title = _next_surgical_undo_title()
-    try:
-        mgr = doc.getUndoManager()
-        if mgr.isLocked():
-            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
-        mgr.enterUndoContext(undo_title)
-        undo_mgr = mgr
-    except Exception:
-        undo_mgr = None
+    undo_title = next_surgical_undo_title()
+    undo_mgr = _try_enter_undo_context(doc, undo_title)
     if undo_mgr is None:
         log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
                   "to the single atomic op (one color)")
@@ -862,19 +866,19 @@ def _apply_in_undo_context(doc: Any, session: EditReviewSession, run: Callable[[
         run(True)
         applied_ok = True
     finally:
-        _close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
+        close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
 
 
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
-                           track_reviewable: bool, **record_kwargs: Any) -> Any:
+                           **record_kwargs: Any) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts."""
-    undo_title = _next_agent_edit_undo_title()
+    undo_title = next_agent_edit_undo_title()
     try:
-        mgr = doc.getUndoManager()
-        if mgr.isLocked():
-            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
-        mgr.enterUndoContext(undo_title)
+        mgr = _try_enter_undo_context(doc, undo_title)
+        if mgr is None:
+            raise RuntimeError("undo manager unavailable or locked")
     except Exception:
+        # We raise without `from e`, not with it, because implicit chaining already keeps the undo-manager error as __context__.
         raise ToolExecutionError(
             "Cannot apply this content edit atomically (no usable undo context); "
             "refusing rather than risk a half-applied edit.")
@@ -886,7 +890,7 @@ def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callabl
         applied_ok = True
         return result
     finally:
-        _close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
+        close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
 
 
 # --- post-edit echo (edited_context) ---------------------------------------
@@ -956,10 +960,6 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     split_author = split and _SPLIT_AUTHOR_COLORS
 
-    def _bound(s: Any) -> str:
-        s = s or ""
-        return s if len(s) <= 300 else s[:299] + "…"
-
     def _whole() -> None:
         original = found.getString()
 
@@ -968,7 +968,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 lambda: format_support.replace_preserving_format(
                     doc, found, new_text, uno_ctx,
                     in_undo_context=in_undo_context, split_author=split_author),
-                original_preview=_bound(original), proposed_preview=_bound(new_text))
+                original_preview=_preview(original), proposed_preview=_preview(new_text))
 
         if split_author:
             _apply_in_undo_context(doc, session, _run)
@@ -1012,16 +1012,8 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
             _whole()
             return
 
-    undo_mgr = None
-    undo_title = _next_surgical_undo_title()
-    try:
-        mgr = doc.getUndoManager()
-        if mgr.isLocked():
-            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
-        mgr.enterUndoContext(undo_title)
-        undo_mgr = mgr
-    except Exception:
-        undo_mgr = None
+    undo_title = next_surgical_undo_title()
+    undo_mgr = _try_enter_undo_context(doc, undo_title)
     if undo_mgr is None:
         log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
                   "for atomicity")
@@ -1043,11 +1035,11 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
             session.record_mutation(
                 apply_se,
-                original_preview=_bound(se.old_text),
-                proposed_preview=_bound(se.new_text))
+                original_preview=_preview(se.old_text),
+                proposed_preview=_preview(se.new_text))
         applied_ok = True
     finally:
-        _close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
+        close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
@@ -1196,40 +1188,38 @@ class WriterCompoundUndo:
     ``close`` multiple times.
     """
 
-    _log: logging.Logger
     _title: str
     _undo_manager: Any | None
     _open: bool
 
     def __init__(self, doc: Any, title: str) -> None:
-        self._log = logging.getLogger(__name__)
         self._title = title
         self._undo_manager = None
         self._open = False
         try:
             if not hasattr(doc, "getUndoManager"):
-                self._log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
+                log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
                 return
             um = doc.getUndoManager()
             if um is None:
-                self._log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
+                log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
                 return
             # Probe undo manager state to detect prior unclosed contexts (best-effort; UNO may not expose these).
             try:
                 is_in_ctx = um.isInContext()
                 undo_enabled = um.isUndoEnabled()
-                self._log.info("WriterCompoundUndo: pre-enter state isInContext=%s isUndoEnabled=%s (title=%r)", is_in_ctx, undo_enabled, title)
+                log.info("WriterCompoundUndo: pre-enter state isInContext=%s isUndoEnabled=%s (title=%r)", is_in_ctx, undo_enabled, title)
             except Exception as probe_e:
-                self._log.debug("WriterCompoundUndo: could not probe undo manager state: %s", probe_e)
+                log.debug("WriterCompoundUndo: could not probe undo manager state: %s", probe_e)
             um.enterUndoContext(title)
             self._undo_manager = um
             self._open = True
             # Log after success so we always see this when the context is live.
-            self._log.info("WriterCompoundUndo: context entered %r", title)
+            log.info("WriterCompoundUndo: context entered %r", title)
         except Exception as e:
             # Upgrade from debug to warning so failures are visible without debug logging.
             # "Insert $1" in the undo menu means this context was never opened.
-            self._log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
+            log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
 
     def __enter__(self) -> "WriterCompoundUndo":
         return self
@@ -1241,7 +1231,7 @@ class WriterCompoundUndo:
     def close(self) -> None:
         """End the compound undo context if :meth:`__init__` opened one."""
         if not self._open:
-            self._log.debug("WriterCompoundUndo.close: already closed or never opened (title=%r)", self._title)
+            log.debug("WriterCompoundUndo.close: already closed or never opened (title=%r)", self._title)
             return
         self._open = False
         um = self._undo_manager
@@ -1249,10 +1239,62 @@ class WriterCompoundUndo:
         if um is None:
             return
         try:
-            self._log.info("WriterCompoundUndo: leaving context %r", self._title)
+            log.info("WriterCompoundUndo: leaving context %r", self._title)
             um.leaveUndoContext()
         except Exception:
-            self._log.exception("leaveUndoContext failed (title=%r)", self._title)
+            log.exception("leaveUndoContext failed (title=%r)", self._title)
+
+
+@contextlib.contextmanager
+def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bool, label: str) -> Iterator[None]:
+    before_ids = None
+    before_ids_ok = False
+    prior_author = None
+    if track_reviewable:
+        try:
+            from plugin.framework.uno_context import get_ctx
+            from plugin.writer import review_authors
+            from plugin.writer.review_scan import snapshot_redline_ids
+
+            before_ids, before_ids_ok = snapshot_redline_ids(doc)
+            prior_author = review_authors.begin(get_ctx())
+            # Make the markup visible so a reviewable change isn't left invisible
+            # when the user has Track Changes display off (matches
+            # EditReviewSession.__enter__). Review mode only -- never when the user
+            # merely has their own Track Changes on (we respect their view setting).
+            try:
+                doc.setPropertyValue("ShowChanges", True)
+            except Exception:
+                log.debug("%s: could not force ShowChanges", label, exc_info=True)
+        except Exception:
+            log.debug("%s: review tagging setup failed", label, exc_info=True)
+    try:
+        yield
+    finally:
+        if prior_author is not None:
+            try:
+                from plugin.framework.uno_context import get_ctx
+                from plugin.writer import review_authors
+
+                review_authors.end(get_ctx(), prior_author)
+            except Exception:
+                log.warning("%s: author restore failed", label, exc_info=True)
+        # Restore the user's prior recording state. If they had Track Changes
+        # OFF and we only turned it ON to capture this edit as one reviewable
+        # redline (track_reviewable flag), turn it back OFF so their later
+        # manual typing is not tracked. Existing redlines persist regardless.
+        if not was_recording:
+            try:
+                doc.setPropertyValue("RecordChanges", False)
+            except Exception:
+                pass
+        # Tag the collapsed redline(s) with a session token so the inline review UI
+        # (click popup / context menu) treats this streamed edit as an agent change.
+        if before_ids is not None:
+            try:
+                tag_agent_redlines(doc, before_ids, before_reliable=before_ids_ok)
+            except Exception:
+                log.debug("%s: redline tagging failed", label, exc_info=True)
 
 
 class WriterStreamedRewriteSession:
@@ -1296,8 +1338,7 @@ class WriterStreamedRewriteSession:
         except Exception:
             self.was_recording = False
 
-        _log = logging.getLogger(__name__)
-        _log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
+        log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
         try:
             if self.was_recording:
                 self.doc.setPropertyValue("RecordChanges", False)
@@ -1320,7 +1361,7 @@ class WriterStreamedRewriteSession:
             self.text_range.setString(self.generated_text)
         except Exception as exc:
             self.last_write_error = exc
-            logging.getLogger(__name__).warning("streamed rewrite: chunk apply failed", exc_info=True)
+            log.warning("streamed rewrite: chunk apply failed", exc_info=True)
 
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
@@ -1336,15 +1377,7 @@ class WriterStreamedRewriteSession:
             # do not record an empty replacement. Whitespace the model sent is
             # truthy, so it stays on the collapse path.
             if not self.generated_text:
-                try:
-                    self.text_range.setString(self.original_text)
-                except Exception:
-                    log.exception("streamed rewrite: empty result could not restore the original text")
-                if self.was_recording:
-                    try:
-                        self.doc.setPropertyValue("RecordChanges", True)
-                    except Exception:
-                        log.exception("streamed rewrite: empty result could not restore RecordChanges")
+                self.abort_and_restore()
                 if self.last_write_error is not None:
                     return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
                 return None
@@ -1355,59 +1388,13 @@ class WriterStreamedRewriteSession:
                 return None
 
             try:
-                # Review mode only (NOT when the user merely has their own Track Changes on):
-                # snapshot the redlines so the collapsed change can be tagged as an agent change
-                # afterward, and author it as the agent for the by-author coloring.
-                before_ids = None
-                before_ids_ok = False
-                prior_author = None
-                if self.track_reviewable:
-                    try:
-                        from plugin.framework.uno_context import get_ctx
-                        from plugin.writer import review_authors
-                        from plugin.writer.review_scan import snapshot_redline_ids
-
-                        before_ids, before_ids_ok = snapshot_redline_ids(self.doc)
-                        prior_author = review_authors.begin(get_ctx())
-                        # Make the markup visible so a reviewable change isn't left invisible
-                        # when the user has Track Changes display off (matches
-                        # EditReviewSession.__enter__). Review mode only -- never when the user
-                        # merely has their own Track Changes on (we respect their view setting).
-                        try:
-                            self.doc.setPropertyValue("ShowChanges", True)
-                        except Exception:
-                            logging.getLogger(__name__).debug("streamed rewrite: could not force ShowChanges", exc_info=True)
-                    except Exception:
-                        logging.getLogger(__name__).debug("streamed rewrite: review tagging setup failed", exc_info=True)
-                try:
+                with _collapse_review_context(self.doc, self.track_reviewable, self.was_recording, "streamed rewrite"):
                     self.text_range.setString(self.original_text)
                     self.doc.setPropertyValue("RecordChanges", True)
                     self.text_range.setString(self.generated_text)
-                finally:
-                    if prior_author is not None:
-                        try:
-                            from plugin.framework.uno_context import get_ctx
-                            from plugin.writer import review_authors
-
-                            review_authors.end(get_ctx(), prior_author)
-                        except Exception:
-                            logging.getLogger(__name__).warning("streamed rewrite: author restore failed", exc_info=True)
-                # Restore the user's prior recording state. If they had Track Changes
-                # OFF and we only turned it ON to capture this edit as one reviewable
-                # redline (track_reviewable flag), turn it back OFF so their later
-                # manual typing is not tracked. Existing redlines persist regardless.
-                if not self.was_recording:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                # Tag the collapsed redline(s) with a session token so the inline review UI
-                # (click popup / context menu) treats this streamed edit as an agent change.
-                if before_ids is not None:
-                    try:
-                        tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
-                    except Exception:
-                        logging.getLogger(__name__).debug("streamed rewrite: redline tagging failed", exc_info=True)
                 return None
             except Exception:
-                logging.getLogger(__name__).exception("Failed to collapse streamed edit into one tracked change")
+                log.exception("Failed to collapse streamed edit into one tracked change")
 
                 fallback_errors: list[str] = []
                 try:
@@ -1424,8 +1411,8 @@ class WriterStreamedRewriteSession:
                     fallback_errors.append(f"restore recording state failed: {e}")
 
                 if fallback_errors:
-                    return "Failed to finalize the tracked edit and preserve the generated text: " + "; ".join(fallback_errors)
-                return "Failed to collapse the streamed edit into a single tracked change. The generated text was kept, but it may still appear as multiple tracked changes."
+                    return _("Failed to finalize the tracked edit and preserve the generated text: {0}").format("; ".join(fallback_errors))
+                return _("Failed to collapse the streamed edit into a single tracked change. The generated text was kept, but it may still appear as multiple tracked changes.")
         finally:
             self._compound_undo.close()
 
@@ -1433,15 +1420,25 @@ class WriterStreamedRewriteSession:
         """Restore the original text and recording state after an error."""
         try:
             # We close the compound undo first, so we can undo the whole streamed operation
+            was_open = self._compound_undo._open
             self._compound_undo.close()
-            try:
-                um = self.doc.getUndoManager() if hasattr(self.doc, "getUndoManager") else None
-                if um is not None:
-                    titles = um.getAllUndoActionTitles() if hasattr(um, "getAllUndoActionTitles") else ()
-                    if titles and titles[0] == self._UNDO_CONTEXT_TITLE:
-                        um.undo()
-            except Exception:
-                pass
+            restored_via_undo = False
+            if was_open:
+                try:
+                    um = self.doc.getUndoManager() if hasattr(self.doc, "getUndoManager") else None
+                    if um is not None:
+                        titles = um.getAllUndoActionTitles() if hasattr(um, "getAllUndoActionTitles") else ()
+                        if titles and titles[0] == self._UNDO_CONTEXT_TITLE:
+                            um.undo()
+                            restored_via_undo = True
+                except Exception:
+                    log.warning("streamed rewrite: undo failed during abort_and_restore", exc_info=True)
+            if not restored_via_undo:
+                log.warning("streamed rewrite: compound undo never opened or undo failed; restoring original text via setString")
+                try:
+                    self.text_range.setString(self.original_text)
+                except Exception:
+                    log.exception("streamed rewrite: fallback setString(original_text) failed")
         finally:
             if self.was_recording:
                 try:
@@ -1510,7 +1507,7 @@ class WriterStreamedAppendSession:
             self.text_range.setString(self.original_text + self.appended_text)
         except Exception as exc:
             self.last_write_error = exc
-            logging.getLogger(__name__).warning("streamed append: chunk apply failed", exc_info=True)
+            log.warning("streamed append: chunk apply failed", exc_info=True)
 
     def finish(self) -> str | None:
         """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
@@ -1532,70 +1529,32 @@ class WriterStreamedAppendSession:
                     return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
                 return None
 
-            before_ids = None
-            before_ids_ok = False
-            prior_author = None
-            if self.track_reviewable:
-                try:
-                    from plugin.framework.uno_context import get_ctx
-                    from plugin.writer import review_authors
-                    from plugin.writer.review_scan import snapshot_redline_ids
-
-                    before_ids, before_ids_ok = snapshot_redline_ids(self.doc)
-                    prior_author = review_authors.begin(get_ctx())
-                    # Make the markup visible so a reviewable change isn't invisible when the
-                    # user has Track Changes display off (matches EditReviewSession.__enter__).
-                    try:
-                        self.doc.setPropertyValue("ShowChanges", True)
-                    except Exception:
-                        logging.getLogger(__name__).debug("streamed append: could not force ShowChanges", exc_info=True)
-                except Exception:
-                    logging.getLogger(__name__).debug("streamed append: review tagging setup failed", exc_info=True)
             try:
-                # Drop the untracked appended run (back to just the original), then re-insert ONLY
-                # that run as a tracked insertion at the end -- so the original carries no redline.
-                self.text_range.setString(self.original_text)
-                self.doc.setPropertyValue("RecordChanges", True)
-                text = self.text_range.getText()
-                end_cursor = text.createTextCursorByRange(self.text_range.getEnd())
-                text.insertString(end_cursor, self.appended_text, False)
-            finally:
-                if prior_author is not None:
-                    try:
-                        from plugin.framework.uno_context import get_ctx
-                        from plugin.writer import review_authors
-
-                        review_authors.end(get_ctx(), prior_author)
-                    except Exception:
-                        logging.getLogger(__name__).warning("streamed append: author restore failed", exc_info=True)
-            # Restore the user's prior recording state (existing redlines persist regardless).
-            if not self.was_recording:
+                with _collapse_review_context(self.doc, self.track_reviewable, self.was_recording, "streamed append"):
+                    # Drop the untracked appended run (back to just the original), then re-insert ONLY
+                    # that run as a tracked insertion at the end -- so the original carries no redline.
+                    self.text_range.setString(self.original_text)
+                    self.doc.setPropertyValue("RecordChanges", True)
+                    text = self.text_range.getText()
+                    end_cursor = text.createTextCursorByRange(self.text_range.getEnd())
+                    text.insertString(end_cursor, self.appended_text, False)
+                return None
+            except Exception:
+                log.exception("Failed to collapse streamed append into one tracked change")
+                # Degrade: keep the user's continuation (untracked) rather than losing it.
                 try:
                     self.doc.setPropertyValue("RecordChanges", False)
                 except Exception:
                     pass
-            if before_ids is not None:
                 try:
-                    tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
+                    self.text_range.setString(self.original_text + self.appended_text)
                 except Exception:
-                    logging.getLogger(__name__).debug("streamed append: redline tagging failed", exc_info=True)
-            return None
-        except Exception:
-            logging.getLogger(__name__).exception("Failed to collapse streamed append into one tracked change")
-            # Degrade: keep the user's continuation (untracked) rather than losing it.
-            try:
-                self.doc.setPropertyValue("RecordChanges", False)
-            except Exception:
-                pass
-            try:
-                self.text_range.setString(self.original_text + self.appended_text)
-            except Exception:
-                pass
-            try:
-                self.doc.setPropertyValue("RecordChanges", self.was_recording)
-            except Exception:
-                pass
-            return "Failed to collapse the streamed continuation into a single tracked change. The text was kept, but may not be reviewable."
+                    pass
+                try:
+                    self.doc.setPropertyValue("RecordChanges", self.was_recording)
+                except Exception:
+                    pass
+                return _("Failed to collapse the streamed continuation into a single tracked change. The text was kept, but may not be reviewable.")
         finally:
             self._compound_undo.close()
 

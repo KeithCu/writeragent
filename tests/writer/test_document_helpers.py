@@ -208,7 +208,7 @@ def test_writer_streamed_rewrite_session_finish_without_tracking_leaves_undo_con
     assert doc.undo.entered is True
     assert session.finish() is None
     assert doc.undo.left is True
-    assert text_range.getString() == "Original"
+    assert doc.undo.undone is True
 
 
 def test_writer_streamed_rewrite_session_empty_finish_restores_original():
@@ -220,11 +220,57 @@ def test_writer_streamed_rewrite_session_empty_finish_restores_original():
 
         assert text_range.getString() == ""
         assert session.finish() is None
-        assert text_range.getString() == "Original"
+        # Closing and undoing compound undo restores text and formatting without flattening
+        assert doc.undo.undone is True
         # Recording ends as the document started it. A tracked deletion would
         # have left the range "" after turning RecordChanges back on.
         assert doc.getPropertyValue("RecordChanges") is recording
         assert doc.undo.left is True
+
+
+def test_writer_streamed_rewrite_session_abort_fallback_when_compound_undo_never_opened():
+    class NoUndoDoc(_MockDoc):
+        def getUndoManager(self):
+            return None
+
+    doc = NoUndoDoc(recording=True)
+    text_range = _MutableTextRange()
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+    assert text_range.getString() == ""
+
+    session.abort_and_restore()
+    assert text_range.getString() == "Original"
+    assert doc.getPropertyValue("RecordChanges") is True
+
+
+def test_writer_streamed_rewrite_session_abort_fallback_when_undo_raises():
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+    assert text_range.getString() == ""
+
+    def failing_undo():
+        raise RuntimeError("undo failed")
+
+    doc.undo.undo = failing_undo
+    session.abort_and_restore()
+    assert text_range.getString() == "Original"
+    assert doc.getPropertyValue("RecordChanges") is True
+
+
+def test_writer_streamed_rewrite_session_empty_finish_fallback_when_undo_fails():
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+    assert text_range.getString() == ""
+
+    def failing_undo():
+        raise RuntimeError("undo failed")
+
+    doc.undo.undo = failing_undo
+    assert session.finish() is None
+    assert text_range.getString() == "Original"
+    assert doc.getPropertyValue("RecordChanges") is True
 
 
 def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():
