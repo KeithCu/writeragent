@@ -2825,3 +2825,318 @@ def test_k4_process_death_does_not_compact_retry(ctx):
     _assert_errorish(body, "API error", "llama-server", "overflowed", "terminated")
     _hello_ok()
 
+
+
+# --- Packet M: Event-driven Stream Drain & Mutex ---
+
+def _m_reset(ctx):
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+
+@native_test
+def test_m1_freeze_check(ctx):
+    import gc
+    import threading
+    import faulthandler
+    import sys
+    from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, press_send, wait_idle
+
+    _m_reset(ctx)
+    assert _session is not None
+    _rebind_mock(delay_ms=250)  # Slow mock stream to ensure it's active
+
+    shape = ctx.ServiceManager.createInstance("com.sun.star.drawing.RectangleShape")
+
+    def _worker(shape_ref):
+        import time
+        time.sleep(0.5)  # Let stream start
+        del shape_ref
+        gc.collect()
+
+    t = threading.Thread(target=_worker, args=(shape,))
+    del shape # Hand only reference to worker
+
+    controls = getattr(_session, "controls", None)
+    listener = getattr(_session, "listener", None)
+    assert controls is not None
+    set_query_text_via_controls(controls, "ramble", listener=listener)
+
+    try:
+        faulthandler.dump_traceback_later(10, file=sys.stderr)
+        press_send(listener=listener)
+        t.start()
+
+        t.join(timeout=3.0)
+        assert not t.is_alive(), "M1 worker thread hung during gc.collect()! Deadlock in pyuno proxy destructor."
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+    wait_idle(listener=listener)
+    _hello_ok()
+
+
+@native_test
+def test_m2_latency(ctx):
+    import threading
+    import time
+    from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, press_send, wait_idle
+
+    _m_reset(ctx)
+    assert _session is not None
+    _rebind_mock(delay_ms=250)
+
+    controls = getattr(_session, "controls", None)
+    listener = getattr(_session, "listener", None)
+    assert controls is not None
+    assert listener is not None
+    set_query_text_via_controls(controls, "ramble", listener=listener)
+
+    latencies = []
+    stop_event = threading.Event()
+
+    def _worker():
+        while not stop_event.is_set():
+            t0 = time.monotonic()
+            ev = threading.Event()
+            def _noop():
+                ev.set()
+            listener.queue_executor.execute_on_main_thread(_noop)
+            ev.wait()
+            latencies.append(time.monotonic() - t0)
+            time.sleep(0.1)
+
+    t = threading.Thread(target=_worker)
+
+    press_send(listener=listener)
+    t.start()
+
+    wait_idle(listener=listener)
+    stop_event.set()
+    t.join()
+
+    _hello_ok()
+    assert len(latencies) > 0
+    max_latency = max(latencies)
+    assert max_latency < 0.25, f"M2 expected worst case latency < 250ms, got {max_latency:.3f}s"
+
+
+@native_test
+def test_m3_slice_bound(ctx):
+    import time
+    from unittest.mock import patch
+    from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, press_send, wait_idle
+    import plugin.framework.async_stream as async_stream
+
+    _m_reset(ctx)
+    assert _session is not None
+    _rebind_mock(delay_ms=0, chunk_chars=4000) # Flood
+
+    longest_slice = [0.0]
+    orig_slice = async_stream._EventDrain._slice
+
+    def _patched_slice(self):
+        t0 = time.monotonic()
+        try:
+            return orig_slice(self)
+        finally:
+            dt = time.monotonic() - t0
+            if dt > longest_slice[0]:
+                longest_slice[0] = dt
+
+
+    controls = getattr(_session, "controls", None)
+    listener = getattr(_session, "listener", None)
+    assert controls is not None
+    set_query_text_via_controls(controls, "flood", listener=listener)
+
+    with patch.object(async_stream._EventDrain, "_slice", _patched_slice):
+        press_send(listener=listener)
+        wait_idle(listener=listener)
+
+    longest = longest_slice[0]
+    assert longest < 0.15, f"M3 expected slice bound < 150ms, got {longest:.3f}s"
+    _hello_ok()
+
+
+@native_test
+def test_m4_blank_transcript_guard(ctx):
+    import threading
+    import time
+    from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, press_send, wait_idle, execute_debug_sidebar_op, transcript_text
+
+    _m_reset(ctx)
+    assert _session is not None
+    _rebind_mock(delay_ms=250)
+
+    controls = getattr(_session, "controls", None)
+    listener = getattr(_session, "listener", None)
+    assert controls is not None
+    set_query_text_via_controls(controls, "ramble", listener=listener)
+
+    stop_event = threading.Event()
+    metrics = []
+
+    def _worker():
+        while not stop_event.is_set():
+            snap = execute_debug_sidebar_op("SNAPSHOT", ctx=ctx)
+            text = transcript_text(listener=listener)
+            metrics.append((snap.get("paint_session_count", 0), snap.get("stream_session_count", 0), len(text)))
+            time.sleep(0.1)
+
+    t = threading.Thread(target=_worker)
+
+    snap_before = execute_debug_sidebar_op("SNAPSHOT", ctx=ctx)
+    paint_before = snap_before.get("paint_session_count", 0)
+
+    press_send(listener=listener)
+    t.start()
+
+    wait_idle(listener=listener)
+    stop_event.set()
+    t.join()
+
+    assert len(metrics) > 0
+    # paint_session_count should not increase during the stream (after turn start)
+    paints = [m[0] for m in metrics]
+    # It might increase by 1 at the very start of the turn
+    max_paint = max(paints)
+    assert max_paint <= paint_before + 1, f"M4 expected no repaints during stream, paints={paints}"
+
+    lengths = [m[2] for m in metrics]
+    assert all(length > 0 for length in lengths), f"M4 expected transcript to never be empty, lengths={lengths}"
+    for i in range(len(lengths) - 1):
+        assert lengths[i+1] >= lengths[i], f"M4 expected monotonic transcript length, went {lengths[i]} -> {lengths[i+1]}"
+
+    _hello_ok()
+
+
+@native_test
+def test_m5_turn_one_garble(ctx):
+    from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, press_send, wait_idle, execute_debug_sidebar_op, transcript_text, clear_sidebar_chat
+
+    _m_reset(ctx)
+    assert _session is not None
+
+    controls = getattr(_session, "controls", None)
+    listener = getattr(_session, "listener", None)
+    assert controls is not None
+
+    clear_sidebar_chat(listener=listener)
+
+    snap_before = execute_debug_sidebar_op("SNAPSHOT", ctx=ctx)
+    paint_before = snap_before.get("paint_session_count", 0)
+
+    set_query_text_via_controls(controls, "hello", listener=listener)
+    press_send(listener=listener)
+    wait_idle(listener=listener)
+
+    snap_after = execute_debug_sidebar_op("SNAPSHOT", ctx=ctx)
+    paint_after = snap_after.get("paint_session_count", 0)
+
+    # 1 for user row paint, 1 for terminal ready format (rerender_last_assistant_if_html).
+    assert paint_after <= paint_before + 2, f"M5 expected few repaints on turn one, got {paint_after - paint_before}"
+
+    text = transcript_text(listener=listener)
+    assert "Welcome" in text, "M5 missing greeting"
+    assert "hello" in text.lower(), "M5 missing user row"
+    assert "mock" in text.lower() or "assistant:" in text.lower(), "M5 missing mock reply"
+
+    assert text.count("Welcome") == 1, "M5 duplicate greeting"
+    assert text.lower().count("hello") == 1, "M5 duplicate user row"
+
+    # Check that append keeps working without repaints on turn 2
+    paint_turn2_start = paint_after
+    set_query_text_via_controls(controls, "hello", listener=listener)
+    press_send(listener=listener)
+    wait_idle(listener=listener)
+
+    snap_turn2 = execute_debug_sidebar_op("SNAPSHOT", ctx=ctx)
+    paint_turn2_end = snap_turn2.get("paint_session_count", 0)
+    assert paint_turn2_end <= paint_turn2_start + 2, f"M5 expected few repaints on turn two, got {paint_turn2_end - paint_turn2_start}"
+
+
+@native_test
+def test_m6_live_turn_end(ctx):
+    import time
+    from unittest.mock import patch
+    from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, press_send, wait_idle, press_stop, transcript_text, execute_debug_sidebar_op
+
+    _m_reset(ctx)
+    assert _session is not None
+    _rebind_mock(delay_ms=250)
+
+    controls = getattr(_session, "controls", None)
+    listener = getattr(_session, "listener", None)
+    assert controls is not None
+
+    # 1. Stop mid-flood
+    set_query_text_via_controls(controls, "flood", listener=listener)
+    press_send(listener=listener)
+    time.sleep(1.0)
+    with patch.object(listener.session, 'drop_turn', wraps=listener.session.drop_turn) as drop_mock:
+        press_stop(listener=listener)
+
+        t0 = time.monotonic()
+        assert wait_idle(listener=listener, timeout=5.0), "M6 did not become idle after Stop"
+
+        assert drop_mock.call_count == 1, f"M6 turn dropped {drop_mock.call_count} times, expected exactly 1"
+    dt = time.monotonic() - t0
+    assert dt < 2.0, f"M6 took too long to idle after stop: {dt:.3f}s"
+
+    text_after_stop = transcript_text(listener=listener)
+    time.sleep(1.0) # Wait for delayed chunks that shouldn't appear
+    text_after_wait = transcript_text(listener=listener)
+    assert text_after_stop == text_after_wait, "M6 chunks arrived/painted after Stop"
+
+    # 1.5 Stop while worker-thread GC is running
+    import threading
+    import gc
+    stop_gc_event = threading.Event()
+    def _gc_worker():
+        while not stop_gc_event.is_set():
+            shape = ctx.ServiceManager.createInstance("com.sun.star.drawing.RectangleShape")
+            del shape
+            gc.collect()
+            time.sleep(0.01)
+
+    t_gc = threading.Thread(target=_gc_worker)
+    _rebind_mock(delay_ms=250)
+    set_query_text_via_controls(controls, "flood", listener=listener)
+    press_send(listener=listener)
+    time.sleep(0.5)
+    t_gc.start()
+    time.sleep(0.5)
+    press_stop(listener=listener)
+
+    t0 = time.monotonic()
+    assert wait_idle(listener=listener, timeout=5.0), "M6 did not become idle after Stop during GC"
+    dt = time.monotonic() - t0
+    assert dt < 2.0, f"M6 took too long to idle after stop during gc: {dt:.3f}s"
+
+    stop_gc_event.set()
+    t_gc.join()
+
+    # 2. Server error mid-stream
+    _rebind_mock(fail="http500", fail_after_chunks=3)
+    set_query_text_via_controls(controls, "hello", listener=listener)
+    press_send(listener=listener)
+    assert wait_idle(listener=listener, timeout=10.0)
+    text = transcript_text(listener=listener)
+    assert "[api error" in text.lower() or "500" in text.lower(), "M6 missing error message"
+
+    # Check that a slow stream does not show "Hung"
+    _rebind_mock(delay_ms=6000) # Longer than 5s watchdog
+    set_query_text_via_controls(controls, "ramble", listener=listener)
+    press_send(listener=listener)
+    time.sleep(6.5)
+
+    snap = execute_debug_sidebar_op("SNAPSHOT", ctx=ctx)
+    status = snap.get("status", "")
+    assert "Hung" not in status, f"M6 slow stream showed Hung status: {status}"
+
+    press_stop(listener=listener)
+    wait_idle(listener=listener)
+
+    # Final check: next hello works
+    _rebind_mock(delay_ms=25)
+    _hello_ok()
