@@ -420,9 +420,11 @@ def kick_pending_peer_starts() -> None:
         start_fn = getattr(listener, "start_extracted_peer_send", None)
         if not callable(start_fn):
             continue
-        # A peer sidebar using the hands-free mic drops the turn and an
-        # already-appended user message sits unanswered if EXTRACTED_SEND
-        # refuses during recording.
+        # What was wrong: the turn was already removed from q and a False
+        # return was ignored. send_state refuses EXTRACTED_SEND while the
+        # hands-free mic records, so the turn was lost and an already-appended
+        # user message sat unanswered. start_fn has no side effects when it
+        # returns False, so put the turn back like the busy case above.
         if start_fn(turn.wrapped_text, already_appended=turn.already_appended) is False:
             q.appendleft(turn)
             skipped.append((ref, turn))
