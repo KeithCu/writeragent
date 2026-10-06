@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER, EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.thread_guard import main_thread_only, on_main_thread
+from plugin.framework.errors import DocumentDisposedError, check_disposed, safe_call, UnoObjectError
 
 log = logging.getLogger("writeragent.context")
 
@@ -79,27 +80,27 @@ def _tokens_have_singleaccept(tokens: list[str]) -> bool:
     return any(token == "--singleaccept" or token.startswith("--singleaccept=") for token in tokens)
 
 
-def _linux_process_tokens() -> list[str]:
+def _linux_process_tokens() -> tuple[str, str, list[str]]:
     """Real process image and args. pythonloader may rewrite ``sys.argv`` (#768)."""
-    tokens: list[str] = []
+    exe = ""
+    comm = ""
+    cmdline: list[str] = []
     try:
-        tokens.append(os.readlink("/proc/self/exe"))
+        exe = os.readlink("/proc/self/exe")
     except OSError:
         pass
     try:
         with open("/proc/self/comm", encoding="utf-8") as comm_file:
             comm = comm_file.read().strip()
-        if comm:
-            tokens.append(comm)
     except OSError:
         pass
     try:
         with open("/proc/self/cmdline", "rb") as cmdline_file:
             raw = cmdline_file.read().split(b"\0")
-        tokens.extend(part.decode("utf-8", "replace") for part in raw if part)
+        cmdline.extend(part.decode("utf-8", "replace") for part in raw if part)
     except OSError:
         pass
-    return tokens
+    return exe, comm, cmdline
 
 
 def reset_desktop_create_is_unsafe_for_tests() -> None:
@@ -118,21 +119,22 @@ def _desktop_create_is_unsafe_now() -> bool:
         return True
     if _tokens_have_singleaccept(argv):
         return True
-    exe = getattr(sys, "executable", "") or ""
+    exe_sys = getattr(sys, "executable", "") or ""
+    if exe_sys and _basename_is_uno_helper(exe_sys):
+        return True
+    exe, comm, cmdline = _linux_process_tokens()
+    # BUGFIX: We only match against the exe basename, comm, and cmdline[0].
     if exe and _basename_is_uno_helper(exe):
         return True
-    proc_tokens = _linux_process_tokens()
-    if any(_basename_is_uno_helper(token) for token in proc_tokens):
+    if comm and _basename_is_uno_helper(comm):
         return True
-    return _tokens_have_singleaccept(proc_tokens)
+    if cmdline and _basename_is_uno_helper(cmdline[0]):
+        return True
+    return _tokens_have_singleaccept(cmdline)
 
 
 def desktop_create_is_unsafe() -> bool:
     """True in uno.bin / unopkg helpers that have no VCL.
-
-    ``createInstanceWithContext("com.sun.star.frame.Desktop")`` and
-    ``getValueByName(theDesktop)`` on that ctx take SolarMutexGuard →
-    GetYieldMutex and SEGV (issue #768). GUI soffice already has Desktop.
 
     Do not trust ``sys.argv`` alone: pythonloader inside
     ``uno.bin --singleaccept`` often leaves argv as ``['']`` or a .py path.
@@ -179,7 +181,7 @@ def set_package_extension_id(extension_id: str) -> None:
     _package_extension_id = extension_id
     if extension_id == EXTENSION_ID_LIBREHARPER:
         _is_libreharper_cache = True
-    elif extension_id is not None:
+    else:
         _is_libreharper_cache = False
 
 
@@ -291,25 +293,21 @@ def get_ctx() -> Any:
     try:
         import uno
 
-        if hasattr(uno, "getComponentContext"):
-            ctx = uno.getComponentContext()
-            if ctx is not None:
-                # Bootstrap-less unit tests still need this branch. Log once:
-                # a non-extension context can lack VCL and segfault on Desktop.
-                global _logged_component_context_fallback
-                if not _logged_component_context_fallback:
-                    _logged_component_context_fallback = True
-                    log.error(
-                        "get_ctx: no extension fallback; using uno.getComponentContext() "
-                        "(set_fallback_ctx was not called)"
-                    )
-                return _stable_component_context(ctx)
+        ctx = uno.getComponentContext()
+        if ctx is not None:
+            # Bootstrap-less unit tests still need this branch. Log once:
+            # a non-extension context can lack VCL and segfault on Desktop.
+            global _logged_component_context_fallback
+            if not _logged_component_context_fallback:
+                _logged_component_context_fallback = True
+                log.error(
+                    "get_ctx: no extension fallback; using uno.getComponentContext() "
+                    "(set_fallback_ctx was not called)"
+                )
+            return _stable_component_context(ctx)
     except ImportError:
         pass
-    return _stable_component_context(_fallback_ctx)
-
-
-from plugin.framework.errors import DocumentDisposedError, check_disposed, safe_call, UnoObjectError
+    return None
 
 
 def get_service_manager(ctx: Any) -> Any | None:
@@ -328,9 +326,9 @@ def get_service_manager(ctx: Any) -> Any | None:
 def get_desktop(ctx: Any | None = None) -> Any:
     """Return the UNO Desktop instance, or None when creating it would SEGV.
 
-    uno.bin / unopkg register helpers have no VCL. ``createInstance(Desktop)``
-    takes SolarMutexGuard → GetYieldMutex and crashes (issue #768). GUI
-    soffice keeps the existing create path.
+    uno.bin / unopkg register helpers have no VCL. ``createInstanceWithContext("com.sun.star.frame.Desktop")`` and
+    ``getValueByName(theDesktop)`` on that ctx take SolarMutexGuard → GetYieldMutex and SEGV (issue #768). GUI
+    soffice already has Desktop.
     """
     if desktop_create_is_unsafe():
         log.debug("get_desktop skipped: no-VCL helper process (issue #768)")
@@ -379,9 +377,19 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
         except Exception as e:
             _reraise_document_disposed(e, "Writer")
             log.debug("new_blank_writer: body unreadable after clear", exc_info=True)
+            # BUGFIX: The scratch document was returning None on failure paths but leaving the hidden doc open.
+            try:
+                doc.close(True)
+            except Exception:
+                log.debug("new_blank_writer: doc.close() failed", exc_info=True)
             return None
         if (leftover or "").strip():
             log.debug("new_blank_writer: default template text survived clear_writer_body")
+            # BUGFIX: The scratch document was returning None on failure paths but leaving the hidden doc open.
+            try:
+                doc.close(True)
+            except Exception:
+                log.debug("new_blank_writer: doc.close() failed", exc_info=True)
             return None
     # Other document lookups wrap the model so a later off-thread use is
     # caught by the dev thread guard. This factory used to return it raw.
@@ -626,7 +634,6 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     use :func:`wait_while_pumping` rather than a local PE2I loop.
     """
     from plugin.framework.queue_executor import _note_suppressed_vcl_pump, _pump_vcl_events, get_drain_owner
-    from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
         return False
