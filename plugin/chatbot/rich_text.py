@@ -68,6 +68,39 @@ _LEGACY_AI_LABEL_RE = re.compile(r"^\s*AI:\s*", re.IGNORECASE)
 # Tight list margins for the narrow sidebar transcript (injected via shared HTML import).
 _SIDEBAR_LIST_CSS = "ul, ol { margin-left: 0.2cm; padding-left: 0.3cm; }"
 
+# A body that opens with a list is imported behind a one-character paragraph.
+# Writer pastes the first imported paragraph into the paragraph at the cursor
+# (the one holding "Assistant: "), so the first <li> lost its list attributes.
+# The sentinel paragraph takes that merge instead and is deleted afterwards.
+_LIST_SENTINEL = "\u200b"
+_LEADING_LIST_RE = re.compile(r"^\s*<(?:ol|ul)\b", re.IGNORECASE)
+# Models also write a list as paragraphs with typed markers:
+# <p>1. ...</p><p>2. ...</p> (gpt-oss-20b). The first one then shared the
+# "Assistant:" line and the rest sat below it.
+_LEADING_MARKER_P_RE = re.compile(r"^\s*<p\b[^>]*>\s*(?:\d{1,3}[.)]|[\u2022*-])\s", re.IGNORECASE)
+
+
+def _body_starts_with_list(html: str) -> bool:
+    """True when the body opens with ``<ol>``/``<ul>`` or a ``<p>`` that starts with a list marker."""
+    text = html or ""
+    return bool(_LEADING_LIST_RE.match(text) or _LEADING_MARKER_P_RE.match(text))
+
+
+def _drop_list_sentinel(text_obj: Any, body_anchor: Any) -> None:
+    """Delete the sentinel character the import left right after the prefix.
+
+    Best effort: a sentinel left behind is an invisible character, not a
+    reason to drop the formatted message.
+    """
+    try:
+        probe = text_obj.createTextCursorByRange(body_anchor.getStart())
+        probe.goRight(1, False)
+        probe.goRight(1, True)
+        if probe.getString() == _LIST_SENTINEL:
+            probe.setString("")
+    except Exception:
+        log.debug("list sentinel not removed", exc_info=True)
+
 CHAT_FONT_NAME = "Liberation Sans"
 CHAT_FONT_HEIGHT = 10.0
 CHAT_FONT_WEIGHT = 100.0
@@ -315,16 +348,20 @@ def _span_matches_message(added: str, role: str, content: str) -> bool:
         return False
     visible = strip_html_tags(content or "")
     remainder = added or ""
+    # strip_html_tags joins adjacent blocks ("<li>a</li><li>b</li>" -> "ab")
+    # while Writer gives one paragraph each, so a compact list failed this
+    # check and the full repaint wrote it as plain "ab". Accept both splits.
+    spaced = strip_html_tags((content or "").replace("<", " <"))
     labels = ("You:",) if role == "user" else (_("Assistant:"), "Assistant:")
     for label in labels:
         if label and label in remainder:
             remainder = remainder.replace(label, " ", 1)
             break
-    allowed_words = {word.lower() for word in re.findall(r"\w+", visible)}
+    allowed_words = {word.lower() for word in re.findall(r"\w+", visible + " " + spaced)}
     for token in re.findall(r"\w+", remainder):
         if token.lower() not in allowed_words:
             return False
-    message_words = re.findall(r"\w+", visible)
+    message_words = re.findall(r"\w+", visible + " " + spaced)
     if message_words and not any(word.lower() in remainder.lower() for word in message_words):
         return False
     return True
@@ -458,7 +495,19 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             used_html_import = False
             if looks_html:
                 try:
-                    importer.insert_html_at_cursor(cursor, _sidebar_import_html(text))
+                    body_html = _sidebar_import_html(text)
+                    # What was wrong: the import merges its first paragraph into
+                    # the "Assistant: " paragraph, so a leading <ol> drew
+                    # "Assistant: a / 1. b / 2. c". How: a throwaway sentinel
+                    # paragraph takes that merge (see _LIST_SENTINEL). Why only
+                    # for a leading list or typed marker: ordinary prose should
+                    # keep sharing the label line.
+                    leading_list = _body_starts_with_list(body_html)
+                    if leading_list:
+                        body_html = "<p>%s</p>%s" % (_LIST_SENTINEL, body_html)
+                    importer.insert_html_at_cursor(cursor, body_html)
+                    if leading_list:
+                        _drop_list_sentinel(text_obj, body_anchor)
                     used_html_import = True
                 except Exception:
                     # What was wrong: the filter could insert the tags and then

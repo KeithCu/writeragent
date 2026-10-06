@@ -395,6 +395,82 @@ class TestAppendRichText:
         assert "hello" in content
 
 
+class TestLeadingListImport:
+    """A reply that opens with <ol>/<ul> lost its first item's number (release QA area 5).
+
+    Writer pastes the first imported paragraph into the "Assistant: "
+    paragraph, so the first <li> became plain text and the rest started at 1.
+    """
+
+    def _imported(self, html):
+        from plugin.chatbot.rich_text import append_rich_text
+
+        seen: list[str] = []
+
+        def _capture(_doc, _cursor, fragment):
+            seen.append(fragment)
+
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_capture):
+            assert append_rich_text(MockDoc(), html, role="assistant")
+        return seen
+
+    def test_leading_ordered_list_gets_sentinel_paragraph(self):
+        assert self._imported("<ol><li>a</li><li>b</li></ol>") == ["<p>\u200b</p><ol><li>a</li><li>b</li></ol>"]
+
+    def test_leading_list_with_whitespace_and_attributes(self):
+        seen = self._imported('\n  <OL start="11">\n<li>a</li></OL>')
+        assert seen[0].startswith("<p>\u200b</p>")
+        seen = self._imported("<ul><li>a</li></ul>")
+        assert seen[0].startswith("<p>\u200b</p><ul>")
+
+    def test_numbered_paragraphs_start_on_their_own_line(self):
+        """gpt-oss-20b sent <p>1. ...</p><p>2. ...</p>; item 1 sat on the label line."""
+        html = "<p>1. Lighthouses use a lens.</p>\n<p>2. Colors matter.</p>"
+        assert self._imported(html) == ["<p>\u200b</p>" + html]
+        for lead in ("\n<p>6. Six</p>", '<p class="x"> 2) Two</p>', "<p>\u2022 dot</p>", "<p>- dash</p>"):
+            assert self._imported(lead)[0].startswith("<p>\u200b</p>"), lead
+
+    def test_prose_paragraphs_keep_sharing_the_prefix_line(self):
+        for html in ("<p>2024 was a good year.</p>", "<p>**Bold** text</p>", "<p>1.5 million keepers</p>"):
+            assert self._imported(html) == [html], html
+
+    def test_intro_paragraph_keeps_sharing_the_prefix_line(self):
+        assert self._imported("<p>Here:</p><ol><li>a</li></ol>") == ["<p>Here:</p><ol><li>a</li></ol>"]
+
+    def test_sentinel_is_deleted_after_import(self):
+        from plugin.chatbot.rich_text import _drop_list_sentinel
+
+        class Probe:
+            def __init__(self, char):
+                self.char = char
+
+            def goRight(self, count, select):
+                return True
+
+            def getString(self):
+                return self.char
+
+            def setString(self, value):
+                self.char = value
+
+        anchor = MagicMock()
+        for char, expected in (("\u200b", ""), ("x", "x")):
+            probe = Probe(char)
+            text_obj = MagicMock()
+            text_obj.createTextCursorByRange.return_value = probe
+            _drop_list_sentinel(text_obj, anchor)
+            assert probe.char == expected
+
+    def test_compact_list_matches_its_message(self):
+        """A full repaint checked the span against "abc" and wrote plain "abc"."""
+        from plugin.chatbot.rich_text import _span_matches_message
+
+        html = "<ol><li>alpha</li><li>beta</li><li>gamma</li></ol>"
+        assert _span_matches_message("Assistant: \nalpha\nbeta\ngamma\n", "assistant", html)
+        assert _span_matches_message("Assistant: \na\nb\nc\n", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
+        assert not _span_matches_message("Assistant: alpha\nINTRUDER", "assistant", html)
+
+
 class TestTightenListIndent:
     """Tests for _tighten_list_indent post-processing helper."""
 

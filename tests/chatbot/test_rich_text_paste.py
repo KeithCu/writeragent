@@ -539,6 +539,20 @@ class TestListPrefix:
         assert _list_prefix_for_paragraph(para, counters) == "1. "
         assert _list_prefix_for_paragraph(para, counters) == "2. "
 
+    def test_ordered_list_uses_writer_label_for_start_value(self):
+        """<ol start="11"> was drawn from 1: the counter ignored the start value."""
+        for label, expected in (("11.", "11. "), ("iv.", "iv. "), ("", "1. ")):
+            para = MagicMock()
+            para.getPropertyValue.side_effect = lambda name, label=label: {
+                "NumberingIsNumber": True,
+                "NumberingLevel": 0,
+                "ListId": "L1",
+                "NumberingType": 4,
+                "NumberingRules": None,
+                "ListLabelString": label,
+            }[name]
+            assert _list_prefix_for_paragraph(para, {}) == expected
+
 
 class TestRichInsertFallbackLogging:
     def test_append_logs_direct_copy_reason_on_failure(self, caplog):
@@ -864,6 +878,40 @@ class TestFlattenTextTableCopy:
         assert ("stream\tplain", False, False) in header_flags
         assert ("before", False, False) in header_flags
         assert ("after", False, False) in header_flags
+
+    def test_list_number_is_inserted_normal_weight(self):
+        """The first number after "Assistant: " drew bold (sticky label weight)."""
+        control = MagicMock()
+        model = MagicMock()
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        src_doc = MagicMock()
+        label = _body_paragraph("Assistant: ")
+        item = _body_paragraph("alpha")
+        src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([label, item])
+        theme = MagicMock(user_color=1, assistant_color=2)
+        calls: list[tuple[str, object, object]] = []
+
+        def _capture(_model, _cursor, text, char_color=None, **kwargs):
+            calls.append((text, kwargs.get("bold"), kwargs.get("underline")))
+
+        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch(
+                 "plugin.chatbot.rich_text_paste._list_prefix_for_paragraph",
+                 side_effect=lambda para, _counters: "1. " if para is item else "",
+             ), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                src_doc, control, MagicMock(), role="assistant", auto_scroll=False,
+            )
+
+        assert ok is True, reason
+        assert ("1. ", False, False) in calls
 
     def test_copy_applies_tab_stops_from_max_width(self):
         control = MagicMock()
