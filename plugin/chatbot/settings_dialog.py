@@ -216,6 +216,7 @@ def endpoint_for_api_key_write(
         return None
     return normalize_endpoint_url(target_endpoint or "")
 
+
 def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc.
 
