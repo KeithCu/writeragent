@@ -7,6 +7,8 @@ import tempfile
 from logging.handlers import MemoryHandler
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.framework.logging import (
     FLUSH_INTERVAL_SEC,
     LOG_REDACT_AUDIO_PLACEHOLDER,
@@ -351,6 +353,17 @@ def test_format_tool_result_for_display():
     assert ('inner text' in res)
     res = format_tool_result_for_display('my_tool', 'res', args={'k': 'v'})
     assert (res == "my_tool(k='v') -> 'res'")
+
+@pytest.fixture(autouse=True)
+def _no_stale_watchdog_status_control():
+    # Other modules' _do_send tests (same xdist worker) leave a mock sender
+    # control in _activity_state; the watchdog would then label that one.
+    import plugin.framework.logging as logging_mod
+
+    with logging_mod._activity_lock:
+        logging_mod._activity_state["status_control"] = None
+    yield
+
 
 def test_update_activity_state():
     update_activity_state('phase1', round_num=1, tool_name='tool1')
@@ -891,3 +904,75 @@ def test_watchdog_dump_thread_stacks_never_raises() -> None:
         logging_mod._watchdog_hung_shown = saved_hung
         update_activity_state("")
 
+
+def test_watchdog_note_activity_resets_elapsed():
+    import plugin.framework.logging as logging_mod
+    import time
+
+    logging_mod.update_activity_state("chat", round_num=1)
+
+    with logging_mod._activity_lock:
+        logging_mod._activity_state["last_activity"] = time.monotonic() - 40.0
+
+    logging_mod.note_activity()
+
+    with logging_mod._activity_lock:
+        elapsed = time.monotonic() - logging_mod._activity_state["last_activity"]
+        assert elapsed < 10.0
+
+def test_watchdog_hung_goes_to_sender_control():
+    import plugin.framework.logging as logging_mod
+    import time
+
+    class MockCtrl:
+        def __init__(self):
+            self.text = ""
+        def setText(self, text):
+            self.text = text
+
+    sender_ctrl = MockCtrl()
+    default_ctrl = MockCtrl()
+
+    saved_hung = logging_mod._watchdog_hung_shown
+    try:
+        logging_mod._watchdog_hung_shown = False
+        logging_mod.update_activity_state("do_send", status_control=sender_ctrl)
+
+        with logging_mod._activity_lock:
+            logging_mod._activity_state["last_activity"] = time.monotonic() - 40.0
+
+        logging_mod._watchdog_check(default_ctrl)
+
+        from plugin.framework.queue_executor import default_executor
+        while default_executor.pending_work_count() > 0:
+            default_executor.process_queue()
+
+        assert "Hung" in sender_ctrl.text
+        assert default_ctrl.text == ""
+    finally:
+        logging_mod._watchdog_hung_shown = saved_hung
+        logging_mod.update_activity_state("")
+
+def test_watchdog_ending_turn_clears_hung():
+    import plugin.framework.logging as logging_mod
+    import time
+
+    class MockCtrl:
+        def __init__(self):
+            self.text = "Hung: do_send"
+        def getText(self):
+            return self.text
+        def setText(self, text):
+            self.text = text
+
+    sender_ctrl = MockCtrl()
+
+    logging_mod.update_activity_state("do_send", status_control=sender_ctrl)
+
+    logging_mod.update_activity_state("")
+
+    from plugin.framework.queue_executor import default_executor
+    while default_executor.pending_work_count() > 0:
+        default_executor.process_queue()
+
+    assert sender_ctrl.text == ""

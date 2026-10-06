@@ -997,6 +997,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             widget = getattr(self, "rich_text_widget", None)
             if widget:
                 from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+                from plugin.framework.logging import note_activity
 
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
                 # "AI:" / "Using chat model" are plain-sidebar labels. The paint
@@ -1004,6 +1005,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if role != "user" and skip_legacy_assistant_stream_chunk(text):
                     return
                 clean_text = _chunk_text(turn, text, role, strip_non_assistant=False)
+                note_activity()
                 # A held tag fragment is not a list change. Drawing now would
                 # rebuild the same paint.
                 if role == "assistant" and not clean_text:
@@ -1059,6 +1061,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
                 from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+                from plugin.framework.logging import note_activity
 
                 # A session list is the transcript. Hosts with no list (unit
                 # tests) still append onto the control.
@@ -1066,6 +1069,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     if role != "user" and skip_legacy_assistant_stream_chunk(text):
                         return
                     clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
+                    note_activity()
                     if role == "assistant" and not clean_text:
                         return
                     if isinstance(turn, TurnController):
@@ -1745,7 +1749,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Mode and the document are filled in once this send knows them.
         begin_send_turn(self, "")
         self._set_status(_("Starting..."))
-        update_activity_state("do_send")
+        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
         log.info("=== _do_send START ===")
 
         # Ensure extension directory is on sys.path (injected by panel_factory to avoid circular import)
@@ -2056,7 +2060,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         begin_send_turn(self, CHAT_MODE_CHAT)
         self._set_status(_("Starting..."))
-        update_activity_state("do_send")
+        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
         if self.ensure_path_fn:
             self.ensure_path_fn(self.ctx)
         model = self._get_document_model()
