@@ -10,10 +10,11 @@
 from __future__ import annotations
 
 import os
-import signal
-import subprocess
 import sys
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    import subprocess
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
@@ -737,66 +738,3 @@ def is_safe_workspace_path(target_path: str, root_dir: str) -> bool:
         return os.path.commonpath([abs_target, abs_root]) == abs_root
     except Exception:
         return False
-
-
-def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
-    """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
-    if sys.platform == "win32":
-        # Bugfix: returning when poll() is not None skipped taskkill /T, so
-        # grandchildren of an already-exited worker were left running.
-        _kill_process_tree_win32(proc)
-        return
-    # Bugfix: the same early return skipped the process group on POSIX.
-    # The worker is a session leader (start_new_session, so pgid == pid).
-    # If it has already exited, poll() has reaped it and getpgid(pid) raises
-    # ProcessLookupError, but grandchildren can still be in that group.
-    # killpg(pid) reaches them. ProcessLookupError means the group is gone.
-    pid = proc.pid
-    if not pid:
-        if proc.poll() is None:
-            proc.kill()
-        return
-    try:
-        pgid = os.getpgid(pid)
-        fallback = False
-    except ProcessLookupError:
-        pgid = pid
-        fallback = True
-
-    try:
-        if fallback and proc.poll() is None:
-            proc.kill()
-        elif pgid == os.getpgrp():
-            # Bugfix: killpg on the host's own group (no new session, or a reused
-            # pid) would kill LibreOffice. Kill only the child in that case.
-            if proc.poll() is None:
-                proc.kill()
-        else:
-            os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        if proc.poll() is None:
-            proc.kill()
-
-
-def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
-    """Terminate the Windows process tree; ``TerminateProcess`` does not kill grandchildren."""
-    from plugin.framework.worker_pool import get_subprocess_creationflags
-
-    pid = proc.pid
-    if not pid:
-        proc.kill()
-        return
-    try:
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=False,
-            **get_subprocess_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        proc.kill()
-        return
-    if proc.poll() is None:
-        proc.kill()

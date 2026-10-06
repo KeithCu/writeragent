@@ -13,17 +13,19 @@ import contextlib
 import logging
 import os
 import select
+import signal
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, IO, Iterator
 
 from plugin.framework.config import get_config_str
 from plugin.framework.thread_guard import background
 from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
-from plugin.framework.worker_pool import StderrTail, start_stderr_drain
+from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -42,7 +44,6 @@ from plugin.scripting.ipc import (
 )
 from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.sandbox import (
-    _kill_process_tree,
     optimize_popen_pipes,
     resolve_libreoffice_python,
     resolve_venv_python,
@@ -247,18 +248,77 @@ def _pid_is_alive_win32(pid: int) -> bool:
     return ctypes.get_last_error() == 5
 
 
+def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
+    """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
+    if sys.platform == "win32":
+        # Bugfix: returning when poll() is not None skipped taskkill /T, so
+        # grandchildren of an already-exited worker were left running.
+        _kill_process_tree_win32(proc)
+        return
+    # Bugfix: the same early return skipped the process group on POSIX.
+    # The worker is a session leader (start_new_session, so pgid == pid).
+    # If it has already exited, poll() has reaped it and getpgid(pid) raises
+    # ProcessLookupError, but grandchildren can still be in that group.
+    # killpg(pid) reaches them. ProcessLookupError means the group is gone.
+    pid = proc.pid
+    if not pid:
+        if proc.poll() is None:
+            proc.kill()
+        return
+    try:
+        pgid = os.getpgid(pid)
+        fallback = False
+    except ProcessLookupError:
+        pgid = pid
+        fallback = True
+
+    try:
+        if fallback and proc.poll() is None:
+            proc.kill()
+        elif pgid == os.getpgrp():
+            # Bugfix: killpg on the host's own group (a reused pid, or a child
+            # without its own session) would kill LibreOffice. Kill only proc.
+            if proc.poll() is None:
+                proc.kill()
+        else:
+            os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
+    """Terminate the Windows process tree; ``TerminateProcess`` does not kill grandchildren."""
+    pid = proc.pid
+    if not pid:
+        proc.kill()
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+            **get_subprocess_creationflags(),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        proc.kill()
+        return
+    if proc.poll() is None:
+        proc.kill()
+
+
 class _IoSessionUnavailable(Exception):
     """``_io_session`` could not start; ``args[0]`` is the error dict to return."""
 
 
+@dataclass
 class _TurnState:
     """Replay guards for one request; survives an exception out of the read loop."""
 
-    __slots__ = ("execution_started", "dispatched_intermediate")
-
-    def __init__(self) -> None:
-        self.execution_started = False
-        self.dispatched_intermediate = False
+    execution_started: bool = False
+    dispatched_intermediate: bool = False
 
     @property
     def may_have_run(self) -> bool:

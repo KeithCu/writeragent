@@ -694,15 +694,15 @@ def test_host_read_timeout_does_not_retry():
 
 def test_kill_process_tree_win32_uses_taskkill(monkeypatch):
     """Windows must kill grandchildren; TerminateProcess on the worker PID is not enough."""
-    import plugin.scripting.sandbox as sandbox_module
+    import plugin.scripting.venv_worker as venv_worker_module
 
     run = MagicMock()
-    monkeypatch.setattr(sandbox_module.subprocess, "run", run)
+    monkeypatch.setattr(venv_worker_module.subprocess, "run", run)
 
     proc = MagicMock()
     proc.poll.return_value = 1
     proc.pid = 4242
-    sandbox_module._kill_process_tree_win32(proc)
+    venv_worker_module._kill_process_tree_win32(proc)
     run.assert_called_once()
     assert run.call_args[0][0] == ["taskkill", "/F", "/T", "/PID", "4242"]
     proc.kill.assert_not_called()
@@ -2364,7 +2364,7 @@ def test_partial_stdin_write_delivers_full_frame():
 
 def test_kill_process_tree_host_pgid_protection(monkeypatch):
     """Never killpg the host's own group; fall back to killing just the child."""
-    import plugin.scripting.sandbox as sandbox_module
+    import plugin.scripting.venv_worker as venv_worker_module
 
     if sys.platform == "win32":
         pytest.skip("POSIX process groups")
@@ -2372,11 +2372,11 @@ def test_kill_process_tree_host_pgid_protection(monkeypatch):
     proc.pid = 12345
     proc.poll.return_value = None
     killpg = MagicMock()
-    monkeypatch.setattr(sandbox_module.os, "getpgid", lambda pid: 9999)
-    monkeypatch.setattr(sandbox_module.os, "getpgrp", lambda: 9999)
-    monkeypatch.setattr(sandbox_module.os, "killpg", killpg)
+    monkeypatch.setattr(venv_worker_module.os, "getpgid", lambda pid: 9999)
+    monkeypatch.setattr(venv_worker_module.os, "getpgrp", lambda: 9999)
+    monkeypatch.setattr(venv_worker_module.os, "killpg", killpg)
 
-    sandbox_module._kill_process_tree(proc)
+    venv_worker_module._kill_process_tree(proc)
 
     killpg.assert_not_called()
     proc.kill.assert_called_once()
