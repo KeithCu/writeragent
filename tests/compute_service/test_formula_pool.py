@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from typing import Any
 
 import pytest
 
@@ -1418,20 +1419,34 @@ class TestFormulaHttpEndpoint:
     @pytest.mark.skipif(sys.platform == "win32", reason="uses signal.alarm")
     def test_subsecond_budget_does_not_sigkill_worker(self) -> None:
         """A sub-second remaining deadline sets alarm=1s; host must wait alarm+grace so worker is not SIGKILLed."""
+        from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
         try:
             worker = pool.workers[0]
-            pid = worker.process.pid if worker.process else None
-            # Sub-second deadline: child_budget ~ 0.2s -> alarm = 1s.
-            # Code sleeps 0.4s (finishing between child_budget and alarm).
+            real_execute = worker.execute
+            timeouts_passed: list[float] = []
+
+            def spy_execute(payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+                timeouts_passed.append(timeout_sec)
+                return real_execute(payload, timeout_sec)
+
+            worker.execute = spy_execute  # type: ignore[method-assign]
+
+            # Sub-second deadline: child_budget ~ 0.5s (< 1.0s) -> child_alarm = 1s.
+            # Host must wait at least child_alarm (1s) + grace (2s) = 3s,
+            # NOT child_budget + grace (~2.5s).
             res = pool.execute(
-                code="import time\ntime.sleep(0.4)\nresult = 42",
-                deadline=time.monotonic() + 0.2,
+                code="result = 42",
+                deadline=time.monotonic() + 0.5,
                 req_id="subsecond-test",
             )
-            # Worker must still be alive with the same pid (not SIGKILLed)
-            assert res.get("status") in ("ok", "error")
-            assert worker.process is not None and worker.process.pid == pid
+            assert res.get("status") == "ok"
+            assert res.get("result") == 42
+            assert len(timeouts_passed) == 1
+            # Host timeout must be at least child_alarm (1.0) + grace (2.0) = 3.0s
+            assert timeouts_passed[0] >= 1.0 + HOST_IPC_READ_GRACE_SEC
+            assert worker.process is not None
             assert worker.is_alive()
         finally:
             pool.shutdown()
