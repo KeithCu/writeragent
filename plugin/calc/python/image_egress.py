@@ -262,6 +262,11 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                     level="warning",
                 )
 
+        # Re-narrow after the locate block reassigns doc (basedpyright reads
+        # located_doc as Optional); the earlier None check does not carry over.
+        if doc is None:
+            _egress_fail("no Calc document for image insertion")
+
         ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None
 
         if sheet is None:
