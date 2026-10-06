@@ -63,6 +63,24 @@ def _parse_slide_index(val: Any, current: int, page_count: int) -> int | None:
         return None
 
 
+def _parse_existing_slide_index(val: Any, current: int, page_count: int) -> tuple[int | None, str]:
+    """Like _parse_slide_index, but an out-of-range index is an error, not clamped.
+
+    Clamping made {"DeleteSlide": 99} delete the last slide.
+    """
+    if val == "" or val is None:
+        return current, ""
+    if isinstance(val, str) and val.strip().lower() == "last":
+        return max(0, page_count - 1), ""
+    try:
+        idx = int(val)
+    except (TypeError, ValueError):
+        return None, repr(val)
+    if idx < 0 or idx >= page_count:
+        return None, "index out of range"
+    return idx, ""
+
+
 def _current_after_move(current: int, from_idx: int, to_idx: int) -> int:
     """Index of the same logical slide after MoveSlide.
 
@@ -369,19 +387,9 @@ class SlideCommandEngine:
             self.warnings.append(f"InsertMasterSlide: {e}")
 
     def _delete_slide(self, val: Any) -> None:
-        if val == "" or val is None:
-            idx = self.current_slide
-        elif isinstance(val, str) and val.strip().lower() == "last":
-            idx = max(0, self._page_count() - 1)
-        else:
-            try:
-                idx = int(val)
-            except (TypeError, ValueError):
-                self.warnings.append("Invalid DeleteSlide: %r" % val)
-                return
-
-        if idx < 0 or idx >= self._page_count():
-            self.warnings.append("Invalid DeleteSlide: index out of range")
+        idx, problem = _parse_existing_slide_index(val, self.current_slide, self._page_count())
+        if idx is None:
+            self.warnings.append("Invalid DeleteSlide: %s" % problem)
             return
 
         if self._page_count() <= 1:
@@ -394,19 +402,9 @@ class SlideCommandEngine:
         self.applied.append("DeleteSlide:%d" % idx)
 
     def _duplicate_slide(self, val: Any) -> None:
-        if val == "" or val is None:
-            idx = self.current_slide
-        elif isinstance(val, str) and val.strip().lower() == "last":
-            idx = max(0, self._page_count() - 1)
-        else:
-            try:
-                idx = int(val)
-            except (TypeError, ValueError):
-                self.warnings.append("Invalid DuplicateSlide: %r" % val)
-                return
-
-        if idx < 0 or idx >= self._page_count():
-            self.warnings.append("Invalid DuplicateSlide: index out of range")
+        idx, problem = _parse_existing_slide_index(val, self.current_slide, self._page_count())
+        if idx is None:
+            self.warnings.append("Invalid DuplicateSlide: %s" % problem)
             return
 
         self.bridge.duplicate_slide(idx, switch=True)

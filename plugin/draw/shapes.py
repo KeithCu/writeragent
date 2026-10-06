@@ -21,8 +21,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
-SHAPE_VERBOSE_DEBUG = False
-
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposed_exception
 from .base import ToolDrawShapeBase
@@ -31,6 +29,9 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger(__name__)
+
+# Verbose per-create Writer document logging (enumerates every paragraph).
+SHAPE_VERBOSE_DEBUG = False
 
 _DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
 
@@ -1139,8 +1140,9 @@ class CreateDiagram(ToolDrawShapeBase):
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
         connections = kwargs.get("connections") or []
+        known_ids = {str(nid) for nid in ids}
         for conn in connections:
-            if str(conn.get("from")) not in ids or str(conn.get("to")) not in ids:
+            if str(conn.get("from")) not in known_ids or str(conn.get("to")) not in known_ids:
                 return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
 
         layout = kwargs.get("layout") or "horizontal_flow"
@@ -1153,9 +1155,9 @@ class CreateDiagram(ToolDrawShapeBase):
 
         upsert = UpsertShape()
         id_to_index: dict[str, int] = {}
-        created = []
+        created: list[dict[str, Any]] = []
 
-        def cleanup_shapes():
+        def cleanup_shapes() -> None:
             try:
                 # Delete backward so indices don't shift
                 for cr in reversed(created):

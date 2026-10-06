@@ -28,6 +28,10 @@ from plugin.framework.thread_guard import main_thread_only
 log = logging.getLogger(__name__)
 
 
+class PageExchangeRollbackError(RuntimeError):
+    """A page exchange failed and putting its shapes back failed too."""
+
+
 class _SingleDrawPageContainer:
     """Writer/Calc expose one ``XDrawPage``, not ``XDrawPages``. Shape tools still use getCount/getByIndex."""
 
@@ -294,11 +298,17 @@ class DrawBridge:
                 if is_disposed_exception(exc):
                     raise
                 log.exception("create_slide could not place the new page at index 0")
+                if isinstance(exc, PageExchangeRollbackError):
+                    # Shapes may sit on page 1 or the temp page. Removing a page
+                    # here could delete them; report where they are instead.
+                    raise
                 try:
                     pages.remove(pages.getByIndex(1))
-                except Exception:
-                    pass
-                raise RuntimeError("Failed to exchange new page with first page") from exc
+                except Exception as rm_exc:
+                    if is_disposed_exception(rm_exc):
+                        raise
+                    log.debug("create_slide could not remove the new page: %s", rm_exc)
+                raise RuntimeError("Failed to place the new slide at index 0: %s" % exc) from exc
             return pages.getByIndex(0), 0
         # 0 < index < count: insert after the page that should precede it.
         # insertNewByIndex(index-1) lands at index.
@@ -403,7 +413,7 @@ class DrawBridge:
             return False
         try:
             if not self._take_page_name(source, copy):
-                log.warning("duplicate_slide: failed to transfer name")
+                log.warning("move_slide: failed to transfer the page name")
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
@@ -418,7 +428,7 @@ class DrawBridge:
             log.debug("move_slide remove source failed: %s", exc)
             try:
                 if not self._take_page_name(copy, source):
-                    log.warning("duplicate_slide undo: failed to transfer name")
+                    log.warning("move_slide undo: failed to restore the page name")
             except Exception as restore_exc:
                 if is_disposed_exception(restore_exc):
                     raise
@@ -488,7 +498,10 @@ class DrawBridge:
         except Exception as exc:
             if not self._rollback_exchange(first, second, temp, first_shapes, second_shapes, moved_first, moved_second, moved_onto_second):
                 rollback_failed = True
-                raise RuntimeError(f"move_slide failed and rollback failed, leaving shapes on temp page. Original error: {exc}")
+                raise PageExchangeRollbackError(
+                    "Slide exchange failed and its rollback failed. Some shapes are on the "
+                    "last slide (temporary page). Original error: %s" % exc
+                ) from exc
             raise
         finally:
             if temp is not None and not rollback_failed:
@@ -769,7 +782,7 @@ class DrawBridge:
             return True
         # Two pages cannot share a name. Park the source name, then give it
         # to the copy. Put it back if the destination rejects it.
-        parked = name + "​"
+        parked = name + "\u200b"
         try:
             source.Name = parked
         except Exception as exc:
@@ -791,6 +804,7 @@ class DrawBridge:
                 log.warning("move_slide: failed to restore original name: %s", restore_exc)
             return False
         return True
+
     def rename_slide(self, index: int, name: str) -> bool:
         page = self.get_pages().getByIndex(index)
         if hasattr(page, "Name"):

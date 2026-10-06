@@ -546,7 +546,7 @@ def test_create_slide_front_insert_keeps_previous_view_when_not_activated():
     assert controller.page.getCount() == 0
 
 
-def test_create_slide_reports_index_one_when_front_exchange_fails():
+def test_create_slide_removes_new_page_when_front_exchange_fails():
     from plugin.draw.bridge import DrawBridge
 
     pages = _named_deck("A", "B")
@@ -557,11 +557,29 @@ def test_create_slide_reports_index_one_when_front_exchange_fails():
 
     bridge._exchange_page_contents = _boom  # type: ignore[method-assign]
     import pytest
-    with pytest.raises(RuntimeError, match="Failed to exchange new page with first page"):
+    with pytest.raises(RuntimeError, match="Failed to place the new slide at index 0"):
         bridge.create_slide(0, switch=False)
     # The new page should have been removed
     assert len(pages.pages) == 2
     assert pages.pages[0].Name == "A"
+
+
+def test_create_slide_keeps_pages_when_exchange_rollback_fails():
+    """Shapes may be parked on page 1 or the temp page; no page is removed."""
+    import pytest
+
+    from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
+
+    pages = _named_deck("A", "B")
+    bridge = DrawBridge(_ViewDoc(pages, None))
+
+    def _boom(first: object, second: object) -> None:
+        raise PageExchangeRollbackError("rollback failed")
+
+    bridge._exchange_page_contents = _boom  # type: ignore[method-assign]
+    with pytest.raises(PageExchangeRollbackError):
+        bridge.create_slide(0, switch=False)
+    assert len(pages.pages) == 3
 
 
 def test_insert_slide_from_master_lands_after_requested_slide():
