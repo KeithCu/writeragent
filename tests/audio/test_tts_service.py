@@ -1890,3 +1890,17 @@ def test_speak_system_security(mock_which, mock_popen):
         mock_which.side_effect = lambda x: "/usr/bin/espeak" if x == "espeak" else None
         _speak_system(text, speed=1.0)
         mock_popen.assert_called_with(["espeak", "-s", "160", "--", text], None, slot="play", env=None)
+
+
+def test_stop_speech_stops_spd_only_for_own_spd_say():
+    from plugin.audio import tts_service
+
+    spd = MagicMock()
+    spd.args = ["spd-say", "-w", "--", "hi"]
+    spd.poll.return_value = None
+    other = MagicMock()
+    other.args = ["paplay", "/tmp/x.wav"]
+    other.poll.return_value = None
+    assert tts_service._is_spd_say(spd) is True
+    assert tts_service._is_spd_say(other) is False
+    assert tts_service._is_spd_say(None) is False

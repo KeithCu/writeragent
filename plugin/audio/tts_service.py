@@ -197,6 +197,11 @@ def _proc_running(proc: subprocess.Popen[Any] | None) -> bool:
     return proc is not None and proc.poll() is None
 
 
+def _is_spd_say(proc: subprocess.Popen[Any] | None) -> bool:
+    args = getattr(proc, "args", None)
+    return isinstance(args, (list, tuple)) and bool(args) and os.path.basename(str(args[0])) == "spd-say"
+
+
 def _terminate_proc(proc: subprocess.Popen[Any] | None) -> None:
     if proc is None:
         return
@@ -212,11 +217,10 @@ def _terminate_proc(proc: subprocess.Popen[Any] | None) -> None:
             proc.wait(timeout=0.2)
         except subprocess.TimeoutExpired:
             if sys.platform == "win32":
-                import subprocess as sp
-                sp.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], check=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
             else:
                 proc.kill()
-            proc.wait()
+            proc.wait(timeout=5)
     except Exception as exc:
         log.debug("speech terminate error: %s", exc)
 
@@ -321,13 +325,19 @@ def stop_speech() -> None:
     # Why this change: terminate the player (and synth processes) on the calling thread
     # immediately so the next utterance cannot overlap with the previous one.
     # Temp-file unlinking remains in the background.
+    # spd-say -w only waits on speech-dispatcher, which keeps talking after
+    # the client dies. Only stop it when our own spd-say was speaking:
+    # stop_speech runs before every utterance, and an unconditional stop would
+    # also cut off other speech-dispatcher clients such as a screen reader.
+    stop_spd = _proc_running(play) and _is_spd_say(play)
     _terminate_proc(play)
     for proc in synths:
         _terminate_proc(proc)
-
-    if sys.platform not in ("darwin", "win32") and shutil.which("spd-say"):
-        import subprocess as sp
-        sp.run(["spd-say", "-C"], check=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+    if stop_spd:
+        try:
+            subprocess.run(["spd-say", "-S"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        except Exception as exc:
+            log.debug("spd-say stop failed: %s", exc)
     if cancel_token is not None:
         try:
             from plugin.audio.kokoro_pool import cancel_kokoro_inflight
@@ -2270,6 +2280,7 @@ def _run_sentence_pipeline(
         _ready_queue = ready
 
     def _produce() -> None:
+        done = 0
         try:
             for index, sentence in enumerate(sentences):
                 if _playback_blocked(generation):
@@ -2294,11 +2305,14 @@ def _run_sentence_pipeline(
                 if not ready.put(clip, generation):
                     _release_temp(clip.path)
                     return
+                done = index + 1
         except Exception:
+            # A crash here used to end the reply silently. Speak the sentences
+            # not yet queued with OS speech so the user still hears them once.
             log.exception("Prefetch thread failed")
-            if not _playback_blocked(generation):
-                fallback_clip = _ReadyClip(None, " ".join(sentences), 0, True)
-                ready.put(fallback_clip, generation)
+            rest = sentences[done:]
+            if rest and not _playback_blocked(generation):
+                ready.put(_ReadyClip(None, " ".join(rest), 0, True), generation)
         finally:
             ready.close()
 
