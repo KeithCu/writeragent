@@ -1774,6 +1774,15 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
         def log_message(self, fmt: str, *args: Any) -> None:
             sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
+        def handle(self) -> None:
+            # Stop / Clear close the stream mid-write. That is the client
+            # hanging up, not a server bug, so we drop the connection quietly
+            # instead of letting socketserver print a BrokenPipe traceback.
+            try:
+                super().handle()
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
+
         def _send_json(self, status: int, body: dict[str, Any]) -> None:
             raw = json.dumps(body).encode("utf-8")
             self.send_response(status)

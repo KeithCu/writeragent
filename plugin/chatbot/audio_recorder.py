@@ -335,9 +335,25 @@ class AudioRecorder:
                 self._apply_event(DeviceReadyEvent())
                 if ctrl.get("auto_stop"):
                     self._write_injected_wav()
-                    self._notify_auto_stop(self.temp_filename)
                     # One-shot: G4 must not leave auto_stop for G5–G15.
                     write_stub_recorder_control(auto_stop=False)
+                    # What was wrong: the stub fired auto-stop right here, inside
+                    # Record's own start transition. Under WRITERAGENT_TESTING the
+                    # panel's post() runs inline, so STOP_REC_CLICKED and the whole
+                    # send drain ran nested in RECORD_CLICKED (re-entering this
+                    # recorder mid-start), inside the URP Record click. G4 wedged
+                    # soffice there and every later URP call hung.
+                    # Why a worker: the real silence detector reports from the
+                    # stdout monitor thread, so the panel post lands on a later
+                    # VCL tick after Record has returned. The stub does the same.
+                    from plugin.framework.worker_pool import run_in_background
+
+                    run_in_background(
+                        self._notify_auto_stop,
+                        self.temp_filename,
+                        name="audio-rec-stub-auto-stop",
+                        dedicated=True,
+                    )
                 return
             silence_config = load_silence_detector_config()
             self._auto_stopped_path = None

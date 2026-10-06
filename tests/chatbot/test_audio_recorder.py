@@ -94,6 +94,48 @@ def test_audio_recorder_skip_spawn_from_control_file(ctx, tmp_path):
             os.remove(recorder.temp_filename)
 
 
+def test_audio_recorder_stub_auto_stop_fires_after_start_returns(ctx, tmp_path):
+    """G4 stub auto-stop is reported from a tagged worker, like the stdout monitor.
+
+    Firing it inline on the caller re-entered Record's transition
+    (STOP_REC_CLICKED plus a whole send drain nested in RECORD_CLICKED) and
+    wedged soffice in CI. From a tagged worker the panel's post() enqueues
+    instead of running inline, so STOP_REC lands on a later VCL tick.
+    """
+    fixture = tmp_path / "inject.wav"
+    fixture.write_bytes(b"RIFF....WAVEfmt ")
+    write_stub_recorder_control(wav=str(fixture), skip=True, auto_stop=True)
+    recorder = AudioRecorder(ctx)
+    fired = threading.Event()
+    seen: dict[str, object] = {}
+
+    def _on_auto_stop() -> None:
+        from plugin.framework.thread_guard import get_background_task_name
+
+        seen["thread"] = threading.current_thread()
+        seen["bg_task"] = get_background_task_name()
+        fired.set()
+
+    recorder.set_auto_stop_callbacks(on_auto_stop=_on_auto_stop)
+    try:
+        recorder.start_recording()
+        assert recorder.state.status == "recording"
+        assert fired.wait(5.0), "stub auto-stop never fired"
+        assert seen["thread"] is not threading.current_thread()
+        assert seen["bg_task"] == "audio-rec-stub-auto-stop"
+        assert recorder._auto_stopped_path == recorder.temp_filename
+        # One-shot: later Packet G cases must not inherit auto_stop.
+        from plugin.chatbot.audio_recorder import read_stub_recorder_control
+
+        assert read_stub_recorder_control().get("auto_stop") is False
+        path = recorder.stop_recording()
+        assert path and os.path.isfile(path)
+    finally:
+        clear_stub_recorder_control()
+        if recorder.temp_filename and os.path.isfile(recorder.temp_filename):
+            os.remove(recorder.temp_filename)
+
+
 def test_audio_recorder_skip_spawn_injects_wav(ctx, tmp_path):
     fixture = tmp_path / "inject.wav"
     fixture.write_bytes(b"RIFF....WAVEfmt ")

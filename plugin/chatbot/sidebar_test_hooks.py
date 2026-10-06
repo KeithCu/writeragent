@@ -430,19 +430,18 @@ def handle_debug_sidebar_command(command: str) -> None:
             log.warning("debug_sidebar unknown op %s", op)
         _write_debug_snapshot(sl)
 
-    qe = getattr(sl, "queue_executor", None)
-    if qe is None:
+    if getattr(sl, "queue_executor", None) is None:
         _apply()
         return
-    from plugin.framework.queue_executor import set_force_marshal_mode
-
     # Post, do not execute(): URP executeDispatch + blocking VCL wait deadlocks
     # (office sits idle, tests wait forever). AsyncCallback runs _apply on VCL.
-    set_force_marshal_mode(True)
-    try:
-        qe.post(_apply)
-    finally:
-        set_force_marshal_mode(False)
+    # What was wrong: this posted with force-marshal straight to the listener's
+    # executor. Force-marshal skips AsyncCallback init, so on a fresh panel the
+    # poke was a no-op and the op sat queued. Packet P's opening STOP_CLICKED
+    # then ran seconds later, when KICK_PEERS first poked that executor, and
+    # cancelled Calc's peer turn mid-flight (P1 never saw write_formula_range).
+    # _post_to_soffice_vcl initializes AsyncCallback before the post.
+    _post_to_soffice_vcl(_apply, sl=sl)
 
 
 def _debug_sidebar_query(op: str, uid: str = "") -> str:
