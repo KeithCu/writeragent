@@ -781,7 +781,7 @@ def defer_until_drain_done(fn: Callable[[], None]) -> None:
     session.epilogues.append(fn)
 
 
-def _drain_ready(q: queue.Queue[Any]) -> list[Any]:
+def _drain_ready(q: queue.Queue[Any], max_items: int = 50) -> list[Any]:
     """Items already queued. Does not block.
 
     A blocking ``get`` here would sit inside the VCL callback. That holds
@@ -790,10 +790,11 @@ def _drain_ready(q: queue.Queue[Any]) -> list[Any]:
     # crosshair: off
     items: list[Any] = []
     try:
-        while True:
+        while len(items) < max_items:
             items.append(q.get_nowait())
     except queue.Empty:
-        return items
+        pass
+    return items
 
 
 class _IdleRearmThread:
@@ -1043,6 +1044,8 @@ class _EventDrain:
         if self.closed:
             return
         state = self._state
+        import time
+        t0 = time.monotonic()
         try:
             if self._stop_checker and self._stop_checker():
                 log.info("run_stream_drain_loop: Stop requested via checker.")
@@ -1076,6 +1079,11 @@ class _EventDrain:
                 pending = state.q.qsize()
             except Exception:
                 pending = 0
+
+            elapsed = time.monotonic() - t0
+            if elapsed > 0.1:
+                log.debug(f"event drain slice took {elapsed:.3f}s, bounded execution to avoid main thread freeze")
+
             self._schedule_next(idle=pending == 0)
         except Exception as exc:
             log.exception("event drain slice failed")

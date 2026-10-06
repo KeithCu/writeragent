@@ -276,11 +276,13 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
         if not idle_reached:
             log.debug("Writer chart model wait stopped: idle did not arrive")
             return None
+        # What was wrong: time.sleep on the main thread holds SolarMutex and blocks worker threads.
+        # Why: Drop the sleep entirely; processEventsToIdle yields internally if needed,
+        # and the total timeout prevents an infinite loop.
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
             return None
-        time.sleep(min(_WRITER_CHART_MODEL_POLL_SEC, remaining))
     log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
     return None
 
