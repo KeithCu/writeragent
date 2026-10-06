@@ -1732,7 +1732,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Mode and the document are filled in once this send knows them.
         begin_send_turn(self, "")
         self._set_status(_("Starting..."))
-        update_activity_state("do_send", status_control=self.status_control)
+        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
         log.info("=== _do_send START ===")
 
         # Ensure extension directory is on sys.path (injected by panel_factory to avoid circular import)
@@ -2043,7 +2043,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         begin_send_turn(self, CHAT_MODE_CHAT)
         self._set_status(_("Starting..."))
-        update_activity_state("do_send", status_control=self.status_control)
+        update_activity_state("do_send", status_control=getattr(self, "status_control", None))
         if self.ensure_path_fn:
             self.ensure_path_fn(self.ctx)
         model = self._get_document_model()

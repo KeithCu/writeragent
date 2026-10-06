@@ -7,6 +7,8 @@ import tempfile
 from logging.handlers import MemoryHandler
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.framework.logging import (
     FLUSH_INTERVAL_SEC,
     LOG_REDACT_AUDIO_PLACEHOLDER,
@@ -351,6 +353,17 @@ def test_format_tool_result_for_display():
     assert ('inner text' in res)
     res = format_tool_result_for_display('my_tool', 'res', args={'k': 'v'})
     assert (res == "my_tool(k='v') -> 'res'")
+
+@pytest.fixture(autouse=True)
+def _no_stale_watchdog_status_control():
+    # Other modules' _do_send tests (same xdist worker) leave a mock sender
+    # control in _activity_state; the watchdog would then label that one.
+    import plugin.framework.logging as logging_mod
+
+    with logging_mod._activity_lock:
+        logging_mod._activity_state["status_control"] = None
+    yield
+
 
 def test_update_activity_state():
     update_activity_state('phase1', round_num=1, tool_name='tool1')
