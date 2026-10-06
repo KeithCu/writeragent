@@ -790,19 +790,22 @@ def defer_until_drain_done(fn: Callable[[], None]) -> None:
     session.epilogues.append(fn)
 
 
-def _drain_ready(q: queue.Queue[Any]) -> list[Any]:
-    """Items already queued. Does not block.
+def _drain_ready(q: queue.Queue[Any], max_items: int = 50) -> list[Any]:
+    """Up to ``max_items`` items already queued. Does not block.
 
     A blocking ``get`` here would sit inside the VCL callback. That holds
     SolarMutex for the whole timeout. See :func:`run_stream_drain_loop`.
+    The cap keeps one slice short when a fast producer floods the queue; the
+    slice re-arms immediately while items remain.
     """
     # crosshair: off
     items: list[Any] = []
     try:
-        while True:
+        while len(items) < max_items:
             items.append(q.get_nowait())
     except queue.Empty:
-        return items
+        pass
+    return items
 
 
 class _IdleRearmThread:
@@ -883,21 +886,29 @@ class _IdleRearmThread:
                 self._fire = None
             try:
                 fire()
-                self._failures = 0
+                with self._cv:
+                    self._failures = 0
             except Exception:
+                # Why: a lost idle re-arm means the drain never runs another
+                # slice (owner held, Send stuck on Stop, Stop cannot recover).
+                # Re-queue the same fire with capped backoff unless the drain
+                # stopped or re-armed meanwhile.
                 delay = None
+                failures = 0
                 with self._cv:
                     if not self._stopped and self._deadline is None and self._generation == generation:
                         self._failures += 1
-                        delay = min(_IDLE_REARM_RETRY_MAX_SEC, _DRAIN_IDLE_REARM_SEC * 2**min(self._failures - 1, 4))
+                        failures = self._failures
+                        delay = min(_IDLE_REARM_RETRY_MAX_SEC, _DRAIN_IDLE_REARM_SEC * 2**min(failures - 1, 4))
                         self._deadline = time.monotonic() + delay
                         self._fire = fire
                         self._cv.notify()
-                if delay is not None:
-                    if self._failures == 1:
-                        log.exception("drain idle re-arm failed")
-                    else:
-                        log.warning("drain idle re-arm failed %d times, retrying in %.2fs", self._failures, delay)
+                if delay is None:
+                    log.debug("drain idle re-arm failed after stop/re-arm; not retrying", exc_info=True)
+                elif failures == 1:
+                    log.exception("drain idle re-arm failed")
+                else:
+                    log.warning("drain idle re-arm failed %d times, retrying in %.2fs", failures, delay)
 
 
 def _new_xcallback(fn: Callable[[], None]) -> Any:
@@ -952,9 +963,14 @@ class _AsyncCallbackRearm:
 
     def _poke(self) -> None:
         # crosshair: off
-        if self._callback is None:
+        # The idle timer thread can poke while close() runs on the main
+        # thread; read both under the lock so a closed rearm is a no-op.
+        with self._lock:
+            callback = self._callback
+            service = self._service
+        if callback is None or service is None:
             return
-        self._service.addCallback(self._callback, None)
+        service.addCallback(callback, None)
 
     def post(self, fn: Callable[[], None]) -> None:
         # crosshair: off
@@ -977,8 +993,8 @@ class _AsyncCallbackRearm:
         self._timer.stop()
         with self._lock:
             self._target = None
-        self._callback = None
-        self._service = None
+            self._callback = None
+            self._service = None
 
 
 class _EventDrain:
@@ -1077,6 +1093,7 @@ class _EventDrain:
         if self.closed:
             return
         state = self._state
+        t0 = time.monotonic()
         try:
             if self._stop_checker and self._stop_checker():
                 log.info("run_stream_drain_loop: Stop requested via checker.")
@@ -1110,6 +1127,11 @@ class _EventDrain:
                 pending = state.q.qsize()
             except Exception:
                 pending = 0
+
+            elapsed = time.monotonic() - t0
+            if elapsed > 0.1:
+                log.debug("event drain slice took %.3fs", elapsed)
+
             if pending == 0:
                 self._immediate_streak = 0
                 self._schedule_next(idle=True)

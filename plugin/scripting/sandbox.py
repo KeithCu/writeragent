@@ -84,6 +84,11 @@ def _writeragent_alias_mirrors(entries: tuple[str, ...]) -> tuple[str, ...]:
 
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
 # No ``writeragent.*``: that wildcard is not an allow. See ``import_authorized``.
+# These libraries (pandas.*, numpy.*, PIL.*, matplotlib.*) can read/write files
+# (e.g. DataFrame.to_csv, plt.savefig). That is accepted on purpose: compute callers
+# are presumed trusted, and the container plus a scrubbed environment is the boundary.
+# We do not want arbitrary writes as a goal; if callers ever become untrusted, revisit
+# this allowlist (narrow to the submodules formulas need). Review noted 2026-10-06.
 _VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = (
     "platform",
     "numpy",

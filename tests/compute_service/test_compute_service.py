@@ -730,6 +730,56 @@ class TestComputeSettings:
         assert s.host == "127.0.0.1"
         assert not s.auth_required
 
+    def test_settings_repr_hides_api_key(self) -> None:
+        s = ComputeSettings(api_key="super-secret-key")
+        r = repr(s)
+        assert "super-secret-key" not in r
+        assert "api_key" not in r
+
+    def test_keyless_cors_and_dns_rebinding(self) -> None:
+        app = create_wsgi_app(
+            ComputeSettings(),
+            reset_fn=lambda sid, **_kw: {"status": "ok"},
+        )
+
+        # Origin header gets 403
+        status, headers, body = _wsgi_post(app, b"{}", headers={"Origin": "http://evil.example"})
+        assert status.startswith("403")
+        assert body.get("code") == "CROSS_ORIGIN_REFUSED"
+
+        # Host header not loopback gets 403
+        status, headers, body = _wsgi_post(app, b"{}", headers={"Host": "evil.example:8000"})
+        assert status.startswith("403")
+        assert body.get("code") == "CROSS_ORIGIN_REFUSED"
+
+        # No Origin, loopback Host gets 400 (which means it passed the CORS pre-check and failed on empty body execute)
+        status, headers, body = _wsgi_post(app, b"{}", headers={"Host": "127.0.0.1:8000"})
+        assert status.startswith("400")
+
+        # No Origin and no Host gets 400 (allows absent Host)
+        status, headers, body = _wsgi_post(app, b"{}", headers={})
+        assert status.startswith("400")
+        assert body.get("code") != "CROSS_ORIGIN_REFUSED"
+
+    def test_keyed_cors_and_dns_rebinding_allowed(self) -> None:
+        app = create_wsgi_app(
+            ComputeSettings(api_key="secret"),
+            reset_fn=lambda sid, **_kw: {"status": "ok"},
+        )
+
+        # Valid key, cross-origin/non-loopback host is accepted (returns 400 because body is empty, not 403 CORS)
+        status, headers, body = _wsgi_post(
+            app,
+            b"{}",
+            headers={
+                "Origin": "http://evil.example",
+                "Host": "evil.example:8000",
+                "Authorization": "Bearer secret"
+            }
+        )
+        assert status.startswith("400")
+        assert body.get("code") != "CROSS_ORIGIN_REFUSED"
+
     def test_wildcard_without_key_is_rejected(self) -> None:
         """A non-loopback bind without a key must fail inside load_settings."""
         with pytest.raises(ConfigError, match="API key"):
@@ -1208,8 +1258,37 @@ class TestRequestBodyLimits:
         assert status_holder[0].startswith("500")
         parsed = json.loads(body)
         assert parsed["status"] == "error"
+        assert parsed["code"] == "INTERNAL_ERROR"
         assert parsed.get("id") == "v-x"
-        assert "vision boom" in parsed["error"]
+        assert "vision boom" not in parsed["error"]
+
+    def test_execute_unhandled_exception_is_json_500(self) -> None:
+        def boom_execute(*args, **kwargs):
+            raise RuntimeError("execute boom")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=boom_execute)
+        payload = json.dumps({"id": "ex-x", "code": "1+1"}).encode("utf-8")
+        status, headers, body = _wsgi_post(app, payload, path="/v1/execute", headers={"Host": "127.0.0.1"})
+
+        assert status.startswith("500")
+        assert body["status"] == "error"
+        assert body["code"] == "INTERNAL_ERROR"
+        assert "execute boom" not in body["error"]
+        assert body["id"] == "ex-x"
+
+    def test_reset_unhandled_exception_is_json_500(self) -> None:
+        def boom_reset(*args, **kwargs):
+            raise RuntimeError("reset boom")
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=boom_reset)
+        payload = json.dumps({"id": "ex-x"}).encode("utf-8")
+        status, headers, body = _wsgi_post(app, payload, path="/v1/session/reset", query="session_id=1", headers={"Host": "127.0.0.1"})
+
+        assert status.startswith("500")
+        assert body["status"] == "error"
+        assert body["code"] == "INTERNAL_ERROR"
+        assert "reset boom" not in body["error"]
+        assert body["id"] == "ex-x"
 
 
 class TestSessionResetHttp:
@@ -1349,6 +1428,23 @@ class TestSessionResetHttp:
         assert body.get("code") == "VISION_POOL_BUSY"
         assert body.get("id") == "v-busy"
         assert body.get("status") == "error"
+
+    def test_vision_unavailable_is_503(self) -> None:
+        """VISION_UNAVAILABLE happens when the OCR module fails to import, must be 503."""
+        fake_pool = MagicMock()
+        fake_pool.execute.return_value = {
+            "id": "v-missing",
+            "status": "error",
+            "code": "VISION_UNAVAILABLE",
+            "error": "OCR is not installed in this server",
+        }
+        app = create_wsgi_app(ComputeSettings())
+        payload = json.dumps({"id": "v-missing", "image_b64": "YQ=="}).encode("utf-8")
+        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        assert status.startswith("503")
+        assert body.get("code") == "VISION_UNAVAILABLE"
+        assert body.get("id") == "v-missing"
 
     def test_formula_permits_do_not_starve_vision_admission(self) -> None:
         """workers=2 and ocr_workers=4 used to share six permits.

@@ -55,6 +55,8 @@ COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
 # Formula workers unpack / pack ndarrays without this binary.
 COPY contrib/vec_pack /app/contrib/vec_pack
 
+RUN python -m compileall -q /app/compute_service /app/plugin /app/contrib
+
 ENV PYTHONPATH=/app/pkgs:/app
 # Bind all container interfaces. HOST/PORT were unread; the process used
 # PYTHON_COMPUTE_HOST and defaulted to 127.0.0.1, so docker -p never connected.

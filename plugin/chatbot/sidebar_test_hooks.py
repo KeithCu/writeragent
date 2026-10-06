@@ -211,6 +211,8 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
     send = sl.sidebar_state.send if sl is not None else None
     audio = sl.sidebar_state.audio if sl is not None else None
     rec = getattr(sl, "audio_recorder", None) if sl is not None else None
+    # The paint counters live on RichTextChatWidget, not on the raw response control.
+    rich_widget = getattr(sl, "rich_text_widget", None) if sl is not None else None
     data: dict[str, Any] = {
         "is_busy": bool(getattr(send, "is_busy", False)),
         "is_recording": bool(getattr(send, "is_recording", False)),
@@ -228,6 +230,8 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
         **_session_snapshot_fields(sl),
         **_tts_snapshot_fields(),
         "slash_lru": _slash_lru_names(),
+        "paint_session_count": int(getattr(rich_widget, "_debug_paint_session_count", 0) or 0),
+        "stream_session_count": int(getattr(rich_widget, "_debug_stream_session_count", 0) or 0),
     }
     with open(debug_sidebar_snapshot_path(), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
@@ -523,6 +527,25 @@ def _send_label_lower() -> str:
     return _control_label(_urp_send_control()).lower()
 
 
+def _urp_record_click_took() -> bool:
+    """True once a URP Record click left the idle Record state.
+
+    Stop Rec is the usual sign. A stub silence auto-stop can flip the label
+    straight on to Send (busy, Stop enabled) between two polls.
+    """
+    label = _send_label_lower()
+    if "stop rec" in label or (label and "record" not in label):
+        return True
+    ctx = _HOOK_CTX
+    if ctx is None:
+        return False
+    try:
+        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+    except Exception:
+        return False
+    return control_enabled(controls.get("stop")) is True
+
+
 def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
     sl = listener if listener is not None else send_listener()
     if sl is not None:
@@ -535,9 +558,14 @@ def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
                 break
             time.sleep(0.05)
         if _try_click_send_for_kind(kind):
+            # What was wrong: only Stop Rec counted as the click taking. G4's
+            # stub auto-stop sent the take before a poll saw Stop Rec, so the
+            # fallback op started a second take that never stopped (hidden
+            # while Stop was greyed during takes, since idle = Stop off).
+            # Why: any move off Record, or Stop enabled, means it took.
             deadline = time.monotonic() + 2.0
             while time.monotonic() < deadline:
-                if "stop rec" in _send_label_lower():
+                if _urp_record_click_took():
                     return
                 time.sleep(0.05)
         execute_debug_sidebar_op(kind.name)

@@ -36,17 +36,21 @@ from plugin.framework.logging import update_activity_state
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.history_db import get_chat_history
 from plugin.chatbot.record_gesture import (
+    EMPTY_TAKES_EXIT,
     RECORD_HOLD_MS,
     RECORDING_STATUS,
     STICKY_TTS_POLL_MS,
     RecordGesture,
     StickyRestart,
+    TakeStop,
     exit_sticky,
     gesture_action,
     gesture_hold_elapsed,
     gesture_press,
     gesture_release,
+    hands_free_silence_text,
     hands_free_status_text,
+    stop_during_take,
     sticky_restart,
 )
 
@@ -222,7 +226,17 @@ class ChatSession:
 
 from plugin.framework.uno_listeners import BaseActionListener, BaseKeyListener, BaseTextListener
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
-from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, StartRecordingEffect, StartSendEffect, StopRecordingEffect, StopSendEffect, UpdateUIEffect
+from plugin.chatbot.send_state import (
+    CancelRecordingEffect,
+    SendButtonState,
+    SendEvent,
+    SendEventKind,
+    StartRecordingEffect,
+    StartSendEffect,
+    StopRecordingEffect,
+    StopSendEffect,
+    UpdateUIEffect,
+)
 from plugin.chatbot.sidebar_state import LogSidebarEffect, SidebarCompositeState, SidebarEvent, SidebarEventKind, sidebar_next_state
 
 log = logging.getLogger(__name__)
@@ -471,6 +485,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _record_hold_gen: int
     _sticky_restart_gen: int
     _sticky_restart_pending: bool
+    _empty_take_count: int
     _panel_teardown: bool
     _mcp_event_bus: Any
     _turn: Any
@@ -592,6 +607,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._record_hold_gen = 0
         self._sticky_restart_gen = 0
         self._sticky_restart_pending = False
+        # Empty transcripts in a row while sticky (EMPTY_TAKES_EXIT ends the loop).
+        self._empty_take_count = 0
         # Set at the start of disposing so a drain still on the stack skips
         # status, TTS, and a sticky re-record after ctx is cleared.
         self._panel_teardown = False
@@ -1233,7 +1250,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         kind = getattr(event, "kind", None)
         # Stop and aborting errors must drop sticky before SEND_COMPLETED, or
         # the turn-end hook would arm the mic again.
-        if kind in (SendEventKind.STOP_CLICKED, SendEventKind.ERROR_OCCURRED):
+        if kind in (SendEventKind.STOP_CLICKED, SendEventKind.CANCEL_REC_CLICKED, SendEventKind.ERROR_OCCURRED):
             self.exit_hands_free_record()
         was_busy = self.sidebar_state.send.is_busy
         tr = sidebar_next_state(self.sidebar_state, SidebarEvent(kind=SidebarEventKind.SEND, payload=event))
@@ -1265,8 +1282,32 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._sticky_restart_pending = False
         self._sticky_restart_gen += 1
         self._record_hold_gen += 1
+        self._empty_take_count = 0
         if was_sticky:
             log.info("Hands-free record cleared")
+
+    def stop_during_take(self) -> bool:
+        """Stop while a take is recording. True when this click was handled.
+
+        What was wrong: Stop was disabled during every take, and a hands-free
+        loop is a take between turns, so there was no way out short of Clear
+        (which wipes the chat) or closing the sidebar. Stop Rec cannot be the
+        exit: it is the send, and loud rooms need it when silence never fires.
+        Why: one step down per click. A locked take becomes a one-shot take
+        that keeps recording (Stop Rec or silence sends it, nothing re-arms);
+        Stop on a one-shot take cancels it without sending.
+        """
+        from plugin.framework.i18n import _
+
+        if not self.sidebar_state.send.is_recording:
+            return False
+        if stop_during_take(sticky=self._record_gesture.sticky) == TakeStop.EXIT_LOCK:
+            self.exit_hands_free_record()
+            self._set_status(_("Hands-free off"))
+        else:
+            log.info("Stop during take: recording cancelled")
+            self.dispatch(SendEvent(SendEventKind.CANCEL_REC_CLICKED))
+        return True
 
     def _apply_record_gesture(self, step: Any) -> None:
         was_sticky = self._record_gesture.sticky
@@ -1423,7 +1464,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self._panel_teardown or self.ctx is None:
             return
         if self.sidebar_state.send.is_recording:
-            self._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
+            if self._record_gesture.sticky:
+                self._set_status(hands_free_silence_text(silence_ms))
+            else:
+                self._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
 
     def _interpret_effect(self, effect: Any) -> None:
         """Interpret a state machine effect and apply side-effects."""
@@ -1478,6 +1522,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     else:
                         log.exception("Error stopping recording")
                 self.sync_audio_slice()
+
+            case CancelRecordingEffect():
+                # cleanup() stops capture and deletes the temp WAV; a stopped
+                # take's path (if any) goes too, so no later send attaches it.
+                if self.audio_recorder:
+                    try:
+                        self.audio_recorder.cleanup()
+                    except Exception:
+                        log.debug("audio recorder cleanup on cancel failed", exc_info=True)
+                    self.sync_audio_slice()
+                self.clear_pending_audio_wav()
 
             case StartSendEffect():
                 from plugin.framework.queue_executor import SendCancellation
@@ -1638,6 +1693,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._send_cancellation = cancel_scope
             if cancel_scope.is_cancelled() or self._stop_requested_fallback:
                 log.info("Send drain skipped (Stop before drain started)")
+                # What was wrong: Stop Rec stored the take on audio_wav_path,
+                # Stop landed before this drain ran, and nothing consumed the
+                # WAV. The next typed Send then transcribed or attached it.
+                # Why: STT never starts on this path, so the take cannot be
+                # kept as text; drop it so it is not sent with a later message.
+                self.clear_pending_audio_wav()
                 return
             self._do_send()
         except Exception as e:
@@ -1721,7 +1782,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                         def _on_speech_complete() -> None:
                                             def _disable_stop() -> None:
                                                 if not getattr(self, "_send_busy", False):
-                                                    if self.stop_control and self.stop_control.getModel():
+                                                    # A take may already be recording (barge-in or sticky
+                                                    # restart); its Stop is the step-down exit.
+                                                    if self.stop_control and self.stop_control.getModel() and not self.sidebar_state.send.is_recording:
                                                         with suppress_disposed("disable stop after speech", logger=log):
                                                             self.stop_control.getModel().Enabled = False
                                                     # A sticky restart may already be capturing; Ready would hide it.
@@ -1905,6 +1968,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             self._sync_has_text_from_query()
                             return
                         if transcript:
+                            self._empty_take_count = 0
                             query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
                     except Exception as e:
                         from plugin.framework.errors import NetworkError
@@ -1921,6 +1985,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     if not query_text.strip():
                         self._append_response("\n" + _("[No speech detected.]") + "\n")
                         self._terminal_status = "Stopped"
+                        # What was wrong: an empty take finishes as Stopped, not
+                        # Error, so sticky re-armed Record. Noise that trips
+                        # silence auto-stop then looped empty takes forever.
+                        # Why: end hands-free after EMPTY_TAKES_EXIT in a row.
+                        gesture = getattr(self, "_record_gesture", None)
+                        if gesture is not None and gesture.sticky:
+                            self._empty_take_count = getattr(self, "_empty_take_count", 0) + 1
+                            if self._empty_take_count >= EMPTY_TAKES_EXIT:
+                                log.info("Hands-free off after %d empty takes", self._empty_take_count)
+                                self.exit_hands_free_record()
+                                self._append_response(_("[Hands-free off: no speech heard.]") + "\n")
                         return
                 else:
                     err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
@@ -2303,6 +2378,8 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
                     send_listener.stop_control.getModel().Enabled = False
             return
     send = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
+    # Not busy includes a take: StopButtonListener's ActionEvent owns that
+    # step-down. Acting here too would take two steps on one click.
     if send is None or not send.is_busy:
         return
     log.info("StopButtonListener: STOP_CLICKED (mousePressed)")
@@ -2418,6 +2495,13 @@ class StopButtonListener(BaseActionListener):
             if self.send_listener.stop_control and self.send_listener.stop_control.getModel() and self.send_listener.stop_control.getModel().Label == _("Reject"):
                 self.send_listener._finish_inline_web_approval(False)
                 return
+        # During a take Stop steps down (leave hands-free, then cancel). Only
+        # this ActionEvent path does it; mousePressed returns while not busy,
+        # so one click is one step.
+        # ``is True`` so a MagicMock host (tests) is not treated as recording.
+        take_stop = getattr(self.send_listener, "stop_during_take", None)
+        if callable(take_stop) and take_stop() is True:
+            return
         if self.send_listener:
             from plugin.audio.tts_service import is_speaking, stop_speech
             if is_speaking():

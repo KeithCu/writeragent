@@ -2,6 +2,7 @@ import pytest
 
 import deal
 from plugin.chatbot.send_state import (
+    CancelRecordingEffect,
     SendButtonState,
     SendEvent,
     SendEventKind,
@@ -178,3 +179,53 @@ def test_stop_clicked_twice_while_busy_stays_busy():
     assert tr2.state.is_busy is True
     assert tr2.state.is_recording is False
     assert any(isinstance(e, StopSendEffect) for e in tr2.effects)
+
+
+def test_record_enables_stop_for_the_take():
+    """Stop is the take's exit (leave hands-free, then cancel); Stop Rec still sends."""
+    state = SendButtonState(False, False, False, False, True)
+    tr = next_state(state, SendEvent(SendEventKind.RECORD_CLICKED))
+    ui_effect = next(e for e in tr.effects if isinstance(e, UpdateUIEffect))
+    assert ui_effect.send_enabled is True
+    assert ui_effect.stop_enabled is True
+
+
+def test_text_updated_during_take_keeps_stop_enabled():
+    state = SendButtonState(False, True, False, False, True)
+    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+    ui_effect = next(e for e in tr.effects if isinstance(e, UpdateUIEffect))
+    assert ui_effect.send_label == "Stop Rec"
+    assert ui_effect.stop_enabled is True
+
+
+def test_cancel_rec_drops_the_take_without_send_or_error():
+    state = SendButtonState(False, True, False, False, True)
+    tr = next_state(state, SendEvent(SendEventKind.CANCEL_REC_CLICKED))
+    assert tr.state.is_recording is False
+    assert tr.state.is_busy is False
+    assert tr.state.has_audio is False
+    assert any(isinstance(e, CancelRecordingEffect) for e in tr.effects)
+    assert not any(isinstance(e, StartSendEffect) for e in tr.effects)
+    ui_effect = next(e for e in tr.effects if isinstance(e, UpdateUIEffect))
+    assert ui_effect.status_text == "Recording cancelled"
+    assert ui_effect.send_label == "Record"
+    assert ui_effect.send_enabled is True
+    assert ui_effect.stop_enabled is False
+
+
+def test_cancel_rec_keeps_typed_text():
+    state = SendButtonState(False, True, True, False, True)
+    tr = next_state(state, SendEvent(SendEventKind.CANCEL_REC_CLICKED))
+    assert tr.state.has_text is True
+    ui_effect = next(e for e in tr.effects if isinstance(e, UpdateUIEffect))
+    assert ui_effect.send_label == "Send"
+
+
+def test_cancel_rec_when_not_recording_is_noop():
+    for state in (
+        SendButtonState(False, False, True, False, True),
+        SendButtonState(True, False, True, True, True),
+    ):
+        tr = next_state(state, SendEvent(SendEventKind.CANCEL_REC_CLICKED))
+        assert tr.state == state
+        assert tr.effects == []

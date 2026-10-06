@@ -22,7 +22,7 @@ from typing import Any, Callable
 
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.doc.doc_type import DocumentType, get_document_type
-from plugin.framework.async_drain_guard import add_drain_idle_callback
+from plugin.framework.async_drain_guard import add_drain_idle_callback, get_drain_owner, remove_drain_idle_callback
 from plugin.framework.queue_executor import post_to_main_thread
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
@@ -86,13 +86,37 @@ def stream_completion_tasks(ctx: Any, client: LlmClient, tasks: list[StreamCompl
     """Run simple completion streams sequentially, advancing from each done callback."""
     task_index = [0]
 
+    # What was wrong: stream_completion_tasks passed a new lambda to add_drain_idle_callback
+    # on each task. With the event-driven drain returning immediately after starting the stream,
+    # the existing owner check in async_stream rejected later tasks because the callback
+    # fired while the pump was still owned by the previous task's cleanup or someone else.
+    # Why this change: schedule_next_when_idle registers a one-shot callback that removes
+    # itself. run_next_task defers itself using this callback if the pump is already owned,
+    # ensuring tasks queue up cleanly without NestedDrainOwnerError.
+
+    def schedule_next_when_idle() -> None:
+        fired = [False]
+
+        def _once() -> None:
+            if not fired[0]:
+                fired[0] = True
+                # It is possible this is running from _notify_drain_idle traversing the list,
+                # meaning it's still in the list when it runs. We remove it so it's gone for good.
+                remove_drain_idle_callback(_once)
+                post_to_main_thread(run_next_task)
+
+        add_drain_idle_callback(_once)
+
     def run_next_task() -> None:
+        if task_index[0] > 0 and get_drain_owner() is not None:
+            schedule_next_when_idle()
+            return
         if task_index[0] >= len(tasks):
             return
         task = tasks[task_index[0]]
         task_index[0] += 1
         apply_chunk_fn, on_error_fn = prepare_task_fn(task)
-        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, lambda: add_drain_idle_callback(lambda: post_to_main_thread(run_next_task)), on_error_fn)
+        stream_completion(ctx, client, task.prompt, task.system_prompt, task.max_tokens, apply_chunk_fn, schedule_next_when_idle, on_error_fn)
 
     run_next_task()
 
