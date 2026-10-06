@@ -87,11 +87,25 @@ class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright:
 
         return true_strs, false_strs
 
-    def python(self, code: str, data: Any = None) -> Any:
-        return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings, doc=self.doc)
+    def python(self, caller: Any, code: str, data: Any = None) -> Any:
+        # What was wrong: XAddIn had no caller argument, so execute_python_addin
+        # had to guess the document from the front window, targeting the wrong
+        # workbook when multiple documents were open during recalc.
+        # How: LO's SC_ADDINARG_CALLER passes the calling document as an
+        # XPropertySet first argument (hidden from formula users).
+        # Why: resolve doc from caller if it is a SpreadsheetDocument; otherwise
+        # fall back to self.doc.
+        doc = self.doc
+        if caller is not None:
+            try:
+                if hasattr(caller, "supportsService") and caller.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+                    doc = caller
+            except Exception:
+                log.debug("Failed checking supportsService on caller arg", exc_info=True)
+        return execute_python_addin(self.ctx, code, data, self._true_strings, self._false_strings, doc=doc)
 
-    def py(self, code: str, data: Any = None) -> Any:
-        return self.python(code, data)
+    def py(self, caller: Any, code: str, data: Any = None) -> Any:
+        return self.python(caller, code, data)
 
     def getImplementationName(self) -> str:
         return IMPL_NAME

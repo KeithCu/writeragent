@@ -11,6 +11,7 @@ from plugin.calc.python.formula_locator_cache import (
     is_matching_py_formula,
     locate_formula_cell,
     locate_formula_cell_in_doc,
+    locate_formula_cell_in_open_docs,
 )
 from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
 
@@ -339,4 +340,92 @@ def test_rename_sheet():
     cache.rename_sheet("doc1", "Sheet1", "RenamedSheet")
     assert cache.get("doc1", "code_a") == [("RenamedSheet", 0, 0)]
     assert cache.get("doc1", "code_b") == [("Sheet2", 1, 1)]
+
+
+def test_locate_formula_cell_in_open_docs_preferred_unique():
+    """Preferred doc unique hit -> returns preferred doc."""
+    code = "result = 42"
+    pref_sheet = CalcSheetStub("Sheet1")
+    pref_sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+    pref_doc = CalcDocStub(sheets=[pref_sheet], url="file:///pref.ods")
+    ctx = _ctx_with_doc(pref_doc)
+
+    res = locate_formula_cell_in_open_docs(ctx, pref_doc, code)
+    assert res is not None
+    assert res[0] is pref_doc
+    assert res[1] is pref_sheet
+    assert res[3] == (0, 0)
+
+
+def test_locate_formula_cell_in_open_docs_fallback_single_hit():
+    """Preferred has 0 hits and one other open doc has 1 -> returns other doc."""
+    from unittest.mock import patch
+
+    code = "result = 99"
+    pref_sheet = CalcSheetStub("Sheet1")
+    pref_doc = CalcDocStub(sheets=[pref_sheet], url="file:///pref.ods")
+
+    other_sheet = CalcSheetStub("Sheet1")
+    other_sheet.getCellByPosition(1, 2).setFormula(f'=PY("{code}")')
+    other_doc = CalcDocStub(sheets=[other_sheet], url="file:///other.ods")
+    ctx = _ctx_with_doc(pref_doc)
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.scripting.document_scripts._enumerate_calc_documents", return_value=[pref_doc, other_doc]),
+    ):
+        res = locate_formula_cell_in_open_docs(ctx, pref_doc, code)
+        assert res is not None
+        assert res[0] is other_doc
+        assert res[1] is other_sheet
+        assert res[3] == (2, 1)
+
+
+def test_locate_formula_cell_in_open_docs_fallback_two_hits_across_docs_is_ambiguous():
+    """Preferred has 0 hits and two other docs each have 1 -> returns None."""
+    from unittest.mock import patch
+
+    code = "result = 99"
+    pref_sheet = CalcSheetStub("Sheet1")
+    pref_doc = CalcDocStub(sheets=[pref_sheet], url="file:///pref.ods")
+
+    other1_sheet = CalcSheetStub("Sheet1")
+    other1_sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+    other1_doc = CalcDocStub(sheets=[other1_sheet], url="file:///other1.ods")
+
+    other2_sheet = CalcSheetStub("Sheet1")
+    other2_sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+    other2_doc = CalcDocStub(sheets=[other2_sheet], url="file:///other2.ods")
+    ctx = _ctx_with_doc(pref_doc)
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch(
+            "plugin.scripting.document_scripts._enumerate_calc_documents",
+            return_value=[pref_doc, other1_doc, other2_doc],
+        ),
+    ):
+        res = locate_formula_cell_in_open_docs(ctx, pref_doc, code)
+        assert res is None
+
+
+def test_locate_formula_cell_in_open_docs_preferred_ambiguous_does_not_consult_others():
+    """Preferred has 2 hits -> returns None without consulting other docs."""
+    from unittest.mock import patch
+
+    code = "result = 99"
+    pref_sheet = CalcSheetStub("Sheet1")
+    pref_sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+    pref_sheet.getCellByPosition(0, 5).setFormula(f'=PY("{code}")')
+    pref_doc = CalcDocStub(sheets=[pref_sheet], url="file:///pref.ods")
+    ctx = _ctx_with_doc(pref_doc)
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.scripting.document_scripts._enumerate_calc_documents") as mock_enum,
+    ):
+        res = locate_formula_cell_in_open_docs(ctx, pref_doc, code)
+        assert res is None
+        mock_enum.assert_not_called()
+
 

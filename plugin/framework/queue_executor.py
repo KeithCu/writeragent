@@ -998,9 +998,12 @@ class QueueExecutor:
         # or to the pending list when AsyncCallback is missing. Untagged
         # threads still inline.
         if self._should_run_inline() and not bg_task:
-            log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
-            fn(*args, **kwargs)
-            return
+            if not self._may_run_marshal_inline() and (None if _force_marshal_mode else self._get_async_callback()) is not None:
+                pass
+            else:
+                log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
+                fn(*args, **kwargs)
+                return
 
         svc = None if _force_marshal_mode else self._get_async_callback()
         if svc is None and not _force_marshal_mode:

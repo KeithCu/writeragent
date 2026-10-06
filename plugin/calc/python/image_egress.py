@@ -236,13 +236,21 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
 
         if code:
             try:
-                from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
+                from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_open_docs
 
-                located = locate_formula_cell_in_doc(ctx, doc, code)
+                located = locate_formula_cell_in_open_docs(ctx, doc, code)
                 if located is not None:
-                    sheet, target_cell, _unused_anchor = located
+                    located_doc, sheet, target_cell, _unused_anchor = located
+                    # What was wrong: if doc was the wrong document (e.g. Untitled doc from OnNew),
+                    # locate_formula_cell_in_doc failed, and even if located, createInstance would run
+                    # on the wrong model.
+                    # How: locate_formula_cell_in_open_docs finds the sheet/cell across open docs,
+                    # and we set doc = located_doc before getCurrentController and createInstance.
+                    # Why: the graphic shape must be created and added to the model that owns the sheet.
+                    if located_doc is not None:
+                        doc = located_doc
             except Exception:
-                log.debug("insert_image_result_on_sheet: locate_formula_cell_in_doc failed", exc_info=True)
+                log.debug("insert_image_result_on_sheet: locate_formula_cell_in_open_docs failed", exc_info=True)
 
             if sheet is None or target_cell is None:
                 # Bugfix (#385/#389): When formula code is provided (=PYTHON / =PY), failing to locate
@@ -253,6 +261,9 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                     "could not locate formula cell for formula code; image was not inserted",
                     level="warning",
                 )
+
+        if doc is None:
+            _egress_fail("no Calc document for image insertion")
 
         ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None
 

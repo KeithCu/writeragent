@@ -309,7 +309,10 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
         if target is None:
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
-                if hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager"):
+                from plugin.calc.python.caller_doc import resolve_formula_document
+
+                target = resolve_formula_document(ctx, code, None)
+                if target is None and (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
                     target = _get_calc_doc(ctx)
         if target is not None:
             url_val = getattr(target, "getURL", lambda: "")()
@@ -735,9 +738,13 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
         if not on_main_thread():
             return
         if doc is None:
-            if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
-                return
-            doc = _get_calc_doc(ctx)
+            from plugin.calc.python.caller_doc import resolve_formula_document
+
+            doc = resolve_formula_document(ctx, code, None)
+            if doc is None:
+                if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
+                    return
+                doc = _get_calc_doc(ctx)
         if doc is None:
             return
 
@@ -1112,8 +1119,9 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
 
     def _on_main() -> None:
         from plugin.framework.thread_guard import on_main_thread
+        from plugin.calc.python.caller_doc import resolve_formula_document
 
-        target_doc = doc
+        target_doc = resolve_formula_document(ctx, code, doc)
         if target_doc is None:
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
@@ -1173,7 +1181,9 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
                 try:
-                    target_doc = doc
+                    from plugin.calc.python.caller_doc import resolve_formula_document
+
+                    target_doc = resolve_formula_document(ctx, code, doc)
                     if target_doc is None:
                         if on_main_thread():
                             target_doc = _get_calc_doc(ctx)
@@ -1299,17 +1309,19 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
 def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
     try:
         from plugin.framework.thread_guard import on_main_thread
+        from plugin.scripting.session_manager import get_cached_calc_init_kwargs
+
+        # Off-main threads must not query UNO on target document or desktop.
+        # Treat doc off-main as an identity token only.
+        if not on_main_thread():
+            return get_cached_calc_init_kwargs()
+
         from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
-        from plugin.scripting.session_manager import get_cached_calc_init_kwargs, record_active_calc_session
+        from plugin.scripting.session_manager import record_active_calc_session
 
         target = doc
         if target is None:
-            if on_main_thread():
-                target = get_calc_document_from_ctx(ctx)
-            else:
-                # One lock: {} unless exactly one workbook is recorded.
-                # A separate unambiguity check raced with record_active_calc_session.
-                return get_cached_calc_init_kwargs()
+            target = get_calc_document_from_ctx(ctx)
         if target is not None:
             try:
                 from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
@@ -1318,7 +1330,7 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
             except Exception:
                 log.debug("python workbook unload listener install failed", exc_info=True)
             kwargs = build_python_eval_init_kwargs(target)
-            if kwargs and on_main_thread():
+            if kwargs:
                 record_active_calc_session(None, kwargs, doc=target)
             return kwargs
         return get_cached_calc_init_kwargs()
@@ -1386,8 +1398,14 @@ def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
     pending: list[threading.Timer] = []
 
     def _fire(*args: Any, **kwargs: Any) -> None:
-        _forget_spill_timer(pending[0])
-        callback(*args, **kwargs)
+        from plugin.framework.thread_guard import set_background_task
+
+        set_background_task("spill_timer")
+        try:
+            _forget_spill_timer(pending[0])
+            callback(*args, **kwargs)
+        finally:
+            set_background_task(None)
 
     timer = threading.Timer(delay_sec, _fire)
     pending.append(timer)
@@ -1493,6 +1511,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
     ipc_ms = 0
     image_ms = 0
     used_cache = False
+    target_doc: Any = doc
     try:
         t_pack = time.perf_counter() if timings else 0.0
         args = split_python_addin_data_args(data)
@@ -1503,19 +1522,16 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         # Geometric predecessor is a Calc-only DAG token. Strip it before
         # calc_addin_args_from_split (1 vs N flips `data` to a list) and
         # before the matrix-index peel (a leftover 1×1 pred becomes index_arg).
-        target_doc = doc
-        if target_doc is None:
+        from plugin.calc.python.caller_doc import resolve_formula_document
+
+        target_doc = resolve_formula_document(ctx, code, doc)
+        if target_doc is not None:
             from plugin.framework.thread_guard import on_main_thread
 
             if on_main_thread():
-                from plugin.scripting.session_manager import _calc_document, record_active_calc_document
+                from plugin.scripting.session_manager import record_active_calc_document
 
-                target_doc = _calc_document(ctx)
-                if target_doc is not None:
-                    record_active_calc_document(target_doc)
-            # Off-main: do not query the desktop (Yellow / #402). A cached
-            # model is only for spill finalize — session_key / init_kwargs
-            # must not call UNO on it from this thread.
+                record_active_calc_document(target_doc)
         spill_doc = target_doc if target_doc is not None else _spill_target_doc(ctx, None)
         from plugin.calc.python.geometric_recalc import ensure_geometric_strip_index_for_eval, maybe_strip_geometric_eval_args
 
@@ -1556,7 +1572,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             if size_err:
                 ret = f"Error: {size_err}"
                 log.debug("PYTHON returning size error: %r", ret)
-                _record_py_diagnostic(ctx, code, None, status="error", message=ret)
+                _record_py_diagnostic(ctx, code, None, status="error", message=ret, doc=target_doc)
                 return ret
             worker_data = pack_calc_multi_data_for_wire(py_data) if is_multi else pack_calc_data_for_wire(py_data)
         else:
@@ -1581,11 +1597,12 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             used_cache = True
             res = {"status": "ok", "result": cached.raw}
         else:
-            session_id = workbook_session_id(ctx, doc=target_doc)
-            init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
-
             from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
             from plugin.scripting.session_manager import off_main_calc_session_is_unambiguous, recorded_calc_session_count, recorded_calc_session_ids
+
+            session_doc = target_doc if on_main_thread() else None
+            session_id = workbook_session_id(ctx, doc=session_doc)
+            init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
 
             log.debug(
                 "PYTHON eval: target_doc=%s spill_doc=%s session_id=%r recorded=%s ids=%s unambiguous=%s has_init=%s on_main=%s in_sync_host=%s",
@@ -1615,7 +1632,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 ipc_ms = int(round((time.perf_counter() - t_ipc) * 1000))
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
-            _record_py_diagnostic(ctx, code, res, status="ok")
+            _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc)
             result = res.get("result")
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
             images = find_image_payloads(result)
@@ -1631,13 +1648,13 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             return final_ret
 
         err_msg = _format_python_addin_worker_error(str(res.get("message") or res.get("error") or ""))
-        _record_py_diagnostic(ctx, code, res, status="error", message=err_msg)
+        _record_py_diagnostic(ctx, code, res, status="error", message=err_msg, doc=target_doc)
         log.debug("PYTHON returning worker error: %r", err_msg)
         return err_msg
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
         err_msg = _format_error_for_display(e)
-        _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e))
+        _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e), doc=target_doc)
         log.debug("PYTHON returning exception wrapper: %r", err_msg)
         return err_msg
     finally:
@@ -1649,25 +1666,36 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             _emit_py_timing(code=code, total_ms=total_ms, pack_ms=pack_ms, ipc_ms=ipc_ms, image_ms=image_ms, cached=used_cache, pass_start=getattr(_PY_PASS_STATS, "pass_start", t_enter), n=_PY_PASS_STATS.n, pass_sum_ms=int(_PY_PASS_STATS.sum_ms), last_end=_PY_PASS_STATS.last_end)
 
 
-def _diagnostics_workbook_key(ctx: Any) -> str:
+def _diagnostics_workbook_key(ctx: Any, doc: Any | None = None) -> str:
     """Stable workbook key for the diagnostics store (UNO-light best effort)."""
+    # What was wrong: diagnostics called calc_workbook_base_session_id on the front window.
+    # That mutated _LAST_ACTIVE_CALC_SESSION_ID as a side effect during formula evaluation,
+    # causing subsequent =PY() calls to target the wrong workbook.
+    # How: avoid calc_workbook_base_session_id; use non-recording _existing_calc_session_id
+    # and prefer the passed doc (calling document) over the front window.
+    # Why: diagnostics recording must be pure and never alter session state.
     try:
         from plugin.framework.thread_guard import on_main_thread
 
         if not on_main_thread():
             return "unknown"
-        from plugin.scripting.document_scripts import get_calc_document_from_ctx
-        from plugin.scripting.session_manager import calc_workbook_base_session_id
+        from plugin.scripting.session_manager import _existing_calc_session_id
 
-        doc = get_calc_document_from_ctx(ctx)
-        if doc is not None:
-            return calc_workbook_base_session_id(doc)
+        target = doc
+        if target is None:
+            from plugin.scripting.document_scripts import get_calc_document_from_ctx
+
+            target = get_calc_document_from_ctx(ctx)
+        if target is not None:
+            existing = _existing_calc_session_id(target)
+            if existing:
+                return existing
     except Exception:
         log.debug("diagnostics workbook key failed", exc_info=True)
     return "unknown"
 
 
-def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "") -> None:
+def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "", doc: Any | None = None) -> None:
     """Record stdout/errors for the LibrePy sidebar without extra UNO work.
 
     Skips successful evaluations with empty stdout so the log stays actionable.
@@ -1687,7 +1715,7 @@ def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, st
                 tb = str(raw_tb) if raw_tb else ""
         if status == "ok" and not (stdout or "").strip():
             return
-        record_python_eval(workbook_key=_diagnostics_workbook_key(ctx), code=code or "", status=status, message=msg, stdout=stdout, traceback=tb)
+        record_python_eval(workbook_key=_diagnostics_workbook_key(ctx, doc=doc), code=code or "", status=status, message=msg, stdout=stdout, traceback=tb)
     except Exception:
         # Never break formula evaluation for diagnostics UI.
         log.debug("record_python_eval failed", exc_info=True)

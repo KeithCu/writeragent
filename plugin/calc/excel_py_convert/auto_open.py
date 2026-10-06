@@ -54,7 +54,7 @@ def _drop_recorded_calc_session(ctx: Any, session_id: str) -> None:
         log.exception("excel_py lifecycle: reset_python_session failed for %s", session_id)
 
 
-def _record_desktop_calc_sessions(ctx: Any) -> None:
+def _record_desktop_calc_sessions(ctx: Any, event_doc: Any | None = None) -> None:
     """Record every open Calc, and drop host ids that are no longer open.
 
     One open workbook stays unambiguous so off-main Shared ``=PY()`` can reuse
@@ -63,44 +63,88 @@ def _record_desktop_calc_sessions(ctx: Any) -> None:
     the open files are pruned (showcase leftover ``calc:file:…``). Cap stops
     MagicMock enums.
     """
+    # What was wrong: desktop enumeration order determined which workbook was recorded last,
+    # leaving an Untitled doc from OnNew as _LAST_ACTIVE_CALC_SESSION_ID when a new document
+    # was opened.
+    # How: accept event_doc, include it even if desktop hasn't enumerated it yet, deduplicate
+    # it from enumerated models, and record it last so the active session points to the opened book.
+    # Why: subsequent =PY() calls without explicit caller target the newly opened workbook.
     from plugin.framework.uno_context import get_desktop
-    from plugin.scripting.session_manager import calc_workbook_base_session_id, is_opencl_probe_session_id, recorded_calc_session_count, recorded_calc_session_ids
+    from plugin.scripting.session_manager import (
+        calc_workbook_base_session_id,
+        is_opencl_probe_session_id,
+        recorded_calc_session_count,
+        recorded_calc_session_ids,
+    )
 
     desktop = get_desktop(ctx)
-    comps = getattr(desktop, "getComponents", lambda: None)()
-    if comps is None or not hasattr(comps, "createEnumeration"):
-        return
-    enum = comps.createEnumeration()
+    comps = getattr(desktop, "getComponents", lambda: None)() if desktop is not None else None
+    enum = comps.createEnumeration() if comps is not None and hasattr(comps, "createEnumeration") else None
     _ENUM_CAP = 32
     n = 0
     calcs: list[Any] = []
-    while True:
+    if enum is not None:
+        while True:
+            try:
+                has_more = enum.hasMoreElements()
+            except Exception:
+                break
+            if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
+                break
+            if n >= _ENUM_CAP:
+                log.error("excel_py lifecycle: desktop enum hit cap=%s; stopping", _ENUM_CAP)
+                break
+            n += 1
+            elem = enum.nextElement()
+            model = elem
+            if not _is_calc_doc(model):
+                try:
+                    ctrl = getattr(elem, "getController", lambda: None)()
+                    model = ctrl.getModel() if ctrl is not None else None
+                except Exception:
+                    continue
+            if _is_calc_doc(model):
+                try:
+                    url = str(getattr(model, "getURL", lambda: "")() or "")
+                except Exception:
+                    url = ""
+                if is_opencl_probe_session_id(url):
+                    continue
+                calcs.append(model)
+
+    if event_doc is not None and _is_calc_doc(event_doc):
         try:
-            has_more = enum.hasMoreElements()
+            event_url = str(getattr(event_doc, "getURL", lambda: "")() or "")
         except Exception:
-            break
-        if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
-            break
-        if n >= _ENUM_CAP:
-            log.error("excel_py lifecycle: desktop enum hit cap=%s; stopping", _ENUM_CAP)
-            break
-        n += 1
-        elem = enum.nextElement()
-        model = elem
-        if not _is_calc_doc(model):
-            try:
-                ctrl = getattr(elem, "getController", lambda: None)()
-                model = ctrl.getModel() if ctrl is not None else None
-            except Exception:
-                continue
-        if _is_calc_doc(model):
-            try:
-                url = str(getattr(model, "getURL", lambda: "")() or "")
-            except Exception:
-                url = ""
-            if is_opencl_probe_session_id(url):
-                continue
-            calcs.append(model)
+            event_url = ""
+        if not is_opencl_probe_session_id(event_url):
+            filtered_calcs: list[Any] = []
+            for m in calcs:
+                if m is event_doc:
+                    continue
+                try:
+                    from plugin.framework.uno_context import uno_same
+
+                    if uno_same(m, event_doc):
+                        continue
+                except Exception:
+                    pass
+                try:
+                    from plugin.scripting.session_manager import _existing_workbook_session_key
+
+                    km = _existing_workbook_session_key(m)
+                    ke = _existing_workbook_session_key(event_doc)
+                    if km and ke and km == ke:
+                        continue
+                except Exception:
+                    pass
+                filtered_calcs.append(m)
+            filtered_calcs.append(event_doc)
+            calcs = filtered_calcs
+
+    if not calcs:
+        return
+
     live: set[str] = set()
     if len(calcs) == 1:
         live.add(calc_workbook_base_session_id(calcs[0]))
@@ -139,7 +183,7 @@ def _geometric_open_job(ctx: Any, doc: Any) -> None:
         except Exception:
             log.debug("excel_py lifecycle: unload listener install failed", exc_info=True)
     try:
-        _record_desktop_calc_sessions(ctx)
+        _record_desktop_calc_sessions(ctx, event_doc=doc)
     except Exception:
         log.debug("excel_py lifecycle: desktop calc session scan failed", exc_info=True)
 
