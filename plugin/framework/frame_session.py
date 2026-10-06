@@ -383,7 +383,7 @@ class FrameSession:
             try:
                 hook()
             except Exception:
-                pass
+                log.debug("Error in FrameSession close hook", exc_info=True)
         self._close_hooks.clear()
         self.release_listeners()
         self._frame_listener = None

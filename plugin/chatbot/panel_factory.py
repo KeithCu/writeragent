@@ -102,6 +102,17 @@ def register_debug_live_panel(element: Any) -> None:
         panels.add(element)
 
 
+def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control: Any) -> None:
+    def on_frame_close() -> None:
+        if getattr(session, "panel", None) is panel:
+            from plugin.chatbot.tool_loop_actions import current_turn
+            turn = current_turn(send_listener)
+            if turn is not None:
+                turn.closed_by_document = True
+            release_live_sidebar(panel, query_control)
+    if hasattr(session, "add_close_hook"):
+        session.add_close_hook(on_frame_close)
+
 def unregister_debug_live_panel(element: Any) -> None:
     """debug-only: omitted in release."""
     panels = _live_chat_panels()
@@ -1275,16 +1286,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 session.bind_panel(self)
                 send_listener.frame_session = session
 
-                def on_frame_close() -> None:
-                    if getattr(session, "panel", None) is self:
-                        from plugin.chatbot.tool_loop_actions import current_turn
-                        turn = current_turn(send_listener)
-                        if turn is not None:
-                            turn.closed_by_document = True
-                        release_live_sidebar(self, controls.get("query"))
-
-                if hasattr(session, "add_close_hook"):
-                    session.add_close_hook(on_frame_close)
+                from plugin.chatbot.panel_factory import _bind_close_hook
+                _bind_close_hook(session, self, send_listener, controls.get("query"))
 
             register_live_panel(self._live_panel_uid, self)
 
