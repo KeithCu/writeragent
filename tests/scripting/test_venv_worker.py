@@ -645,6 +645,29 @@ def test_stdout_close_after_exec_started_does_not_replay():
     assert mgr._terminate_worker.call_count == 1
 
 
+def test_exec_started_wrong_id_is_refused_without_replay():
+    """An exec_started for another request is an id mismatch: kill, no resend."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(  # type: ignore[method-assign]
+        return_value=pickle.dumps({"type": "exec_started", "id": "someone-else"}, protocol=5)
+    )
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "id mismatch" in result["message"]
+    assert mgr._write_frame_with_timeout.call_count == 1
+    assert mgr._terminate_worker.call_count == 1
+
+
 def test_host_read_timeout_does_not_retry():
     """Hung user code must not be replayed; that would double the configured timeout."""
     mgr = PythonWorkerManager(sys.executable, {})
@@ -2200,8 +2223,7 @@ def test_execute_ipc_attempts_stop_checker_aborts(monkeypatch: pytest.MonkeyPatc
         stop_called[0] = True
         return True
 
-    import subprocess
-    with pytest.raises(subprocess.TimeoutExpired):
+    with pytest.raises(venv_worker._StopRequested):
         m._read_response_bytes_threaded(MockStdout(), timeout_sec=60, stop_checker=stop_checker)
 
     assert stop_called[0]
@@ -2213,7 +2235,7 @@ def test_execute_ipc_attempts_stop_checker_aborts(monkeypatch: pytest.MonkeyPatc
         return True
 
     monkeypatch.setattr(venv_worker.select, "select", lambda r,w,x,t: ([], [], []))
-    with pytest.raises(subprocess.TimeoutExpired):
+    with pytest.raises(venv_worker._StopRequested):
         m._read_response_bytes_select(MockStdout(), timeout_sec=60, stop_checker=stop_checker2)
 
     assert stop_called2[0]
@@ -2222,7 +2244,6 @@ def test_execute_ipc_attempts_stop_checker_aborts(monkeypatch: pytest.MonkeyPatc
 
 def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.scripting import venv_worker
-    import subprocess
 
     class MockProc:
         def __init__(self):
@@ -2252,7 +2273,110 @@ def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPa
         def read(self, n):
             return b""
 
-    with pytest.raises(subprocess.TimeoutExpired):
+    with pytest.raises(venv_worker._StopRequested):
         m._read_response_with_heartbeats(MockStdout(), timeout_sec=60, grace_sec=10, on_heartbeat=None, stop_checker=stop_checker)
 
     assert stop_called[0]
+
+def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
+    """An oversize request fails before any write; the warm worker must survive."""
+    import plugin.scripting.venv_worker as venv_worker_module
+    from plugin.scripting.ipc import IpcFrameError
+
+    def _pack(*args, **kwargs):
+        raise IpcFrameError("payload too large")
+
+    monkeypatch.setattr(venv_worker_module, "pack_pickle_frame", _pack)
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "payload too large" in result["message"]
+    mgr._terminate_worker.assert_not_called()
+    assert proc.stdin.getvalue() == b""
+
+
+def test_missing_proc_after_concurrent_terminate():
+    """A concurrent terminate (shutdown_all) leaves _proc None; return an error, not AttributeError."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._proc = None
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "worker terminated concurrently" in result["message"]
+
+
+def test_stop_checker_returns_cancelled_code():
+    """Stop during the IPC wait kills the worker, does not replay, and returns CANCELLED."""
+    from plugin.scripting.venv_worker import _StopRequested
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(side_effect=_StopRequested())  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, stop_checker=lambda: True)
+
+    assert result["status"] == "error"
+    assert result["code"] == "CANCELLED"
+    assert result["message"] == "Python worker stopped by user"
+    assert mgr._write_frame_with_timeout.call_count == 1
+    mgr._terminate_worker.assert_called_once()
+
+
+def test_partial_stdin_write_delivers_full_frame():
+    """A raw pipe write() can accept fewer bytes than given; the rest must still be sent."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    stdin = MagicMock()
+    written: list[bytes] = []
+
+    def _short_write(b):
+        chunk = bytes(b[:2])
+        written.append(chunk)
+        return len(chunk)
+
+    stdin.write = _short_write
+
+    mgr._write_bytes_with_timeout(stdin, b"12345", timeout_sec=1, label="test")
+
+    assert written == [b"12", b"34", b"5"]
+    stdin.flush.assert_called_once()
+
+
+def test_kill_process_tree_host_pgid_protection(monkeypatch):
+    """Never killpg the host's own group; fall back to killing just the child."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups")
+    proc = MagicMock()
+    proc.pid = 12345
+    proc.poll.return_value = None
+    killpg = MagicMock()
+    monkeypatch.setattr(venv_worker_module.os, "getpgid", lambda pid: 9999)
+    monkeypatch.setattr(venv_worker_module.os, "getpgrp", lambda: 9999)
+    monkeypatch.setattr(venv_worker_module.os, "killpg", killpg)
+
+    venv_worker_module._kill_process_tree(proc)
+
+    killpg.assert_not_called()
+    proc.kill.assert_called_once()
