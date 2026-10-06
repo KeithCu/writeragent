@@ -377,7 +377,7 @@ class LlmClient:
     _transport: LlmHttpTransport
     _stopped: bool
 
-    def __init__(self, config: dict[str, Any], ctx: Any, cancellation_scope: Any | None = None) -> None:
+    def __init__(self, config: dict[str, Any], ctx: Any, cancellation_scope: Any | None = None, *, register_with_send: bool = True) -> None:
         self.config = config
         self.ctx = ctx
         self._transport = LlmHttpTransport(self._endpoint, self._timeout)
@@ -386,14 +386,14 @@ class LlmClient:
         # the worker must not open a new connection (B13 / llm_request_lane).
         self._stopped = False
         scope = cancellation_scope
-        if scope is None:
+        if scope is None and register_with_send:
             try:
                 from plugin.framework.queue_executor import get_current_send_cancellation
 
                 scope = get_current_send_cancellation()
             except Exception:
                 log.debug("LlmClient: could not resolve send cancellation scope", exc_info=True)
-        if scope is not None:
+        if scope is not None and register_with_send:
             scope.register_client(self)
 
     def _get_shim(self) -> BaseProviderShim:

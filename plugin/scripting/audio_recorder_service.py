@@ -596,8 +596,11 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 return None
             combined = (host._active_query_text + "\n" + transcript).strip() if host._active_query_text else transcript
             if host.session.messages and host.session.messages[-1].get("role") == "user":
-                host.session.messages.pop()
-            host.session.add_user_message(combined)
+                host.session.messages[-1]["content"] = combined
+                if host.session.db:
+                    host.session.db.replace_messages(host.session.messages)
+            else:
+                host.session.add_user_message(combined)
             host._active_query_text = combined
             host._spawn_llm_worker(retry_q, host._active_client, host._active_max_tokens, host._active_tools or [], host._sm_state.round_num, query_text=combined)
             return True

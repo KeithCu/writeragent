@@ -241,6 +241,8 @@ class SendHandlersMixin:
         ``resolve_stop_checker`` again. Stop kills the child through the
         scope hook and ``_stt_kill``. A re-entrant call returns without
         deleting the first WAV or clearing the first client's stop latch.
+        The STT client is intentionally not registered with the send scope
+        so that Stop does not close its socket during transcription.
         """
         from plugin.audio.stt_service import SttStopped, status_for_transcription, terminate_stt_process, transcribe
         from plugin.framework.queue_executor import post_to_main_thread
@@ -262,7 +264,7 @@ class SendHandlersMixin:
 
             # Always create a fresh client to avoid reusing previous STT endpoint/key
             api_config = get_api_config()
-            self.client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope)
+            self.client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope, register_with_send=False)
 
             cl = self.client
             assert cl is not None
@@ -270,10 +272,6 @@ class SendHandlersMixin:
                 clearer = getattr(cl, "clear_stop", None)
                 if callable(clearer):
                     clearer()
-            if cancel_scope is not None:
-                register = getattr(cancel_scope, "register_client", None)
-                if callable(register):
-                    register(cl)
 
             transcribing = status_for_transcription()
             self._set_status(transcribing)

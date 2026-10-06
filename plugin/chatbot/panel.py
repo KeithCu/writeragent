@@ -1505,6 +1505,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # AI/DEV INVARIANT: Do NOT clear audio_wav_path or kill in-flight STT here.
                 # If Stop is clicked while recording or transcribing, we want speech-to-text to finish
                 # and populate the query box so the user's spoken words are preserved and not discarded.
+                # The STT client is not registered with the send scope, so this Stop
+                # does not abort transcription HTTP requests.
 
                 self._stop_requested_fallback = True
                 from plugin.doc.peer_message import drop_listener_queue
@@ -1682,6 +1684,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # finally so no early return or TTS exception can leak active_turns.
                 from plugin.chatbot.tool_loop_actions import drop_turn
                 from plugin.doc.peer_message import kick_pending_peer_starts
+
+                if getattr(self, "session", None) and getattr(self.session, "messages", None):
+                    # Ensure in-memory audio is not resent on the next turn.
+                    # Iterate backwards to find the last user message.
+                    for msg in reversed(self.session.messages):
+                        if msg.get("role") == "user":
+                            content = msg.get("content")
+                            if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
+                                text_parts = [c.get("text") for c in content if c.get("type") == "text" and c.get("text")]
+                                if text_parts:
+                                    msg["content"] = "\n".join(text_parts)
+                                else:
+                                    msg["content"] = _("[Voice message]")
+                            break
 
                 # Spoken text was copied above. Later callbacks must not find this turn.
                 drop_turn(self)
