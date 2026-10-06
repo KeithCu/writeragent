@@ -763,8 +763,9 @@ class CellManipulator:
         '''Run the array formula measure and occupancy check without committing.
 
         Returns (rows, cols) if an array formula was measured, else None.
-        Locks the UndoManager and restores the document's isModified state
-        so the probe doesn't leave the document dirty or record undo actions.
+        We use a hidden undo context, not lock(), because Calc still records API edits while
+        XUndoManager is locked. This merges the probe's temporary actions cleanly without leaving
+        a phantom Ctrl+Z step.
         '''
         if isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
             cell_range = self.bridge.resolve_range_or_address(range_str)
@@ -783,16 +784,37 @@ class CellManipulator:
 
                 was_modified = doc.isModified()
                 undo_mgr = doc.getUndoManager() if hasattr(doc, "getUndoManager") else None
+
+                was_possible = False
+                hidden_context_entered = False
+
                 if undo_mgr:
-                    undo_mgr.lock()
+                    was_possible = undo_mgr.isUndoPossible()
+                    try:
+                        undo_mgr.enterHiddenUndoContext("WriterAgent: array probe")
+                        hidden_context_entered = True
+                    except Exception as e:
+                        if "EmptyUndoStackException" in type(e).__name__:
+                            pass
+                        else:
+                            raise
                 try:
                     c2, r2 = end
                     rows, cols = self._measure_array(sheet, formula_or_values, avoid_col=c2, avoid_start_row=start[1], avoid_end_row=r2)
                     self._write_array_formula(sheet, formula_or_values, start, end, measure_only=True, premeasured_array_size=(rows, cols))
                     return (rows, cols)
                 finally:
-                    if undo_mgr:
-                        undo_mgr.unlock()
+                    if hidden_context_entered and undo_mgr:
+                        try:
+                            undo_mgr.leaveUndoContext()
+                        except Exception:
+                            pass
+                    elif undo_mgr and not was_possible:
+                        try:
+                            undo_mgr.clear()
+                        except Exception:
+                            pass
+
                     if not was_modified:
                         try:
                             doc.setModified(False)

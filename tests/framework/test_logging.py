@@ -890,4 +890,3 @@ def test_watchdog_dump_thread_stacks_never_raises() -> None:
     finally:
         logging_mod._watchdog_hung_shown = saved_hung
         update_activity_state("")
-

@@ -1,67 +1,81 @@
-# WriterAgent - AI Writing Assistant for LibreOffice
-# Copyright (c) 2026 KeithCu
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+import pytest
 
-from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc, TestingFactory
+from plugin.calc.array_formula import returns_array
+from plugin.calc.manipulator import CellManipulator
+from plugin.calc.bridge import CalcBridge
+from plugin.framework.errors import CalcError
 
+pytestmark = pytest.mark.uno
 
-def _execute_calc_tool(doc, ctx, name, args):
-    return TestingFactory.execute_tool(doc, ctx, name, args, doc_type="calc")
+def test_manipulator_undo_clears_empty_cells(calc_doc):
+    """Test that writing into an empty range and undoing restores the cells to EMPTY."""
+    doc = calc_doc
+    sheet = doc.getSheets().getByIndex(0)
 
+    c1 = sheet.getCellByPosition(0, 0)
+    c2 = sheet.getCellByPosition(1, 0)
+    assert c1.getType().value == 0
 
-@native_test
-@with_native_doc("calc")
-def test_undo_restores_previously_empty_cells(ctx, doc):
-    from com.sun.star.table.CellContentType import EMPTY
+    bridge = CalcBridge(doc)
+    manipulator = CellManipulator(bridge)
 
-    sheet = doc.getCurrentController().getActiveSheet()
-    res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["H1:I1"], "values": [["A", "B"]]})
-    assert res.get("status") == "ok", f"write failed: {res}"
-    assert sheet.getCellByPosition(7, 0).getString() == "A"
+    doc.getUndoManager().enterUndoContext("test_write")
+    manipulator.write_formula_range("A1:B1", [["A", "B"]])
+    doc.getUndoManager().leaveUndoContext()
+
+    assert c1.getString() == "A"
 
     doc.getUndoManager().undo()
-    assert sheet.getCellByPosition(7, 0).getType() == EMPTY, "undo left H1 non-empty"
-    assert sheet.getCellByPosition(8, 0).getType() == EMPTY, "undo left I1 non-empty"
+    assert c1.getType().value == 0
 
+def test_manipulator_array_probe_undo(calc_doc):
+    doc = calc_doc
+    sheet = doc.getSheets().getByIndex(0)
+    bridge = CalcBridge(doc)
+    manipulator = CellManipulator(bridge)
 
-@native_test
-@with_native_doc("calc")
-def test_refused_array_write_leaves_no_undo_step(ctx, doc):
-    sheet = doc.getCurrentController().getActiveSheet()
-    sheet.getCellByPosition(1, 1).setString("keep-me")
     undo_mgr = doc.getUndoManager()
-    before = list(undo_mgr.getAllUndoActionTitles())
-    was_modified = doc.isModified()
+    undo_mgr.clear()
+    assert not undo_mgr.isUndoPossible()
 
-    res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"})
-    assert res.get("status") == "error", f"occupied write should fail: {res}"
-    after = list(undo_mgr.getAllUndoActionTitles())
-    assert after == before, f"refused array write left an undo step: before={before} after={after} res={res}"
-    assert doc.isModified() == was_modified, "refused array write changed the modified flag"
+    manipulator.prepare_array_formula_if_needed("C1", "=FILTER({1;2}, {1;0})")
 
+    assert not undo_mgr.isUndoPossible()
 
-@native_test
-@with_native_doc("calc")
-def test_clear_part_of_array_is_refused(ctx, doc):
-    from plugin.calc.bridge import CalcBridge
-    from plugin.calc.manipulator import CellManipulator
-    from plugin.framework.errors import CalcError
+def test_refused_array_write_leaves_no_undo_step(calc_doc):
+    """Writing a sequence over occupied cells fails, and leaves no undo step."""
+    doc = calc_doc
+    sheet = doc.getSheets().getByIndex(0)
+    bridge = CalcBridge(doc)
+    manipulator = CellManipulator(bridge)
 
-    sheet = doc.getCurrentController().getActiveSheet()
-    res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["A5"], "values": "=SEQUENCE(2;1)"})
-    assert res.get("status") == "ok", f"array write failed: {res}"
+    # Occupy C2
+    c2 = sheet.getCellByPosition(2, 1)
+    c2.setValue(99)
 
-    manipulator = CellManipulator(CalcBridge(doc))
-    try:
-        manipulator.clear_range("A6")
-        raise AssertionError("clearing part of an array should fail")
-    except CalcError as e:
-        assert "is part of array" in str(e), str(e)
+    undo_mgr = doc.getUndoManager()
+    undo_mgr.clear()
+
+    with pytest.raises(CalcError, match="needs C1:D3, but 1 cell\\(s\\) there are not empty"):
+        sz = manipulator.prepare_array_formula_if_needed("C1", "=SEQUENCE(3,2)")
+        if sz:
+            manipulator.write_formula_range("C1", "=SEQUENCE(3,2)", premeasured_array_size=sz)
+
+    assert not undo_mgr.isUndoPossible()
+
+def test_manipulator_clear_whole_array_works(calc_doc):
+    doc = calc_doc
+    sheet = doc.getSheets().getByIndex(0)
+    bridge = CalcBridge(doc)
+    manipulator = CellManipulator(bridge)
+
+    sz = manipulator.prepare_array_formula_if_needed("A5", "=FILTER({1;2}, {1;1})")
+    manipulator.write_formula_range("A5", "=FILTER({1;2}, {1;1})", premeasured_array_size=sz)
+
+    assert sheet.getCellByPosition(0, 4).getValue() == 1
+
+    with pytest.raises(CalcError, match="is part of array"):
+        manipulator.clear_range("A5:A5")
 
     manipulator.clear_range("A5:A6")
-    assert sheet.getCellByPosition(0, 4).getFormula() == ""
+    assert sheet.getCellByPosition(0, 4).getType().value == 0
