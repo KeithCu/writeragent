@@ -782,10 +782,12 @@ def defer_until_drain_done(fn: Callable[[], None]) -> None:
 
 
 def _drain_ready(q: queue.Queue[Any], max_items: int = 50) -> list[Any]:
-    """Items already queued. Does not block.
+    """Up to ``max_items`` items already queued. Does not block.
 
     A blocking ``get`` here would sit inside the VCL callback. That holds
     SolarMutex for the whole timeout. See :func:`run_stream_drain_loop`.
+    The cap keeps one slice short when a fast producer floods the queue; the
+    slice re-arms immediately while items remain.
     """
     # crosshair: off
     items: list[Any] = []
@@ -1044,7 +1046,6 @@ class _EventDrain:
         if self.closed:
             return
         state = self._state
-        import time
         t0 = time.monotonic()
         try:
             if self._stop_checker and self._stop_checker():
@@ -1082,7 +1083,7 @@ class _EventDrain:
 
             elapsed = time.monotonic() - t0
             if elapsed > 0.1:
-                log.debug(f"event drain slice took {elapsed:.3f}s, bounded execution to avoid main thread freeze")
+                log.debug("event drain slice took %.3fs", elapsed)
 
             self._schedule_next(idle=pending == 0)
         except Exception as exc:
