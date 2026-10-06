@@ -362,6 +362,22 @@ class TestAppendTextChunk:
         cursor.setString.assert_called_once_with("")
         assert model.Text == "hello world"
 
+    def test_truncate_control_from_emoji(self):
+        control = MagicMock()
+        # "\U0001F600ab" length is 4 in UTF-16
+        model = MagicMock(Text="\U0001F600ab")
+        cursor = MagicMock()
+        model.createTextCursor.return_value = cursor
+        control.getModel.return_value = model
+
+        from plugin.chatbot.rich_text_control import get_control_text_length
+        assert get_control_text_length(control) == 4
+
+        truncate_control_from(control, 2)
+        cursor.goRight.assert_called_once_with(2, False)
+        cursor.gotoEnd.assert_called_once_with(True)
+        cursor.setString.assert_called_once_with("")
+
     def test_truncate_control_from_chunks_go_right(self):
         control = MagicMock()
         model = MagicMock(Text=" " * 40001)
@@ -486,10 +502,6 @@ class TestRichTextChatWidget:
             widget.clear()
             mock_clear.assert_called_once_with(control)
 
-        with patch("plugin.chatbot.rich_text_control.truncate_control_from") as mock_trunc:
-            widget.truncate(5)
-            mock_trunc.assert_called_once_with(control, 5)
-
         with patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal:
             widget.reveal_caret()
             mock_reveal.assert_called_once_with(control, ctx=ctx, reason="widget", restore=None)
@@ -500,23 +512,6 @@ class TestRichTextChatWidget:
                 control, "hello", auto_scroll=True, style_window=None, ctx=ctx, query=None, restore_focus=None,
             )
 
-        with patch("plugin.chatbot.rich_text_paste.append_rich_text_via_clipboard") as mock_rich:
-            widget.append_rich_message("<b>hi</b>", role="user")
-            mock_rich.assert_called_once_with(
-                ctx, control, "<b>hi</b>", role="user", style_window=None, auto_scroll=True, on_after_insert=None, restore=None, restore_focus=None,
-            )
-
-        with patch("plugin.chatbot.rich_text_paste.append_rich_messages_via_clipboard") as mock_batch:
-            items = [("user", "hi")]
-            widget.append_rich_messages_batch(items)
-            mock_batch.assert_called_once_with(
-                ctx, control, items, style_window=None, batch_chars=16384, restore=None, restore_focus=None,
-            )
-
-        with patch("plugin.chatbot.rich_text_control._apply_rich_control_style_defaults") as mock_style:
-            widget.apply_style_defaults()
-            mock_style.assert_called_once_with(control, style_window=None)
-
     def test_rerender_paints_the_message_list(self):
         """The control is redrawn from the list. The stream offset is not a splice point."""
         from plugin.chatbot.rich_text_control import RichTextChatWidget
@@ -525,14 +520,10 @@ class TestRichTextChatWidget:
         session = MagicMock()
         session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
 
-        with patch.object(widget, "paint_session") as mock_paint, \
-             patch.object(widget, "truncate") as mock_trunc, \
-             patch.object(widget, "append_rich_message") as mock_append:
+        with patch.object(widget, "paint_session") as mock_paint:
             assert widget.rerender_last_assistant_if_html(session, None) is True
 
         mock_paint.assert_called_once_with(session)
-        mock_trunc.assert_not_called()
-        mock_append.assert_not_called()
 
     def test_rerender_skips_when_there_is_no_assistant_row(self):
         from plugin.chatbot.rich_text_control import RichTextChatWidget
@@ -546,13 +537,14 @@ class TestRichTextChatWidget:
 
         mock_paint.assert_not_called()
 
-    def test_append_assistant_stream_chunk_skips_legacy_ai(self):
-        from plugin.chatbot.rich_text_control import RichTextChatWidget
+    def test_skip_legacy_assistant_stream_chunk(self):
+        from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
 
-        widget = RichTextChatWidget(MagicMock(), MagicMock())
-        with patch.object(widget, "append_chunk") as mock_chunk:
-            assert widget.append_assistant_stream_chunk("AI:") is False
-            mock_chunk.assert_not_called()
+        assert skip_legacy_assistant_stream_chunk(" AI") is False
+        assert skip_legacy_assistant_stream_chunk("AI: yes") is False
+        assert skip_legacy_assistant_stream_chunk("\nAI: ") is True
+        assert skip_legacy_assistant_stream_chunk("AI:") is True
+        assert skip_legacy_assistant_stream_chunk("[Using chat model abc]") is True
 
     def test_render_session_history(self):
         from plugin.chatbot.rich_text_control import RichTextChatWidget
