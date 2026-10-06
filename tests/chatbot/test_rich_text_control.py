@@ -615,28 +615,93 @@ class TestRichTextChatWidget:
         plain.assert_not_called()
         assert widget._shown is None
 
-    def test_stream_full_paint_reformats_after_the_plain_tail(self):
-        """Turn 1 after load: the reformat runs after the tail is written, so it covers the reply start."""
+    def test_stop_banner_becomes_a_plain_tail_row(self):
+        """append_chunk text sits after the formatted prefix; the prefix still matches, so no full repaint."""
+        widget = self._streaming_widget([("user", "q")], 1, 10)
+        with patch("plugin.chatbot.rich_text_control.append_text_chunk"):
+            widget.append_chunk("[Stopped by user]")
+        assert widget._formatted_prefix_ok([("user", "q")]) is True
+        assert widget._shown == [("user", "q"), ("assistant", "[Stopped by user]")]
+
+    def test_next_send_after_stop_cuts_the_tail_instead_of_repainting(self):
+        """The turn after Stop: tail rows rewritten from the prefix end, the control is not wiped."""
+        widget = self._streaming_widget([("user", "q"), ("assistant", "par")], 1, 10)
+        with patch("plugin.chatbot.rich_text_control.append_text_chunk"):
+            widget.append_chunk("\n[Stopped by user]\n")
+        session = MagicMock()
+        session.messages = [
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "content": "par"},
+            {"role": "assistant", "content": "\n[Stopped by user]\n"},
+            {"role": "user", "content": "q2"},
+        ]
+        with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
+             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as plain, \
+             patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=40):
+            widget.stream_session(session)
+        paint.assert_not_called()
+        # The stop line now shows inside the stopped answer, so the tail is
+        # cut at the prefix end and written again (no wipe of the prefix).
+        assert plain.call_args[0][1] == [("assistant", "par\n\n[Stopped by user]"), ("user", "q2")]
+
+    def test_greeting_is_part_of_the_formatted_prefix(self):
+        """Turn 1 after load: the greeting painted on load stays the prefix; the user row is appended, not repainted."""
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 
         widget = RichTextChatWidget(MagicMock(), MagicMock())
         session = MagicMock()
-        session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hel"}]
-        calls = []
-        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
-             patch("plugin.chatbot.rich_text_paste.paint_message_items"), \
-             patch("plugin.chatbot.rich_text_paste._plain_append_messages", side_effect=lambda *a, **k: calls.append("tail")), \
-             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat", side_effect=lambda c: calls.append("reformat")), \
-             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail", side_effect=lambda *a, **k: calls.append("scroll")):
+        session.messages = []
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=106), \
+             patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
+            widget.render_session_history(session, "Hi there")
+        assert paint.call_args[0][2] == [("assistant", "Hi there")]
+        session.messages = [{"role": "user", "content": "q"}]
+        with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text_via_clipboard", return_value=True) as rich, \
+             patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=140):
             widget.stream_session(session)
-        assert calls == ["tail", "reformat", "scroll"]
+        paint.assert_not_called()
+        assert rich.call_args[0][2] == "q"
+        assert (widget._formatted_rows, widget._formatted_len) == (2, 140)
 
-    def test_stop_banner_makes_the_next_stream_update_repaint(self):
-        """append_chunk writes text that is not a row, so the widget stops diffing."""
-        widget = self._streaming_widget([("user", "q")], 1, 10)
-        with patch("plugin.chatbot.rich_text_control.append_text_chunk"):
-            widget.append_chunk("[Stopped by user]")
-        assert widget._formatted_prefix_ok([("user", "q")]) is False
+    def test_clear_and_greeting_records_the_greeting_prefix(self):
+        """After Clear the first send appends under the greeting instead of repainting."""
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock())
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=50), \
+             patch("plugin.chatbot.rich_text_paste.paint_message_items"):
+            widget.clear_and_greeting("Hello")
+        assert widget._formatted_prefix_ok([("assistant", "Hello"), ("user", "q")]) is True
+        assert widget._greeting == "Hello"
+
+    def test_full_repaint_without_a_greeting_argument_keeps_the_stored_greeting(self):
+        """Stop's full repaint (paint_session(session)) draws the same greeting row the diff expects."""
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock())
+        session = MagicMock()
+        session.messages = [{"role": "user", "content": "q"}]
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
+             patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
+            widget.render_session_history(session, "Hi there")
+            widget.paint_session(session)
+        assert paint.call_args[0][2] == [("assistant", "Hi there"), ("user", "q")]
+
+    def test_rerender_reformats_before_the_final_scroll(self):
+        """One reformat per turn at Ready, then stick to the end."""
+        widget = self._streaming_widget([("user", "q"), ("assistant", "Hel")], 1, 10)
+        session = MagicMock()
+        session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hello"}]
+        calls = []
+        with patch("plugin.chatbot.rich_text_paste._rollback_rich_insert"), \
+             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_messages_via_clipboard"), \
+             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat", side_effect=lambda c: calls.append("reformat")), \
+             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail", side_effect=lambda *a, **k: calls.append("scroll")), \
+             patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=20):
+            assert widget.rerender_last_assistant_if_html(session, None) is True
+        assert calls == ["reformat", "scroll"]
 
     def test_rerender_formats_only_this_turns_rows(self):
         """At Ready the plain tail is cut at the prefix end and appended formatted; no full paint."""

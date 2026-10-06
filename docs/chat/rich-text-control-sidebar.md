@@ -135,7 +135,9 @@ flowchart LR
 
 **Streaming:** each assistant chunk grows one open row (`_open_transcript`). `RichTextChatWidget.stream_session` does **not** repaint: it keeps the formatted prefix (everything painted before this turn), appends the turn's user row formatted, and appends assistant text as plain deltas. When a row changes in a way that is not an append (the committed message replaces the open row, think text is dropped), only the plain tail after the prefix is cut and rewritten. The open row is not a history write.
 
-Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidden Writer docs a second and left VCL drawing from a stale layout (blank transcript, growing gap below the last line). The first update after load, Stop or Clear, or when the control length cannot be read, still does a full repaint.
+Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidden Writer docs a second and left VCL drawing from a stale layout (blank transcript, growing gap below the last line). The greeting painted on load and Clear is kept as the first formatted row (`RichTextChatWidget._greeting`), and the Stop banner is recorded as a plain tail row, so turn 1 and the turn after Stop append instead of repainting. A full repaint still happens when the control length cannot be read or a formatted row changed.
+
+**Stop line display:** `session_history_items` shows the stored `\n[Stopped by user]\n` assistant message as the last paragraph of the answer it stopped (its own row when Stop came before the first token). Display only: `session.messages` and the model context keep the separate message.
 
 **Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. That cuts the plain tail at the end of the formatted prefix and appends this turn's rows formatted (a full repaint when the prefix is unknown). If it does not, an unclosed tag still held by the stream stripper is appended, which records it on the list and paints. Stop already painted the partial answer plus `[Stopped by user]` and skips this second paint.
 
