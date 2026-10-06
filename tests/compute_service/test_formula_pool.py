@@ -1124,6 +1124,7 @@ class TestFormulaPoolSupervisor:
             again = pool.execute(code="result = keep", session_id=sid, mode="shared", timeout_sec=15, req_id="die-2")
             assert again.get("status") == "error"
             assert again.get("result") != 5
+            assert again.get("session_reset") is True
         finally:
             pool.shutdown()
 
@@ -1411,6 +1412,59 @@ class TestFormulaHttpEndpoint:
                 picked = pool._pick_idle_worker()
                 assert picked is not None
                 pool._idle.add(picked)
+        finally:
+            pool.shutdown()
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="uses signal.alarm")
+    def test_subsecond_budget_does_not_sigkill_worker(self) -> None:
+        """A sub-second remaining deadline sets alarm=1s; host must wait alarm+grace so worker is not SIGKILLed."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            worker = pool.workers[0]
+            pid = worker.process.pid if worker.process else None
+            # Sub-second deadline: child_budget ~ 0.2s -> alarm = 1s.
+            # Code sleeps 0.4s (finishing between child_budget and alarm).
+            res = pool.execute(
+                code="import time\ntime.sleep(0.4)\nresult = 42",
+                deadline=time.monotonic() + 0.2,
+                req_id="subsecond-test",
+            )
+            # Worker must still be alive with the same pid (not SIGKILLed)
+            assert res.get("status") in ("ok", "error")
+            assert worker.process is not None and worker.process.pid == pid
+            assert worker.is_alive()
+        finally:
+            pool.shutdown()
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="uses SIGKILL")
+    def test_shared_session_loss_reports_session_reset(self) -> None:
+        """After SIGKILL, next call on the same session_id lands on fresh kernel and returns session_reset: True."""
+        import json
+        import signal
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "lost-session-test"
+            r1 = pool.execute(code="x = 100\nresult = x", session_id=sid, mode="shared", req_id="r1")
+            assert r1.get("status") == "ok"
+            assert r1.get("session_reset") is not True
+
+            owner = pool.live_session_worker(sid)
+            assert owner is not None and owner.process is not None
+            os.kill(owner.process.pid, signal.SIGKILL)
+            owner.process.wait(timeout=2)
+
+            r2 = pool.execute(code="result = 200", session_id=sid, mode="shared", req_id="r2")
+            assert r2.get("status") == "ok"
+            assert r2.get("session_reset") is True
+            if "result_json" in r2:
+                payload = json.loads(r2["result_json"])
+                assert payload.get("session_reset") is True
+
+            # Third call on same session does not report session_reset again (it was consumed)
+            r3 = pool.execute(code="result = 300", session_id=sid, mode="shared", req_id="r3")
+            assert r3.get("status") == "ok"
+            assert r3.get("session_reset") is not True
         finally:
             pool.shutdown()
 

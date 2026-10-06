@@ -19,12 +19,14 @@ from __future__ import annotations
 import json
 import logging
 import os
-import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import threading
 
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, decode_worker_result, require_execute_wire
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, decode_worker_result, dumps_response, require_execute_wire
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, remaining_sec, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
@@ -55,6 +57,7 @@ class FormulaProcessPool(BaseProcessPool):
         # Cache of the pid that owned the session. A respawn of the same
         # wrapper gets a new pid; the old session does not follow it.
         self._session_pid: dict[str, int] = {}
+        self._lost_sessions: set[str] = set()
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
         self._session_reaper_thread: threading.Thread | None = None
@@ -98,7 +101,9 @@ class FormulaProcessPool(BaseProcessPool):
                 if not still_stale:
                     continue
                 res = self._reset_session_on_worker(leased, sid, timeout_sec=2.0)
-                if res.get("status") == "ok" or sid not in self._active_sessions:
+                with self._cond:
+                    sid_active = sid in self._active_sessions
+                if res.get("status") == "ok" or not sid_active:
                     evicted.append(sid)
             finally:
                 self.release_worker(leased)
@@ -118,6 +123,7 @@ class FormulaProcessPool(BaseProcessPool):
     def _drop_pid_unlocked(self, pid: int) -> None:
         stale = [sid for sid, saved in self._session_pid.items() if saved == pid]
         for sid in stale:
+            self._lost_sessions.add(sid)
             self._drop_one_unlocked(sid)
         if stale:
             log.info("Dropped %d shared session(s) with exited pid=%s", len(stale), pid)
@@ -144,11 +150,14 @@ class FormulaProcessPool(BaseProcessPool):
         for worker, sids in list(self._worker_sessions.items()):
             proc = worker.process
             if proc is None or proc.poll() is not None:
+                for sid in list(sids):
+                    self._lost_sessions.add(sid)
                 self._clear_worker_sessions_unlocked(worker)
                 continue
             pid = proc.pid
             for sid in list(sids):
                 if self._session_pid.get(sid) != pid:
+                    self._lost_sessions.add(sid)
                     self._drop_one_unlocked(sid)
 
     def live_session_worker(self, session_id: str) -> BaseProcessWorker | None:
@@ -219,6 +228,8 @@ class FormulaProcessPool(BaseProcessPool):
         """
         with self._cond:
             if not worker.is_alive():
+                for sid in list(self._worker_sessions.get(worker, ())):
+                    self._lost_sessions.add(sid)
                 self._clear_worker_sessions_unlocked(worker)
                 return False
             if self._worker_sessions.get(worker):
@@ -346,9 +357,13 @@ class FormulaProcessPool(BaseProcessPool):
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
         leased: BaseProcessWorker | None
+        session_was_lost = False
         if mode == "shared" and session_id:
             with self._cond:
                 self._reap_dead_sessions_unlocked()
+                if session_id in self._lost_sessions:
+                    session_was_lost = True
+                    self._lost_sessions.discard(session_id)
                 target_worker = self._active_sessions.get(session_id)
                 if target_worker is not None and target_worker not in self.workers:
                     target_worker = None
@@ -373,21 +388,41 @@ class FormulaProcessPool(BaseProcessPool):
             busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
         if leased is None:
+            if session_was_lost and session_id:
+                with self._cond:
+                    self._lost_sessions.add(session_id)
             return {"id": req_id, "status": "error", "code": "WORKER_POOL_BUSY", "error": busy_err}
 
         try:
             # The child used to get the original full timeout while this read
             # used only the time left. signal.alarm never won, so a normal
             # sleep became SIGKILL and dropped every shared session on that
-            # process. Give the child the remaining budget and wait the
-            # LibrePy grace so the alarm returns an error and the process stays up.
+            # process. Give the child the remaining budget and wait at least
+            # alarm + grace so a cell finishing between them returns a clean
+            # timeout instead of a SIGKILL.
             child_budget = remaining_sec(deadline)
-            payload["timeout_sec"] = max(1, int(child_budget))
-            res = leased.execute(payload, timeout_sec=child_budget + HOST_IPC_READ_GRACE_SEC)
+            child_alarm = max(1, int(child_budget))
+            payload["timeout_sec"] = child_alarm
+            host_timeout = max(child_budget, float(child_alarm)) + HOST_IPC_READ_GRACE_SEC
+            res = leased.execute(payload, timeout_sec=host_timeout)
+            if session_was_lost and isinstance(res, dict):
+                res["session_reset"] = True
+                raw_out = res.get("result_json")
+                if isinstance(raw_out, (bytes, bytearray)):
+                    try:
+                        data = json.loads(bytes(raw_out).decode("utf-8"))
+                        if isinstance(data, dict):
+                            data["session_reset"] = True
+                            res["result_json"] = dumps_response(data)
+                    except Exception:
+                        pass
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             if decode_result and isinstance(res, dict):
-                return decode_worker_result(res)
+                decoded = decode_worker_result(res)
+                if session_was_lost and isinstance(decoded, dict):
+                    decoded["session_reset"] = True
+                return decoded
             return res
         finally:
             # Register only after the child is alive. Doing it before execute
@@ -398,6 +433,8 @@ class FormulaProcessPool(BaseProcessPool):
             # concurrent request could inspect _active_sessions before we update it.
             with self._cond:
                 if leased.did_respawn:
+                    for sid in list(self._worker_sessions.get(leased, ())):
+                        self._lost_sessions.add(sid)
                     self._clear_worker_sessions_unlocked(leased)
                 # Drop sessions whose pid has exited. The id is then recorded
                 # on the process that actually ran this cell. A replacement

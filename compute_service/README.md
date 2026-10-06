@@ -31,7 +31,7 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 
 Unauthenticated health probe suitable for Kubernetes/Docker liveness and readiness checks.
 Always unauthenticated even when Bearer authentication is configured for execution.
-`version` is `plugin.version.EXTENSION_VERSION`, the extension version this process was built with.
+`version` is `compute_service.__version__`, the compute service package version.
 
 - **Request**: `GET /health`
 - **Response**: `200 OK`
@@ -39,7 +39,7 @@ Always unauthenticated even when Bearer authentication is configured for executi
   {
     "status": "healthy",
     "service": "python-compute",
-    "version": "<EXTENSION_VERSION>"
+    "version": "<compute_service.__version__>"
   }
   ```
 
@@ -78,6 +78,18 @@ request shapes, why multipart exists, and the plan to retire peel.
     "message": "SyntaxError: invalid syntax (<string>, line 1)"
   }
   ```
+
+- **Session Reset on Lost Kernel (`session_reset: true`)**:
+  If a shared session's worker process crashed, was recycled, or was killed (e.g. by `SIGKILL` on an unrecoverable timeout), the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON:
+  ```json
+  {
+    "id": "req-123",
+    "status": "ok",
+    "result": 42.0,
+    "session_reset": true
+  }
+  ```
+  This signals to the caller (e.g. coolwsd or spreadsheet runtime) that prior kernel variables were lost and initialization scripts or antecedent cells may need to be re-evaluated.
 
 #### HTTP ingress: peel vs multipart
 
@@ -194,6 +206,8 @@ There is **no** `--api-key` CLI flag (secrets in argv are visible in `ps`).
 Rules:
 
 - **Loopback and no key** → `/v1/execute` and `/v1/session/reset` are open (local dev/test only).
+- **Host header validation in keyless mode** → When running without an API key, the server rejects requests with non-loopback `Host` headers with `403 Forbidden` (for example, accessing via a Docker service name such as `http://python-compute:8000` gets 403). Only loopback Host headers (`localhost`, `127.0.0.1`, `[::1]`) are accepted.
+- **Empty bind address (`--host ""`)** → Binding `--host ""` binds loopback interfaces only.
 - **Any other bind without a key** → `load_settings` refuses to start. This includes `0.0.0.0` and `::`. The image entrypoint checks the same case before exec.
 - **Key configured** → `/v1/execute` and `/v1/session/reset` require an exact `Bearer <token>` match
   (`hmac.compare_digest` on the UTF-8 bytes). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
@@ -282,7 +296,9 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **HTTP listener**: Thread pool sized above worker count ($W + 2$, stock default $\ge 4$). `/v1/execute` and `/v1/session/reset` share a non-blocking semaphore sized to the formula pool; `/v1/vision` has its own sized to the vision pool. A saturated pool returns 503 before the body is read and does not consume the other pool's permits. At least two listener threads stay free for immediate `GET /health`.
+- **HTTP listener**: Thread pool sized above worker count ($\max(8, W + 4)$, default 16 for 2 formula workers). `/v1/execute` and `/v1/session/reset` share a non-blocking semaphore sized to the formula pool; `/v1/vision` has its own sized to the vision pool. A saturated pool returns 503 before the body is read and does not consume the other pool's permits. At least two listener threads stay free for immediate `GET /health`.
+- **HTTP/1.0 & Transfer Semantics**: The server operates on HTTP/1.0 with no keep-alive or chunked transfer encoding. A chunked POST (`Transfer-Encoding: chunked`) returns `400 Bad Request`. Slow or stalled clients can tie up listener threads for the duration of the request/response transfer.
+- **Sticky Session Semaphores**: Sticky sessions hold route semaphore permits while their worker process is busy executing a cell.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward
@@ -316,7 +332,7 @@ Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/script
 - Manages persistent worker subprocesses (`workers`, default `2`).
 - **Single-Threaded Child Subprocesses**: Each worker is a dedicated, single-threaded OS process running a synchronous IPC loop with exclusive lease occupancy (0 worker threads inside the child), ensuring determinism and zero race conditions.
 - **GIL Elimination**: Each worker runs its own Python interpreter, achieving true parallel multi-core scaling for pure-Python and NumPy workloads.
-- **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are routed to the process that owns that workbook. The supervisor maps are a cache of that pid: when the process exits, every session on it is dropped, and a respawn is not the same workbook. Clean workers without shared sessions are preferred for isolated work (`mode="isolated"`); however, when all idle workers hold shared sessions, isolated work falls back to the worker with the fewest sessions to avoid starving isolated calculations while waiting for shared session TTL. Shared sessions on one process still occupy it exclusively (one cell at a time).
+- **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are routed to the process that owns that workbook. The supervisor maps are a cache of that pid: when the process exits, every session on it is dropped, and a respawn is not the same workbook. Clean workers without shared sessions are preferred for isolated work (`mode="isolated"`); however, when all idle workers hold shared sessions, isolated work falls back to the worker with the fewest sessions to avoid starving isolated calculations while waiting for shared session TTL. Shared sessions on one process still occupy it exclusively (one cell at a time). There are no explicit per-host caps on the number of active shared sessions: only coolwsd calls this service, and container OOM kills everything if memory limits are exceeded.
 - **Stderr drain**: Each worker pipes stderr into `start_stderr_drain` (same helper as the desktop venv worker) so a noisy child cannot fill the OS pipe and deadlock the parent.
 - **Timeouts**: The accept timestamp, the worker lease, and the child share one deadline. The child is given the time still left and returns an error frame when its alarm fires, so a normal timeout leaves the process up. `SIGKILL` is only when that frame never arrives. That kill drops every shared session on the pid.
 - **Task Recycling**: Recycles worker processes after `worker_max_tasks` (default: 500) to keep memory fragmentation low. Workers holding active stateful sessions (`mode="shared"`) bypass normal recycling to preserve state indefinitely while active. Idle sessions auto-evict after `shared_kernel_ttl_sec` (default: 1 hour) of inactivity.

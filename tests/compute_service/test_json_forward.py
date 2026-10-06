@@ -436,7 +436,7 @@ class TestHttpBlobForward:
             return {"status": "ok", "result_json": result_json}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        with patch("compute_service.server._json_bytes") as mock_dumps:
+        with patch("compute_service.server._start_json") as mock_dumps:
             mock_dumps.side_effect = AssertionError("host must not re-dumps a result_json success")
             status, out = _wsgi_post(app, b'{"code":"result = data","data":[[1,2],[3,4]]}')
         assert status.startswith("200")
@@ -505,7 +505,7 @@ class TestHttpBlobForward:
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
         content_type, body = encode_multipart_execute({}, GRID_BYTES, code="result = 1")
-        with patch("compute_service.server._json_bytes") as mock_dumps:
+        with patch("compute_service.server._start_json") as mock_dumps:
             mock_dumps.side_effect = AssertionError("host must not re-dumps a result_json success")
             status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("200")
@@ -890,7 +890,7 @@ class TestHttpLargeRoundTrip:
         try:
             with (
                 patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack,
-                patch("compute_service.server._json_bytes") as mock_host_dumps,
+                patch("compute_service.server._start_json") as mock_host_dumps,
             ):
                 mock_host_dumps.side_effect = AssertionError("host must not dumps the large result")
                 status, out = _wsgi_post(app, body)
@@ -921,7 +921,7 @@ class TestHttpLargeRoundTrip:
         try:
             with (
                 patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack,
-                patch("compute_service.server._json_bytes") as mock_host_dumps,
+                patch("compute_service.server._start_json") as mock_host_dumps,
             ):
                 mock_host_dumps.side_effect = AssertionError("host must not dumps the large result")
                 status, out = _wsgi_post(app, body, content_type=content_type)
