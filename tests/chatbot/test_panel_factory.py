@@ -184,11 +184,42 @@ def test_setup_sessions_missing_session_url_forks_url_hash_id(tmp_path):
     props = {"WriterAgentSessionID": old_id}
     db_path = str(tmp_path / "writeragent_history.db")
     get_chat_history(old_id, db_path).add_message("user", "from original")
+    get_chat_history(old_id + "_web", db_path).add_message("user", "from web original")
     history = _save_as_sessions(tmp_path, props, new_url)
     assert props["WriterAgentSessionID"] == new_id
     assert props["WriterAgentSessionURL"] == new_url
     assert history(old_id, db_path).get_messages()[0]["content"] == "from original"
     assert history(new_id, db_path).get_messages()[0]["content"] == "from original"
+    assert history(new_id + "_web", db_path).get_messages()[0]["content"] == "from web original"
+
+
+def test_setup_sessions_fork_failure_keeps_old_id(tmp_path, monkeypatch):
+    import hashlib
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    old_url = "file:///tmp/original.odt"
+    new_url = "file:///tmp/copy.odt"
+    old_id = hashlib.sha256(old_url.encode("utf-8")).hexdigest()
+    new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
+    props = {"WriterAgentSessionID": old_id}
+    db_path = str(tmp_path / "writeragent_history.db")
+
+    # Mock the fork to raise an exception
+    import plugin.chatbot.panel_factory
+    def failing_fork(old, new):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(plugin.chatbot.panel_factory, "_fork_doc_chat_history", failing_fork)
+
+    history = _save_as_sessions(tmp_path, props, new_url)
+
+    # Since fork failed, properties should remain the old ones.
+    # Actually, the fallback at line 1133 sets WriterAgentSessionURL
+    # if it's empty, so it will get set to new_url. The main point is
+    # the ID doesn't change.
+    assert props["WriterAgentSessionID"] == old_id
+    assert props.get("WriterAgentSessionURL", "") == new_url
 
 
 def test_setup_sessions_untitled_uuid_keeps_history_on_first_save(tmp_path):
@@ -242,6 +273,15 @@ def test_disposing_swallows_disposed_focus_restore():
     el.frame_session.release_panel.side_effect = _MockDisposedException("bridge gone")
     el.disposing(None)
     assert el.rich_text_widget is None
+
+
+def test_disposing_unsubscribes_config_changed():
+    from unittest.mock import patch
+
+    el = _thin_panel_element()
+    with patch("plugin.framework.event_bus.global_event_bus.unsubscribe") as mock_unsub:
+        el.disposing(None)
+        mock_unsub.assert_called_with("config:changed", el._on_config_changed)
 
 
 def test_disposing_swallows_disposed_remove_window_listener():
@@ -791,6 +831,37 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     assert isinstance(listener.mode_flags, SidebarModeFlags)
     el._apply_sidebar_mode.assert_called_once()
     assert el._apply_sidebar_mode.call_args.args[-1] is toggle
+
+
+def test_fork_doc_chat_history_ignores_system_only_destination(tmp_path):
+    import hashlib
+
+    from plugin.chatbot.history_db import get_chat_history
+    from plugin.chatbot.panel_factory import _fork_doc_chat_history
+
+    old_id = "test-old"
+    new_id = "test-new"
+    db_path = str(tmp_path / "writeragent_history.db")
+
+    import plugin.chatbot.history_db
+    original_get = plugin.chatbot.history_db._get_db_path
+    plugin.chatbot.history_db._get_db_path = lambda: db_path
+
+    try:
+        # Seed the old
+        get_chat_history(old_id).add_message("user", "this should copy")
+
+        # Seed the new with ONLY a system prompt
+        get_chat_history(new_id).add_message("system", "seeded prompt")
+
+        _fork_doc_chat_history(old_id, new_id)
+
+        msgs = get_chat_history(new_id).get_messages()
+        # Should have replaced the system prompt with the forked history
+        assert len(msgs) == 1
+        assert msgs[0]["content"] == "this should copy"
+    finally:
+        plugin.chatbot.history_db._get_db_path = original_get
 
 
 def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_path):

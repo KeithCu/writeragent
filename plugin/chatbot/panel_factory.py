@@ -374,7 +374,7 @@ def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
     # We do not overwrite the destination's chat when "Save As" targets
     # an existing file that already has its own conversation.
     dest_history = get_chat_history(new_session_id)
-    if list(dest_history.get_messages()):
+    if any(msg.get("role") != "system" for msg in dest_history.get_messages()):
         return
 
     messages = list(get_chat_history(old_session_id).get_messages())
@@ -544,6 +544,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         listener = getattr(self, "send_listener", None)
         query = getattr(listener, "query_control", None) if listener is not None else None
         release_live_sidebar(self, query)
+
+        from plugin.framework.event_bus import global_event_bus
+
+        global_event_bus.unsubscribe("config:changed", self._on_config_changed)
 
         # Clean up the always-present resize listener.
         # This listener is attached unconditionally in panel_wiring. Failing to
@@ -1109,13 +1113,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 old_session_id = session_id
                 try:
                     _fork_doc_chat_history(str(old_session_id), fork_to)
+                    _fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
+                    session_id = fork_to
+                    if model:
+                        set_document_property(model, "WriterAgentSessionID", session_id)
+                        if url:
+                            set_document_property(model, "WriterAgentSessionURL", url)
                 except Exception:
                     log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
-                session_id = fork_to
-                if model:
-                    set_document_property(model, "WriterAgentSessionID", session_id)
-                    if url:
-                        set_document_property(model, "WriterAgentSessionURL", url)
             elif fork_to == session_id and model and url:
                 set_document_property(model, "WriterAgentSessionURL", url)
 

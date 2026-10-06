@@ -283,11 +283,7 @@ class JSONHistory:
             raise
 
     def clear(self) -> None:
-        if os.path.exists(self.file_path):
-            try:
-                os.remove(self.file_path)
-            except OSError:
-                log.exception("JSONHistory: Error clearing history")
+        self.replace_messages([])
 
     def replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Replace this session file in one ``os.replace``.
