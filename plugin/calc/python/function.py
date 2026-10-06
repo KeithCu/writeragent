@@ -79,7 +79,6 @@ def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
     return isinstance(val, (int, float)) and not isinstance(val, bool) and not math.isnan(val)
 
 
-
 def _unwrap_single_cell(py_data: Any) -> Any:
     """Unwrap ``[[v]]`` / ``[v]`` / scalar to the inner value."""
     val = py_data
@@ -187,7 +186,6 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
         # Python None is mapped to "" (empty cell). We intentionally do NOT collapse NaN here.
         # ±inf passes through (may also error in formulas). Do not collapse inf to empty.
         return val
-
     if isinstance(val, str):
         return val
     if isinstance(val, datetime.datetime):
@@ -235,7 +233,6 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
         try:
             f = float(val)  # type: ignore[arg-type]
             return f
-
         except (ValueError, TypeError, OverflowError):
             pass
     if isinstance(val, (list, tuple)):
@@ -288,7 +285,6 @@ def _get_calc_doc(ctx: Any) -> Any | None:
     return None
 
 
-
 def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # Bugfix (#402, #411): Include workbook session_id in key so unsaved documents
     # (where doc_url="") do not collide in the in-memory formula result cache.
@@ -314,7 +310,6 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
                 if hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager"):
-
                     target = _get_calc_doc(ctx)
         if target is not None:
             url_val = getattr(target, "getURL", lambda: "")()
@@ -379,7 +374,6 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     if 0 <= idx < len(state.flat):
         return state.flat[idx]
     return state.flat[-1] if state.flat else ""
-
 
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
@@ -853,7 +847,6 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
                 remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
                 remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
 
-
             new_spills = []
             for r_offset in range(num_rows):
                 for c_offset in range(num_cols):
@@ -962,13 +955,12 @@ def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
                 addr = cursor.getRangeAddress()
                 return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
     except Exception:
-        pass
+        log.debug("_cell_is_matrix check failed", exc_info=True)
     return False
 
 
 def _selection_is_multi_cell(target_doc: Any) -> bool:
     """True when the current UI selection spans more than one cell (matrix entry)."""
-
     ctrl = target_doc.getCurrentController() if target_doc is not None else None
     if ctrl is None:
         return False
@@ -1079,7 +1071,6 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if target_r >= max_rows or target_c >= max_cols:
                 log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
                 return "#SPILL!"
-
             if (target_r, target_c) == (formula_row, formula_col):
                 continue
             if (target_r, target_c) in prev_spill_set:
@@ -1187,12 +1178,13 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                         if on_main_thread():
                             target_doc = _get_calc_doc(ctx)
                     if target_doc is not None:
-                        located = locate_formula_cell_in_doc(ctx, target_doc, code)
-                        if located is not None:
-                            sheet, cell, _coord = located
-                            is_matrix = _cell_is_matrix(sheet, cell)
+                        # We check the selection first, not the locator, because the locator scans every formula cell.
+                        is_matrix = _selection_is_multi_cell(target_doc)
                         if not is_matrix:
-                            is_matrix = _selection_is_multi_cell(target_doc)
+                            located = locate_formula_cell_in_doc(ctx, target_doc, code)
+                            if located is not None:
+                                sheet, cell, _coord = located
+                                is_matrix = _cell_is_matrix(sheet, cell)
                 except Exception:
                     pass
         else:
@@ -1218,7 +1210,6 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                         # We return the corner as to_calc_compatible (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
                         return to_calc_compatible(grid_to_spill[0][0])
             except Exception:
-
                 log.exception("Error checking spill collision or locating formula cell")
 
     if isinstance(result, (list, tuple)):
@@ -1589,7 +1580,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             used_cache = True
             res = {"status": "ok", "result": cached.raw}
-
         else:
             session_id = workbook_session_id(ctx, doc=target_doc)
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)

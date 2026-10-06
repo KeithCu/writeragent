@@ -91,6 +91,3 @@ def test_python_matrix_array_formula_block_with_single_cell_selected(ctx, doc):
         assert func.python(code) == 2.0
         assert func.python(code) == 3.0
         assert func.python(code) == 5.0
-
-
-
