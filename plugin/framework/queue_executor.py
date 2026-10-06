@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import threading
 import time
 import uuid
@@ -63,6 +64,8 @@ _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("
 # wait, then TimeoutError.
 _PENDING_POST_CAP = 32
 _PENDING_POST_WAIT_SEC = 30.0
+# Slice for the untimed wait on a claimed marshal (log + shutdown check only).
+_UNTIMED_WAIT_SLICE_SEC = 5.0
 
 # Drain ownership: re-export from async_drain_guard (single-owner VCL pump sentry).
 from plugin.framework.async_drain_guard import (
@@ -429,13 +432,12 @@ class QueueExecutor:
                 self._initialized = False
                 self._async_callback_service = None
                 self._callback_instance = None
-        # Do not create AsyncCallback here. A new context must stay uninitialized
-        # until the next marshal. Flush only when a callback is already live
-        # (same context). _get_async_callback takes _init_lock; calling it while
-        # that lock is held deadlocks bootstrap.
-        has_pending = False
+        # Posts queued before AsyncCallback existed used to sit until the next
+        # marshal created it. When any are waiting, create the callback now and
+        # flush them. _get_async_callback takes _init_lock; call it only after
+        # that lock is released, or bootstrap deadlocks.
         with self._pending_lock:
-            has_pending = len(self._pending_posts) > 0
+            has_pending = bool(self._pending_posts)
         if has_pending:
             self._get_async_callback()
         self._flush_pending_posts()
@@ -484,7 +486,12 @@ class QueueExecutor:
         return True
 
     def _flush_pending_posts(self) -> None:
-        """Enqueue posts that arrived before AsyncCallback existed."""
+        """Enqueue posts that arrived before AsyncCallback existed.
+
+        ``_order_lock`` covers the swap and the puts. A direct ``_enqueue_work``
+        from another thread used to land between them, ahead of older posts.
+        The poke happens after the lock is released.
+        """
         with self._order_lock:
             if not self._initialized or self._async_callback_service is None:
                 return
@@ -494,7 +501,9 @@ class QueueExecutor:
                 # Slots just opened. Waiters in post() are on this condition.
                 self._pending_lock.notify_all()
             for fn, args, kwargs, scope in pending:
-                self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope)
+                self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope, poke=False)
+        if pending:
+            self._poke_main_thread()
 
     def _get_async_callback(self) -> Any:
         """Lazily create the AsyncCallback UNO service and XCallback instance."""
@@ -607,10 +616,14 @@ class QueueExecutor:
         """
         if not items:
             return
+        self._put_work_items(items)
+        self._poke_main_thread()
+
+    def _put_work_items(self, items: list[_WorkItem]) -> None:
+        """Put *items* under ``_claim_lock`` without poking."""
         with self._claim_lock:
             for item in items:
                 self._work_queue.put(item)
-        self._poke_main_thread()
 
     def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
@@ -646,17 +659,20 @@ class QueueExecutor:
                     self._abandon_unstarted(item)
                     skipped = True
 
-        fn_label = getattr(item.fn, "__name__", "<fn>")
+        if skipped:
+            log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
+            # A timed-out head used to return here and leave the next item
+            # queued until some later poke. Wake the main thread now.
+            if not self._work_queue.empty():
+                self._poke_main_thread()
+            return
+
+        # The item is claimed: anything that raises from here must reach the
+        # ``finally`` that sets the event. ``_fn_label`` and the start log used
+        # to run before ``try``, so a raise there left the waiter parked.
+        fn_label = "<fn>"
         try:
             fn_label = _fn_label(item.fn)
-            if skipped:
-                log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
-                # A timed-out head used to return here and leave the next item
-                # queued until some later poke. Wake the main thread now.
-                if not self._work_queue.empty():
-                    self._poke_main_thread()
-                return
-
             log.debug("process_queue start fn=%s %s", fn_label, _marshal_thread_tag(self))
             item.result = item.fn(*item.args, **item.kwargs)
         except BaseException as exc:
@@ -734,22 +750,26 @@ class QueueExecutor:
                 self._pending_posts = [row for row in self._pending_posts if row[3] is not scope]
             self._pending_lock.notify_all()
 
-    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: Any = _SCOPE_UNSET) -> _WorkItem:
-        """Add work item to queue."""
+    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: Any = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
+        """Add work item to queue. *poke* False lets a batch caller poke once."""
+        if bound_scope is _SCOPE_UNSET:
+            scope = get_current_send_cancellation()
+        else:
+            scope = bound_scope
+        if scope is not None:
+            scope.bind_executor(self)
+        item_id = str(uuid.uuid4())
+        item = _WorkItem(item_id, fn, args, kwargs, blocking, scope)
+        # ``_order_lock`` (re-entrant: a flush holds it) orders this put behind
+        # a flush in progress. ``_claim_lock`` is the same lock as
+        # ``cancel_pending_work``'s drain. Neither is held across the poke:
+        # ``process_queue`` may re-enter through the test poke handler, and
+        # AsyncCallback is a UNO call.
         with self._order_lock:
-            if bound_scope is _SCOPE_UNSET:
-                scope = get_current_send_cancellation()
-            else:
-                scope = bound_scope
-            if scope is not None:
-                scope.bind_executor(self)
-            item_id = str(uuid.uuid4())
-            item = _WorkItem(item_id, fn, args, kwargs, blocking, scope)
-            # Same lock as ``cancel_pending_work``'s drain. Not held across poke:
-            # ``process_queue`` may already hold it and re-enter through the test
-            # poke handler (``threading.Lock`` is not reentrant).
-            self._offer_work_items([item])
-            return item
+            self._put_work_items([item])
+        if poke:
+            self._poke_main_thread()
+        return item
 
     def _wait_for_result(self, item: Any, timeout: float) -> Any:
         """Wait for and return result from main thread."""
@@ -777,23 +797,25 @@ class QueueExecutor:
                 elif not finished:
                     keep_waiting = True
             if keep_waiting and item.event is not None:
-                import sys
-
                 # Claimed marshal has no second timeout (retry would double-apply).
-                # We wait untimed because the main-thread call may still be mutating
-                # the document; abandoning it would leave the caller unsure whether it applied.
-                # Log so a hung fn is visible while a pooled worker parks.
-                elapsed = 0.0
-                while not item.event.wait(5.0):
-                    elapsed += 5.0
-                    if getattr(sys, "is_finalizing", lambda: False)():
-                        raise RuntimeError("outcome unknown: executor shutting down while waiting for main thread")
-                    if elapsed >= 30.0:
+                # The main-thread call may still be mutating the document, so the
+                # caller waits it out instead of abandoning it with an unknown
+                # result. The wait is sliced only to log a hung fn (once past 30s,
+                # then every 60s) and to bail out while the interpreter shuts down,
+                # when the main thread will not run the item to completion.
+                waited = 0.0
+                next_log = 30.0
+                while not item.event.wait(_UNTIMED_WAIT_SLICE_SEC):
+                    waited += _UNTIMED_WAIT_SLICE_SEC
+                    if sys.is_finalizing():
+                        raise RuntimeError("outcome unknown: interpreter shutting down while waiting for main-thread fn=%s" % _fn_label(item.fn))
+                    if waited >= next_log:
+                        next_log += 60.0
                         log.warning(
-                            "QueueExecutor: waiting unbound for in-flight fn=%s %s (elapsed %.1fs)",
+                            "QueueExecutor: waiting unbound for in-flight fn=%s %s (%.0fs)",
                             _fn_label(item.fn),
                             _marshal_thread_tag(self),
-                            elapsed
+                            waited,
                         )
             elif not finished:
                 raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))

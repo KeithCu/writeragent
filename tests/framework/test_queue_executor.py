@@ -1178,7 +1178,7 @@ def test_flush_pending_posts_keeps_original_scope():
     scope = SendCancellation()
     seen: list[object] = []
 
-    def capture(fn, args, kwargs, blocking=True, *, bound_scope=None):  # type: ignore[no-untyped-def]
+    def capture(fn, args, kwargs, blocking=True, *, bound_scope=None, **_kw):  # type: ignore[no-untyped-def]
         seen.append(bound_scope)
         return None
 
@@ -1236,12 +1236,11 @@ def test_flush_pending_posts_order_concurrent_enqueue():
 
     enqueued_items = []
 
-    # original_offer = qe._offer_work_items
-    def slow_offer(items):
+    def slow_put(items):
         time.sleep(0.05)
         enqueued_items.extend(items)
 
-    qe._offer_work_items = slow_offer
+    qe._put_work_items = slow_put
 
     def direct_enqueue():
         time.sleep(0.01) # let flush start
@@ -1334,9 +1333,31 @@ def test_wait_for_result_shutting_down_raises():
 
     # Initially, wait for timeout fails, entering keep_waiting.
     # Then item.event.wait(5.0) returns False, and sys.is_finalizing() is true.
-    with patch("sys.is_finalizing", return_value=True, create=True):
+    with patch("sys.is_finalizing", return_value=True), \
+         patch("plugin.framework.queue_executor._UNTIMED_WAIT_SLICE_SEC", 0.01):
         try:
             qe._wait_for_result(item, timeout=0.01)
             assert False, "Should have raised RuntimeError"
         except RuntimeError as e:
-            assert "outcome unknown: executor shutting down" in str(e)
+            assert "outcome unknown" in str(e)
+
+
+def test_wait_for_result_claimed_item_keeps_waiting_past_slices():
+    """A claimed item is waited out across slices; the result is returned, not a timeout."""
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+    from unittest.mock import patch
+
+    qe = QueueExecutor()
+    item = _WorkItem("id2", lambda: None, (), {}, blocking=True)
+    item._claimed = True
+
+    def finish_later():
+        time.sleep(0.2)
+        item.result = "done"
+        item.event.set()
+
+    t = threading.Thread(target=finish_later)
+    with patch("plugin.framework.queue_executor._UNTIMED_WAIT_SLICE_SEC", 0.01):
+        t.start()
+        assert qe._wait_for_result(item, timeout=0.01) == "done"
+    t.join()
