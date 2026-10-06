@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 _GO_RIGHT_CHUNK = 8192
 
-def _go_right(cursor: Any, n: int, expand: bool) -> bool:
+def _go_right(cursor: Any, n: int, expand: bool) -> bool:  # pyright: ignore[reportUnusedFunction]
     """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
     while n > 0:
         step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
@@ -439,7 +439,8 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
         # Body content via HTML import
         cursor.gotoEnd(False)
         cursor.CharWeight = CHAT_FONT_WEIGHT  # Reset to normal after bold prefix
-        pre_len = doc.CharacterCount
+        cursor.CharColor = theme.user_color if role == "user" else theme.assistant_color
+        body_start = cursor.getStart()
 
         if text and text.strip():
             # A tag _HTML_TAG_RE does not list (<script>, a full document the
@@ -473,10 +474,19 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
                 restore_writer_text(text_obj, previous)
                 return False
 
-            # Build a range covering only the newly inserted content
+            # What was wrong: the tail of assistant words was drawn in the blue 'You'
+            # color (e.g. in 'done' the 'one' was blue, in 'written.' the 'ten.' was blue).
+            # How: pre_len used doc.CharacterCount, a document statistic that excludes
+            # paragraph breaks (\n\n between messages). When body_range moved via
+            # _go_right(body_range, pre_len, False) from document start, it stopped short
+            # by the count of preceding paragraph breaks, landing inside the last word
+            # of the preceding assistant message. gotoEnd(True) then extended across that
+            # boundary and set CharColor = theme.user_color on the assistant word's tail.
+            # Why this change: anchor body_range directly to body_start (the position
+            # right after the prefix) instead of traversing from document start with character
+            # counts. Each message row stays strictly within its own text bounds.
             body_range = text_obj.createTextCursor()
-            body_range.gotoStart(False)
-            _go_right(body_range, pre_len, False)
+            body_range.gotoRange(body_start, False)
             body_range.gotoEnd(True)
             # Plain text gets the role tint; successful HTML import keeps
             # per-span CharColor from the filter (red/blue runs, etc.).

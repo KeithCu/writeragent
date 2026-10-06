@@ -484,7 +484,12 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
     from plugin.framework.i18n import _
 
-    text = greeting + "\n" if greeting else ""
+    # What was wrong: after File > Reload the plain box showed raw HTML
+    # ("Assistant <p>done</p>") until the rich control took over.
+    # How: panel wiring paints history before the rich control is ready, and
+    # this fallback wrote stored HTML answers verbatim. Why: the plain box is a
+    # text field, so give it the same stripped text the stream stripper shows.
+    text = (_plain_fallback_text(greeting) + "\n") if greeting else ""
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):
         return text
@@ -492,7 +497,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
         if not isinstance(msg, dict):
             continue
         role = msg.get("role", "")
-        content = _visible_message_text(msg.get("content", ""))
+        content = _plain_fallback_text(_visible_message_text(msg.get("content", "")))
         if role == "user":
             text += "\nUser: %s\n" % content
         elif role == "assistant":
@@ -506,6 +511,10 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
 
 def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, str]]:
     """Build (role, content) pairs for session history display (skips system messages)."""
+    # Tool-call lines ("[Running tool: ...]", "[tool: result]") are not restored:
+    # they are live status text only. ChatSession.add_assistant_message writes
+    # only non-empty content to history_db and add_tool_result writes nothing
+    # (panel.py), so a reloaded session has no rows to draw them from.
     items: list[tuple[str, str]] = []
     if greeting:
         items.append(("assistant", greeting))

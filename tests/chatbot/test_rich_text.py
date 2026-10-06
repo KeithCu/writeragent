@@ -129,30 +129,39 @@ class TestAppendRichText:
         assert ("Assistant: ") in (content)
 
     def test_append_rich_text_chunks_go_right(self):
-        from plugin.chatbot.rich_text import append_rich_text
-        doc = MockDoc()
+        from plugin.chatbot.rich_text import _go_right
 
-        # Force pre_len in append_rich_text to be large enough to trigger chunking
-        # pre_len is calculated as doc.CharacterCount - previous
-        doc._text._content = " " * 40000
+        cursor = MockTextCursor()
+        assert _go_right(cursor, 40000, False) is True
+        assert hasattr(cursor, "go_right_calls")
+
+        calls = cursor.go_right_calls
+        pre_len = sum(count for count, expand in calls)
+        assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
+        assert all(count <= 8192 for count, expand in calls)
+
+    def test_append_rich_text_anchors_body_start_without_character_count_offset(self):
+        """Appending user message after assistant message anchors to body_start (no color bleed into assistant text)."""
+        from plugin.chatbot.rich_text import append_rich_text, USER_COLOR
+
+        doc = MockDoc()
+        append_rich_text(doc, "done", role="assistant")
 
         created_cursors = []
         original_create = doc.getText().createTextCursor
+
         def patched_create():
             c = original_create()
             created_cursors.append(c)
             return c
+
         doc.getText().createTextCursor = patched_create
 
-        append_rich_text(doc, "Some content", "user")
+        append_rich_text(doc, "how are you?", role="user")
 
         body_cursor = created_cursors[-1]
-        assert hasattr(body_cursor, "go_right_calls")
-
-        calls = body_cursor.go_right_calls
-        pre_len = sum(count for count, expand in calls)
-        assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
-        assert all(count <= 8192 for count, expand in calls)
+        assert not hasattr(body_cursor, "go_right_calls")
+        assert body_cursor.CharColor == USER_COLOR
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
