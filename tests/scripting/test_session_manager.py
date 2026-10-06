@@ -1027,3 +1027,65 @@ def test_ppt_master_unsaved_decks_unique_session_id() -> None:
     assert id1 != id2
     assert id1.startswith("ppt_master:unsaved:")
     assert id2.startswith("ppt_master:unsaved:")
+
+
+def test_calc_document_regression_sim_event_doc_order():
+    """Regression sim: when demo is opened after untitled, _calc_document must return demo."""
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.excel_py_convert.auto_open import _record_desktop_calc_sessions
+    from plugin.scripting.session_manager import (
+        _calc_document,
+        calc_workbook_base_session_id,
+        clear_active_calc_session,
+    )
+
+    clear_active_calc_session()
+    demo = MagicMock(name="demo")
+    demo.getURL.return_value = "file:///x/demo.xlsx"
+    demo_ctrl = MagicMock()
+    demo_ctrl.getFrame.return_value = MagicMock()
+    demo.getCurrentController.return_value = demo_ctrl
+    demo.getSheets.return_value = MagicMock()
+
+    untitled = MagicMock(name="untitled")
+    untitled.getURL.return_value = ""
+    untitled_ctrl = MagicMock()
+    untitled_ctrl.getFrame.return_value = MagicMock()
+    untitled.getCurrentController.return_value = untitled_ctrl
+    untitled.getSheets.return_value = MagicMock()
+
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = demo
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [demo, untitled]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop.getComponents.return_value = comps
+
+    ctx = MagicMock()
+
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+            patch("plugin.scripting.session_manager.is_calc", return_value=True),
+            patch("plugin.doc.doc_type.is_calc", return_value=True),
+            patch("plugin.calc.excel_py_convert.auto_open._is_calc_doc", return_value=True),
+        ):
+            # Old scan order: demo then untitled -> _LAST_ACTIVE_CALC_SESSION_ID became untitled
+            calc_workbook_base_session_id(demo)
+            calc_workbook_base_session_id(untitled)
+
+            # Now run the new scan with event_doc=demo
+            _record_desktop_calc_sessions(ctx, event_doc=demo)
+
+            # _calc_document(ctx) must return demo
+            resolved = _calc_document(ctx)
+            from plugin.framework.thread_guard import _unwrap_uno
+
+            assert _unwrap_uno(resolved) is demo
+    finally:
+        clear_active_calc_session()

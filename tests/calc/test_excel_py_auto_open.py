@@ -422,7 +422,7 @@ def test_oncreate_without_resolvable_doc_still_scans_desktop():
         convert.assert_not_called()
         marshal.assert_not_called()
         open_geo.assert_called_once_with(ctx, None)
-        scan.assert_called_once_with(ctx)
+        scan.assert_called_once_with(ctx, event_doc=None)
 
 
 def test_geometric_open_job_wires_unload_listener_when_scan_cannot_run():
@@ -483,6 +483,69 @@ def test_record_desktop_calc_sessions_records_only_exactly_one_calc():
         ):
             mod._record_desktop_calc_sessions(MagicMock())
         assert recorded_calc_session_count() == 1
+    finally:
+        clear_active_calc_session()
+
+
+def test_record_desktop_calc_sessions_event_doc_recorded_last():
+    """Event doc is recorded last so get_cached_calc_session_id() == event doc's id.
+
+    Desktop enumerates [event_doc, untitled]. Recording order must place event_doc last.
+    """
+    import plugin.calc.excel_py_convert.auto_open as mod
+    from plugin.scripting.session_manager import (
+        clear_active_calc_session,
+        get_cached_calc_session_id,
+        recorded_calc_session_count,
+    )
+
+    clear_active_calc_session()
+    event_doc = CalcDocStub(url="file:///fixtures/python_showcase_demo.xlsx")
+    untitled = CalcDocStub(url="")
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [event_doc, untitled]
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            mod._record_desktop_calc_sessions(MagicMock(), event_doc=event_doc)
+        assert recorded_calc_session_count() == 2
+        assert get_cached_calc_session_id() == "calc:file:///fixtures/python_showcase_demo.xlsx"
+    finally:
+        clear_active_calc_session()
+
+
+def test_record_desktop_calc_sessions_event_doc_missing_from_enumeration_recorded_and_not_pruned():
+    """An event doc missing from desktop enumeration is still recorded and not pruned."""
+    import plugin.calc.excel_py_convert.auto_open as mod
+    from plugin.scripting.session_manager import (
+        clear_active_calc_session,
+        get_cached_calc_session_id,
+        recorded_calc_session_count,
+        recorded_calc_session_ids,
+    )
+
+    clear_active_calc_session()
+    event_doc = CalcDocStub(url="file:///fixtures/python_showcase_demo.xlsx")
+    untitled = CalcDocStub(url="")
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.side_effect = [untitled]
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            mod._record_desktop_calc_sessions(MagicMock(), event_doc=event_doc)
+        assert recorded_calc_session_count() == 2
+        assert get_cached_calc_session_id() == "calc:file:///fixtures/python_showcase_demo.xlsx"
+        assert "calc:file:///fixtures/python_showcase_demo.xlsx" in recorded_calc_session_ids()
     finally:
         clear_active_calc_session()
 

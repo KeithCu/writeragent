@@ -60,3 +60,33 @@ def test_module_singleton_record_python_eval():
     )
     assert entry.status == "error"
     assert "ERROR" in entry.summary_line()
+
+
+def test_diagnostics_workbook_key_does_not_mutate_session_state():
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python.function import _diagnostics_workbook_key
+    from plugin.scripting.session_manager import (
+        clear_active_calc_session,
+        get_cached_calc_session_id,
+        record_active_calc_session,
+        recorded_calc_session_ids,
+    )
+
+    clear_active_calc_session()
+    try:
+        record_active_calc_session("calc:file:///initial.ods")
+        initial_cached = get_cached_calc_session_id()
+        initial_recorded = set(recorded_calc_session_ids())
+
+        ctx = MagicMock()
+        doc = MagicMock()
+        doc.getURL.return_value = "file:///other.ods"
+
+        with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+            key = _diagnostics_workbook_key(ctx, doc=doc)
+            assert key == "calc:file:///other.ods"
+            # Must not change cached session id or recorded session ids
+            assert get_cached_calc_session_id() == initial_cached
+            assert set(recorded_calc_session_ids()) == initial_recorded
+    finally:
+        clear_active_calc_session()

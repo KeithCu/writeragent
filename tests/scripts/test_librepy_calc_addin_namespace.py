@@ -46,3 +46,12 @@ def test_addin_librepy_registers_writeragent_implementation():
     assert f'IMPL_NAME = "{_WRITERAGENT_ADDIN}"' in impl
     assert "org.extension.writeragent.PythonFunction import" in impl
     assert _LIBREPY_ADDIN not in text
+
+
+def test_xpythonfunction_idl_files_identical_and_declare_caller():
+    wa_idl = (_REPO_ROOT / "extension" / "idl" / "XPythonFunction.idl").read_text(encoding="utf-8")
+    lp_idl = (_REPO_ROOT / "extension-core" / "idl" / "XPythonFunction.idl").read_text(encoding="utf-8")
+    assert wa_idl == lp_idl
+    assert "#include <com/sun/star/beans/XPropertySet.idl>" in wa_idl
+    assert "any python( [in] com::sun::star::beans::XPropertySet caller, [in] string code, [in] sequence< any > data );" in wa_idl
+    assert "any py( [in] com::sun::star::beans::XPropertySet caller, [in] string code, [in] sequence< any > data );" in wa_idl

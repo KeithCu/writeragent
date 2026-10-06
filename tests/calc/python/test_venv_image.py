@@ -160,8 +160,8 @@ def test_insert_image_result_on_sheet_uses_passed_doc_not_front_window():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=front),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
-            return_value=(sheet, cell, (0, 0)),
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs",
+            return_value=(target, sheet, cell, (0, 0)),
         ) as locate,
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
@@ -171,6 +171,35 @@ def test_insert_image_result_on_sheet_uses_passed_doc_not_front_window():
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target)
     locate.assert_called()
     assert locate.call_args[0][1] is target
+
+
+def test_insert_image_result_on_sheet_fallback_doc_creates_instance_on_located_doc():
+    """When preferred doc has no match and fallback doc is located, createInstance is called on located doc."""
+    ctx = MagicMock()
+    passed_doc = MagicMock(name="passed_doc")
+    located_doc = MagicMock(name="located_doc")
+    sheet = MagicMock()
+    cell = MagicMock()
+    draw_page = MagicMock()
+    sheet.DrawPage = draw_page
+    located_doc.getCurrentController.return_value = MagicMock(getActiveSheet=MagicMock(return_value=None))
+    shape = MagicMock()
+    located_doc.createInstance.return_value = shape
+
+    with (
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs",
+            return_value=(located_doc, sheet, cell, (0, 0)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=passed_doc)
+
+    located_doc.createInstance.assert_called_once_with(_DRAW_GRAPHIC_SERVICE)
+    passed_doc.createInstance.assert_not_called()
+    draw_page.add.assert_called_once_with(shape)
 
 
 def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_code():
@@ -188,7 +217,7 @@ def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_cod
 
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=doc),
-        patch("plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc", return_value=None),
+        patch("plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs", return_value=None),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp") as mock_write,
         pytest.raises(ImageEgressError, match="could not locate formula cell"),
     ):
@@ -252,8 +281,8 @@ def _insert_at_cell(cell: CalcCellStub, page: _DrawPage, *, doc: MagicMock | Non
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
-            return_value=(sheet, cell, (cell._row, cell._col)),
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs",
+            return_value=(target, sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),

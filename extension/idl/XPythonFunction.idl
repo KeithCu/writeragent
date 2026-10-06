@@ -2,12 +2,13 @@
 #define __org_extension_writeragent_PythonFunction_XPythonFunction_idl__
 
 #include <com/sun/star/uno/XInterface.idl>
+#include <com/sun/star/beans/XPropertySet.idl>
 
 module org { module extension { module writeragent { module PythonFunction {
     interface XPythonFunction : com::sun::star::uno::XInterface
     {
-        any python( [in] string code, [in] sequence< any > data );
-        any py( [in] string code, [in] sequence< any > data );
+        any python( [in] com::sun::star::beans::XPropertySet caller, [in] string code, [in] sequence< any > data );
+        any py( [in] com::sun::star::beans::XPropertySet caller, [in] string code, [in] sequence< any > data );
     };
 }; }; }; };
 

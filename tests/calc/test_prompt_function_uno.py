@@ -38,7 +38,7 @@ def test_python_addin_execution(ctx):
         with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 42}
-            res = func.py("result = 21 * 2")
+            res = func.py(None, "result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
                 func.ctx,
@@ -51,7 +51,7 @@ def test_python_addin_execution(ctx):
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 42}
-            res = func.python("result = 21 * 2")
+            res = func.python(None, "result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
                 func.ctx,
@@ -64,7 +64,7 @@ def test_python_addin_execution(ctx):
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 6}
-            res = func.python("result = float(np.sum(data))", (((1.0,), (2.0,), (3.0,)),))
+            res = func.python(None, "result = float(np.sum(data))", (((1.0,), (2.0,), (3.0,)),))
             assert res == 6.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
@@ -80,7 +80,7 @@ def test_python_addin_execution(ctx):
             mock_run.return_value = {"status": "ok", "result": 9.0}
             col_a = ((1.0,), (2.0,), (3.0,))
             col_b = ((4.0,), (5.0,))
-            res = func.python("result = float(np.sum(data[0])) + float(np.sum(data[1]))", (col_a, col_b))
+            res = func.python(None, "result = float(np.sum(data[0])) + float(np.sum(data[1]))", (col_a, col_b))
             assert res == 9.0
             wire = mock_run.call_args.kwargs["data"]
             from plugin.scripting.payload_codec import is_multi_data
@@ -89,7 +89,7 @@ def test_python_addin_execution(ctx):
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 7919}
-            res = func.python("result = sp.prime(int(data.values[0][0]))", 1000.0)
+            res = func.python(None, "result = sp.prime(int(data.values[0][0]))", 1000.0)
             assert res == 7919.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
@@ -100,22 +100,22 @@ def test_python_addin_execution(ctx):
             assert wire["data"] == [[1000.0]]
 
             mock_run.return_value = {"status": "error", "message": "Syntax error"}
-            res = func.python("bad code")
+            res = func.python(None, "bad code")
             assert "Error: Syntax error" in res
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
-            res = func.python("some code 1d")
+            res = func.python(None, "some code 1d")
             assert res == 2.0
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": [[2, 3], [5, 7]]}
-            res = func.python("some code 2d")
+            res = func.python(None, "some code 2d")
             assert res == 2.0
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": [7919, 7927, 7933, 7937, 7949, 7951]}
-            res = func.python("[sp.prime(x) for x in range(1000, 1006)]")
+            res = func.python(None, "[sp.prime(x) for x in range(1000, 1006)]")
             assert res == 7919.0
             mock_run.assert_called_with(
                 func.ctx,

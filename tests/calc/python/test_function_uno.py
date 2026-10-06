@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 import uno
@@ -204,3 +205,104 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
             _close_doc_and_clear_sessions(ctx, doc)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@native_test
+def test_py_multi_document_spill_and_plot(ctx):
+    """When a blank doc is open, =PY in a second doc spills and inserts plots in the second doc."""
+    import glob
+    import json
+    from plugin.framework.config import _resolve_config_path_from_ctx
+    from plugin.scripting.venv_worker import PythonWorkerManager
+
+    repo_venv = str(Path(__file__).resolve().parents[3] / ".venv")
+    profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
+    try:
+        profile_cfgs.add(_resolve_config_path_from_ctx(ctx))
+    except Exception:
+        pass
+
+    old_cfgs: dict[str, dict] = {}
+    for pcfg in profile_cfgs:
+        if os.path.exists(pcfg):
+            try:
+                with open(pcfg, "r", encoding="utf-8") as f:
+                    old_cfgs[pcfg] = json.load(f)
+                d = dict(old_cfgs[pcfg])
+                d["scripting.python_venv_path"] = repo_venv
+                with open(pcfg, "w", encoding="utf-8") as f:
+                    json.dump(d, f, indent=2)
+            except Exception:
+                pass
+    PythonWorkerManager.shutdown_all()
+
+    desktop = get_desktop(ctx)
+    doc_blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
+    doc_second = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
+    try:
+        sheet_second = doc_second.getSheets().getByIndex(0)
+
+        a1 = sheet_second.getCellByPosition(0, 0)
+        d1 = sheet_second.getCellByPosition(3, 0)
+        a1.setFormula('=PY("[[1,2],[3,4]]")')
+        d1.setFormula('=PY("plt.figure(); plt.plot([1,2,3])")')
+
+        time.sleep(2.1)
+        doc_second.calculateAll()
+
+        # Wait for spill and image insertion
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            b1_val = sheet_second.getCellByPosition(1, 0).getValue()
+            dp = sheet_second.getDrawPage()
+            has_shape = False
+            for idx in range(dp.getCount()):
+                sh = dp.getByIndex(idx)
+                name = getattr(sh, "Name", "")
+                if not name and hasattr(sh, "getPropertyValue"):
+                    try:
+                        name = sh.getPropertyValue("Name")
+                    except Exception:
+                        name = ""
+                if name and "WriterAgentPlot" in str(name):
+                    has_shape = True
+                    break
+            if b1_val == 2.0 and has_shape:
+                break
+            time.sleep(0.2)
+
+        # Assert B1/A2/B2 are spilled in second doc
+        assert sheet_second.getCellByPosition(1, 0).getValue() == 2.0
+        assert sheet_second.getCellByPosition(0, 1).getValue() == 3.0
+        assert sheet_second.getCellByPosition(1, 1).getValue() == 4.0
+
+        # Assert WriterAgentPlot shape is on its sheet
+        dp_second = sheet_second.getDrawPage()
+        shape_names = []
+        for idx in range(dp_second.getCount()):
+            sh = dp_second.getByIndex(idx)
+            name = getattr(sh, "Name", "")
+            if not name and hasattr(sh, "getPropertyValue"):
+                try:
+                    name = sh.getPropertyValue("Name")
+                except Exception:
+                    name = ""
+            shape_names.append(str(name))
+        assert any("WriterAgentPlot" in n for n in shape_names), f"Plot shape not found in {shape_names}"
+
+        # Assert blank doc is untouched
+        sheet_blank0 = doc_blank.getSheets().getByIndex(0)
+        assert sheet_blank0.getCellByPosition(0, 0).getString() == ""
+        assert sheet_blank0.getCellByPosition(1, 0).getValue() == 0.0
+        assert sheet_blank0.getDrawPage().getCount() == 0
+    finally:
+        _close_doc_and_clear_sessions(ctx, doc_second)
+        _close_doc_and_clear_sessions(ctx, doc_blank)
+        for pcfg, old_d in old_cfgs.items():
+            try:
+                with open(pcfg, "w", encoding="utf-8") as f:
+                    json.dump(old_d, f, indent=2)
+            except Exception:
+                pass
+        PythonWorkerManager.shutdown_all()
+
