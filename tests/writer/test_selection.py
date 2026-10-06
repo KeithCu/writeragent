@@ -71,6 +71,35 @@ def test_selection_uses_explicit_selection_range():
     body_cursor.gotoEnd.assert_not_called()
 
 
+def test_selection_skips_empty_ranges_on_multiple_selection():
+    from unittest.mock import patch
+
+    rng0 = MagicMock()
+    rng0.getString.return_value = ""
+    rng1 = MagicMock()
+    rng1.getString.return_value = "highlighted"
+
+    sel_cursor = MagicMock()
+    rng1.getText.return_value.createTextCursorByRange.return_value = sel_cursor
+
+    sel = MagicMock()
+    sel.getCount.return_value = 2
+
+    def by_index(i):
+        if i == 0: return rng0
+        return rng1
+
+    sel.getByIndex.side_effect = by_index
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    ctx, body_cursor = _ctx_with_controller(controller)
+    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False):
+        result = resolve_target_cursor(ctx, "selection", None)
+
+    assert result is sel_cursor
+    body_cursor.gotoEnd.assert_not_called()
+
+
 # ---- C2: set_selection -------------------------------------------------------
 
 def _selection_ctx():

@@ -1363,6 +1363,53 @@ def test_wait_for_result_claimed_item_keeps_waiting_past_slices():
     t.join()
 
 
+def test_llm_request_lane_restores_status_after_waiting():
+    from plugin.framework.queue_executor import llm_request_lane, _LLM_REQUEST_LOCK
+    import threading
+    import time
+
+    # Block the lane
+    _LLM_REQUEST_LOCK.acquire()
+
+    status_calls = []
+    def status_callback(msg: str):
+        status_calls.append(msg)
+
+    def worker():
+        # wait a little then release so lane can be acquired
+        time.sleep(0.4)
+        _LLM_REQUEST_LOCK.release()
+
+    t = threading.Thread(target=worker)
+    t.start()
+
+    with llm_request_lane(timeout=2.0, status_callback=status_callback, resume_status="Thinking..."):
+        pass
+
+    t.join()
+
+    assert len(status_calls) == 2
+    assert "Waiting for another document's reply..." in status_calls[0]
+    assert status_calls[1] == "Thinking..."
+
+
+def test_llm_request_lane_uncontended_does_not_call_status():
+    from plugin.framework.queue_executor import llm_request_lane, _LLM_REQUEST_LOCK
+
+    # Ensure uncontended
+    if _LLM_REQUEST_LOCK.locked():
+        _LLM_REQUEST_LOCK.release()
+
+    status_calls = []
+    def status_callback(msg: str):
+        status_calls.append(msg)
+
+    with llm_request_lane(timeout=2.0, status_callback=status_callback, resume_status="Thinking..."):
+        pass
+
+    assert len(status_calls) == 0
+
+
 def test_llm_request_lane_stop_while_waiting():
     from plugin.framework.async_stream import BlockingWaitStopped
     from plugin.framework.queue_executor import llm_request_lane, _LLM_REQUEST_LOCK

@@ -568,7 +568,8 @@ class ToolCallingMixin:
                 # Status via queue only — never self._set_status from this worker (UNO).
                 def status_cb(t: str) -> None:
                     emit((StreamQueueKind.STATUS, t))
-                with llm_request_lane(status_callback=status_cb):
+                resume_status = "Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1)
+                with llm_request_lane(status_callback=status_cb, resume_status=resume_status):
                     # Compact + stream share one lane hold. compaction.py must
                     # not take the non-reentrant lock itself.
                     if get_config_bool_safe("chat_compaction_enabled"):
@@ -677,7 +678,7 @@ class ToolCallingMixin:
                     return
                 def status_cb(t: str) -> None:
                     emit((StreamQueueKind.STATUS, t))
-                with llm_request_lane(status_callback=status_cb):
+                with llm_request_lane(status_callback=status_cb, resume_status="Finishing..."):
                     # Same compact-then-view path as _spawn_llm_worker. Final
                     # stream has no tools; still compact when the transcript
                     # is over the tiered threshold.

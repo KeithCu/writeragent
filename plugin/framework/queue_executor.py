@@ -354,7 +354,7 @@ def _fn_label(fn: Callable[..., Any]) -> str:
 
 
 @contextmanager
-def llm_request_lane(timeout: float | None = None, status_callback: Callable[[str], None] | None = None) -> Generator[None, None, None]:
+def llm_request_lane(timeout: float | None = None, status_callback: Callable[[str], None] | None = None, resume_status: str | None = None) -> Generator[None, None, None]:
     """Serialize LLM requests when callers choose to opt in.
 
     A single global lock exists for single-slot local servers (like Ollama or llama.cpp)
@@ -385,6 +385,9 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
     if not acquired:
         log.warning("llm_request_lane timed out after %ss waiting for LLM lock", timeout)
         raise TimeoutError("Timed out waiting for LLM request lane lock after %ss" % timeout)
+
+    if notified_status and status_callback is not None:
+        status_callback(resume_status or "")
 
     try:
         yield

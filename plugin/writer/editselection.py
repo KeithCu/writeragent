@@ -55,8 +55,9 @@ def _stop_for_tracked_changes(ctx: Any, title: str, text_range: Any) -> bool:
 
 
 def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
-    selection = model.CurrentController.getSelection()
-    text_range = selection.getByIndex(0)
+    from plugin.writer.selection import selected_text_range
+
+    text_range = selected_text_range(model.CurrentController)
     title = _("WriterAgent: Extend Selection")
     if _stop_for_tracked_changes(ctx, title, text_range):
         return
@@ -102,8 +103,9 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 
 
 def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
-    selection = model.CurrentController.getSelection()
-    text_range = selection.getByIndex(0)
+    from plugin.writer.selection import selected_text_range
+
+    text_range = selected_text_range(model.CurrentController)
     title = _("WriterAgent: Edit Selection")
     if _stop_for_tracked_changes(ctx, title, text_range):
         return

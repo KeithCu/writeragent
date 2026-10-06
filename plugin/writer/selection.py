@@ -11,6 +11,27 @@ from typing import Any
 from plugin.framework.tool import ToolBase
 
 
+def selected_text_range(controller: Any) -> Any:
+    """Find the non-empty text selection range from the current view.
+
+    Why: After undoing a streamed edit (Ctrl+Z), LibreOffice may leave a multi-range
+    selection where getByIndex(0) is an empty range at the end of the paragraph,
+    and getByIndex(1) is the actual highlighted text. We loop to find the first
+    non-empty range, falling back to 0 if all are empty so cursors still work.
+    """
+    sel = controller.getSelection()
+    if not sel or not hasattr(sel, "getCount"):
+        return None
+    count = int(sel.getCount())
+    if count == 0:
+        return None
+    for i in range(count):
+        rng = sel.getByIndex(i)
+        if rng.getString():
+            return rng
+    return sel.getByIndex(0)
+
+
 class SetSelection(ToolBase):
     name: str | None = "set_selection"
     tier: str = "core"
