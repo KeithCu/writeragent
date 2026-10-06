@@ -869,3 +869,7 @@ def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_p
     # The target chat must not be overwritten by the source chat
     assert history(new_id, db_path).get_messages()[0]["content"] == "pre-existing target chat"
     assert len(history(new_id, db_path).get_messages()) == 1
+
+def test_module_logger_name():
+    import plugin.chatbot.panel_factory
+    assert plugin.chatbot.panel_factory.log.name.startswith("plugin.")
