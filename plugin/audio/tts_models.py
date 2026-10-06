@@ -8,9 +8,17 @@ from __future__ import annotations
 
 import logging
 import os
-import urllib.error
 import urllib.request
 from typing import Callable
+
+__all__ = [
+    "_download_to",
+    "_failed_model_downloads",
+    "_resolve_kokoro_model_files",
+    "_resolve_piper_model_file",
+    "is_download_failed",
+    "remember_download_failed",
+]
 
 from plugin.audio.model_cache_paths import (
     KOKORO_MODEL_FILENAME,

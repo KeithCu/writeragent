@@ -24,6 +24,29 @@ from plugin.audio.voice_catalog import (
 )
 from plugin.framework import config
 
+__all__ = [
+    "clean_provider_name",
+    "clean_voice_name",
+    "endpoint_is_together",
+    "get_config",
+    "get_config_str",
+    "get_default_voice_for_locale",
+    "get_scoped_tts_voice",
+    "get_voice_catalog",
+    "get_voice_family",
+    "is_kokoro_voice_id",
+    "kokoro_g2p_lang",
+    "parse_tts_speed",
+    "set_config",
+    "set_scoped_tts_voice",
+    "settings_voice_options",
+    "tts_test_sample",
+    "voice_choice_to_id",
+    "voice_options_for_provider",
+    "_endpoint_provider",
+    "_resolve_tts_voice",
+]
+
 
 def get_config(*args: Any, **kwargs: Any) -> Any:
     return config.get_config(*args, **kwargs)

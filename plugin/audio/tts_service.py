@@ -58,6 +58,16 @@ def get_config_str(*args: Any, **kwargs: Any) -> Any:
 from plugin.framework.i18n import _
 from plugin.framework.worker_pool import run_in_background
 
+__all__ = [
+    "clean_text_for_speech",
+    "is_speaking",
+    "sentences_for_speech",
+    "speak_text_async",
+    "stop_speech",
+    "_release_temp",
+    "_terminate_proc",
+]
+
 log = logging.getLogger(__name__)
 
 # Playback and one-shot synthesis overlap during sentence prefetch, so they
@@ -558,7 +568,7 @@ def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[st
     else:
         order = ["ffplay", "mpv", "pw-play", "paplay", "aplay", "mpg123"]
 
-    candidates = []
+    candidates: list[tuple[str, list[str], dict[str, str] | None]] = []
     for player in order:
         if not shutil.which(player):
             continue
@@ -679,16 +689,16 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
                     if _playback_blocked(generation):
                         return
                     c_cmd = ["spd-say", "-r", str(rate_pct), "-w", "--", chunk]
-                    proc: subprocess.Popen[Any] | None = None
+                    chunk_proc: subprocess.Popen[Any] | None = None
                     try:
-                        proc = _popen_for_speech(c_cmd, generation, slot="play")
-                        if proc is None:
+                        chunk_proc = _popen_for_speech(c_cmd, generation, slot="play")
+                        if chunk_proc is None:
                             return
-                        proc.wait()
+                        chunk_proc.wait()
                     except OSError as exc:
                         log.warning("_speak_system spd-say OSError: %s", exc)
                     finally:
-                        _clear_speech_proc(proc, "play")
+                        _clear_speech_proc(chunk_proc, "play")
                 return
 
         if not cmd:

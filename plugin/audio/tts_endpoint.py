@@ -17,6 +17,22 @@ from plugin.audio.tts_voices import _resolve_tts_voice
 from plugin.framework.client.http_transport import public_target
 from plugin.framework.i18n import _
 
+__all__ = [
+    "_alternate_tts_response_format",
+    "_content_type_is_mp3",
+    "_content_type_is_pcm",
+    "_content_type_is_wav",
+    "_default_endpoint_format",
+    "_download_endpoint_speech",
+    "_pcm_rate_from_content_type",
+    "_pcm_s16le_to_wav",
+    "_post_audio_speech",
+    "_sniff_audio_format",
+    "_speak_endpoint",
+    "_speech_failure_message",
+    "_speech_read_timeout",
+]
+
 log = logging.getLogger(__name__)
 
 _PCM_RATE_RE = re.compile(r"rate\s*=\s*(\d+)", re.IGNORECASE)
