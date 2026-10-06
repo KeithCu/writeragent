@@ -872,7 +872,7 @@ class CellManipulator:
                         num_cols = end[0] - start[0] + 1
                         total_cells = num_rows * num_cols
 
-                        sheet = self.bridge.get_active_document().getSheets().getByIndex(addr.Sheet)
+                        sheet = cell_range.getSpreadsheet()
 
                         non_empty_count = 0
                         for r in range(start[1], end[1] + 1):
