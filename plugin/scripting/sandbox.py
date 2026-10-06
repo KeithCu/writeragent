@@ -10,11 +10,11 @@
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import sys
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
-if TYPE_CHECKING:
-    import subprocess
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
@@ -790,7 +790,7 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             timeout=2,
         )
     except Exception:

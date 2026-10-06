@@ -14,7 +14,6 @@ import os
 import contextlib
 from typing import Generator
 import select
-import signal
 import subprocess
 import sys
 import threading
@@ -25,7 +24,7 @@ from typing import Any, Callable, Dict, IO
 from plugin.framework.config import get_config_str
 from plugin.framework.thread_guard import background
 from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
-from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
+from plugin.framework.worker_pool import StderrTail, start_stderr_drain
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -278,8 +277,6 @@ class PythonWorkerManager:
         self._proc_lock = threading.Lock()
         self._stderr_drain: StderrTail | None = None
         self._stdin_writer_thread: threading.Thread | None = None
-
-    @classmethod
 
     @contextlib.contextmanager
     def _io_session(self) -> Generator[None, None, None]:
@@ -585,7 +582,9 @@ class PythonWorkerManager:
             if response.get("type") == EXEC_STARTED:
                 execution_started = True
                 if response.get("id") != request.get("id"):
-                    break
+                    # Hand the mismatched frame back; the caller's id check
+                    # refuses it without replaying the request.
+                    return response, execution_started, dispatched_intermediate
                 continue
 
             def _stdin_write(blob: bytes) -> None:
