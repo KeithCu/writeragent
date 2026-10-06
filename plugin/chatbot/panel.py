@@ -1028,7 +1028,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             "_append_response: rich-control stream start len=%s (final answer)",
                             self._assistant_stream_start_len,
                         )
-                    widget.paint_session(turn.session)
+                    # Append, do not repaint. What was wrong: this called
+                    # paint_session on every streamed batch (about 3 a second).
+                    # Each one built a hidden Writer doc, cleared the control
+                    # and refilled the whole transcript, and VCL then drew from
+                    # a stale layout: a blank transcript, or a gap below the
+                    # last line that grew with the session. stream_session
+                    # appends only the new text. The full repaint is kept for
+                    # load/switch, Stop and Clear.
+                    widget.stream_session(turn.session)
                     if role == "user":
                         self._assistant_stream_start_len = widget.get_text_length()
                         log.debug(
