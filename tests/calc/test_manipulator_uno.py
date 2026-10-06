@@ -35,11 +35,14 @@ def test_refused_array_write_leaves_no_undo_step(ctx, doc):
     sheet = doc.getCurrentController().getActiveSheet()
     sheet.getCellByPosition(1, 1).setString("keep-me")
     undo_mgr = doc.getUndoManager()
-    before = len(undo_mgr.getAllUndoActionTitles())
+    before = list(undo_mgr.getAllUndoActionTitles())
+    was_modified = doc.isModified()
 
     res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"})
     assert res.get("status") == "error", f"occupied write should fail: {res}"
-    assert len(undo_mgr.getAllUndoActionTitles()) == before, "refused array write left an undo step"
+    after = list(undo_mgr.getAllUndoActionTitles())
+    assert after == before, f"refused array write left an undo step: before={before} after={after} res={res}"
+    assert doc.isModified() == was_modified, "refused array write changed the modified flag"
 
 
 @native_test
