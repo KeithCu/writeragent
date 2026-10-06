@@ -359,6 +359,16 @@ def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
         )
     assert failed is True
 
+    def _valueerror(_blob: bytes) -> None:
+        raise ValueError("I/O operation on closed file")
+
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
+        ve_ok = handle_tool_call_frame(
+            {"type": "tool_call", "id": "ok2", "tool": "apply_document_content", "args": {}},
+            stdin_write=_valueerror,
+        )
+    assert ve_ok is True
+
 
 def test_handle_tool_call_frame_writes_error_response():
     written: list[bytes] = []
@@ -378,6 +388,47 @@ def test_handle_tool_call_frame_writes_error_response():
 def test_handle_non_tool_call_returns_false():
     assert handle_tool_call_frame({"status": "ok", "result": 1}, stdin_write=MagicMock()) is False
     assert handle_tool_call_frame({"type": "worker_event"}, stdin_write=MagicMock()) is False
+
+
+def test_handle_tool_call_frame_rejects_non_dict_args():
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e1", "tool": "apply_document_content", "args": ["not", "a", "dict"]},
+            stdin_write=written.append,
+        )
+    assert handled is True
+    mock_tool.assert_not_called()
+    assert len(written) == 1
+    from plugin.scripting.ipc import read_pickle_frame
+    import io
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "e1"
+    assert "args must be a dictionary" in resp["message"]
+
+
+def test_handle_tool_call_frame_unpicklable_result():
+    written: list[bytes] = []
+
+    def unpicklable():
+        return lambda x: x
+
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value=unpicklable()):
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "u1", "tool": "apply_document_content", "args": {}},
+            stdin_write=written.append,
+        )
+    assert handled is True
+    assert len(written) == 1
+    from plugin.scripting.ipc import read_pickle_frame
+    import io
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "u1"
+    assert "Result not serializable" in resp["message"]
 
 
 def test_rpc_call_drops_none_kwargs():

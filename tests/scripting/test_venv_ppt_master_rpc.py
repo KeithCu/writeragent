@@ -33,30 +33,19 @@ def test_dispatch_unknown_frame_returns_false():
     assert dispatch_worker_response({"status": "ok", "result": {}}, stdin_write=MagicMock()) is False
 
 
-def test_dispatch_tool_call_writes_response():
+def test_dispatch_tool_call_not_handled_here():
+    # tool_call frames are handled by venv_worker._maybe_dispatch_intermediate_response
+    # via handle_tool_call_frame before this dispatcher runs, so it ignores them.
     from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
 
-    written: list[bytes] = []
-
-    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
+    with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
         handled = dispatch_worker_response(
             {"type": "tool_call", "id": "abc", "tool": "validate_ppt_master_project", "args": {"project_path": "/tmp/p"}},
-            stdin_write=written.append,
+            stdin_write=MagicMock(),
         )
 
-    assert handled is True
-    mock_tool.assert_called_once_with(
-        "validate_ppt_master_project",
-        {"project_path": "/tmp/p"},
-        caller="ppt_master_venv",
-        allowed_tools=None,
-        script_session_id=None,
-    )
-    assert len(written) == 1
-    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
-    assert resp is not None
-    assert resp["status"] == "ok"
-    assert resp["id"] == "abc"
+    assert handled is False
+    mock_tool.assert_not_called()
 
 
 def test_dispatch_llm_request_forwards_to_handler():

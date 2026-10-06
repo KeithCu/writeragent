@@ -241,6 +241,19 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     if isinstance(out.get("range"), str) and _schema_type_includes_array(range_type):
         out = dict(out)
         out["range"] = [out["range"]]
+    if isinstance(props, dict):
+        for k, v in out.items():
+            if isinstance(v, float) and v.is_integer():
+                prop = props.get(k)
+                if isinstance(prop, dict):
+                    t = prop.get("type")
+                    # _tool_arg_matches_type rejects 3.0 for "integer", so models sending
+                    # whole floats get VALIDATION_ERROR. 3.5 must still fail.
+                    if t == "integer" or (isinstance(t, list) and "integer" in t):
+                        if out is kwargs:
+                            out = dict(out)
+                        out[k] = int(v)
+
     if tool_name == "write_formula_range":
         fov = out.get("values")
         coerced: str | None = None

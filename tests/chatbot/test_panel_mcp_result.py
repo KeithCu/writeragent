@@ -29,6 +29,7 @@ def test_on_mcp_result_drops_stale_turn():
         with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
             listener._on_mcp_result(tool="test_tool", result_snippet="success")
             post_mock.assert_not_called()
+            assert listener._last_mcp_turn == {}
 
 def test_on_mcp_result_drops_dead_turn():
     listener = get_dummy_listener()
@@ -42,6 +43,7 @@ def test_on_mcp_result_drops_dead_turn():
         with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
             listener._on_mcp_result(tool="test_tool", result_snippet="success")
             post_mock.assert_not_called()
+            assert listener._last_mcp_turn == {}
 
 def test_on_mcp_result_posts_on_valid_turn():
     listener = get_dummy_listener()

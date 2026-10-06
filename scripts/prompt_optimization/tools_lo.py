@@ -509,11 +509,10 @@ def get_content_as_html() -> str:
             from plugin.main import get_tools
 
             ctx = _tool_ctx(doc, "writer")
-            res = get_tools().execute(
+            res = get_tools().execute_unguarded(
                 "get_document_content",
                 ctx,
                 scope="full",
-                bypass_thread_guard=True,
             )
             if isinstance(res, dict) and res.get("status") == "ok":
                 return _compact_writer_html(res.get("content", "") or "")
@@ -541,7 +540,7 @@ def get_document_content(scope="full", max_chars=None, start=None, end=None, **k
                 params[k] = v
 
         ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute("get_document_content", ctx, bypass_thread_guard=True, **params)
+        res = get_tools().execute_unguarded("get_document_content", ctx, **params)
         return json.dumps(res, ensure_ascii=False)
 
     return LOBackend.call(_do)
@@ -559,7 +558,7 @@ def apply_document_content(content: str, old_content: str = "", all_matches: boo
             if v is not None:
                 params[k] = v
         ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute("apply_document_content", ctx, bypass_thread_guard=True, **params)
+        res = get_tools().execute_unguarded("apply_document_content", ctx, **params)
         return json.dumps(res, ensure_ascii=False)
 
     return LOBackend.call(_do)
@@ -690,7 +689,7 @@ def _execute_lo_tool_impl(
     ctx = _tool_ctx(doc, kind)
     if python_tool_domain:
         ctx.python_tool_domain = python_tool_domain
-    res = get_tools().execute(prod, ctx, bypass_thread_guard=True, **params)
+    res = get_tools().execute_unguarded(prod, ctx, **params)
     if not isinstance(res, dict):
         res = {"status": "ok", "result": res}
     return json.dumps(res, ensure_ascii=False)
@@ -717,7 +716,7 @@ def get_draw_export() -> str:
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "draw")
-        res = get_tools().execute("get_draw_tree", ctx, bypass_thread_guard=True)
+        res = get_tools().execute_unguarded("get_draw_tree", ctx)
         return json.dumps(res, ensure_ascii=False, indent=2)
 
     return LOBackend.call(_do)
@@ -731,7 +730,7 @@ def get_calc_export() -> str:
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "calc")
-        summary = get_tools().execute("get_sheet_summary", ctx, bypass_thread_guard=True)
+        summary = get_tools().execute_unguarded("get_sheet_summary", ctx)
         grid = _read_sheet_grid(doc)
         headers = grid[0] if grid else []
         payload = {
