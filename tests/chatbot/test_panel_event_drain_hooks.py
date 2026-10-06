@@ -143,6 +143,46 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         assert rearm.pending == []
 
 
+def test_event_drain_slice_is_bounded() -> None:
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    listener = _make_send_listener()
+    session = ChatSession("system prompt")
+    session.add_user_message("question")
+    listener.session = session
+    begin_send_turn(listener, "chat")
+    rearm = _Rearm()
+    q: queue.Queue = queue.Queue()
+
+    with patch.object(listener, "render_session_messages"):
+        run_stream_drain_loop(
+            q,
+            MagicMock(),
+            [False],
+            listener._append_response,
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda _e: None,
+            rearm=rearm,
+        )
+
+        for i in range(100):
+            q.put((StreamQueueKind.CHUNK, f"chunk{i} "))
+
+        rearm.pump()
+        # The first slice should only process a bounded number of items (default 50)
+        # Therefore, there should still be items left in the queue.
+        assert not q.empty()
+        # A continuation should have been scheduled immediately since items are pending
+        assert len(rearm.pending) >= 1
+
+        # Pump remaining items
+        while not q.empty() and rearm.pending:
+            rearm.pump()
+
+        assert q.empty()
+
+
 def test_each_slice_that_applies_chunks_notes_watchdog_activity() -> None:
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 

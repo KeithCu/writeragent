@@ -240,10 +240,10 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
         return False
 
 
-# Sleep budget of the old 10-step poll. A pump that never reaches idle must not
-# repeat; processEventsToIdle itself has no timeout, so this caps further spins.
+# Total budget for re-pumping while the embedded chart model appears. A pump that
+# never reaches idle must not repeat; processEventsToIdle itself has no timeout,
+# so this caps further pumps.
 _WRITER_CHART_MODEL_WAIT_SEC = 0.5
-_WRITER_CHART_MODEL_POLL_SEC = 0.05
 
 
 def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _WRITER_CHART_MODEL_WAIT_SEC) -> Any | None:
@@ -276,11 +276,10 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
         if not idle_reached:
             log.debug("Writer chart model wait stopped: idle did not arrive")
             return None
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
-            return None
-        time.sleep(min(_WRITER_CHART_MODEL_POLL_SEC, remaining))
+        # What was wrong: time.sleep between pumps ran on the main thread with
+        # SolarMutex held, so worker threads waiting on the mutex stalled.
+        # Why: no sleep; the next pump's VCL yield is where workers get the
+        # mutex, and the total deadline above bounds the loop.
     log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
     return None
 

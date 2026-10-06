@@ -327,15 +327,17 @@ def test_await_writer_chart_respects_total_timeout(monkeypatch):
 
     def _pump(ctx: object, deadline: float | None = None) -> bool:
         pumps["n"] += 1
+        # Each real pump takes wall time; the wait itself must not sleep.
+        clock.now += 0.05
         return True
 
     monkeypatch.setattr("plugin.calc.charts._process_events", _pump)
     assert _await_writer_chart_document(object(), object(), timeout=0.2) is None
-    # 0.05 is not exact in binary, so the last poll can land just under the deadline.
+    # 0.05 is not exact in binary, so the last pump can land just under the deadline.
     assert 100.2 <= clock.now < 100.25
     assert 4 <= pumps["n"] <= 5
-    assert clock.sleeps
-    assert all(step <= 0.05 for step in clock.sleeps)
+    # No time.sleep on the main thread while SolarMutex is held.
+    assert clock.sleeps == []
 
 
 def test_await_writer_chart_returns_ready_model_without_pump(monkeypatch):
