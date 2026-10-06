@@ -373,6 +373,10 @@ def _prime_active_tool_loop(instance):
     live = current_turn(instance)
     live.queue = MagicMock()
     live.batcher = None
+    live._overflow_compact_attempts = 0
+    live._last_compact_reason = None
+    live._last_compact_tokens_before = None
+    live._last_compact_tokens_after = None
     instance._active_client = MagicMock()
     instance._active_max_tokens = 128
     instance._active_tools = []
@@ -404,7 +408,8 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
     assert recovered is True
     mock_bg.assert_called_once()
     mock_compact.assert_not_called()
-    assert test_instance._overflow_compact_attempts == 1
+    from plugin.chatbot.tool_loop_actions import current_turn
+    assert current_turn(test_instance)._overflow_compact_attempts == 1
     assert "Compacting conversation..." in test_instance.statuses
     assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
     assert test_instance._terminal_status is None
@@ -417,7 +422,8 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
 
 def test_overflow_attempt_3_falls_through(test_instance):
     _prime_active_tool_loop(test_instance)
-    test_instance._overflow_compact_attempts = 3
+    from plugin.chatbot.tool_loop_actions import current_turn
+    current_turn(test_instance)._overflow_compact_attempts = 3
     test_instance._spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
@@ -467,9 +473,10 @@ def test_overflow_does_not_retry_after_failed_or_tiny_shrink(
     test_instance, reason, tokens_before, tokens_after
 ):
     _prime_active_tool_loop(test_instance)
-    test_instance._last_compact_reason = reason
-    test_instance._last_compact_tokens_before = tokens_before
-    test_instance._last_compact_tokens_after = tokens_after
+    from plugin.chatbot.tool_loop_actions import current_turn
+    current_turn(test_instance)._last_compact_reason = reason
+    current_turn(test_instance)._last_compact_tokens_before = tokens_before
+    current_turn(test_instance)._last_compact_tokens_after = tokens_after
     test_instance._spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
@@ -676,7 +683,6 @@ def test_final_stream_compacts_then_sends_view(test_instance):
 
 
 def test_start_tool_calling_resets_overflow_attempts(test_instance):
-    test_instance._overflow_compact_attempts = 2
     test_instance._spawn_llm_worker = MagicMock()
     test_instance._refresh_active_tools_for_session = MagicMock()
 
@@ -691,10 +697,13 @@ def test_start_tool_calling_resets_overflow_attempts(test_instance):
         patch("plugin.chatbot.tool_loop.run_stream_drain_loop"),
         patch("plugin.chatbot.rich_text.finalize_sidebar_assistant_response"),
     ):
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+        begin_send_turn(test_instance, "chat")
         test_instance._start_tool_calling_async(
             MagicMock(), MagicMock(), 128, [], execute_fn
         )
-    assert test_instance._overflow_compact_attempts == 0
+    from plugin.chatbot.tool_loop_actions import current_turn
+    assert current_turn(test_instance)._overflow_compact_attempts == 0
 
 
 def test_overflow_does_not_retry_when_stop_requested(test_instance):
@@ -720,3 +729,16 @@ def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
     test_instance._spawn_llm_worker.assert_not_called()
     assert test_instance._terminal_status == "Error"
 
+
+
+def test_stream_error_on_dead_turn_still_deletes_wav(test_instance, tmp_path):
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    wav = tmp_path / "rec.wav"
+    wav.write_bytes(b"RIFF")
+    test_instance.audio_wav_path = str(wav)
+    current_turn(test_instance).abort()
+
+    assert _handle_stream_error(test_instance, _overflow_payload("boom")) is None
+    assert test_instance.audio_wav_path is None
+    assert not wav.exists()
