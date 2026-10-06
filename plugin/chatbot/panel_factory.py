@@ -370,11 +370,12 @@ def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
     """
     from plugin.chatbot.history_db import get_chat_history
 
-    # If the destination already has chat history, leave it intact.
+    # If the destination already has a conversation, leave it intact.
     # We do not overwrite the destination's chat when "Save As" targets
-    # an existing file that already has its own conversation.
+    # an existing file that already has its own conversation. A seeded
+    # system prompt alone (Clear writes one) is not a conversation.
     dest_history = get_chat_history(new_session_id)
-    if list(dest_history.get_messages()):
+    if any(msg.get("role") != "system" for msg in dest_history.get_messages()):
         return
 
     messages = list(get_chat_history(old_session_id).get_messages())
@@ -544,6 +545,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         listener = getattr(self, "send_listener", None)
         query = getattr(listener, "query_control", None) if listener is not None else None
         release_live_sidebar(self, query)
+
+        from plugin.framework.event_bus import global_event_bus
+
+        global_event_bus.unsubscribe("config:changed", self._on_config_changed)
 
         # Clean up the always-present resize listener.
         # This listener is attached unconditionally in panel_wiring. Failing to
@@ -1085,6 +1090,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception:
                 raw_url = ""
             url = raw_url if isinstance(raw_url, str) else ""
+        fork_failed = False
         if session_id:
             session_url = get_document_property(model, "WriterAgentSessionURL")
             url_id = hashlib.sha256(url.encode("utf-8")).hexdigest() if url else ""
@@ -1109,13 +1115,17 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 old_session_id = session_id
                 try:
                     _fork_doc_chat_history(str(old_session_id), fork_to)
+                    _fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
+                    session_id = fork_to
+                    if model:
+                        set_document_property(model, "WriterAgentSessionID", session_id)
+                        if url:
+                            set_document_property(model, "WriterAgentSessionURL", url)
                 except Exception:
+                    # Keep the old id and do not stamp the new URL below, so the
+                    # next open of this file retries the fork.
+                    fork_failed = True
                     log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
-                session_id = fork_to
-                if model:
-                    set_document_property(model, "WriterAgentSessionID", session_id)
-                    if url:
-                        set_document_property(model, "WriterAgentSessionURL", url)
             elif fork_to == session_id and model and url:
                 set_document_property(model, "WriterAgentSessionURL", url)
 
@@ -1128,7 +1138,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_document_property(model, "WriterAgentSessionID", session_id)
                 if url:
                     set_document_property(model, "WriterAgentSessionURL", url)
-        else:
+        elif not fork_failed:
             if model and url:
                 session_url = get_document_property(model, "WriterAgentSessionURL")
                 if not session_url:

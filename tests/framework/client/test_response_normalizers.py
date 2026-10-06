@@ -232,3 +232,40 @@ def test_anthropic_thinking_delta_maps_onto_thinking():
     content, _finish, thinking, delta = shim.parse_response_chunk({"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig"}})
     assert thinking in (None, "")
     assert delta == {}
+
+
+def test_openai_shim_parse_sync_response_raises_on_error():
+    import pytest
+    from plugin.framework.errors import NetworkError
+
+    shim = OpenAIShim(MagicMock())
+
+    # Case 1: finish_reason == 'error' without choice.error
+    with pytest.raises(NetworkError) as exc_info:
+        shim.parse_sync_response({"choices": [{"message": {"content": ""}, "finish_reason": "error"}]})
+    assert exc_info.value.code == "STREAM_ERROR"
+
+    # Case 2: choice error dict (e.g. Groq 502 validation error)
+    err_payload = {
+        "choices": [{
+            "message": {"content": ""},
+            "finish_reason": "error",
+            "error": {
+                "message": "Groq: Tool call validation failed: /source_image expected string, but got null",
+                "code": 502,
+            },
+        }]
+    }
+    with pytest.raises(NetworkError) as exc_info2:
+        shim.parse_sync_response(err_payload)
+    assert exc_info2.value.code == "STREAM_ERROR"
+    assert "Groq: Tool call validation failed" in str(exc_info2.value)
+
+    # Case 3: top-level error dict
+    top_level_err = {
+        "error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}
+    }
+    with pytest.raises(NetworkError) as exc_info3:
+        shim.parse_sync_response(top_level_err)
+    assert exc_info3.value.code == "STREAM_ERROR"
+    assert "Rate limit exceeded" in str(exc_info3.value)

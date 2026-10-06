@@ -484,7 +484,8 @@ def test_reset_background_pool_while_job_submits_does_not_deadlock(monkeypatch: 
     def job() -> None:
         entered.set()
         assert joining.wait(3)
-        run_in_background(lambda: nested.set(), name="nested-from-pool-job").join(timeout=2)
+        # No join(): joining a pooled job from a pool thread raises by design.
+        run_in_background(lambda: nested.set(), name="nested-from-pool-job")
 
     run_in_background(job, name="holds-pool-worker")
     assert entered.wait(2)
@@ -493,7 +494,8 @@ def test_reset_background_pool_while_job_submits_does_not_deadlock(monkeypatch: 
     reset_thread.join(3)
     try:
         assert not reset_thread.is_alive(), "reset_background_pool_for_tests deadlocked on _pool_lock"
-        assert nested.is_set()
+        # The nested job may start after reset returns (slow Windows runners).
+        assert nested.wait(3)
     finally:
         if not reset_thread.is_alive():
             reset_background_pool_for_tests()

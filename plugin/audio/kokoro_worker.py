@@ -52,6 +52,8 @@ def run_kokoro_stdio_loop(
     """Pickle 5 request loop. First frame is ``{"status": "ready", "pid": ...}``."""
     stdin_bin = sys.stdin.buffer
     stdout_bin = sys.stdout.buffer
+    # Redirect sys.stdout to sys.stderr so print() calls don't corrupt the pickle stream
+    sys.stdout = sys.stderr
     write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
     while True:
         try:
