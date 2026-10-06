@@ -233,10 +233,12 @@ def _decode_pickle_payload(
     *,
     frame_label: str,
     require_dict: bool,
+    unpacker: Callable[[bytes], Any] | None = None,
 ) -> Any | None:
     if payload is None:
         return None
-    decoded = unpack_pickle_frame(payload)
+    decode_fn = unpacker if unpacker is not None else unpack_pickle_frame
+    decoded = decode_fn(payload)
     if require_dict and not isinstance(decoded, dict):
         raise ValueError(f"{frame_label} must contain a dict")
     return decoded
@@ -248,10 +250,11 @@ def read_pickle_frame(
     max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     require_dict: bool = False,
+    unpacker: Callable[[bytes], Any] | None = None,
 ) -> Any | None:
     """Read and unpickle one length-prefixed message. Return None on EOF/truncation."""
     payload = read_frame_payload(stream, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
-    return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict)
+    return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
 
 # One lock for every venv → host tool_call on this pipe. The LibrePy named-script
@@ -474,6 +477,7 @@ def read_pickle_frame_with_timeout(
     frame_label: str = "IPC frame",
     require_dict: bool = False,
     is_alive: Callable[[], bool] | None = None,
+    unpacker: Callable[[bytes], Any] | None = None,
 ) -> Any | None:
     """Read one pickle frame, bounding the whole header+payload with *timeout_sec*.
 
@@ -500,7 +504,7 @@ def read_pickle_frame_with_timeout(
             frame_label=frame_label,
             read_exact=_read_exact_win32,
         )
-        return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict)
+        return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
     deadline = time.monotonic() + timeout_sec
 
@@ -526,7 +530,7 @@ def read_pickle_frame_with_timeout(
         frame_label=frame_label,
         read_exact=_read_exact,
     )
-    return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict)
+    return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
 
 def write_json_line(stream: IO[str], payload: dict[str, Any]) -> None:

@@ -9,8 +9,8 @@ Maintains a bounded pool of warm subprocesses. Provides:
 - Hard SIGKILL termination for hangs/timeouts
 - Multi-core linear CPU scaling (bypasses single-interpreter GIL)
 - Sticky session affinity for stateful sessions (mode="shared")
-- A shared session dies with its process; isolated work does not run on that process
-- The child returns an error frame on timeout; SIGKILL drops every session on that pid
+- Clean workers preferred for isolated work; falls back to fewest-sessions if all idle workers hold sessions
+- A shared session dies with its process; SIGKILL drops every session on that pid
 - Periodic worker memory recycling (after max_tasks)
 """
 
@@ -346,7 +346,6 @@ class FormulaProcessPool(BaseProcessPool):
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
         leased: BaseProcessWorker | None
-        busy_code = "WORKER_POOL_BUSY"
         if mode == "shared" and session_id:
             with self._cond:
                 self._reap_dead_sessions_unlocked()
@@ -355,10 +354,15 @@ class FormulaProcessPool(BaseProcessPool):
                     target_worker = None
                 if target_worker is None and self.workers:
                     # Distribute new shared sessions across workers by choosing the worker
-                    # currently hosting the fewest active sessions, using hash as tie-breaker.
+                    # currently hosting the fewest active sessions. Prefer idle workers
+                    # among ties to distribute load evenly, using hash as final tie-breaker.
                     target_worker = min(
                         self.workers,
-                        key=lambda w: (len(self._worker_sessions.get(w, ())), abs(hash((session_id, w.worker_id)))),
+                        key=lambda w: (
+                            len(self._worker_sessions.get(w, ())),
+                            0 if w in self._idle else 1,
+                            abs(hash((session_id, w.worker_id))),
+                        ),
                     )
             if target_worker is None:
                 return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
@@ -369,7 +373,7 @@ class FormulaProcessPool(BaseProcessPool):
             busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
         if leased is None:
-            return {"id": req_id, "status": "error", "code": busy_code, "error": busy_err}
+            return {"id": req_id, "status": "error", "code": "WORKER_POOL_BUSY", "error": busy_err}
 
         try:
             # The child used to get the original full timeout while this read

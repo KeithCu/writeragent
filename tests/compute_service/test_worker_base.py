@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import threading
 
+import pytest
+
 from compute_service.worker_base import BaseProcessPool
 
 
@@ -130,6 +132,10 @@ def test_recycle_cannot_be_leased_until_respawn_finishes() -> None:
     releaser = threading.Thread(target=pool.release_worker, args=(worker,), daemon=True)
     releaser.start()
     try:
+        # release_worker returns immediately off the request path
+        releaser.join(timeout=2.0)
+        assert not releaser.is_alive()
+        # Background recycle thread is active and holds exclusive lease
         _assert_recycle_exclusive(pool, worker)
         assert worker.phase == "kill"
         worker.entered.clear()
@@ -137,17 +143,91 @@ def test_recycle_cannot_be_leased_until_respawn_finishes() -> None:
         _assert_recycle_exclusive(pool, worker)
         assert worker.phase == "respawn"
         worker.gates[1].set()
-        releaser.join(timeout=2.0)
-        assert not releaser.is_alive()
+        # Wait for background recycle to complete and worker to become available
+        claimed = pool.lease_any(timeout_sec=2.0)
+        assert claimed is worker
         assert worker.killed == 1
         assert worker.respawned == 1
-        assert worker in pool._idle
-        assert worker not in pool._leased
-        claimed = pool.lease_any(timeout_sec=0.5)
-        assert claimed is worker
         assert worker in pool._leased
         assert worker not in pool._idle
     finally:
         worker.gates[0].set()
         worker.gates[1].set()
         releaser.join(timeout=2.0)
+
+
+def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
+    import pickle
+    import pytest
+    from compute_service.worker_base import unpack_restricted_pickle_frame
+
+    # Safe builtins
+    safe_data = {"id": "123", "status": "ok", "numbers": [1, 2, 3], "bytes": b"hello", "flag": True}
+    packed = pickle.dumps(safe_data, protocol=5)
+    unpacked = unpack_restricted_pickle_frame(packed)
+    assert unpacked == safe_data
+
+    # Malicious or dangerous global: os.system
+    class Exploit:
+        def __reduce__(self):
+            import os
+            return (os.system, ("echo pwned",))
+
+    dangerous = pickle.dumps(Exploit(), protocol=5)
+    with pytest.raises(ValueError, match="forbidden"):
+        unpack_restricted_pickle_frame(dangerous)
+
+    # NumPy globals should also be blocked on compute child frames
+    class NumpyExploit:
+        def __reduce__(self):
+            import numpy as np
+            return (np.zeros, (5,))
+
+    np_dangerous = pickle.dumps(NumpyExploit(), protocol=5)
+    with pytest.raises(ValueError, match="forbidden"):
+        unpack_restricted_pickle_frame(np_dangerous)
+
+
+def test_run_worker_stdio_loop_breaks_on_decode_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+    import struct
+    import sys
+    from compute_service.worker_base import run_worker_stdio_loop
+
+    # Provide a frame with invalid/corrupt pickle bytes
+    corrupt_body = b"not-a-valid-pickle-stream"
+    corrupt_frame = struct.pack("!I", len(corrupt_body)) + corrupt_body
+
+    import types
+    fake_stdin = io.BytesIO(corrupt_frame)
+    fake_stdout = io.BytesIO()
+
+    monkeypatch.setattr(sys, "stdin", types.SimpleNamespace(buffer=fake_stdin))
+    monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=fake_stdout))
+
+    calls: list[dict] = []
+    ret = run_worker_stdio_loop(lambda req: calls.append(req) or {"status": "ok"})
+    # Must exit cleanly with 0 (break on decode error instead of looping desynced)
+    assert ret == 0
+    assert len(calls) == 0
+
+
+def test_execute_respawn_respects_request_deadline() -> None:
+    from compute_service.worker_base import BaseProcessWorker
+
+    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=False)
+    # Simulate dead process
+    worker.kill()
+    assert not worker.is_alive()
+
+    respawn_timeouts: list[float] = []
+
+    def mock_respawn(timeout_sec: float = 15.0) -> None:
+        respawn_timeouts.append(timeout_sec)
+        # Leave not alive so execute returns WORKER_SPAWN_FAILED without trying to write to pipe
+
+    worker.respawn = mock_respawn  # type: ignore[assignment]
+    res = worker.execute({"code": "result = 1"}, timeout_sec=0.25)
+    assert res.get("code") == "WORKER_SPAWN_FAILED"
+    assert len(respawn_timeouts) == 1
+    assert respawn_timeouts[0] <= 0.25

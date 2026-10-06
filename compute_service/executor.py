@@ -10,7 +10,6 @@ import hashlib
 import math
 import os
 import sys
-import threading
 from typing import Any
 
 # Ensure repo root is on sys.path to resolve plugin.* imports
@@ -23,32 +22,6 @@ from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 
-# Per-session locks so concurrent shared-kernel requests do not race LocalPythonExecutor.
-# If a worker process is killed mid-reset, release_session_lock may not be reached,
-# leaving at most one stale Lock per dead session; cleared on next worker respawn.
-_SESSION_RUN_LOCKS: dict[str, threading.Lock] = {}
-_SESSION_RUN_LOCKS_GUARD = threading.Lock()
-
-
-def _session_lock(session_id: str) -> threading.Lock:
-    with _SESSION_RUN_LOCKS_GUARD:
-        lock = _SESSION_RUN_LOCKS.get(session_id)
-        if lock is None:
-            lock = threading.Lock()
-            _SESSION_RUN_LOCKS[session_id] = lock
-        return lock
-
-
-def release_session_lock(session_id: str) -> None:
-    """Drop the run lock for *session_id* after the sandbox session is reset.
-
-    Workers that still hold any sticky session skip process recycle, so this
-    map would otherwise keep one Lock per historical session until that
-    process exits. Reset runs on the worker thread while the pool holds the
-    lease, so the lock is not in use.
-    """
-    with _SESSION_RUN_LOCKS_GUARD:
-        _SESSION_RUN_LOCKS.pop(session_id, None)
 
 
 def clamp_timeout_sec(timeout_sec: float | int | None, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
@@ -105,13 +78,14 @@ def execute_code(
         else:
             init_sid = f"isolated:{init_hash}:init"
 
-    def _run() -> dict[str, Any]:
-        return run_sandboxed_code(code=code, data=data, session_id=use_session, timeout_sec=timeout_sec, init_script=init_code, init_session_id=init_sid, init_script_hash=init_hash)
-
-    if use_session is not None:
-        with _session_lock(use_session):
-            raw = _run()
-    else:
-        raw = _run()
+    raw = run_sandboxed_code(
+        code=code,
+        data=data,
+        session_id=use_session,
+        timeout_sec=timeout_sec,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=init_hash,
+    )
 
     return normalize_execute_response(raw)
