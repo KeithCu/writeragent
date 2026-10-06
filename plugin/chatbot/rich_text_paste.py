@@ -353,6 +353,14 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
 
     if _is_ordered_numbering_type(num_type):
         order_counters[key] = order_counters.get(key, 0) + 1
+        # Writer's own label honors <ol start="11"> and letter/roman types;
+        # the counter always started at 1.
+        try:
+            label = para.getPropertyValue("ListLabelString")
+        except Exception:
+            label = None
+        if isinstance(label, str) and label.strip():
+            return "%s%s " % (indent, label.strip())
         return "%s%d. " % (indent, order_counters[key])
 
     ch = (bullet_char or "\u2022").strip()
@@ -790,7 +798,11 @@ def _copy_formatted_from_hidden_doc_to_control(
                         if not txt:
                             continue
                         if line_prefix and not prefix_inserted:
-                            _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
+                            # Force normal: right after "Assistant: " the number
+                            # took the label's bold (EditEngine sticky attrs).
+                            _insert_string_at_rich_cursor(
+                                model, dest_cursor, line_prefix, default_color, bold=False, underline=False
+                            )
                             dest_cursor.gotoEnd(False)
                             prefix_inserted = True
                         portion_color = _resolve_portion_char_color(
@@ -813,7 +825,9 @@ def _copy_formatted_from_hidden_doc_to_control(
                         dest_cursor.gotoEnd(False)
                         inserted = True
                     if line_prefix and not prefix_inserted:
-                        _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
+                        _insert_string_at_rich_cursor(
+                            model, dest_cursor, line_prefix, default_color, bold=False, underline=False
+                        )
                         inserted = True
                 except Exception:
                     # Skipping this element used to leave `inserted` true from

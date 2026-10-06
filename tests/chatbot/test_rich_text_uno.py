@@ -105,3 +105,33 @@ def test_html_body_range_covers_the_imported_list(ctx):
         assert "first question" not in seen[-1], "body range reached the previous row: %r" % seen
     finally:
         doc.close(True)
+
+
+def _list_labels(doc: Any) -> list[tuple[str, str]]:
+    """(text, ListLabelString) for each non-empty paragraph."""
+    out: list[tuple[str, str]] = []
+    paras = doc.getText().createEnumeration()
+    while paras.hasMoreElements():
+        para = paras.nextElement()
+        text = para.getString().strip()
+        if text:
+            out.append((text, str(para.getPropertyValue("ListLabelString") or "")))
+    return out
+
+
+@native_test
+def test_leading_list_numbers_every_item(ctx):
+    """A reply that opens with <ol> drew its first item without a number (release QA area 5)."""
+    from plugin.chatbot import rich_text
+
+    doc = _hidden_writer(ctx)
+    try:
+        assert rich_text.append_rich_text(doc, "first question", role="user")
+        assert rich_text.append_rich_text(doc, "<ol><li>alpha</li><li>beta</li></ol>", role="assistant")
+        assert rich_text.append_rich_text(doc, '<ol start="11"><li>gamma</li><li>delta</li></ol>', role="assistant")
+        labels = _list_labels(doc)
+        assert ("alpha", "1.") in labels and ("beta", "2.") in labels, labels
+        assert ("gamma", "11.") in labels and ("delta", "12.") in labels, labels
+        assert "\u200b" not in doc.getText().getString()
+    finally:
+        doc.close(True)
