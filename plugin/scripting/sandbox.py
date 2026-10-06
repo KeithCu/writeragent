@@ -738,3 +738,60 @@ def is_safe_workspace_path(target_path: str, root_dir: str) -> bool:
         return os.path.commonpath([abs_target, abs_root]) == abs_root
     except Exception:
         return False
+
+def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
+    """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
+    if sys.platform == "win32":
+        # Bugfix: returning when poll() is not None skipped taskkill /T, so
+        # grandchildren of an already-exited worker were left running.
+        _kill_process_tree_win32(proc)
+        return
+    # Bugfix: the same early return skipped the process group on POSIX.
+    # The worker is a session leader (start_new_session, so pgid == pid).
+    # If it has already exited, poll() has reaped it and getpgid(pid) raises
+    # ProcessLookupError, but grandchildren can still be in that group.
+    # killpg(pid) reaches them. ProcessLookupError means the group is gone.
+    pid = proc.pid
+    if not pid:
+        if proc.poll() is None:
+            proc.kill()
+        return
+    try:
+        pgid = os.getpgid(pid)
+        fallback = False
+    except ProcessLookupError:
+        pgid = pid
+        fallback = True
+
+    try:
+        if fallback and proc.poll() is None:
+            proc.kill()
+        elif pgid == os.getpgrp():
+            # Bugfix: If session setup failed or group resolution incorrectly yielded the host pgid,
+            # killing the process group would kill LibreOffice and the entire host environment.
+            # Fallback to a safe proc.kill() instead of taking down the user's application.
+            if proc.poll() is None:
+                proc.kill()
+        else:
+            os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
+    """Terminate the Windows process tree; ``TerminateProcess`` does not kill grandchildren."""
+    pid = proc.pid
+    if not pid:
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=2,
+        )
+    except Exception:
+        pass

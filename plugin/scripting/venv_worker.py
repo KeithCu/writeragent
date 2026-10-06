@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 import os
+import contextlib
+from typing import Generator
 import select
 import signal
 import subprocess
@@ -41,6 +43,7 @@ from plugin.scripting.ipc import (
 )
 from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.sandbox import (
+    _kill_process_tree,
     optimize_popen_pipes,
     resolve_libreoffice_python,
     resolve_venv_python,
@@ -81,6 +84,9 @@ def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = N
 class _NonReplayableIpcWriteTimeout(RuntimeError):
     """A mid-turn host response timed out after side effects may have occurred."""
 
+
+class _StopRequested(Exception):
+    """Raised internally when the user triggers a stop via stop_checker."""
 
 class _NoTerminalFrame(Exception):
     """The request was written and the child died before a terminal frame.
@@ -241,61 +247,8 @@ def _pid_is_alive_win32(pid: int) -> bool:
     return ctypes.get_last_error() == 5
 
 
-def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
-    """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
-    if sys.platform == "win32":
-        # Bugfix: returning when poll() is not None skipped taskkill /T, so
-        # grandchildren of an already-exited worker were left running.
-        _kill_process_tree_win32(proc)
-        return
-    # Bugfix: the same early return skipped the process group on POSIX.
-    # The worker is a session leader (start_new_session, so pgid == pid).
-    # If it has already exited, poll() has reaped it and getpgid(pid) raises
-    # ProcessLookupError, but grandchildren can still be in that group.
-    # killpg(pid) reaches them. ProcessLookupError means the group is gone.
-    pid = proc.pid
-    if not pid:
-        if proc.poll() is None:
-            proc.kill()
-        return
-    try:
-        pgid = os.getpgid(pid)
-        fallback = False
-    except ProcessLookupError:
-        pgid = pid
-        fallback = True
-
-    try:
-        if fallback and proc.poll() is None:
-            proc.kill()
-        else:
-            os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        if proc.poll() is None:
-            proc.kill()
-
-
-def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
-    """Terminate the Windows process tree; ``TerminateProcess`` does not kill grandchildren."""
-    pid = proc.pid
-    if not pid:
-        proc.kill()
-        return
-    try:
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=False,
-            **get_subprocess_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        proc.kill()
-        return
-    if proc.poll() is None:
-        proc.kill()
-
+class _WorkerReentryError(Exception): pass
+class _WorkerWarmError(Exception): pass
 
 class PythonWorkerManager:
     """One warm child process per (pool, Python executable path) pair."""
@@ -325,6 +278,27 @@ class PythonWorkerManager:
         self._proc_lock = threading.Lock()
         self._stderr_drain: StderrTail | None = None
         self._stdin_writer_thread: threading.Thread | None = None
+
+    @classmethod
+
+    @contextlib.contextmanager
+    def _io_session(self) -> Generator[None, None, None]:
+        """Acquire the IO lock, ensure worker is warm, and release on exit.
+
+        The lock must be held during process creation, IPC reads/writes,
+        and process termination to serialize access to the shared pipe.
+        It is yielded once the worker is confirmed warm.
+        """
+        reentry = self._acquire_io()
+        if reentry is not None:
+            raise _WorkerReentryError(reentry)
+        try:
+            warm_err = self._ensure_warmed_unlocked()
+            if warm_err is not None:
+                raise _WorkerWarmError(warm_err)
+            yield
+        finally:
+            self._release_io()
 
     @classmethod
     def get(cls, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> PythonWorkerManager:
@@ -550,6 +524,104 @@ class PythonWorkerManager:
             script_session_id=script_session_id,
         )
 
+    def _fail_no_replay(self, code: str, msg: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Terminate the worker, clear host state, and return a non-retryable error.
+
+        Bugfix: A bad frame (value error) or mid-turn death (OSError) means side
+        effects might have run (e.g. DuckDB writes or trusted updates). Resending
+        the same request ID to a new child could run them twice. We must kill this
+        worker (it's desynced) and return without replaying.
+        """
+        self._terminate_worker()
+        _clear_host_state_after_worker_death()
+        return _worker_error(code, msg, details=details)
+
+
+    def _read_until_terminal(
+        self,
+        stdout: IO[bytes],
+        stdin: IO[bytes],
+        request: dict[str, Any],
+        host_read_timeout_sec: float,
+        write_timeout_sec: float,
+        allow_heartbeat: bool,
+        heartbeat_grace_sec: int | None,
+        on_heartbeat: Callable[[dict[str, Any]], None] | None,
+        on_worker_event: Callable[[dict[str, Any]], None] | None,
+        stop_checker: Callable[[], bool] | None,
+        cancellation_scope: Any | None,
+        allowed_tools: frozenset[str] | None,
+        caller: str,
+        resolved_script_session_id: str | None,
+    ) -> tuple[dict[str, Any], bool, bool]:
+        dispatched_intermediate = False
+        execution_started = False
+        while True:
+            if allow_heartbeat:
+                from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_GRACE_S
+
+                grace = int(heartbeat_grace_sec if heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S)
+                response_bytes = self._read_response_with_heartbeats(
+                    stdout,
+                    host_read_timeout_sec,
+                    grace,
+                    on_heartbeat,
+                    stop_checker=stop_checker,
+                )
+            else:
+                response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec, stop_checker=stop_checker)
+            if not response_bytes:
+                stderr_out = self._drain_stderr()
+                message = f"Worker closed stdout without a response{stderr_out}"
+                if execution_started or dispatched_intermediate:
+                    # Work may already have run. Resending this id would
+                    # run it again. A close before exec_started is a
+                    # failed start and falls through to the retry below.
+                    raise _NoTerminalFrame(message)
+                raise RuntimeError(message)
+            response = unpack_pickle_frame(response_bytes)
+            if not isinstance(response, dict):
+                raise RuntimeError("Worker response must be a dict")
+            if response.get("type") == EXEC_STARTED:
+                execution_started = True
+                if response.get("id") != request.get("id"):
+                    break
+                continue
+
+            def _stdin_write(blob: bytes) -> None:
+                try:
+                    self._write_bytes_with_timeout(
+                        stdin,
+                        blob,
+                        timeout_sec=write_timeout_sec,
+                        label="host RPC response",
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    # The worker requested host work before this write. Retrying the
+                    # whole turn could duplicate UNO mutations already performed.
+                    raise _NonReplayableIpcWriteTimeout(
+                        f"host RPC response timed out after {write_timeout_sec:g} seconds"
+                    ) from exc
+
+            self._serving_tool_call = True
+            try:
+                is_intermediate = _maybe_dispatch_intermediate_response(
+                    response,
+                    stdin_write=_stdin_write,
+                    allowed_tools=allowed_tools,
+                    caller=caller,
+                    on_worker_event=on_worker_event,
+                    stop_checker=stop_checker,
+                    cancellation_scope=cancellation_scope,
+                    script_session_id=resolved_script_session_id,
+                )
+            finally:
+                self._serving_tool_call = False
+            if is_intermediate:
+                dispatched_intermediate = True
+                continue
+            return response, execution_started, dispatched_intermediate
+
     def _execute_ipc_attempts(
         self,
         request: dict[str, Any],
@@ -565,14 +637,33 @@ class PythonWorkerManager:
         caller: str,
         script_session_id: str | None = None,
     ) -> dict[str, Any]:
+        try:
+            # Bugfix: Pack the request frame *before* ensuring the process is running.
+            # If the payload is too large, it raises IpcFrameError (ValueError) here.
+            # A host-only serialization error returns WORKER_IPC_ERROR immediately,
+            # *without* terminating the warm worker. Killing the worker here would
+            # unnecessarily wipe shared Calc sessions for a deterministic host error.
+            request_frame = pack_pickle_frame(request, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        except ValueError as e:
+            return _worker_error(
+                "WORKER_IPC_ERROR",
+                f"Failed to serialize request: {e}",
+                details={"exe": self.exe}
+            )
+
         for attempt in range(2):
             try:
                 self._ensure_running()
-                assert self._proc is not None and self._proc.stdin is not None and self._proc.stdout is not None
-                stdin = self._proc.stdin
-                stdout = self._proc.stdout
+                proc = self._proc
+                # Bugfix: Process lifetime must not rely on asserts because concurrent
+                # terminate is intentional (e.g. from shutdown_all without _io_lock),
+                # and running under -O strips asserts, allowing AttributeError to escape.
+                if proc is None or proc.stdin is None or proc.stdout is None:
+                    raise RuntimeError("worker terminated concurrently")
+                stdin = proc.stdin
+                stdout = proc.stdout
                 write_timeout_sec = min(float(timeout_sec), float(VENV_IPC_WRITE_TIMEOUT_SEC))
-                self._write_frame_with_timeout(stdin, request, timeout_sec=write_timeout_sec, label="request")
+                self._write_bytes_with_timeout(stdin, request_frame, timeout_sec=write_timeout_sec, label="request")
 
                 # The host read timeout includes a grace buffer so the child's in-process
                 # signal/thread timeout fires first and returns a clean error frame without
@@ -591,74 +682,24 @@ class PythonWorkerManager:
                 # path below is the same rule). exec_started is the same rule for
                 # side effects that never sent a tool_call frame. A death before
                 # that marker has not run the request, so the outer loop may retry.
-                dispatched_intermediate = False
-                execution_started = False
+                # that marker has not run the request, so the outer loop may retry.
                 try:
-                    while True:
-                        if allow_heartbeat:
-                            from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_GRACE_S
-
-                            grace = int(heartbeat_grace_sec if heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S)
-                            response_bytes = self._read_response_with_heartbeats(
-                                stdout,
-                                host_read_timeout_sec,
-                                grace,
-                                on_heartbeat,
-                                stop_checker=stop_checker,
-                            )
-                        else:
-                            response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec, stop_checker=stop_checker)
-                        if not response_bytes:
-                            stderr_out = self._drain_stderr()
-                            message = f"Worker closed stdout without a response{stderr_out}"
-                            if execution_started or dispatched_intermediate:
-                                # Work may already have run. Resending this id would
-                                # run it again. A close before exec_started is a
-                                # failed start and falls through to the retry below.
-                                raise _NoTerminalFrame(message)
-                            raise RuntimeError(message)
-                        response = unpack_pickle_frame(response_bytes)
-                        if not isinstance(response, dict):
-                            raise RuntimeError("Worker response must be a dict")
-                        if response.get("type") == EXEC_STARTED:
-                            execution_started = True
-                            if response.get("id") != request.get("id"):
-                                break
-                            continue
-
-                        def _stdin_write(blob: bytes) -> None:
-                            try:
-                                self._write_bytes_with_timeout(
-                                    stdin,
-                                    blob,
-                                    timeout_sec=write_timeout_sec,
-                                    label="host RPC response",
-                                )
-                            except subprocess.TimeoutExpired as exc:
-                                # The worker requested host work before this write. Retrying the
-                                # whole turn could duplicate UNO mutations already performed.
-                                raise _NonReplayableIpcWriteTimeout(
-                                    f"host RPC response timed out after {write_timeout_sec:g} seconds"
-                                ) from exc
-
-                        self._serving_tool_call = True
-                        try:
-                            is_intermediate = _maybe_dispatch_intermediate_response(
-                                response,
-                                stdin_write=_stdin_write,
-                                allowed_tools=allowed_tools,
-                                caller=caller,
-                                on_worker_event=on_worker_event,
-                                stop_checker=stop_checker,
-                                cancellation_scope=cancellation_scope,
-                                script_session_id=resolved_script_session_id,
-                            )
-                        finally:
-                            self._serving_tool_call = False
-                        if is_intermediate:
-                            dispatched_intermediate = True
-                            continue
-                        break
+                    response, execution_started, dispatched_intermediate = self._read_until_terminal(
+                        stdout,
+                        stdin,
+                        request,
+                        host_read_timeout_sec=host_read_timeout_sec,
+                        write_timeout_sec=write_timeout_sec,
+                        allow_heartbeat=allow_heartbeat,
+                        heartbeat_grace_sec=heartbeat_grace_sec,
+                        on_heartbeat=on_heartbeat,
+                        on_worker_event=on_worker_event,
+                        stop_checker=stop_checker,
+                        cancellation_scope=cancellation_scope,
+                        allowed_tools=allowed_tools,
+                        caller=caller,
+                        resolved_script_session_id=resolved_script_session_id,
+                    )
                 except subprocess.TimeoutExpired as e:
                     # User code / C-extension hung: killing and replaying would double the wait.
                     log.warning("Python worker read timed out: %s", e)
@@ -807,14 +848,9 @@ class PythonWorkerManager:
         if timeout_sec is None:
             timeout_sec = python_exec_timeout_default()
 
-        reentry = self._acquire_io()
-        if reentry is not None:
-            return reentry
         try:
-            warm_err = self._ensure_warmed_unlocked()
-            if warm_err is not None:
-                return warm_err
-            return self._execute_ipc_unlocked(
+            with self._io_session():
+                return self._execute_ipc_unlocked(
                 code,
                 data=data,
                 bindings=bindings,
@@ -832,8 +868,10 @@ class PythonWorkerManager:
                 stop_checker=stop_checker,
                 cancellation_scope=cancellation_scope,
             )
-        finally:
-            self._release_io()
+        except _WorkerReentryError as e:
+            return e.args[0]
+        except _WorkerWarmError as e:
+            return e.args[0]
 
     def execute_ppt_master_turn(
         self,
@@ -857,17 +895,12 @@ class PythonWorkerManager:
                 "WORKER_IPC_ERROR",
                 "PPT-Master is not available in this extension build.",
             )
-        reentry = self._acquire_io()
-        if reentry is not None:
-            return reentry
         try:
-            warm_err = self._ensure_warmed_unlocked()
-            if warm_err is not None:
-                return warm_err
-            # The child reads session_id from payload (skill cache). The request
+            with self._io_session():
+                # The child reads session_id from payload (skill cache). The request
             # field is host-only: tool frames resolve the frame document from it.
             # ppt_master_turn does not use it as a Python namespace.
-            raw_session = payload.get("session_id")
+                raw_session = payload.get("session_id")
             session_id = raw_session.strip() if isinstance(raw_session, str) else ""
             raw = self._execute_ipc_unlocked(
                 None,
@@ -880,8 +913,10 @@ class PythonWorkerManager:
                 cancellation_scope=cancellation_scope,
                 caller="ppt_master_venv",
             )
-        finally:
-            self._release_io()
+        except _WorkerReentryError as e:
+            return e.args[0]
+        except _WorkerWarmError as e:
+            return e.args[0]
         if raw.get("status") == "error":
             return raw
         inner = raw.get("result")
@@ -919,7 +954,15 @@ class PythonWorkerManager:
 
         def _writer() -> None:
             try:
-                stdin.write(payload)
+                # Bugfix: bufsize=0 makes stdin a raw FileIO. write() can return a short count.
+                # Ignoring short writes corrupts the length-prefixed frame protocol.
+                view = memoryview(payload)
+                written = 0
+                while written < len(view):
+                    n = stdin.write(view[written:])
+                    if not n:
+                        raise OSError("zero bytes written to pipe")
+                    written += n
                 stdin.flush()
             except Exception as exc:
                 errors.append(exc)
@@ -1020,7 +1063,8 @@ class PythonWorkerManager:
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         proc = self._proc
-        assert proc is not None
+        if proc is None:
+            raise RuntimeError("worker terminated concurrently")
         # Do not merge this with ipc.read_pickle_frame_with_timeout: the worker
         # path also poll()-short-circuits a dead child and (on the heartbeat
         # path) resets the deadline. Unifying those is a hang-regression risk
@@ -1033,39 +1077,15 @@ class PythonWorkerManager:
     def _read_response_bytes_select(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         """POSIX path: use select() to poll the pipe with a timeout."""
         proc = self._proc
-        assert proc is not None
+        if proc is None:
+            raise RuntimeError("worker terminated concurrently")
         # monotonic: a wall-clock step used to stretch the wait or kill the warm worker.
-        end = time.monotonic() + timeout_sec
+        deadline = time.monotonic() + timeout_sec
 
         def _read_exact(n: int) -> bytes:
-            buf = bytearray()
-            if stop_checker and stop_checker():
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-            while len(buf) < n:
-                if stop_checker and stop_checker():
-                    raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-                if time.monotonic() >= end:
-                    raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-                remaining = end - time.monotonic()
-                ready, _unused, _unused2 = select.select([stdout], [], [], min(0.2, remaining) if stop_checker else min(1.0, remaining))
-                if ready:
-                    chunk = stdout.read(n - len(buf))
-                    if not chunk:
-                        return bytes()
-                    buf.extend(chunk)
-                if proc.poll() is not None and not ready:
-                    break
-            return bytes(buf)
+            return self._read_exact_before_deadline(stdout, n, deadline, stop_checker, timeout_label=timeout_sec)
 
-        return (
-            read_frame_payload(
-                stdout,
-                read_exact=_read_exact,
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-                frame_label="venv worker frame",
-            )
-            or b""
-        )
+        return self._read_frame_bytes(stdout, _read_exact)
 
     def _read_response_bytes_threaded(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         """Windows path: PeekNamedPipe, not a daemon thread blocked in ReadFile.
@@ -1079,7 +1099,7 @@ class PythonWorkerManager:
 
         def _read_exact(n: int) -> bytes:
             if stop_checker and stop_checker():
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+                raise _StopRequested()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
@@ -1125,20 +1145,26 @@ class PythonWorkerManager:
             raise error[0]
         return result[0] or b""
 
-    def _read_exact_before_deadline(self, stdout: IO[bytes], nbytes: int, deadline: float, stop_checker: Callable[[], bool] | None = None) -> bytes:
+    def _read_exact_before_deadline(self, stdout: IO[bytes], nbytes: int, deadline: float, stop_checker: Callable[[], bool] | None = None, timeout_label: float | int | None = None) -> bytes:
         remaining = deadline - time.monotonic()
+        # Bugfix: Windows timeout label arithmetic `max(1, int(-remaining) or 1)` was nonsense on expired deadlines.
+        # Use a sensible positive label passed by the caller or fall back to 1.
+        label = timeout_label if timeout_label is not None else max(1, int(remaining) if remaining > 0 else 1)
+
         if sys.platform == "win32":
             if remaining <= 0:
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(-remaining) or 1))
-            return self._read_exact_win32(stdout, nbytes, remaining, max(1, int(remaining) or 1), stop_checker)
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=label)
+            return self._read_exact_win32(stdout, nbytes, remaining, label, stop_checker)
 
         buf = bytearray()
         while len(buf) < nbytes:
             if stop_checker and stop_checker():
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(deadline - time.monotonic()) or 1))
+                raise _StopRequested()
             if time.monotonic() >= deadline:
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(deadline - time.monotonic()) or 1))
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=label)
             remaining = deadline - time.monotonic()
+            # POSIX path uses select() to wake up early if data arrives,
+            # while respecting stop_checker polling frequency (0.2s vs 1.0s).
             ready, _unused, _unused2 = select.select([stdout], [], [], min(0.2, remaining) if stop_checker else min(1.0, remaining))
             if ready:
                 chunk = stdout.read(nbytes - len(buf))
@@ -1159,11 +1185,15 @@ class PythonWorkerManager:
     ) -> bytes:
         from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
 
+        # Bugfix: We refresh the deadline per-frame instead of keeping a single wall-clock timeout.
+        # This is intentional so that continuous tool calls / long LLM generation are not killed
+        # prematurely. A naive wall-clock would kill valid long round-trips. The child's own
+        # alarm still limits its script execution time.
         deadline_holder = [time.monotonic() + max(timeout_sec, grace_sec)]
 
         def _read_exact(n: int) -> bytes:
             if stop_checker and stop_checker():
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+                raise _StopRequested()
             return self._read_exact_before_deadline(stdout, n, deadline_holder[0], stop_checker)
 
         while True:
@@ -1183,6 +1213,7 @@ class PythonWorkerManager:
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
                 return frame_bytes
+            log.debug("venv worker read_response_with_heartbeats ignoring unknown frame type: %r", frame_type)
             if data.get("status") in ("ok", "error"):
                 return frame_bytes
 
@@ -1274,6 +1305,9 @@ class PythonWorkerManager:
                 stderr_drain.join(timeout=1)
             return
         try:
+            # We kill the process first, then wait for the drain to exit.
+            # Joining before kill would hang if the process is stuck writing to stdout/stderr.
+
             _kill_process_tree(proc)
             proc.wait(timeout=5)
         except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
@@ -1297,7 +1331,11 @@ def _resolve_worker_python(
     *,
     pool: str = WORKER_POOL_DEFAULT,
 ) -> tuple[str | None, dict[str, Any] | None]:
-    """Return (exe, error_response) for the configured venv / LO interpreter."""
+    """Return (exe, error_response) for the configured venv / LO interpreter.
+
+    Note: uno_ctx is currently unused but maintained for API symmetry with other
+    configuration resolvers that depend on the active document context.
+    """
     venv_dir = get_config_str("scripting.python_venv_path").strip()
 
     if pool == WORKER_POOL_EMBEDDINGS:
@@ -1444,15 +1482,11 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
 @background
 def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
     """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread."""
-    exe, err = _resolve_worker_python(uno_ctx, pool=pool)
+    manager, err = _worker_manager_for_ctx(uno_ctx, pool=pool)
     if err is not None:
         log.warning("warm_venv_worker skipped for pool %s: %s", pool, err.get("message"))
         return
-    assert exe is not None
-    child_env = scrub_subprocess_env(dict(os.environ))
-    child_env["WRITERAGENT_IS_WORKER"] = "1"
-
-    manager = PythonWorkerManager.get(exe, child_env, pool=pool)
+    assert manager is not None
     manager.warm()
 
     # Pre-load the active embedding model inside the embeddings pool worker so first query executes instantly

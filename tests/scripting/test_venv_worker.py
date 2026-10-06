@@ -2256,3 +2256,235 @@ def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPa
         m._read_response_with_heartbeats(MockStdout(), timeout_sec=60, grace_sec=10, on_heartbeat=None, stop_checker=stop_checker)
 
     assert stop_called[0]
+
+def test_host_pack_oversize_returns_error_without_terminate():
+    from plugin.scripting import venv_worker
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()
+    mgr._terminate_worker = MagicMock()
+
+    # Create an oversized payload > 50MB (DEFAULT_MAX_PAYLOAD_BYTES is 50*1024*1024)
+    # Actually just mock pack_pickle_frame to raise ValueError
+    import plugin.scripting.ipc as ipc
+    orig_pack = ipc.pack_pickle_frame
+    try:
+        def mock_pack(*args, **kwargs):
+            raise ValueError("payload too large")
+        ipc.pack_pickle_frame = mock_pack
+
+        result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+        assert result["status"] == "error"
+        assert result["code"] == "WORKER_IPC_ERROR"
+        assert "payload too large" in result["message"]
+
+        mgr._terminate_worker.assert_not_called()
+    finally:
+        ipc.pack_pickle_frame = orig_pack
+
+def test_missing_proc_after_concurrent_terminate():
+    from plugin.scripting import venv_worker
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._proc = None # Simulate concurrent termination
+
+    def mock_ensure():
+        # Do nothing, leave _proc as None
+        pass
+    mgr._ensure_running = mock_ensure
+
+    import pytest
+    with pytest.raises(RuntimeError, match="worker terminated concurrently"):
+        mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+def test_stop_checker_returns_cancelled_code():
+    from plugin.scripting import venv_worker
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()
+    mgr._terminate_worker = MagicMock()
+    mgr._write_bytes_with_timeout = MagicMock()
+
+    def mock_read(stdout, timeout_sec, stop_checker=None):
+        raise venv_worker._StopRequested()
+
+    mgr._read_response_bytes = mock_read
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "CANCELLED"
+    assert result["message"] == "Python worker stopped by user"
+    mgr._terminate_worker.assert_called_once()
+
+def test_partial_stdin_write_delivers_full_frame():
+    from plugin.scripting import venv_worker
+    mgr = PythonWorkerManager(sys.executable, {})
+
+    # We will test _write_bytes_with_timeout directly
+    stdin = MagicMock()
+    write_calls = []
+
+    def mock_write(b):
+        write_calls.append(bytes(b))
+        return 2 # only write 2 bytes at a time
+
+    stdin.write = mock_write
+
+    payload = b"12345"
+    mgr._write_bytes_with_timeout(stdin, payload, timeout_sec=1, label="test")
+
+    # 5 bytes total, 2 bytes per write -> 3 writes: b"12", b"34", b"5"
+    assert len(write_calls) == 3
+    assert b"".join(write_calls) == b"12345"
+
+def test_kill_process_tree_host_pgid_protection():
+    import os
+    import signal
+    from plugin.scripting.sandbox import _kill_process_tree
+
+    proc = MagicMock()
+    proc.pid = 12345
+    proc.poll.return_value = None
+
+    orig_getpgid = os.getpgid
+    orig_getpgrp = os.getpgrp
+    orig_killpg = getattr(os, "killpg", None)
+
+    try:
+        os.getpgid = lambda pid: 9999
+        os.getpgrp = lambda: 9999 # matching pgid!
+        os.killpg = MagicMock()
+
+        _kill_process_tree(proc)
+
+        # It should fallback to proc.kill() and NOT call os.killpg
+        os.killpg.assert_not_called()
+        proc.kill.assert_called_once()
+
+    finally:
+        os.getpgid = orig_getpgid
+        os.getpgrp = orig_getpgrp
+        if orig_killpg:
+            os.killpg = orig_killpg
+
+
+
+def test_host_pack_oversize_returns_error_without_terminate():
+    from plugin.scripting.venv_worker import PythonWorkerManager
+    from unittest.mock import MagicMock
+    import sys
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()
+    mgr._terminate_worker = MagicMock()
+
+    import plugin.scripting.ipc as ipc
+    orig_pack = ipc.pack_pickle_frame
+    try:
+        def mock_pack(*args, **kwargs):
+            raise ValueError("payload too large")
+        ipc.pack_pickle_frame = mock_pack
+
+        result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+        assert result["status"] == "error"
+        assert result["code"] == "WORKER_IPC_ERROR"
+        assert "payload too large" in result["message"]
+
+        mgr._terminate_worker.assert_not_called()
+    finally:
+        ipc.pack_pickle_frame = orig_pack
+
+def test_missing_proc_after_concurrent_terminate():
+    from plugin.scripting.venv_worker import PythonWorkerManager
+    from unittest.mock import MagicMock
+    import sys
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._proc = None # Simulate concurrent termination
+
+    def mock_ensure():
+        pass
+    mgr._ensure_running = mock_ensure
+
+    import pytest
+    with pytest.raises(RuntimeError, match="worker terminated concurrently"):
+        mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+def test_stop_checker_returns_cancelled_code():
+    from plugin.scripting.venv_worker import PythonWorkerManager, _StopRequested
+    from unittest.mock import MagicMock
+    import sys
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()
+    mgr._terminate_worker = MagicMock()
+    mgr._write_bytes_with_timeout = MagicMock()
+
+    def mock_read(stdout, timeout_sec, stop_checker=None):
+        raise _StopRequested()
+
+    mgr._read_response_bytes = mock_read
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "CANCELLED"
+    assert result["message"] == "Python worker stopped by user"
+    mgr._terminate_worker.assert_called_once()
+
+def test_partial_stdin_write_delivers_full_frame():
+    from plugin.scripting.venv_worker import PythonWorkerManager
+    from unittest.mock import MagicMock
+    import sys
+
+    mgr = PythonWorkerManager(sys.executable, {})
+
+    stdin = MagicMock()
+    write_calls = []
+
+    def mock_write(b):
+        write_calls.append(bytes(b))
+        return 2
+
+    stdin.write = mock_write
+
+    payload = b"12345"
+    mgr._write_bytes_with_timeout(stdin, payload, timeout_sec=1, label="test")
+
+    assert len(write_calls) == 3
+    assert b"".join(write_calls) == b"12345"
+
+def test_kill_process_tree_host_pgid_protection():
+    import os
+    from unittest.mock import MagicMock
+    from plugin.scripting.sandbox import _kill_process_tree
+
+    proc = MagicMock()
+    proc.pid = 12345
+    proc.poll.return_value = None
+
+    orig_getpgid = os.getpgid
+    orig_getpgrp = os.getpgrp
+    orig_killpg = getattr(os, "killpg", None)
+
+    try:
+        os.getpgid = lambda pid: 9999
+        os.getpgrp = lambda: 9999
+        os.killpg = MagicMock()
+
+        _kill_process_tree(proc)
+
+        os.killpg.assert_not_called()
+        proc.kill.assert_called_once()
+
+    finally:
+        os.getpgid = orig_getpgid
+        os.getpgrp = orig_getpgrp
+        if orig_killpg:
+            os.killpg = orig_killpg
