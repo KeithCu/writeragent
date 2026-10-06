@@ -44,9 +44,8 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
         rng = None
         if controller is not None:
             try:
-                sel = controller.getSelection()
-                if sel and hasattr(sel, "getCount") and int(sel.getCount()) > 0:
-                    rng = sel.getByIndex(0)
+                from plugin.writer.selection import selected_text_range
+                rng = selected_text_range(controller)
             except Exception:
                 rng = None
             if rng is None:

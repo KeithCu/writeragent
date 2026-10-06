@@ -699,7 +699,7 @@ class SendHandlersMixin:
 
                 def status_cb(t: str) -> None:
                     q.put((StreamQueueKind.STATUS, t))
-                with llm_request_lane(status_callback=status_cb):
+                with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
                     adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=stop_checker)
             except Exception as e:
                 from plugin.framework.async_stream import BlockingWaitStopped

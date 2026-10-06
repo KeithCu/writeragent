@@ -5,6 +5,82 @@ from plugin.framework.config import set_configs
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
+def test_extend_selection_uses_non_empty_range(mock_create_client, mock_stream_completion):
+    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    mock_client = MagicMock()
+    mock_create_client.return_value = mock_client
+    ctx = MagicMock()
+    model = MagicMock()
+
+    rng0 = MagicMock()
+    rng0.getString.return_value = ""
+    rng1 = MagicMock()
+    rng1.getString.return_value = "orig"
+
+    selection = MagicMock()
+    selection.getCount.return_value = 2
+
+    def by_index(i):
+        if i == 0: return rng0
+        return rng1
+
+    selection.getByIndex.side_effect = by_index
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+        do_extend_selection(ctx, model, MagicMock())
+
+        # apply_chunk should be passed to stream_completion
+        assert mock_stream_completion.called
+        prompt = mock_stream_completion.call_args.args[2]
+        assert "orig" in prompt
+
+        apply_chunk_fn = mock_stream_completion.call_args.args[5]
+        apply_chunk_fn("new chunk")
+
+        rng0.setString.assert_not_called()
+        rng1.setString.assert_called()
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, mock_stream_completion):
+    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    mock_client = MagicMock()
+    mock_create_client.return_value = mock_client
+    ctx = MagicMock()
+    model = MagicMock()
+
+    rng0 = MagicMock()
+    rng0.getString.return_value = ""
+    rng1 = MagicMock()
+    rng1.getString.return_value = ""
+
+    selection = MagicMock()
+    selection.getCount.return_value = 2
+
+    def by_index(i):
+        if i == 0: return rng0
+        return rng1
+
+    selection.getByIndex.side_effect = by_index
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="fallback_orig"), \
+         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+        do_extend_selection(ctx, model, MagicMock())
+
+        apply_chunk_fn = mock_stream_completion.call_args.args[5]
+        apply_chunk_fn("new chunk")
+
+        rng0.setString.assert_called()
+        rng1.setString.assert_not_called()
+        assert mock_stream_completion.called
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_stops_on_cancel(mock_create_client, mock_stream_completion):
     set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     # Setup mocks

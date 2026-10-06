@@ -683,6 +683,9 @@ class _IndexSelection:
     def __init__(self, text_range):
         self._text_range = text_range
 
+    def getCount(self):
+        return 1
+
     def getByIndex(self, index):
         return self._text_range
 

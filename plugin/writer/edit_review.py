@@ -1186,6 +1186,12 @@ class WriterCompoundUndo:
     Prefer ``with WriterCompoundUndo(doc, title):``. Explicit :meth:`close` remains
     for streamed sessions that open in ``__init__`` and finish later. Safe to call
     ``close`` multiple times.
+
+    Known limitation: the streamed sessions keep this undo context open for the whole
+    stream, so a keystroke or other edit the user makes in the document while the agent
+    is streaming lands in the agent's undo step (one Ctrl+Z reverts both). We deliberately
+    do NOT block document input while streaming; closing the context per batch instead
+    would split the agent edit into many undo steps.
     """
 
     _title: str
@@ -1304,7 +1310,9 @@ class WriterStreamedRewriteSession:
     already contains a tracked Insert or Delete. ``finish()`` with an empty
     ``generated_text`` puts ``original_text`` back and records nothing. Characters
     the model actually sent, including whitespace, still collapse as one tracked
-    change when recording is on.
+    change when recording is on. The undo context spans the whole stream, so user
+    edits made while streaming join the agent's undo step (known limitation, see
+    :class:`WriterCompoundUndo`).
     """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Edit selection"
@@ -1455,6 +1463,8 @@ class WriterStreamedAppendSession:
     with tracking OFF (the user sees the text appear without a redline per chunk); ``finish()``
     then converts ONLY the appended continuation into a single tracked INSERTION -- the original
     is never struck through -- authored as the agent and tagged for the inline review UI.
+    The undo context spans the whole stream, so user edits made while streaming join the
+    agent's undo step (known limitation, see :class:`WriterCompoundUndo`).
 
     Refuses with :class:`TrackedChangesInSelection` before ``RecordChanges`` is changed and
     before the first ``setString`` when the range already contains a tracked Insert or Delete.
