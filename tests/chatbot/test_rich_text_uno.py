@@ -57,12 +57,21 @@ def test_user_row_color_does_not_bleed_into_previous_answer(ctx):
         assert append_rich_text(doc, "done", role="assistant")
         assert append_rich_text(doc, "second question", role="user")
         theme = ChatTheme.resolve(doc)
-        paras = _paragraph_runs(doc)
-        answer = [runs for runs in paras if "done" in "".join(t for t, _c in runs)]
-        assert answer, "answer row missing: %r" % paras
-        for txt, color in answer[0]:
-            assert color != theme.user_color, "You color bled into the answer: %r" % answer[0]
-        question = [runs for runs in paras if "second question" in "".join(t for t, _c in runs)]
-        assert question and question[0][-1][1] == theme.user_color, "user row lost its color: %r" % question
+        # Rows may share one paragraph (line breaks), so judge runs, not paragraphs.
+        runs = [run for para in _paragraph_runs(doc) for run in para]
+        text = "".join(t for t, _c in runs)
+        assert "done" in text, "answer row missing: %r" % runs
+        start = text.index("Assistant: ")
+        end = text.index("You: ", start)
+        pos = 0
+        for txt, color in runs:
+            run_start, pos = pos, pos + len(txt)
+            if pos <= start or run_start >= end:
+                continue
+            if not txt.strip():
+                continue
+            assert color != theme.user_color, "You color bled into the answer: %r" % runs
+        assert runs[-1][0].endswith("second question"), runs
+        assert runs[-1][1] == theme.user_color, "user row lost its color: %r" % runs
     finally:
         doc.close(True)
