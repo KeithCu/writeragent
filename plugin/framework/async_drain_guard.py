@@ -64,7 +64,16 @@ def acquire_drain_owner(owner_name: str) -> str | None:
 
 
 def release_drain_owner(previous_owner: str | None) -> None:
-    """Undo one :func:`acquire_drain_owner`. Idle callbacks run at depth 0."""
+    """Undo one :func:`acquire_drain_owner`. Idle callbacks run at depth 0.
+
+    What was wrong: with depth still above zero this restored
+    *previous_owner*. Event-driven drains in two documents overlap and can
+    finish in either order. The first drain to start (previous owner None)
+    finishing first set the owner to None while the other drain still held
+    the pump, so a different owner (MCP) could start under it.
+    Why keeping the name is right: acquire refuses a different name while
+    one is set, so every holder at depth > 0 has the current name.
+    """
     global _active_owner_name, _drain_depth
     became_idle = False
     with _drain_lock:
@@ -73,7 +82,8 @@ def release_drain_owner(previous_owner: str | None) -> None:
             _drain_depth = 0
             _active_owner_name = None
             became_idle = True
-        else:
+        elif _active_owner_name is None:
+            # Defensive: never leave a held pump without a name.
             _active_owner_name = previous_owner
     if became_idle:
         _notify_drain_idle()

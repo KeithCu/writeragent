@@ -747,6 +747,23 @@ _DRAIN_IDLE_REARM_SEC = 0.1
 _event_drain: Any = None
 
 
+def clear_drain_capture() -> None:
+    """Forget the drain that :func:`defer_until_drain_done` would attach to.
+
+    What was wrong: ``_event_drain`` stays set while a drain is open, across
+    VCL callbacks. With two documents streaming, document B's send could
+    return before starting a drain of its own (Stop before the drain, an
+    error, a nested-owner refusal) and then defer its completion onto
+    document A's drain, so B's buttons and status waited for A to finish.
+    Why here: a send callback calls this first, and ``run_stream_drain_loop``
+    calls it on entry, so a deferral can only attach to a drain started in
+    the same synchronous call. An open drain keeps its own epilogue list.
+    """
+    # crosshair: off
+    global _event_drain
+    _event_drain = None
+
+
 def defer_until_drain_done(fn: Callable[[], None]) -> None:
     """Run *fn* when the current event-driven drain finishes.
 
@@ -787,11 +804,18 @@ class _IdleRearmThread:
     the fire callable (``addCallback``) is the same one workers already use.
     """
 
+    _cv: threading.Condition
+    _deadline: float | None
+    _fire: Callable[[], None] | None
+    _generation: int
+    _started: bool
+    _stopped: bool
+
     def __init__(self) -> None:
         # crosshair: off
         self._cv = threading.Condition()
-        self._deadline: float | None = None
-        self._fire: Callable[[], None] | None = None
+        self._deadline = None
+        self._fire = None
         self._generation = 0
         self._started = False
         self._stopped = False
@@ -880,11 +904,17 @@ class _AsyncCallbackRearm:
     never see the stop checker or run its epilogue.
     """
 
+    _service: Any
+    _lock: threading.Lock
+    _target: Callable[[], None] | None
+    _callback: Any
+    _timer: _IdleRearmThread
+
     def __init__(self, service: Any) -> None:
         # crosshair: off
         self._service = service
         self._lock = threading.Lock()
-        self._target: Callable[[], None] | None = None
+        self._target = None
         # Created on the main thread. The timer thread only calls addCallback.
         self._callback = _new_xcallback(self._notify)
         self._timer = _IdleRearmThread()
@@ -929,16 +959,26 @@ class _EventDrain:
     :class:`_AsyncCallbackRearm`.
     """
 
+    _state: _DrainState
+    _scheduler: Any
+    _stop_checker: Callable[[], bool] | None
+    _flush_pending: Callable[[], None] | None
+    epilogues: list[Callable[[], None]]
+    closed: bool
+    _held: bool
+    _previous_owner: str | None
+    _generation: int
+
     def __init__(self, state: _DrainState, scheduler: Any, stop_checker: Callable[[], bool] | None, flush_pending: Callable[[], None] | None) -> None:
         # crosshair: off
         self._state = state
         self._scheduler = scheduler
         self._stop_checker = stop_checker
         self._flush_pending = flush_pending
-        self.epilogues: list[Callable[[], None]] = []
+        self.epilogues = []
         self.closed = False
         self._held = False
-        self._previous_owner: str | None = None
+        self._previous_owner = None
         self._generation = 0
 
     def start(self) -> None:
@@ -1116,6 +1156,9 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     # crosshair: off
     state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
     log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
+    # Deferrals after this call belong to this drain (or run now if it is
+    # blocking or refused), never to an older drain still open elsewhere.
+    clear_drain_capture()
     scheduler = rearm if rearm is not None else _make_drain_rearm()
     if scheduler is None:
         _run_stream_drain_blocking(state, toolkit, stop_checker, flush_pending)

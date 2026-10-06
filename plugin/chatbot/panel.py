@@ -1592,8 +1592,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # the stop scope and abort the turn while chunks are still landing.
         # defer_until_drain_done runs this close on the terminal slice; the
         # blocking drain has already finished, so it runs now.
-        from plugin.framework.async_stream import defer_until_drain_done
+        from plugin.framework.async_stream import clear_drain_capture, defer_until_drain_done
 
+        # Another document's drain may still be open; this send must not
+        # defer its completion onto it.
+        clear_drain_capture()
         cm = agent_session(getattr(self, "_send_cancellation", None))
         entered = False
         exit_error: list[BaseException | None] = [None]
@@ -2000,8 +2003,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         handling that a peer turn must not trigger.
         """
         from plugin.framework.i18n import _
-        from plugin.framework.async_stream import defer_until_drain_done
+        from plugin.framework.async_stream import clear_drain_capture, defer_until_drain_done
         from plugin.framework.queue_executor import SendCancellation, agent_session
+
+        clear_drain_capture()
 
         query_text = getattr(self, "_extracted_peer_query", "") or ""
         already_appended = bool(getattr(self, "_extracted_peer_already_appended", True))

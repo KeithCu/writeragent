@@ -2273,3 +2273,89 @@ def test_event_drain_stop_drops_control_tail_and_closed_slice_drops_late_chunks(
         assert done == []
     finally:
         _clear_event_drain()
+
+
+def _start_event_drain(q: queue.Queue, rearm: _RecordingRearm, job_done: list[bool], applied: list[str]) -> None:
+    run_stream_drain_loop(
+        q,
+        DummyToolkit(),
+        job_done,
+        lambda text, _thinking: applied.append(text),
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: None,
+        on_error=lambda _e: None,
+        rearm=rearm,
+    )
+
+
+def test_overlapping_event_drains_keep_the_pump_owner_until_both_finish() -> None:
+    """Two documents' drains overlap and the first one started finishes first.
+
+    The owner went back to None while the second drain still held the pump,
+    so a different owner (MCP) could start under it.
+    """
+    from plugin.framework.queue_executor import NestedDrainOwnerError, get_drain_owner, drain_owner_scope
+
+    rearm_a, rearm_b = _RecordingRearm(), _RecordingRearm()
+    q_a: queue.Queue = queue.Queue()
+    q_b: queue.Queue = queue.Queue()
+    done_a, done_b = [False], [False]
+    try:
+        _start_event_drain(q_a, rearm_a, done_a, [])
+        _start_event_drain(q_b, rearm_b, done_b, [])
+        q_a.put((StreamQueueKind.STREAM_DONE, "a"))
+        rearm_a.pump()
+        assert done_a[0] is True
+        assert get_drain_owner() == "stream"
+        with pytest.raises(NestedDrainOwnerError):
+            with drain_owner_scope("mcp"):
+                pass
+        q_b.put((StreamQueueKind.STREAM_DONE, "b"))
+        rearm_b.pump()
+        assert done_b[0] is True
+        assert get_drain_owner() is None
+    finally:
+        _clear_event_drain()
+
+
+def test_deferral_after_clear_does_not_attach_to_another_documents_drain() -> None:
+    """Doc B's send returned without a drain; its completion must not wait for doc A."""
+    from plugin.framework.async_stream import clear_drain_capture, defer_until_drain_done
+
+    rearm = _RecordingRearm()
+    q: queue.Queue = queue.Queue()
+    job_done = [False]
+    seen: list[str] = []
+    try:
+        _start_event_drain(q, rearm, job_done, [])
+        defer_until_drain_done(lambda: seen.append("a-epilogue"))
+        # Doc B's send callback starts here.
+        clear_drain_capture()
+        defer_until_drain_done(lambda: seen.append("b-now"))
+        assert seen == ["b-now"]
+        q.put((StreamQueueKind.STREAM_DONE, "a"))
+        rearm.pump()
+        assert seen == ["b-now", "a-epilogue"]
+    finally:
+        _clear_event_drain()
+
+
+def test_new_drain_owns_deferrals_made_after_it_starts() -> None:
+    from plugin.framework.async_stream import defer_until_drain_done
+
+    rearm_a, rearm_b = _RecordingRearm(), _RecordingRearm()
+    q_a: queue.Queue = queue.Queue()
+    q_b: queue.Queue = queue.Queue()
+    seen: list[str] = []
+    try:
+        _start_event_drain(q_a, rearm_a, [False], [])
+        _start_event_drain(q_b, rearm_b, [False], [])
+        defer_until_drain_done(lambda: seen.append("b"))
+        q_a.put((StreamQueueKind.STREAM_DONE, "a"))
+        rearm_a.pump()
+        assert seen == []
+        q_b.put((StreamQueueKind.STREAM_DONE, "b"))
+        rearm_b.pump()
+        assert seen == ["b"]
+    finally:
+        _clear_event_drain()
