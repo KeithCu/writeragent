@@ -1168,16 +1168,20 @@ def _resolve_tts_voice(model: str, voice: str) -> str:
 def _play_audio_file(file_path: str, generation: int | None = None) -> None:
     """Play an audio file using available OS command-line utilities."""
     cmd: list[str] | None = None
+    env: dict[str, str] | None = None
 
     if sys.platform == "darwin":
         cmd = ["afplay", file_path]
     elif sys.platform == "win32":
+        # The path goes in the environment, not into the script text. Extra
+        # arguments after -Command are joined into the command, not $args.
         cmd = [
             "powershell",
             "-NoProfile",
             "-Command",
-            f'(New-Object Media.SoundPlayer "{file_path}").PlaySync()',
+            "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()",
         ]
+        env = {**os.environ, "WA_AUDIO_PATH": file_path}
     else:
         # Linux / Unix: prioritize players supporting MP3/WAV out-of-the-box
         if shutil.which("ffplay"):
@@ -1200,7 +1204,7 @@ def _play_audio_file(file_path: str, generation: int | None = None) -> None:
     proc: subprocess.Popen[Any] | None = None
     try:
         log.info("Playing audio with command: %s", " ".join(cmd))
-        proc = _popen_for_speech(cmd, generation, slot="play")
+        proc = _popen_for_speech(cmd, generation, slot="play", env=env)
         if proc is None:
             return
         proc.wait()

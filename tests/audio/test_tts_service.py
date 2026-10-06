@@ -1946,3 +1946,16 @@ def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
     assert play.call_count == 1
     system.assert_called_once()
     assert system.call_args.args[0] == "Two. Three."
+
+
+@patch("plugin.audio.tts_service._popen_for_speech", return_value=None)
+def test_play_audio_file_windows_path_not_in_script(mock_popen):
+    from plugin.audio.tts_service import _play_audio_file
+
+    path = 'C:\\Users\\o"neil $x\\clip.wav'
+    with patch("sys.platform", "win32"):
+        _play_audio_file(path)
+    cmd = mock_popen.call_args.args[0]
+    assert path not in " ".join(cmd)
+    assert "$env:WA_AUDIO_PATH" in cmd[-1]
+    assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == path
