@@ -180,6 +180,19 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     # Signal readiness to supervisor
     write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
 
+    _shutdown_requested = False
+
+    def _sig_shutdown(signum: int, _frame: Any) -> None:
+        nonlocal _shutdown_requested
+        _shutdown_requested = True
+        sys.exit(0)
+
+    try:
+        signal.signal(signal.SIGTERM, _sig_shutdown)
+        signal.signal(signal.SIGINT, _sig_shutdown)
+    except (ValueError, AttributeError):
+        pass
+
     while True:
         try:
             req = read_pickle_frame(stdin_bin, max_payload_bytes=max_payload_bytes, unpacker=unpack_restricted_pickle_frame)
@@ -190,7 +203,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             log.error("Fatal: failed to read/decode IPC frame from stdin: %s", exc)
             break
 
-        if req is None:
+        if req is None or _shutdown_requested:
             break
 
         try:
@@ -200,11 +213,26 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
                 res = handler(req)
                 if not isinstance(res, dict):
                     res = {"status": "error", "error": "Handler returned non-dict"}
-        except Exception as exc:
-            res = {"status": "error", "error": f"Invalid IPC frame or unhandled error: {exc}"}
+        except BaseException as exc:
+            if _shutdown_requested:
+                break
+            req_id = req.get("id") if isinstance(req, dict) else None
+            res = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": f"Unhandled error: {exc}"}
 
         try:
             write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
+        except IpcFrameError as exc:
+            req_id = req.get("id") if isinstance(req, dict) else None
+            err_frame = {
+                "id": req_id,
+                "status": "error",
+                "code": "RESULT_TOO_LARGE",
+                "error": f"Result exceeds maximum payload size: {exc}",
+            }
+            try:
+                write_pickle_frame(stdout_bin, err_frame, max_payload_bytes=max_payload_bytes)
+            except Exception:
+                break
         except Exception:
             break
 
@@ -397,6 +425,24 @@ class BaseProcessWorker:
             # kernel; session maps that still name this wrapper are stale.
             self.did_respawn = False
             start_t = time.monotonic()
+            def _fail(code: str, msg: str, *, kill: bool = True, timeout: bool = False) -> dict[str, Any]:
+                snippet = self._stderr_snippet()
+                if snippet:
+                    msg = f"{msg}\n{snippet}"
+                if timeout:
+                    if self.recover_on_timeout:
+                        log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid if self.process else None)
+                        self._start_late_drain(timeout_sec)
+                    else:
+                        log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid if self.process else None)
+                        self.kill()
+                elif kill:
+                    self.kill()
+                res: dict[str, Any] = {"status": "error", "code": code, "error": msg}
+                if code in ("EXECUTION_TIMEOUT", "WORKER_CRASHED"):
+                    res["message"] = msg
+                return res
+
             if not self.is_alive():
                 # Respect request deadline: do not allow spawn handshake to exceed
                 # the remaining request budget.
@@ -404,7 +450,7 @@ class BaseProcessWorker:
                 self.respawn(timeout_sec=spawn_budget)
                 self.did_respawn = True
                 if not self.is_alive():
-                    return {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": f"{self.worker_name} #{self.worker_id} could not be started."}
+                    return _fail("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", kill=False)
                 elapsed = time.monotonic() - start_t
                 timeout_sec = max(0.01, timeout_sec - elapsed)
 
@@ -419,12 +465,7 @@ class BaseProcessWorker:
                 # same kernel; killing it would drop every shared session.
                 return {"status": "error", "code": "PAYLOAD_TOO_LARGE", "error": str(exc)}
             except (BrokenPipeError, OSError) as exc:
-                snippet = self._stderr_snippet()
-                self.kill()
-                err = f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}"
-                if snippet:
-                    err = f"{err}\n{snippet}"
-                return {"status": "error", "code": "WORKER_PIPE_BROKEN", "error": err}
+                return _fail("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}")
 
             try:
                 resp = read_pickle_frame_with_timeout(
@@ -435,38 +476,11 @@ class BaseProcessWorker:
                     unpacker=unpack_restricted_pickle_frame,
                 )
             except subprocess.TimeoutExpired:
-                snippet = self._stderr_snippet()
-                msg = f"Execution exceeded maximum timeout of {int(timeout_sec)} seconds."
-                if snippet:
-                    msg = f"{msg}\n{snippet}"
-                if self.recover_on_timeout:
-                    # The child is still going to write one frame. Killing it
-                    # drops a loaded OCR model, and releasing the pipe now would
-                    # make the next request read that frame. Drain it aside.
-                    log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
-                    self._start_late_drain(timeout_sec)
-                else:
-                    # The in-process alarm did not return a frame inside the
-                    # grace period (stuck in C, or the host clock was shorter
-                    # than the child). SIGKILL is the last resort. Reap drops
-                    # every shared session on this pid before the slot is reused.
-                    log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
-                    self.kill()
-                return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
+                return _fail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {int(timeout_sec)} seconds.", timeout=True)
             except Exception as exc:
-                snippet = self._stderr_snippet()
-                self.kill()
-                err = f"{self.worker_name} error: {exc}"
-                if snippet:
-                    err = f"{err}\n{snippet}"
-                return {"status": "error", "code": "WORKER_CRASHED", "error": err, "message": err}
+                return _fail("WORKER_CRASHED", f"{self.worker_name} error: {exc}")
             if resp is None or not isinstance(resp, dict):
-                snippet = self._stderr_snippet()
-                self.kill()
-                err = f"No response returned from {self.worker_name}."
-                if snippet:
-                    err = f"{err}\n{snippet}"
-                return {"status": "error", "code": "EMPTY_RESPONSE", "error": err}
+                return _fail("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.")
             self.tasks_executed += 1
             return resp
 

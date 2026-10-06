@@ -49,6 +49,10 @@ VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 class ExecuteRequestError(ValueError):
     """Raised when an execute request or response does not match the one schema."""
 
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
 
 def _reject_json_constant(token: str) -> None:
     """``json.loads`` accepts NaN/Infinity. The peel walker does not.

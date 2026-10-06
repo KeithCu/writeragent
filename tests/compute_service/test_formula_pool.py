@@ -1483,4 +1483,98 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_concurrent_first_calls_same_session(self) -> None:
+        """Concurrent first calls for the same session_id must reserve and route to the same worker."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            sid = "concurrent-first-call-session"
+            barrier = threading.Barrier(2)
+            results: list[dict] = [{}, {}]
+
+            def run_worker(idx: int, code: str) -> None:
+                barrier.wait()
+                res = pool.execute(code=code, session_id=sid, mode="shared", req_id=f"req-{idx}")
+                results[idx] = res
+
+            t1 = threading.Thread(target=run_worker, args=(0, "result = 42"))
+            t2 = threading.Thread(target=run_worker, args=(1, "result = 43"))
+
+            t1.start()
+            t2.start()
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+
+            assert results[0].get("status") == "ok"
+            assert results[0].get("result") == 42
+            assert results[1].get("status") == "ok"
+            assert results[1].get("result") == 43
+            # Session must be bound to exactly one worker
+            with pool._cond:
+                worker_ids = [w.worker_id for w, sids in pool._worker_sessions.items() if sid in sids]
+                assert len(worker_ids) == 1
+
+            # Shared state is maintained on this worker
+            r3 = pool.execute(code="x = 100\nresult = x", session_id=sid, mode="shared")
+            assert r3.get("status") == "ok"
+            r4 = pool.execute(code="result = x + 1", session_id=sid, mode="shared")
+            assert r4.get("status") == "ok"
+            assert r4.get("result") == 101
+        finally:
+            pool.shutdown()
+
+    def test_ttl_eviction_marks_session_lost_and_reports_reset(self) -> None:
+        """TTL eviction adds session to _lost_sessions so subsequent call gets session_reset: True."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "ttl-evicted-session"
+            r1 = pool.execute(code="x = 77\nresult = x", session_id=sid, mode="shared")
+            assert r1.get("status") == "ok"
+            assert r1.get("session_reset") is not True
+
+            # Force TTL expiration
+            pool._evict_stale_sessions(ttl_sec=-1)
+            with pool._cond:
+                assert sid in pool._lost_sessions
+                assert sid not in pool._sessions
+
+            r2 = pool.execute(code="result = 88", session_id=sid, mode="shared")
+            assert r2.get("status") == "ok"
+            assert r2.get("session_reset") is True
+        finally:
+            pool.shutdown()
+
+    def test_explicit_reset_does_not_mark_session_lost(self) -> None:
+        """Explicit reset_session clears session without marking it lost (no session_reset on next call)."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "explicit-reset-session"
+            r1 = pool.execute(code="x = 99\nresult = x", session_id=sid, mode="shared")
+            assert r1.get("status") == "ok"
+
+            reset_res = pool.reset_session(sid)
+            assert reset_res.get("status") == "ok"
+
+            with pool._cond:
+                assert sid not in pool._lost_sessions
+
+            r2 = pool.execute(code="result = 100", session_id=sid, mode="shared")
+            assert r2.get("status") == "ok"
+            assert r2.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
+    def test_lost_sessions_is_capped(self) -> None:
+        """_lost_sessions is bounded and prunes oldest entries."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            with pool._cond:
+                for i in range(1200):
+                    pool._mark_session_lost_unlocked(f"lost-{i}")
+                assert len(pool._lost_sessions) == 1000
+                assert "lost-0" not in pool._lost_sessions
+                assert "lost-1199" in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
+
 

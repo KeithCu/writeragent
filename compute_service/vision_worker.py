@@ -11,7 +11,6 @@ ONNX) and large memory buffers from the main compute service thread pool.
 
 from __future__ import annotations
 
-import base64
 import os
 import sys
 from typing import Any, cast
@@ -60,8 +59,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     req_id = req.get("id")
     helper = str(req.get("helper") or "extract_text").strip()
     params = req.get("params") or {}
-    image_b64 = req.get("image_b64") or req.get("image")
     file_path = req.get("file_path")
+    image_bytes_raw = req.get("image_bytes")
 
     image_bytes: bytes
     if file_path:
@@ -69,20 +68,10 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         if err_body is not None:
             return err_body
         image_bytes = cast("bytes", image_bytes_opt)
-    elif isinstance(req.get("image_bytes"), (bytes, bytearray)):
-        image_bytes = bytes(req["image_bytes"])
-    elif image_b64:
-        try:
-            if isinstance(image_b64, str):
-                image_bytes = base64.b64decode(image_b64, validate=True)
-            elif isinstance(image_b64, (bytes, bytearray)):
-                image_bytes = bytes(image_b64)
-            else:
-                return {"id": req_id, "status": "error", "code": "INVALID_IMAGE", "error": "image_b64 must be base64 string or raw bytes"}
-        except Exception as exc:
-            return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
+    elif isinstance(image_bytes_raw, (bytes, bytearray)):
+        image_bytes = bytes(image_bytes_raw)
     else:
-        return {"id": req_id, "status": "error", "code": "MISSING_IMAGE_SOURCE", "error": "Either 'image_b64' (base64 string buffer), 'image_bytes', or 'file_path' (server filesystem path) must be provided."}
+        return {"id": req_id, "status": "error", "code": "MISSING_IMAGE_SOURCE", "error": "Either image buffer or 'file_path' (server filesystem path) must be provided."}
 
     try:
         from plugin.vision.venv.vision import run_vision

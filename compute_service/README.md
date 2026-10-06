@@ -80,7 +80,7 @@ request shapes, why multipart exists, and the plan to retire peel.
   ```
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
-  If a shared session's worker process crashed, was recycled, or was killed (e.g. by `SIGKILL` on an unrecoverable timeout), the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON:
+  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON:
   ```json
   {
     "id": "req-123",
@@ -100,7 +100,7 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 | `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid) | **Today’s Collabora/kit contract.** Compatibility. The walker/peel exists so we do not deserialize the nested grid. |
 | `multipart/form-data` (or other `multipart/*`) | Parts: `meta` (`application/json`: `id?`, `mode?`, `timeout_ms?`), `code` (raw UTF-8), optional `init_script` (raw UTF-8), optional `data` (raw JSON bytes) | Boundary-scan. `json.loads` **meta only** (64 KiB cap). Byte-cap and UTF-8-decode `code` and `init_script`. **Forward `data` bytes untouched** | **Preferred kit↔compute shape.** Control JSON, source, and the grid are separate MIME parts. |
 
-`session_id` stays on the URL (`?session_id=...`) for L7 affinity — not in the request body (`meta` or the peel object).
+`session_id` stays on the URL (`?session_id=...`) for L7 affinity — not in the request body (`meta` or the peel object). Reserved namespaces (ending with `:init` or starting with `isolated:`) are rejected with `400 Bad Request`.
 
 **Why multipart:** cleaner framing (tiny control JSON vs source vs the grid blob). No custom JSON walker, and no JSON unescape of formula source on the HTTP host. Same “forward bytes, don’t re-serialize” win for the grid. That is the long-term wire we want between kit and this service.
 
@@ -116,7 +116,7 @@ Drops the shared sandbox and init companion for one workbook kernel. Reuses `For
 
 Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This endpoint lands ahead of Online shared-kernel work; Collabora Online still hard-codes `mode: isolated` and does not call reset yet.
 
-- **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id=<id>`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all).
+- **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id=<id>`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all), or uses reserved prefixes/suffixes (`:init`, `isolated:`).
 - **Request body** (optional; empty body is fine):
   ```json
   { "id": "corr-1" }
@@ -126,7 +126,7 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
   ```json
   { "id": "corr-1", "status": "ok" }
   ```
-- **Errors:** `400` missing/empty query `session_id` or `session_id` in the JSON body; `401` auth (same Bearer as execute); worker lease failure → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
+- **Errors:** `400` missing/empty query `session_id`, `session_id` in the JSON body, or reserved `session_id`; `401` auth (case-insensitive Bearer); worker reset failure → `{ "id?", "status": "error", "error": "..." }` with HTTP `500`; worker lease failure → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
 - The supervisor drops its session map only when the worker reset returns `status: ok`. A failed reset is logged and the map stays: that process may still hold the namespace. Forgetting the id would make the next sticky cell look new on a kernel that is not empty.
 - Idle TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed. Do not remove it.
 
@@ -181,12 +181,12 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
-| **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
+| **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, or calculation result frame exceeds IPC limit (`RESULT_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
 | **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the pool never finished the cell (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_CRASHED`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `EMPTY_RESPONSE`, `QUEUE_TIMEOUT`). A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
-| **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
+| **`500 Internal Server Error`**| Unhandled server exception, JSON encoding failure, or worker-side session reset error | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
 
@@ -209,8 +209,8 @@ Rules:
 - **Host header validation in keyless mode** → When running without an API key, the server rejects requests with non-loopback `Host` headers with `403 Forbidden` (for example, accessing via a Docker service name such as `http://python-compute:8000` gets 403). Only loopback Host headers (`localhost`, `127.0.0.1`, `[::1]`) are accepted.
 - **Empty bind address (`--host ""`)** → Binding `--host ""` binds loopback interfaces only.
 - **Any other bind without a key** → `load_settings` refuses to start. This includes `0.0.0.0` and `::`. The image entrypoint checks the same case before exec.
-- **Key configured** → `/v1/execute` and `/v1/session/reset` require an exact `Bearer <token>` match
-  (`hmac.compare_digest` on the UTF-8 bytes). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
+- **Key configured** → `/v1/execute`, `/v1/session/reset`, and `/v1/vision` require a `Bearer <token>` match
+  (`hmac.compare_digest` on the UTF-8 bytes). The scheme prefix `Bearer ` is matched case-insensitively per RFC 7235 (`bearer `, `BEARER `, etc.). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
 - `PYTHON_COMPUTE_API_KEY` is not stripped. A key file drops one trailing newline and keeps surrounding spaces. The same secret text is the same bytes from either source.
 - **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error. Aliases `max_workers` and `session_ttl_sec` are accepted.
 
@@ -286,7 +286,7 @@ Shared `mode=shared` **must** use a per-document `session_id` query parameter (`
 ## Lifecycle & Signal Handling
 
 - **Graceful Shutdown**: The service traps `SIGTERM` and `SIGINT`.
-- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), the server stops accepting on a background thread. After the accept loop returns it waits up to 30s for requests already taken, then terminates worker subprocesses and closes listening sockets. A cell still running at the end of that wait is abandoned.
+- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), the server stops accepting on a background thread. It immediately closes listening sockets so new connections are refused rather than hanging, then waits up to 30s for requests already taken to drain, terminates worker subprocesses, and cleans up resources. A cell still running at the end of that wait is abandoned.
 
 ---
 
@@ -296,9 +296,9 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **HTTP listener**: Thread pool sized above worker count ($\max(8, W + 4)$, default 16 for 2 formula workers). `/v1/execute` and `/v1/session/reset` share a non-blocking semaphore sized to the formula pool; `/v1/vision` has its own sized to the vision pool. A saturated pool returns 503 before the body is read and does not consume the other pool's permits. At least two listener threads stay free for immediate `GET /health`.
-- **HTTP/1.0 & Transfer Semantics**: The server operates on HTTP/1.0 with no keep-alive or chunked transfer encoding. A chunked POST (`Transfer-Encoding: chunked`) returns `400 Bad Request`. Slow or stalled clients can tie up listener threads for the duration of the request/response transfer.
-- **Sticky Session Semaphores**: Sticky sessions hold route semaphore permits while their worker process is busy executing a cell.
+- **HTTP listener**: Thread pool sized above worker count ($\max(8, W + 4)$, default 16 for 2 formula workers). `/v1/execute` and `/v1/session/reset` share a non-blocking semaphore sized up to listener threads minus 2 ($\max(W, T - 2)$) so that sticky requests waiting for a busy worker do not block other workers from serving requests, while reserving at least two listener threads for immediate `GET /health`. The worker pool lease (`lease_specific` / `lease_any`) acts as the gate for worker execution. `/v1/vision` has its own semaphore sized to the vision pool.
+- **HTTP/1.0 & Transfer Semantics**: The server operates on HTTP/1.0 with no keep-alive or chunked transfer encoding. A chunked POST (`Transfer-Encoding: chunked`) returns `400 Bad Request`. Total read deadlines prevent slow clients from exhausting listener threads.
+- **Sticky Session Semaphores**: Sticky sessions queue for their designated worker inside the pool; route semaphore permits are sized generously to avoid head-of-line blocking across workers.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward

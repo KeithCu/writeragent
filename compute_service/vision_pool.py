@@ -46,13 +46,15 @@ class VisionProcessPool(BaseProcessPool):
     def execute(
         self,
         helper: str,
-        # bytes: for direct programmatic calls; HTTP always passes str
+        # bytes: for direct programmatic calls; HTTP passes str or bytes
+        image: str | bytes | None = None,
         image_b64: str | bytes | None = None,
         file_path: str | None = None,
         params: dict[str, Any] | None = None,
         timeout_sec: int | None = None,
         req_id: str | None = None,
         allow_paths: tuple[str, ...] | list[str] | None = None,
+        deadline: float | None = None,
     ) -> dict[str, Any]:
         """Execute a vision task on an available worker process.
 
@@ -64,25 +66,27 @@ class VisionProcessPool(BaseProcessPool):
             return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
 
         eff_timeout = float(timeout_sec or self.default_timeout_sec)
+        image_input = image if image is not None else image_b64
         image_bytes = None
-        if image_b64 is not None:
-            if isinstance(image_b64, (bytes, bytearray)):
-                image_bytes = bytes(image_b64)
-            elif isinstance(image_b64, str):
+        if image_input is not None:
+            if isinstance(image_input, (bytes, bytearray)):
+                image_bytes = bytes(image_input)
+            elif isinstance(image_input, str):
                 try:
-                    image_bytes = base64.b64decode(image_b64, validate=True)
+                    image_bytes = base64.b64decode(image_input, validate=True)
                 except Exception as exc:
                     return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
             else:
-                return {"id": req_id, "status": "error", "code": "INVALID_IMAGE", "error": "image_b64 must be base64 string or raw bytes"}
+                return {"id": req_id, "status": "error", "code": "INVALID_IMAGE", "error": "image must be base64 string or raw bytes"}
 
         prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
         payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
 
-        # Queue until a worker is free. The caller's timeout is the bound;
+        # Queue until a worker is free. The caller's timeout/deadline is the bound;
         # VISION_POOL_BUSY means that wait expired, not that the pool was busy
         # at the moment the request arrived.
-        deadline = time.monotonic() + eff_timeout
+        if deadline is None:
+            deadline = time.monotonic() + eff_timeout
         worker = self.lease_any(timeout_sec=remaining_sec(deadline))
         if worker is None:
             return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}

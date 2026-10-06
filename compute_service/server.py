@@ -34,10 +34,10 @@ from compute_service.config import (
     DEFAULT_SETTINGS,
     ComputeSettings,
     ConfigError,
+    clamp_timeout_sec,
     load_settings,
     ocr_path_is_allowed,
 )
-from compute_service.executor import clamp_timeout_sec
 from compute_service.json_forward import (
     WIRE_JSON_FORWARD,
     ExecuteRequestError,
@@ -48,10 +48,8 @@ from compute_service.json_forward import (
 
 log = logging.getLogger("compute_service")
 
-# Bound the post-accept drain. k8s default termination grace is 30s;
-# using 20s allows in-flight handlers to drain while leaving ~10s for
-# worker subprocess cleanup and SIGKILL before the pod is forcibly killed.
-_HTTP_DRAIN_SEC = 20.0
+# Bound the post-accept drain. Matches README 30s termination grace.
+_HTTP_DRAIN_SEC = 30.0
 # Header and body read. Reset to _REQUEST_WRITE_TIMEOUT_SEC once the body is
 # buffered so long calculations do not trip it during execution.
 _REQUEST_READ_TIMEOUT_SEC = 30.0
@@ -159,9 +157,9 @@ def _start_json(
 def _error(
     start_response: Any,
     status: str,
-    req_id: Any,
     msg: str,
     code: str | None = None,
+    req_id: Any = None,
     *,
     extra_headers: list[tuple[str, str]] | None = None,
 ) -> list[bytes]:
@@ -169,10 +167,12 @@ def _error(
     payload: dict[str, Any] = {"status": "error", "error": msg}
     if code is not None:
         payload["code"] = code
+    if req_id is not None:
+        payload["id"] = req_id
     return _start_json(
         start_response,
         status,
-        _inject_req_id(payload, req_id),
+        payload,
         extra_headers=extra_headers,
     )
 
@@ -192,14 +192,19 @@ def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any
         raw_out = result_payload.get("result_json")
         if isinstance(raw_out, (bytes, bytearray)) and raw_out:
             return _start_raw_json(start_response, "200 OK", bytes(raw_out))
-        # Eval errors travel inside result_json and stay HTTP 200.
-        # Worker-death codes mean the pool never finished the cell.
+        # RESULT_TOO_LARGE / PAYLOAD_TOO_LARGE -> 413 Payload Too Large (non-retryable)
+        code = result_payload.get("code")
+        if code in ("RESULT_TOO_LARGE", "PAYLOAD_TOO_LARGE"):
+            _inject_req_id(result_payload, req_id)
+            return _start_json(start_response, "413 Payload Too Large", result_payload)
         infra = _infrastructure_status(result_payload)
         _inject_req_id(result_payload, req_id)
         if infra is not None:
             return _start_json(start_response, infra, result_payload)
 
     try:
+        if isinstance(result_payload, dict):
+            _inject_req_id(result_payload, req_id)
         return _start_json(start_response, "200 OK", result_payload)
     except (TypeError, ValueError) as e:
         err_body: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {e}"}
@@ -256,52 +261,66 @@ def _set_write_deadline(environ: dict[str, Any]) -> None:
             pass
 
 
-def _source_text_from_part(
+def _validate_source_text(
     raw: Any,
     *,
     limit: int,
     label: str,
     required: bool,
-) -> tuple[str | None, dict[str, Any] | None]:
-    """Return ``(text, error_body)`` for peel text or a multipart byte part."""
-    def _part_err(msg: str, code: str | None = None) -> tuple[None, dict[str, Any]]:
-        err: dict[str, Any] = {"status": "error", "error": msg}
-        if code is not None:
-            err["code"] = code
-        return None, err
-
+) -> str | None:
+    """Validate and return text from part, or raise ExecuteRequestError."""
     if isinstance(raw, (bytes, bytearray)):
         if len(raw) > limit * 4:
-            return _part_err(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
+            raise ExecuteRequestError(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
         if len(raw) == 0:
             if required:
-                return _part_err("Missing 'code' string parameter.")
-            return None, None
+                raise ExecuteRequestError(f"Missing '{label}' string parameter.")
+            return None
         try:
             text = bytes(raw).decode("utf-8")
         except UnicodeDecodeError:
-            return _part_err(f"Invalid UTF-8 in {label} part.")
+            raise ExecuteRequestError(f"Invalid UTF-8 in {label} part.")
         if len(text) > limit:
-            return _part_err(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
-        return text, None
+            raise ExecuteRequestError(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
+        return text
 
     if isinstance(raw, str):
         if raw == "":
             if required:
-                return _part_err("Missing 'code' string parameter.")
-            return None, None
+                raise ExecuteRequestError(f"Missing '{label}' string parameter.")
+            return None
         if len(raw) > limit:
-            return _part_err(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
-        return raw, None
+            raise ExecuteRequestError(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
+        return raw
 
     if raw is None:
         if required:
-            return _part_err("Missing 'code' string parameter.")
-        return None, None
+            raise ExecuteRequestError(f"Missing '{label}' string parameter.")
+        return None
 
-    if required:
-        return _part_err("Missing 'code' string parameter.")
-    return _part_err(f"{label} must be text.")
+    raise ExecuteRequestError(f"{label} must be text.")
+
+
+def _source_text_from_part(
+    raw: Any,
+    limit: int,
+    label: str = "code",
+    required: bool = True,
+) -> tuple[str | None, dict[str, str] | None]:
+    """Compatibility helper returning (text, error_dict) like old _source_text_from_part."""
+    try:
+        return _validate_source_text(raw, limit=limit, label=label, required=required), None
+    except ExecuteRequestError as e:
+        return None, {"error": str(e), "code": e.code or "BAD_REQUEST"}
+
+
+def _check_valid_session_id(session_id: str) -> None:
+    """Reject reserved session namespace patterns to prevent session collision."""
+    if session_id.endswith(":init") or session_id.startswith("isolated:"):
+        raise ExecuteRequestError(
+            f"Invalid session_id {session_id!r}: names ending in ':init' or starting with 'isolated:' are reserved.",
+            code="INVALID_SESSION_ID",
+        )
 
 
 def _read_request_body(
@@ -312,20 +331,20 @@ def _read_request_body(
     """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``."""
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Missing Content-Length"})
+        return None, _error(start_response, "400 Bad Request", "Missing Content-Length")
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
+        return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length <= 0:
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
+        return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length > settings.max_body_bytes:
         _drain_body_before_error(environ, max_bytes=64 * 1024)
-        return None, _start_json(start_response, "413 Payload Too Large", {"status": "error", "error": "Request body too large"})
+        return None, _error(start_response, "413 Payload Too Large", "Request body too large")
 
     wsgi_input = environ.get("wsgi.input")
     if wsgi_input is None:
-        return None, _start_json(start_response, "500 Internal Server Error", {"status": "error", "error": "Missing wsgi.input stream"})
+        return None, _error(start_response, "500 Internal Server Error", "Missing wsgi.input stream")
 
     conn = environ.get("compute.connection")
     accept_time = environ.get("compute.accept_time")
@@ -339,7 +358,8 @@ def _read_request_body(
         while bytes_read < content_length:
             now = time.monotonic()
             if now >= read_deadline:
-                return None, _start_json(start_response, "408 Request Timeout", {"status": "error", "error": "Request read timeout"})
+                _set_write_deadline(environ)
+                return None, _error(start_response, "408 Request Timeout", "Request read timeout")
             remaining_time = read_deadline - now
             if conn is not None:
                 try:
@@ -354,13 +374,16 @@ def _read_request_body(
             chunks.append(chunk)
             bytes_read += len(chunk)
     except (TimeoutError, socket.timeout):
-        return None, _start_json(start_response, "408 Request Timeout", {"status": "error", "error": "Request read timeout"})
+        _set_write_deadline(environ)
+        return None, _error(start_response, "408 Request Timeout", "Request read timeout")
     except OSError as e:
         log.warning("Socket read error during body ingress: %s", e)
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Connection error reading request body"})
+        _set_write_deadline(environ)
+        return None, _error(start_response, "400 Bad Request", "Connection error reading request body")
 
+    _set_write_deadline(environ)
     if bytes_read != content_length:
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Request body truncated"})
+        return None, _error(start_response, "400 Bad Request", "Request body truncated")
 
     return b"".join(chunks), None
 
@@ -382,14 +405,14 @@ def _read_request_json(
     try:
         data = json.loads(body.decode("utf-8"), parse_constant=_reject_const)
     except Exception:
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid JSON"})
+        return None, _error(start_response, "400 Bad Request", "Invalid JSON")
 
     if not isinstance(data, dict):
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "JSON body must be an object"})
+        return None, _error(start_response, "400 Bad Request", "JSON body must be an object")
 
     req_id = data.get("id")
     if isinstance(req_id, float) and not math.isfinite(req_id):
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid JSON"})
+        return None, _error(start_response, "400 Bad Request", "Invalid JSON")
 
     return data, None
 
@@ -428,11 +451,10 @@ def authenticate_request(environ: dict[str, Any], settings: ComputeSettings) -> 
     if not isinstance(raw, str) or not raw:
         return None, "missing"
 
-    prefix = "Bearer "
-    if not raw.startswith(prefix):
+    if len(raw) < 7 or raw[:7].lower() != "bearer ":
         return None, "malformed"
 
-    provided = raw[len(prefix) :]
+    provided = raw[7:]
     expected = settings.api_key
     try:
         provided_bytes = provided.encode("utf-8")
@@ -450,10 +472,11 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
         return None
 
     if environ.get("HTTP_ORIGIN"):
-        return _start_json(
+        return _error(
             start_response,
             "403 Forbidden",
-            {"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "Cross-origin requests are forbidden in keyless mode."},
+            "Cross-origin requests are forbidden in keyless mode.",
+            code="CROSS_ORIGIN_REFUSED",
         )
 
     if "HTTP_HOST" in environ:
@@ -464,10 +487,11 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
             host = raw_host.split(":")[0]
 
         if host not in ("localhost", "127.0.0.1", "[::1]"):
-            return _start_json(
+            return _error(
                 start_response,
                 "403 Forbidden",
-                {"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "Only loopback hosts are allowed in keyless mode."},
+                "Only loopback hosts are allowed in keyless mode.",
+                code="CROSS_ORIGIN_REFUSED",
             )
     return None
 
@@ -481,10 +505,10 @@ def _authenticate_or_401(
     _principal, auth_err = authenticate_request(environ, settings)
     if auth_err is not None:
         _drain_body_before_error(environ)
-        return _start_json(
+        return _error(
             start_response,
             "401 Unauthorized",
-            {"status": "error", "error": "Unauthorized"},
+            "Unauthorized",
             extra_headers=[("WWW-Authenticate", "Bearer")],
         )
     return _check_keyless_cors(environ, settings, start_response)
@@ -496,7 +520,9 @@ def _parse_session_id(environ: dict[str, Any]) -> str | None:
     query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
     session_ids = query_params.get("session_id")
     if session_ids and session_ids[0].strip():
-        return session_ids[0].strip()
+        sid = session_ids[0].strip()
+        _check_valid_session_id(sid)
+        return sid
     return None
 
 
@@ -508,21 +534,26 @@ def _gated(
     environ: dict[str, Any],
     start_response: Any,
     settings: ComputeSettings,
-    semaphore: threading.Semaphore,
+    semaphore: threading.Semaphore | None,
     *,
     busy_code: str,
     busy_message: str,
     route_fn: Callable[[], list[bytes]],
 ) -> list[bytes]:
-    """Execute route_fn guarded by auth, concurrency permit, try/finally, and 500 fallback."""
+    """Execute route_fn guarded by auth, optional concurrency permit, try/finally, and 500 fallback."""
     auth_resp = _authenticate_or_401(environ, settings, start_response)
     if auth_resp is not None:
         return auth_resp
 
-    if not semaphore.acquire(blocking=False):
+    if semaphore is not None and not semaphore.acquire(blocking=False):
         _drain_body_before_error(environ)
-        busy: dict[str, Any] = {"status": "error", "code": busy_code, "error": busy_message}
-        return _start_json(start_response, "503 Service Unavailable", busy, extra_headers=[("Retry-After", "1")])
+        return _error(
+            start_response,
+            "503 Service Unavailable",
+            busy_message,
+            code=busy_code,
+            extra_headers=[("Retry-After", "1")],
+        )
 
     try:
         try:
@@ -530,10 +561,38 @@ def _gated(
         except Exception as e:
             path = environ.get("PATH_INFO", "")
             log.exception("fail %s: %s", path, e)
-            err_body = {"status": "error", "code": "INTERNAL_ERROR", "error": "Internal server execution failure"}
-            return _start_json(start_response, "500 Internal Server Error", err_body)
+            return _error(start_response, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR")
     finally:
-        semaphore.release()
+        if semaphore is not None:
+            semaphore.release()
+
+
+def _run_with_logging_and_deadline(
+    start_response: Any,
+    label: str,
+    req_id: Any,
+    deadline: float,
+    start_msg: str,
+    action: Callable[[float], list[bytes]],
+) -> list[bytes]:
+    """Execute request action with deadline check, duration logging, and 500 error boundary."""
+    if time.monotonic() >= deadline:
+        return _error(
+            start_response,
+            "503 Service Unavailable",
+            "Request deadline expired before execution.",
+            code="QUEUE_TIMEOUT",
+            req_id=req_id,
+            extra_headers=[("Retry-After", "1")],
+        )
+    log.info("%s", start_msg)
+    start_t = time.perf_counter()
+    try:
+        return action(start_t)
+    except Exception as e:
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        log.exception("fail %s id=%r duration=%.2fms: %s", label, req_id, duration_ms, e)
+        return _error(start_response, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=req_id)
 
 
 def _handle_execute(
@@ -546,49 +605,38 @@ def _handle_execute(
     if err_resp is not None:
         return err_resp
     assert raw_body is not None
-    _set_write_deadline(environ)
 
     content_type = environ.get("CONTENT_TYPE") or ""
     try:
         parts = parse_execute_request(raw_body, content_type)
     except ExecuteRequestError:
         err = "Invalid multipart execute body" if is_multipart_content_type(content_type) else "Invalid JSON"
-        return _start_json(start_response, "400 Bad Request", {"status": "error", "error": err})
+        return _error(start_response, "400 Bad Request", err)
 
     req_id = parts.req_id
 
-    code, err_body = _source_text_from_part(parts.code, limit=settings.max_code_chars, label="code", required=True)
-    if err_body is not None:
-        return _error(start_response, "400 Bad Request", req_id, err_body["error"], code=err_body.get("code"))
-    assert code is not None
-
-    if parts.has_session_id:
-        return _error(start_response, "400 Bad Request", req_id, "session_id must be provided as a URL query parameter (?session_id=...), not in the request body.")
-
-    session_id = _parse_session_id(environ)
-
     try:
+        code = _validate_source_text(parts.code, limit=settings.max_code_chars, label="code", required=True)
+        assert code is not None
+
+        if parts.has_session_id:
+            raise ExecuteRequestError("session_id must be provided as a URL query parameter (?session_id=...), not in the request body.")
+
+        session_id = _parse_session_id(environ)
+
         mode = canonical_execute_mode(parts.mode)
+        if mode == "shared" and not session_id:
+            raise ExecuteRequestError("mode='shared' requires a 'session_id' URL query parameter (?session_id=...).")
+
+        init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False)
     except ExecuteRequestError as exc:
-        return _error(start_response, "400 Bad Request", req_id, str(exc))
-
-    if mode == "shared" and not session_id:
-        return _error(start_response, "400 Bad Request", req_id, "mode='shared' requires a 'session_id' URL query parameter (?session_id=...).")
-
-    init_script, err_body = _source_text_from_part(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False)
-    if err_body is not None:
-        return _error(start_response, "400 Bad Request", req_id, err_body["error"], code=err_body.get("code"))
+        return _error(start_response, "400 Bad Request", str(exc), code=exc.code, req_id=req_id)
 
     timeout_sec = clamp_timeout_sec(parts.timeout_ms, is_ms=True, default_timeout_sec=settings.default_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
     deadline = _request_deadline(environ.get("compute.accept_time"), float(timeout_sec))
-    if time.monotonic() >= deadline:
-        return _error(start_response, "503 Service Unavailable", req_id, "Request deadline expired before execution.", code="QUEUE_TIMEOUT", extra_headers=[("Retry-After", "1")])
-
     sid = session_id if mode == "shared" else None
-    start_t = time.perf_counter()
-    log.info("exec /v1/execute id=%r mode=%s session=%r code_len=%d timeout=%ds", req_id, mode, sid, len(code), timeout_sec)
 
-    try:
+    def _execute(start_t: float) -> list[bytes]:
         result_payload = run_execute(
             code=code,
             data_json=parts.data_json,
@@ -604,12 +652,16 @@ def _handle_execute(
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         status = result_payload.get("status") if isinstance(result_payload, dict) else None
         log.info("done /v1/execute id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
-
         return _send_execution_result(start_response, result_payload, req_id)
-    except Exception as e:
-        duration_ms = (time.perf_counter() - start_t) * 1000.0
-        log.exception("fail /v1/execute id=%r duration=%.2fms: %s", req_id, duration_ms, e)
-        return _error(start_response, "500 Internal Server Error", req_id, "Internal server execution failure", code="INTERNAL_ERROR")
+
+    return _run_with_logging_and_deadline(
+        start_response,
+        label="/v1/execute",
+        req_id=req_id,
+        deadline=deadline,
+        start_msg=f"exec /v1/execute id={req_id!r} mode={mode} session={sid!r} code_len={len(code)} timeout={timeout_sec}s",
+        action=_execute,
+    )
 
 
 def _handle_session_reset(
@@ -622,21 +674,23 @@ def _handle_session_reset(
     if err_resp is not None:
         return err_resp
     assert req_data is not None
-    _set_write_deadline(environ)
 
     req_id = req_data.get("id")
 
     if "session_id" in req_data:
-        return _error(start_response, "400 Bad Request", req_id, "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.")
+        return _error(start_response, "400 Bad Request", "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.", req_id=req_id)
 
-    session_id = _parse_session_id(environ)
+    try:
+        session_id = _parse_session_id(environ)
+    except ExecuteRequestError as exc:
+        return _error(start_response, "400 Bad Request", str(exc), code=exc.code, req_id=req_id)
 
     if not session_id:
-        return _error(start_response, "400 Bad Request", req_id, "Missing 'session_id' URL query parameter (?session_id=...).")
+        return _error(start_response, "400 Bad Request", "Missing 'session_id' URL query parameter (?session_id=...).", req_id=req_id)
 
-    log.info("reset /v1/session/reset id=%r session=%r", req_id, session_id)
-    start_t = time.perf_counter()
-    try:
+    deadline = _request_deadline(environ.get("compute.accept_time"), settings.default_timeout_sec)
+
+    def _reset(start_t: float) -> list[bytes]:
         result_payload = run_reset(session_id)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         status = result_payload.get("status") if isinstance(result_payload, dict) else None
@@ -644,16 +698,22 @@ def _handle_session_reset(
 
         if isinstance(result_payload, dict) and result_payload.get("status") == "error":
             infra = _infrastructure_status(result_payload)
-            http_status = infra if infra is not None else "400 Bad Request"
+            # Worker reset failure is 500 Internal Server Error (server fault) unless an infra code
+            http_status = infra if infra is not None else "500 Internal Server Error"
             _inject_req_id(result_payload, req_id)
             return _start_json(start_response, http_status, result_payload)
 
         ok_resp: dict[str, Any] = {"status": "ok"}
         return _start_json(start_response, "200 OK", _inject_req_id(ok_resp, req_id))
-    except Exception as e:
-        duration_ms = (time.perf_counter() - start_t) * 1000.0
-        log.exception("fail /v1/session/reset id=%r session=%r duration=%.2fms: %s", req_id, session_id, duration_ms, e)
-        return _error(start_response, "500 Internal Server Error", req_id, "Internal server execution failure", code="INTERNAL_ERROR")
+
+    return _run_with_logging_and_deadline(
+        start_response,
+        label="/v1/session/reset",
+        req_id=req_id,
+        deadline=deadline,
+        start_msg=f"reset /v1/session/reset id={req_id!r} session={session_id!r}",
+        action=_reset,
+    )
 
 
 def _handle_vision(
@@ -665,47 +725,53 @@ def _handle_vision(
     if err_resp is not None:
         return err_resp
     assert req_data is not None
-    _set_write_deadline(environ)
 
     req_id = req_data.get("id")
     helper = str(req_data.get("helper") or "extract_text").strip()
-    image_b64 = req_data.get("image_b64") or req_data.get("image")
+    image_input = req_data.get("image_b64") or req_data.get("image")
     file_path = req_data.get("file_path")
 
-    b64_str = image_b64 if isinstance(image_b64, str) and image_b64.strip() else None
+    image_str = image_input if isinstance(image_input, (str, bytes, bytearray)) and image_input else None
     path_str = file_path if isinstance(file_path, str) and file_path.strip() else None
 
-    if not b64_str and not path_str:
-        return _error(start_response, "400 Bad Request", req_id, "Missing image input: either 'image_b64' (base64 string buffer) or 'file_path' (server path) is required.")
+    if not image_str and not path_str:
+        return _error(start_response, "400 Bad Request", "Missing image input: either 'image_b64'/'image' (base64 string buffer) or 'file_path' (server path) is required.", req_id=req_id)
 
     if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
-        return _error(start_response, "400 Bad Request", req_id, "file_path is not under ocr.allow_paths (default deny).", code="FILE_PATH_DENIED")
+        return _error(start_response, "400 Bad Request", "file_path is not under ocr.allow_paths (default deny).", code="FILE_PATH_DENIED", req_id=req_id)
 
     params = req_data.get("params") or {}
     vision_budget = float(clamp_timeout_sec(req_data.get("timeout_ms"), is_ms=True, default_timeout_sec=settings.ocr_timeout_sec, max_timeout_sec=settings.max_timeout_sec))
-
     vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
-    if time.monotonic() >= vision_deadline:
-        return _error(start_response, "503 Service Unavailable", req_id, "Request deadline expired before execution.", code="QUEUE_TIMEOUT", extra_headers=[("Retry-After", "1")])
 
     from compute_service.vision_pool import get_vision_pool
 
-    vision_timeout = max(1, int(vision_deadline - time.monotonic()))
     vision_pool = get_vision_pool(settings)
-    try:
+
+    def _vision(start_t: float) -> list[bytes]:
         result_payload = vision_pool.execute(
             helper=helper,
-            image_b64=b64_str,
+            image=image_str,
             file_path=path_str,
             params=params if isinstance(params, dict) else {},
-            timeout_sec=vision_timeout,
+            timeout_sec=int(vision_budget),
             req_id=req_id,
             allow_paths=settings.ocr_allow_paths,
+            deadline=vision_deadline,
         )
+        duration_ms = (time.perf_counter() - start_t) * 1000.0
+        status = result_payload.get("status") if isinstance(result_payload, dict) else None
+        log.info("done /v1/vision id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
         return _send_execution_result(start_response, result_payload, req_id)
-    except Exception as e:
-        log.exception("fail /v1/vision id=%r: %s", req_id, e)
-        return _error(start_response, "500 Internal Server Error", req_id, "Internal server execution failure", code="INTERNAL_ERROR")
+
+    return _run_with_logging_and_deadline(
+        start_response,
+        label="/v1/vision",
+        req_id=req_id,
+        deadline=vision_deadline,
+        start_msg=f"vision /v1/vision id={req_id!r} helper={helper!r}",
+        action=_vision,
+    )
 
 
 def create_wsgi_app(
@@ -723,9 +789,8 @@ def create_wsgi_app(
     ``plugin.framework.config``.
 
     ``/v1/execute`` and ``/v1/session/reset`` share a non-blocking permit
-    count sized to the formula pool. ``/v1/vision`` has its own, sized to
-    the vision pool. One shared count let formula traffic hold every permit
-    and 503 vision while OCR workers were idle (and the reverse).
+    count sized to allow sticky session queues without starving idle workers,
+    while reserving at least 2 listener threads for immediate ``GET /health``.
     ``worker_semaphore`` and ``vision_semaphore`` override those gates in tests.
     """
     run_execute = execute_fn
@@ -759,22 +824,30 @@ def create_wsgi_app(
             return _start_json(start_response, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
 
         if path == "/v1/execute" and method == "POST":
+            # Per Bug 5: Sticky requests (?session_id=...) wait per-worker without holding the
+            # global isolated permit, avoiding head-of-line stalls on idle workers.
+            try:
+                has_session = bool(_parse_session_id(environ))
+            except ExecuteRequestError:
+                has_session = False
+            route_sem = None if has_session else worker_semaphore
             return _gated(
                 environ,
                 start_response,
                 settings,
-                worker_semaphore,
+                route_sem,
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda: _handle_execute(environ, start_response, settings, _get_execute()),
             )
 
         if path == "/v1/session/reset" and method == "POST":
+            # Session resets are per-session; do not hold global isolated permit
             return _gated(
                 environ,
                 start_response,
                 settings,
-                worker_semaphore,
+                None,
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda: _handle_session_reset(environ, start_response, settings, _get_reset()),
@@ -888,16 +961,21 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 self.server_close()
                 raise
 
-    def server_activate(self) -> None:
-        for sock in self.sockets:
-            sock.listen(self.request_queue_size)
-
-    def server_close(self) -> None:
+    def close_sockets(self) -> None:
+        """Close listening sockets so new incoming connections are refused immediately."""
         for sock in self.sockets:
             try:
                 sock.close()
             except Exception:
                 pass
+        self.sockets.clear()
+
+    def server_activate(self) -> None:
+        for sock in self.sockets:
+            sock.listen(self.request_queue_size)
+
+    def server_close(self) -> None:
+        self.close_sockets()
         self.executor.shutdown(wait=False, cancel_futures=False)
 
     def drain_executor(self, timeout: float) -> None:
@@ -934,7 +1012,9 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                         if ready_sock in listen:
                             try:
                                 conn, client_address = ready_sock.accept()
-                            except OSError:
+                            except OSError as e:
+                                log.warning("Accept error: %s; backing off", e)
+                                time.sleep(0.05)
                                 continue
                             if not self.verify_request(conn, client_address):
                                 self.shutdown_request(conn)
@@ -953,7 +1033,14 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     def process_request(self, request: Any, client_address: Any) -> None:
         """Submit incoming request to the thread pool executor."""
-        self.executor.submit(self.process_request_thread, request, client_address)
+        try:
+            self.executor.submit(self.process_request_thread, request, client_address)
+        except Exception:
+            try:
+                request.close()
+            except Exception:
+                pass
+            raise
 
     def shutdown_request(self, request: Any) -> None:
         self._accept_times.pop(id(request), None)
@@ -970,7 +1057,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
 
 class DeadlineRequestHandler(WSGIRequestHandler):
-    """WSGI request handler with read deadline and compute context logging."""
+    """WSGI request handler with total header read deadline and compute context logging."""
 
     def setup(self) -> None:
         super().setup()
@@ -978,6 +1065,35 @@ class DeadlineRequestHandler(WSGIRequestHandler):
             self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
         except Exception:
             pass
+
+    def handle_one_request(self) -> None:
+        """Handle request with a total header-read deadline."""
+        accept_time = getattr(self.server, "_accept_times", {}).get(id(self.connection))
+        header_deadline = (float(accept_time) if accept_time is not None else time.monotonic()) + _REQUEST_READ_TIMEOUT_SEC
+        rfile_raw: Any = getattr(self.rfile, "raw", None)
+        orig_readinto = getattr(rfile_raw, "readinto", None) if rfile_raw is not None else None
+
+        def _deadline_readinto(b: Any) -> int:
+            now = time.monotonic()
+            remaining = header_deadline - now
+            if remaining <= 0:
+                raise socket.timeout("Header read deadline expired")
+            self.connection.settimeout(max(0.01, remaining))
+            if callable(orig_readinto):
+                return int(orig_readinto(b))
+            return 0
+
+        if rfile_raw is not None and callable(orig_readinto):
+            rfile_raw.readinto = _deadline_readinto
+        try:
+            super().handle_one_request()
+        finally:
+            if rfile_raw is not None and orig_readinto is not None:
+                rfile_raw.readinto = orig_readinto
+            try:
+                self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
+            except Exception:
+                pass
 
     def address_string(self) -> str:
         return str(self.client_address[0])
@@ -1024,11 +1140,6 @@ def run_server(settings: ComputeSettings) -> None:
     setup_logging(settings.log_level)
     auth_note = "auth=yes" if settings.auth_required else "auth=no (insecure)"
     log.info("Starting Python Compute Service on %s:%d (%s, workers=%d, ocr_workers=%d)...", settings.host, settings.port, auth_note, settings.workers, settings.ocr_workers)
-    from plugin.scripting.payload_codec import get_cython_status_info, load_cython_accelerator
-
-    load_cython_accelerator()
-    _cy_active, _cy_loc, cy_status = get_cython_status_info()
-    log.info("%s", cy_status)
 
     from compute_service.formula_pool import get_formula_pool
 
@@ -1072,6 +1183,7 @@ def run_server(settings: ComputeSettings) -> None:
         server.serve_forever()
     finally:
         log.info("Stopping Python Compute Service...")
+        server.close_sockets()
         server.drain_executor(_HTTP_DRAIN_SEC)
         from compute_service.formula_pool import shutdown_formula_pool
         from compute_service.vision_pool import shutdown_vision_pool

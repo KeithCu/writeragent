@@ -20,6 +20,7 @@ import ast
 import copy
 import datetime
 import decimal
+from collections import OrderedDict
 import fractions
 import importlib
 import logging
@@ -50,6 +51,17 @@ from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
 # document OnUnload (workbook_lifecycle), or worker process exit.
 _SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
 _SESSION_LOCK = threading.Lock()
+_MAX_ISOLATED_INIT_SNAPSHOTS = 32
+_ISOLATED_INIT_LRU: OrderedDict[str, None] = OrderedDict()
+
+
+def _record_isolated_init_access_unlocked(init_session_id: str) -> None:
+    _ISOLATED_INIT_LRU[init_session_id] = None
+    _ISOLATED_INIT_LRU.move_to_end(init_session_id)
+    while len(_ISOLATED_INIT_LRU) > _MAX_ISOLATED_INIT_SNAPSHOTS:
+        oldest, _ = _ISOLATED_INIT_LRU.popitem(last=False)
+        _SESSION_EXECUTORS.pop(oldest, None)
+        _INIT_SCRIPT_HASH.pop(oldest, None)
 
 # Cell / RPS session for the current execute. Isolated runs leave this None so
 # DuckDB and similar caches stay per-request. Init-only ids are not stored here
@@ -737,6 +749,7 @@ def clear_all_sandbox_sessions() -> None:
         _SESSION_EXECUTORS.clear()
         _INIT_SCRIPT_HASH.clear()
         _CELL_SESSION_INIT_DIGEST.clear()
+        _ISOLATED_INIT_LRU.clear()
     _reset_session_duckdb(None)
 
 
@@ -856,6 +869,8 @@ def _ensure_init_executed(
         if prior is not None and prior != digest:
             _clear_init_session_unlocked(init_session_id)
         elif prior == digest and init_session_id in _SESSION_EXECUTORS:
+            if init_session_id.startswith("isolated:"):
+                _record_isolated_init_access_unlocked(init_session_id)
             return None
 
     init_executor = _get_or_create_session_executor(init_session_id, timeout_sec)
@@ -872,11 +887,14 @@ def _ensure_init_executed(
         with _SESSION_LOCK:
             _SESSION_EXECUTORS.pop(init_session_id, None)
             _INIT_SCRIPT_HASH.pop(init_session_id, None)
+            if init_session_id.startswith("isolated:"):
+                _ISOLATED_INIT_LRU.pop(init_session_id, None)
         return result
-
 
     with _SESSION_LOCK:
         _INIT_SCRIPT_HASH[init_session_id] = digest
+        if init_session_id.startswith("isolated:"):
+            _record_isolated_init_access_unlocked(init_session_id)
     return None
 
 
