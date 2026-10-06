@@ -2922,7 +2922,7 @@ def test_m2_ui_calls_stay_responsive_during_stream(ctx):
         _reset_mock_runtime()
     assert latencies, "M2 stream ended before any probe ran"
     worst = max(latencies)
-    print("M2 control-read latency: n=%d worst=%.3fs mean=%.3fs" % (len(latencies), worst, sum(latencies) / len(latencies)))
+    print("M2 control-read latency: n=%d worst=%.2fms mean=%.2fms" % (len(latencies), worst * 1000, sum(latencies) * 1000 / len(latencies)))
     assert worst < _M_MAX_UI_LATENCY_SEC, "M2 worst control-read latency %.3fs during stream (limit %.2fs)" % (
         worst,
         _M_MAX_UI_LATENCY_SEC,
@@ -3000,20 +3000,23 @@ def test_m5_turn_one_no_garble(ctx):
     time.sleep(0.5)
     cleared = _transcript()
     assert "You:" not in cleared, "M5 Clear left old rows: %r" % cleared[-300:]
+    # The greeting is itself an "Assistant:" row; count rows relative to it.
+    you0, asst0 = cleared.count("You:"), cleared.count("Assistant:")
     paint0, _stream0 = _m_counts(ctx)
 
     _send_and_wait("hello", timeout=60.0)
     text = _transcript()
     assert text.startswith(cleared.rstrip()), "M5 turn one replaced the greeting: %r -> %r" % (cleared[-200:], text[:300])
-    assert text.count("You:") == 1, "M5 turn one should show one You: row: %r" % text[-500:]
-    assert text.count("Assistant:") == 1, "M5 turn one should show one Assistant: row: %r" % text[-500:]
+    assert text.count("You:") == you0 + 1, "M5 turn one should add one You: row: %r" % text[-500:]
+    assert text.count("Assistant:") == asst0 + 1, "M5 turn one should add one Assistant: row: %r" % text[-500:]
     paint1, _stream1 = _m_counts(ctx)
     assert paint1 <= paint0 + 1, "M5 turn one repainted %d times" % (paint1 - paint0)
 
     _send_and_wait("hello", timeout=60.0)
     text2 = _transcript()
-    assert text2.count("You:") == 2, "M5 turn two should show two You: rows: %r" % text2[-500:]
-    assert text2.count("Assistant:") == 2, "M5 turn two should show two Assistant: rows: %r" % text2[-500:]
+    assert text2.startswith(cleared.rstrip()), "M5 turn two replaced the greeting: %r" % text2[:300]
+    assert text2.count("You:") == you0 + 2, "M5 turn two should show two You: rows: %r" % text2[-500:]
+    assert text2.count("Assistant:") == asst0 + 2, "M5 turn two should show two Assistant: rows: %r" % text2[-500:]
     paint2, _stream2 = _m_counts(ctx)
     assert paint2 <= paint1 + 1, "M5 turn two repainted %d times" % (paint2 - paint1)
 
