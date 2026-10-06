@@ -128,31 +128,40 @@ class TestAppendRichText:
         content = doc.getText().getString()
         assert ("Assistant: ") in (content)
 
-    def test_append_rich_text_chunks_go_right(self):
-        from plugin.chatbot.rich_text import append_rich_text
-        doc = MockDoc()
+    def test_go_right_chunks_large_moves(self):
+        from plugin.chatbot.rich_text import _go_right
 
-        # Force pre_len in append_rich_text to be large enough to trigger chunking
-        # pre_len is calculated as doc.CharacterCount - previous
-        doc._text._content = " " * 40000
+        cursor = MockTextCursor()
+        assert _go_right(cursor, 40000, False) is True
+        assert hasattr(cursor, "go_right_calls")
 
-        created_cursors = []
-        original_create = doc.getText().createTextCursor
-        def patched_create():
-            c = original_create()
-            created_cursors.append(c)
-            return c
-        doc.getText().createTextCursor = patched_create
-
-        append_rich_text(doc, "Some content", "user")
-
-        body_cursor = created_cursors[-1]
-        assert hasattr(body_cursor, "go_right_calls")
-
-        calls = body_cursor.go_right_calls
+        calls = cursor.go_right_calls
         pre_len = sum(count for count, expand in calls)
         assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
         assert all(count <= 8192 for count, expand in calls)
+
+    def test_append_rich_text_anchors_body_start_without_character_count_offset(self):
+        """The body range starts one past the prefix's last character, not at a document-start count."""
+        from plugin.chatbot.rich_text import append_rich_text, USER_COLOR
+
+        doc = MockDoc()
+        append_rich_text(doc, "done", role="assistant")
+
+        by_range = []
+        original_by_range = doc.getText().createTextCursorByRange
+
+        def patched_by_range(rng):
+            c = original_by_range(rng)
+            by_range.append(c)
+            return c
+
+        doc.getText().createTextCursorByRange = patched_by_range
+
+        append_rich_text(doc, "how are you?", role="user")
+
+        body_range = by_range[-1]
+        assert body_range.go_right_calls == [(1, False)]
+        assert body_range.CharColor == USER_COLOR
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
@@ -260,12 +269,13 @@ class TestAppendRichText:
         doc = MockDoc()
         body_cursors = []
 
-        def track_body_cursor():
+        def track_body_cursor(rng):
             c = MockTextCursor()
             body_cursors.append(c)
             return c
 
-        doc.getText().createTextCursor = track_body_cursor
+        # The body range is created from the prefix anchor, by range.
+        doc.getText().createTextCursorByRange = track_body_cursor
 
         with patch("plugin.chatbot.rich_text._insert_html_at_cursor"):
             append_rich_text(doc, '<p><span style="color:#ff0000">red</span></p>', role="assistant")
@@ -280,12 +290,13 @@ class TestAppendRichText:
         doc = MockDoc()
         body_cursors = []
 
-        def track_body_cursor():
+        def track_body_cursor(rng):
             c = MockTextCursor()
             body_cursors.append(c)
             return c
 
-        doc.getText().createTextCursor = track_body_cursor
+        # The body range is created from the prefix anchor, by range.
+        doc.getText().createTextCursorByRange = track_body_cursor
         append_rich_text(doc, "plain answer", role="assistant")
 
         assert (len(body_cursors)) >= (2)
@@ -382,6 +393,82 @@ class TestAppendRichText:
         content = doc.getText().getString()
         assert "NOT_IN_MESSAGES" not in content
         assert "hello" in content
+
+
+class TestLeadingListImport:
+    """A reply that opens with <ol>/<ul> lost its first item's number (release QA area 5).
+
+    Writer pastes the first imported paragraph into the "Assistant: "
+    paragraph, so the first <li> became plain text and the rest started at 1.
+    """
+
+    def _imported(self, html):
+        from plugin.chatbot.rich_text import append_rich_text
+
+        seen: list[str] = []
+
+        def _capture(_doc, _cursor, fragment):
+            seen.append(fragment)
+
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_capture):
+            assert append_rich_text(MockDoc(), html, role="assistant")
+        return seen
+
+    def test_leading_ordered_list_gets_sentinel_paragraph(self):
+        assert self._imported("<ol><li>a</li><li>b</li></ol>") == ["<p>\u200b</p><ol><li>a</li><li>b</li></ol>"]
+
+    def test_leading_list_with_whitespace_and_attributes(self):
+        seen = self._imported('\n  <OL start="11">\n<li>a</li></OL>')
+        assert seen[0].startswith("<p>\u200b</p>")
+        seen = self._imported("<ul><li>a</li></ul>")
+        assert seen[0].startswith("<p>\u200b</p><ul>")
+
+    def test_numbered_paragraphs_start_on_their_own_line(self):
+        """gpt-oss-20b sent <p>1. ...</p><p>2. ...</p>; item 1 sat on the label line."""
+        html = "<p>1. Lighthouses use a lens.</p>\n<p>2. Colors matter.</p>"
+        assert self._imported(html) == ["<p>\u200b</p>" + html]
+        for lead in ("\n<p>6. Six</p>", '<p class="x"> 2) Two</p>', "<p>\u2022 dot</p>", "<p>- dash</p>"):
+            assert self._imported(lead)[0].startswith("<p>\u200b</p>"), lead
+
+    def test_prose_paragraphs_keep_sharing_the_prefix_line(self):
+        for html in ("<p>2024 was a good year.</p>", "<p>**Bold** text</p>", "<p>1.5 million keepers</p>"):
+            assert self._imported(html) == [html], html
+
+    def test_intro_paragraph_keeps_sharing_the_prefix_line(self):
+        assert self._imported("<p>Here:</p><ol><li>a</li></ol>") == ["<p>Here:</p><ol><li>a</li></ol>"]
+
+    def test_sentinel_is_deleted_after_import(self):
+        from plugin.chatbot.rich_text import _drop_list_sentinel
+
+        class Probe:
+            def __init__(self, char):
+                self.char = char
+
+            def goRight(self, count, select):
+                return True
+
+            def getString(self):
+                return self.char
+
+            def setString(self, value):
+                self.char = value
+
+        anchor = MagicMock()
+        for char, expected in (("\u200b", ""), ("x", "x")):
+            probe = Probe(char)
+            text_obj = MagicMock()
+            text_obj.createTextCursorByRange.return_value = probe
+            _drop_list_sentinel(text_obj, anchor)
+            assert probe.char == expected
+
+    def test_compact_list_matches_its_message(self):
+        """A full repaint checked the span against "abc" and wrote plain "abc"."""
+        from plugin.chatbot.rich_text import _span_matches_message
+
+        html = "<ol><li>alpha</li><li>beta</li><li>gamma</li></ol>"
+        assert _span_matches_message("Assistant: \nalpha\nbeta\ngamma\n", "assistant", html)
+        assert _span_matches_message("Assistant: \na\nb\nc\n", "assistant", "<ul><li>a</li><li>b</li><li>c</li></ul>")
+        assert not _span_matches_message("Assistant: alpha\nINTRUDER", "assistant", html)
 
 
 class TestTightenListIndent:

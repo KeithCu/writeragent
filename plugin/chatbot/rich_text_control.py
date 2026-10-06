@@ -69,9 +69,37 @@ def log_rich_scroll(phase: str, *, control: Any = None, reason: str | None = Non
         except Exception:
             pass
     parts.append(f"main={int(threading.current_thread() is threading.main_thread())}")
+    if control is not None:
+        parts.append(_rich_scrollbar_snapshot(control))
     for key, value in extra.items():
         parts.append(f"{key}={value}")
     log.debug(" ".join(parts))
+
+
+def _rich_scrollbar_snapshot(control: Any) -> str:
+    """Vertical scrollbar of the rich peer via accessibility (verbose scroll log only).
+
+    sb_val is the view top (VisArea.Top, twips) and sb_max is the content
+    height the EditEngine reports (GetTextHeight). A layout that disagrees
+    with that height is the blank-transcript bug, so the log records both.
+    """
+    try:
+        peer = control.getPeer()
+        stack = [peer.getAccessibleContext()] if peer is not None else []
+        seen = 0
+        while stack and seen < 64:
+            acc_ctx = stack.pop()
+            seen += 1
+            if acc_ctx is None:
+                continue
+            if acc_ctx.getAccessibleRole() == 50:  # AccessibleRole.SCROLL_BAR
+                return "sb_val=%s sb_max=%s" % (acc_ctx.getCurrentValue(), acc_ctx.getMaximumValue())
+            for i in range(acc_ctx.getAccessibleChildCount()):
+                child = acc_ctx.getAccessibleChild(i)
+                stack.append(child.getAccessibleContext() if child is not None else None)
+        return "sb=none"
+    except Exception as e:
+        return "sb_err=%s" % type(e).__name__
 
 
 def log_rich_control_context(ctx: Any, phase: str, **extra: Any) -> None:
@@ -123,6 +151,23 @@ class RichTextChatWidget:
         # restore whichever Ask field was pinned for the process.
         self.restore_focus = restore_focus
         self.model = control.getModel() if control else None
+        # What the control shows, so a stream update can append only the new
+        # text instead of wiping and refilling the transcript. Rows
+        # [0, _formatted_rows) are a formatted paint that ends at control
+        # offset _formatted_len. Later rows were appended as plain text while
+        # streaming. _shown None means unknown, and the next update repaints.
+        self._shown: list[tuple[str, str]] | None = None
+        self._formatted_rows: int = 0
+        self._formatted_len: int | None = None
+        # Greeting row painted above the session rows (load, Clear). It is not
+        # a session message, so every paint and diff adds it the same way.
+        # What was wrong: the greeting was painted on load and Clear, but the
+        # first stream update diffed against the session without it, saw a
+        # changed prefix and wiped and refilled the control at send time.
+        # Plain text appended right after that clear-and-refill was drawn from
+        # a stale layout: turn 1 after load streamed with lines missing
+        # ("Assistant: Paragraph 1 of 10. This slow", "10. This slow mock").
+        self._greeting: str = ""
 
     def get_text_length(self) -> int | None:
         """Get the length of the text currently in the control.
@@ -134,6 +179,22 @@ class RichTextChatWidget:
     def clear(self) -> None:
         """Clear the control contents."""
         clear_control(self.control)
+        self._set_formatted_state([])
+
+    def _set_formatted_state(self, items: list[tuple[str, str]] | None) -> None:
+        """Record that the control shows *items*, all formatted.
+
+        None, or a control length that cannot be read, records "unknown".
+        Without that offset there is nowhere to cut the plain tail, so the
+        next update falls back to a full repaint.
+        """
+        length = get_control_text_length(self.control) if items is not None else None
+        if items is None or length is None:
+            self._shown, self._formatted_rows, self._formatted_len = None, 0, None
+            return
+        self._shown = list(items)
+        self._formatted_rows = len(items)
+        self._formatted_len = length
 
     def reveal_caret(self, reason: str = "widget") -> None:
         """Ask EditView to show its caret (AUTOSCROLL); does not move the caret."""
@@ -141,6 +202,12 @@ class RichTextChatWidget:
 
     def append_chunk(self, text: str, auto_scroll: bool = True) -> None:
         """Append a plain text chunk (e.g. streaming tokens) using theme colors."""
+        # Text outside the formatted prefix (the Stop banner). Record it as a
+        # plain tail row: the next update then cuts the tail at the prefix end
+        # and writes it again, instead of wiping and refilling the whole
+        # control (same stale-layout case as the greeting above).
+        if self._shown is not None:
+            self._shown = self._shown + [("assistant", text)]
         append_text_chunk(
             self.control,
             text,
@@ -151,36 +218,199 @@ class RichTextChatWidget:
             restore_focus=self.restore_focus,
         )
 
-    def paint_session(self, session: Any, greeting: str = "") -> None:
-        """Draw the control from ``session.messages``. The hidden doc is that paint."""
-        from plugin.chatbot.rich_text_paste import paint_message_items, session_history_items
+    def paint_session(self, session: Any, greeting: str | None = None) -> None:
+        """Draw the control from ``session.messages``. The hidden doc is that paint.
 
+        Full repaint: load/switch, Stop, Clear, and an unknown control state.
+        Streaming goes through ``stream_session`` instead.
+        """
+        from plugin.chatbot.rich_text_paste import session_history_items
+
+        if greeting is not None:
+            self._greeting = greeting
         if session is None:
             self.clear()
             return
+        self._paint_items(session_history_items(session, self._greeting))
+
+    def _paint_items(self, items: list[tuple[str, str]]) -> None:
+        """Replace the control with a formatted paint of *items*."""
+        from plugin.chatbot.rich_text_paste import paint_message_items
+
         paint_message_items(
             self.ctx,
             self.control,
-            session_history_items(session, greeting),
+            items,
             style_window=self.style_window,
             restore=self.query,
             restore_focus=self.restore_focus,
         )
+        self._set_formatted_state(items)
+
+    def _formatted_prefix_ok(self, items: list[tuple[str, str]]) -> bool:
+        """True when *items* still start with the formatted rows the control shows."""
+        shown = self._shown
+        k = self._formatted_rows
+        return shown is not None and self._formatted_len is not None and len(items) >= k and items[:k] == shown[:k]
+
+    def _repaint_prefix_then_plain_tail(self, items: list[tuple[str, str]]) -> None:
+        """Full paint up to the last user row; this turn's later rows as plain text.
+
+        Runs only when the control no longer matches the list (unknown state,
+        or a change inside the formatted prefix). Load, Clear and Stop keep a
+        matching prefix, so turn 1 and the turn after Stop do not come here.
+        The open assistant row lands in the plain tail, so the next chunks
+        take the append path again.
+        """
+        from plugin.chatbot.rich_text_paste import _plain_append_messages
+
+        k = 0
+        for idx, (role, _content) in enumerate(items):
+            if role == "user":
+                k = idx + 1
+        if k:
+            self._paint_items(items[:k])
+        else:
+            self.clear()
+        tail = items[k:]
+        if self._shown is None:
+            # The control length could not be read, so there is no offset to
+            # cut a plain tail at later. Paint every row instead.
+            if tail:
+                self._paint_items(items)
+            return
+        if tail:
+            _plain_append_messages(
+                self.control, tail, self.ctx, self.style_window,
+                auto_scroll=True, restore_focus=self.restore_focus,
+            )
+        self._shown = list(items)
+
+    def stream_session(self, session: Any) -> None:
+        """Show ``session.messages`` during a turn by appending, not repainting.
+
+        Why not ``paint_session`` per batch: a wipe-and-refill about 3 times a
+        second built 3 hidden Writer docs a second and left VCL drawing from a
+        stale layout (blank transcript, growing gap below the last line).
+
+        The formatted prefix (everything painted before this turn) is left as
+        it is. A user row that opens the turn is appended formatted. Assistant
+        rows are appended as plain text, and only the new characters are
+        written. A row that changed in a way that is not an append (the
+        committed message replacing the open row, think text dropped) cuts the
+        plain tail at the end of the prefix and writes the tail again as plain
+        text. Only a change inside the prefix, or an unknown control, repaints
+        everything. ``rerender_last_assistant_if_html`` formats the tail at Ready.
+        """
+        from plugin.chatbot.rich_text_paste import (
+            _plain_append_messages,
+            _rollback_rich_insert,
+            append_rich_text_via_clipboard,
+            session_history_items,
+        )
+
+        if session is None:
+            self.clear()
+            return
+        items = session_history_items(session, self._greeting)
+        if not self._formatted_prefix_ok(items):
+            self._repaint_prefix_then_plain_tail(items)
+            return
+        k = self._formatted_rows
+        old_tail = cast("list[tuple[str, str]]", self._shown)[k:]
+        new_tail = items[k:]
+        # User rows that open the turn join the formatted prefix. A failed
+        # formatted copy rolls itself back; the row then goes in the plain tail.
+        while not old_tail and new_tail and new_tail[0][0] == "user":
+            if not append_rich_text_via_clipboard(
+                self.ctx, self.control, new_tail[0][1], role="user", style_window=self.style_window,
+                auto_scroll=True, restore=self.query, restore_focus=self.restore_focus,
+            ):
+                break
+            length = get_control_text_length(self.control)
+            if length is None:
+                # No offset to cut the tail at any more: full repaint.
+                self._paint_items(items)
+                return
+            k += 1
+            self._formatted_rows = k
+            self._formatted_len = length
+            new_tail = items[k:]
+        if not self._append_to_plain_tail(old_tail, new_tail):
+            # Not an append: cut the plain tail at the end of the prefix and
+            # write it again. The prefix is not cleared.
+            _rollback_rich_insert(self.control, self._formatted_len)
+            _plain_append_messages(
+                self.control, new_tail, self.ctx, self.style_window,
+                auto_scroll=True, restore_focus=self.restore_focus,
+            )
+        self._shown = list(items)
+
+    def _append_to_plain_tail(self, old_tail: list[tuple[str, str]], new_tail: list[tuple[str, str]]) -> bool:
+        """Write what *new_tail* adds to the plain rows *old_tail* already shown.
+
+        False, with nothing written, when *new_tail* is not *old_tail* plus
+        appended text and rows.
+        """
+        from plugin.chatbot.rich_text_paste import _plain_append_messages, _plain_fallback_text
+
+        m = len(old_tail)
+        if m:
+            if m > len(new_tail) or old_tail[:-1] != new_tail[: m - 1]:
+                return False
+            old_role, old_content = old_tail[-1]
+            new_role, new_content = new_tail[m - 1]
+            old_plain = _plain_fallback_text(old_content or "")
+            new_plain = _plain_fallback_text(new_content or "")
+            if old_role != new_role or not new_plain.startswith(old_plain):
+                return False
+            if not old_plain.strip():
+                # _plain_append_messages skips an empty row, so this one was
+                # never written. Write it whole now.
+                _plain_append_messages(
+                    self.control, [(new_role, new_content)], self.ctx, self.style_window,
+                    auto_scroll=True, restore_focus=self.restore_focus,
+                )
+            elif len(new_plain) > len(old_plain):
+                theme = ChatTheme.resolve(style_window=self.style_window)
+                append_text_chunk(
+                    self.control, new_plain[len(old_plain):], auto_scroll=True, style_window=self.style_window,
+                    ctx=self.ctx, query=self.query,
+                    char_color=theme.user_color if new_role == "user" else theme.assistant_color,
+                    restore_focus=self.restore_focus,
+                )
+        if len(new_tail) > m:
+            _plain_append_messages(
+                self.control, new_tail[m:], self.ctx, self.style_window,
+                auto_scroll=True, restore_focus=self.restore_focus,
+            )
+        return True
 
     def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> bool:
-        """Draw the control again from the message list.
+        """Format this turn's rows once the reply is complete.
 
-        True when the session has an assistant row and the control was painted
-        from it. Callers that still hold a stripper leftover append it when
-        this returns False.
+        True when the session has an assistant row and the control was drawn
+        from the list. Callers that still hold a stripper leftover append it
+        when this returns False.
 
         What was wrong: this truncated the control at ``stream_start_len`` and
         spliced the last assistant HTML onto that cut. A missing offset skipped
         the cut and the HTML was appended on top of the stream. A failed insert
         left a partial copy that was not the message list.
-        Why this change: the list is already updated. Paint the whole list.
-        ``stream_start_len`` is only logged; it is not a splice point.
+        Why this change: the list is already updated, so draw from the list.
+        ``stream_start_len`` is only logged; it is not a splice point. The cut
+        is the end of the formatted prefix this widget recorded, so only the
+        rows streamed as plain text this turn are replaced. When that prefix is
+        unknown or no longer matches the list, the whole list is repainted.
         """
+        from plugin.chatbot.rich_text_paste import (
+            _ensure_message_separator,
+            _force_rich_full_reformat,
+            _rollback_rich_insert,
+            append_rich_messages_via_clipboard,
+            session_history_items,
+        )
+
         final_msg = None
         for msg in reversed(session.messages):
             if msg.get("role") == "assistant" and msg.get("content"):
@@ -197,24 +427,40 @@ class RichTextChatWidget:
         content = final_msg.get("content", "")
         if not content or not str(content).strip():
             return False
-        self.paint_session(session)
+        items = session_history_items(session, self._greeting)
+        if not self._formatted_prefix_ok(items):
+            log_rich_scroll("turn_end_full_paint", control=self.control, rows=len(items))
+            self.paint_session(session)
+            return True
+        tail = items[self._formatted_rows:]
+        log_rich_scroll("turn_end_tail", control=self.control, rows=len(items), tail_rows=len(tail), cut=self._formatted_len)
+        # Cut the plain tail and append the same rows formatted. The
+        # transcript above the cut is not wiped and refilled.
+        _rollback_rich_insert(self.control, self._formatted_len)
+        if tail:
+            _ensure_message_separator(self.control)
+            append_rich_messages_via_clipboard(
+                self.ctx, self.control, tail, style_window=self.style_window,
+                restore=self.query, restore_focus=self.restore_focus,
+            )
+        # A long cut (two turns after a Stop: partial answer, banner, the next
+        # turn) then a formatted refill left the same stale layout as a full
+        # repaint: an 80px gap under the reply at Ready. One reformat per turn,
+        # outside the stream drain, so it settles before the next send.
+        _force_rich_full_reformat(self.control)
+        _scroll_rich_to_tail(self.control, self.ctx, restore_focus=self.restore_focus)
+        self._set_formatted_state(items)
         return True
 
     def clear_and_greeting(self, greeting: str = "") -> None:
         """Replace the transcript with the greeting. The old HTML is not edited."""
-        from plugin.chatbot.rich_text_paste import paint_message_items
-
+        self._greeting = greeting or ""
         if not greeting:
             self.clear()
             return
-        paint_message_items(
-            self.ctx,
-            self.control,
-            [("assistant", greeting)],
-            style_window=self.style_window,
-            restore=self.query,
-            restore_focus=self.restore_focus,
-        )
+        # Recorded as the formatted prefix, so the first send after Clear
+        # appends its rows under the greeting instead of repainting.
+        self._paint_items([("assistant", greeting)])
 
     def render_session_history(self, session: Any, greeting: str = "") -> None:
         """Replace the control with a paint of the session message list."""
@@ -1195,9 +1441,10 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         color = theme.assistant_color if char_color is None else char_color
         _insert_string_at_rich_cursor(model, cursor, text, color)
         if auto_scroll:
+            # _scroll_rich_to_tail already restores before and after SelectAll.
+            # A third restore here repeated the second with nothing in between,
+            # and each one is a GrabFocus on this frame (release QA BUG A).
             _scroll_rich_to_tail(control, ctx, query, restore_focus)
-            if callable(restore_focus):
-                restore_focus()
             process_events_to_idle(ctx, force=True)
 
     try:

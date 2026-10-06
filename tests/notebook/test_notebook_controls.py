@@ -676,3 +676,43 @@ def test_attach_form_listener_fails_when_add_container_listener_raises():
         assert len(notebook_controls._listener_refs) == 0
         assert len(notebook_controls._wired_form_docs) == 0
         control.removeActionListener.assert_called_once()
+
+
+def test_wire_all_lost_race_detaches_its_duplicate_listener():
+    """Two callers past the first check: the loser takes its listeners back off."""
+    import plugin.notebook.notebook_controls as notebook_controls
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.RuntimeUID = "race_uid"
+    container = MagicMock()
+    control = MagicMock()
+    container.getControls.return_value = [control]
+
+    def _racer_wins(_our_container_listener):
+        # The other caller registered its pair while we were attaching.
+        racer = notebook_controls.NotebookFormContainerListener(
+            notebook_controls.NotebookFormRunListener(ctx, doc), container
+        )
+        notebook_controls._listener_refs.append(racer)
+
+    container.addContainerListener.side_effect = _racer_wins
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b),
+    ):
+        notebook_controls._listener_refs.clear()
+        notebook_controls._wired_form_docs.clear()
+        try:
+            assert notebook_controls.wire_all_notebook_run_buttons(ctx, doc) == 1
+            ours = container.addContainerListener.call_args.args[0]
+            container.removeContainerListener.assert_called_once_with(ours)
+            assert control.removeActionListener.call_count == 1
+            assert ours not in notebook_controls._listener_refs
+            assert len(notebook_controls._listener_refs) == 1
+        finally:
+            notebook_controls._listener_refs.clear()
+            notebook_controls._wired_form_docs.clear()

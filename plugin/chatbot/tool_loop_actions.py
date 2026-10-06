@@ -76,6 +76,11 @@ class TurnController:
     stripper: StreamingHTMLStripper | None
     _alive: bool
     _stop_banner_appended: bool
+    _stop_partial_text: str | None
+    _overflow_compact_attempts: int
+    _last_compact_reason: str | None
+    _last_compact_tokens_before: int | None
+    _last_compact_tokens_after: int | None
 
     def __init__(self, session: Any, mode: str, model: Any = None) -> None:
         self.mode = str(mode or "")
@@ -87,6 +92,12 @@ class TurnController:
         self.stripper = StreamingHTMLStripper()
         self._alive = True
         self._stop_banner_appended = False
+        self._stop_partial_text = None
+        self.closed_by_document: bool = False
+        self._overflow_compact_attempts = 0
+        self._last_compact_reason = None
+        self._last_compact_tokens_before = None
+        self._last_compact_tokens_after = None
 
     @property
     def alive(self) -> bool:
@@ -154,7 +165,7 @@ class TurnController:
         tool_calls: Any = None,
         reasoning_replay: Any = None,
     ) -> None:
-        if not self.accepts_history(host) or self.session is None:
+        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
         kwargs: dict[str, Any] = {}
         if tool_calls is not None:
@@ -164,7 +175,7 @@ class TurnController:
         self.session.add_assistant_message(content=content, **kwargs)
 
     def persist_tool(self, host: Any, call_id: str | None, content: Any) -> None:
-        if not self.accepts_history(host) or self.session is None:
+        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
         self.session.add_tool_result(call_id, content)
 
@@ -195,7 +206,7 @@ class TurnController:
         tool call with no tool row gets one cancelled row, and the stop line
         is an ordinary assistant message. ``tool_calls`` are not removed.
         """
-        if not self.accepts_history(host) or self.session is None:
+        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
         tail = self.take_stripper_tail()
         if tail:

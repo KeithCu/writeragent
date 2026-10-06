@@ -1028,7 +1028,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             "_append_response: rich-control stream start len=%s (final answer)",
                             self._assistant_stream_start_len,
                         )
-                    widget.paint_session(turn.session)
+                    # Append, do not repaint. What was wrong: this called
+                    # paint_session on every streamed batch (about 3 a second).
+                    # Each one built a hidden Writer doc, cleared the control
+                    # and refilled the whole transcript, and VCL then drew from
+                    # a stale layout: a blank transcript, or a gap below the
+                    # last line that grew with the session. stream_session
+                    # appends only the new text. The full repaint is kept for
+                    # load/switch, Stop and Clear.
+                    widget.stream_session(turn.session)
                     if role == "user":
                         self._assistant_stream_start_len = widget.get_text_length()
                         log.debug(
@@ -1479,6 +1487,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             case StopSendEffect():
                 log.info("Stop clicked (cancel in-flight send)")
+                try:
+                    session = getattr(self, "frame_session", None)
+                    if session is not None:
+                        session.note_user_wants_query()
+                        if hasattr(session, "restore_focus"):
+                            session.restore_focus()
+                except Exception as e:
+                    log.debug("query setFocus on Stop: %s", e)
                 from plugin.chatbot.tool_loop_actions import abort_turn
 
                 # Drop later worker callbacks. The drain still closes this
@@ -1714,6 +1730,16 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         return doc_type_title_for_label(getattr(self, "cached_doc_type", None))
 
+    def _restore_query_text(self, text: str) -> None:
+        """Put text back in the Ask box after a send returns early (Stop, STT error).
+
+        _do_send clears the Ask box before transcription, so every early return
+        must hand the typed text (plus any transcript) back or it is lost.
+        """
+        if self.query_control and self.query_control.getModel():
+            from plugin.chatbot.dialogs import set_control_text
+            set_control_text(self.query_control, text)
+
     def _do_send(self) -> None:
         from plugin.framework.i18n import _
         from plugin.chatbot.tool_loop_actions import begin_send_turn
@@ -1822,13 +1848,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     try:
                         transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
                         if self._terminal_status == "Stopped":
-                            if transcript and self.query_control and self.query_control.getModel():
-                                from plugin.chatbot.dialogs import get_control_text, set_control_text
-
-                                existing = (get_control_text(self.query_control) or "").strip()
-                                new_text = (existing + "\n" + transcript).strip() if existing else transcript
-                                set_control_text(self.query_control, new_text)
-                                self._sync_has_text_from_query()
+                            new_text = (query_text + "\n" + transcript).strip() if (query_text and transcript) else (transcript or query_text)
+                            self._restore_query_text(new_text)
+                            self._sync_has_text_from_query()
                             return
                         if transcript:
                             query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
@@ -1840,6 +1862,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         else:
                             log.exception("Error during STT fallback")
                         self._terminal_status = "Error"
+                        self._restore_query_text(query_text)
                         return
                     # WAV is deleted in _transcribe_audio finally. Empty STT must not
                     # fall through into a chat POST with a blank user message (G27).
@@ -1852,9 +1875,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     self._append_response("\n%s\n" % err_msg)
                     self._terminal_status = "Error"
                     self._set_status(_("Error"))
+                    self._restore_query_text(query_text)
                     return
             else:
                 log.debug("_do_send: model %s supports native audio, proceeding" % current_model)
+                if self._terminal_status == "Stopped":
+                    self._restore_query_text(query_text)
+                    return
 
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_BRAINSTORMING,
@@ -1939,6 +1966,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
             self._terminal_status = "Error"
             self._set_status(_("Error"))
+            self._restore_query_text(query_text)
             return
 
         # Regular Chat with Tools or Streams

@@ -64,7 +64,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Chat typography (Liberation Sans 10pt, para side margins) | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN`, `apply_chat_char_props`, `configure_hidden_writer_for_chat` in [`rich_text.py`](../../plugin/chatbot/rich_text.py) |
 | Spellcheck off for hidden HTML import doc | `zxx` locale on Standard style in `configure_hidden_writer_for_chat` (`rich_text.py`) |
 | List indent tightening after HTML import | `_tighten_list_indent` in `append_rich_text` (`rich_text.py`) |
-| Streaming plain append | `RichTextChatWidget.append_assistant_stream_chunk` via `panel.py` `_append_response` |
+| Streaming plain append | `RichTextChatWidget.stream_session` via `panel.py` `_append_response` |
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
 | Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
 | Reveal caret without stealing query focus | `reveal_rich_control_caret` passes that panel's Ask field to `focus_preserved`. Stream chunks call the frame session's `restore_focus`. |
@@ -131,11 +131,15 @@ flowchart LR
     HW --> RTC
 ```
 
-`session.messages` is the transcript. Clear, Stop, and a new chunk change that list, then `paint_message_items` builds a **new** hidden Writer from the list and replaces the control. The hidden document stays: copy and paste read the formatted paint. It is not edited in place. A bad element does not leave tags, and a copy that fails halfway is wiped and written again as plain rows of the same list (`You:` / `Assistant:`, role color, blank line).
+`session.messages` is the transcript. Load/switch, Clear and Stop change that list, then `paint_message_items` builds a **new** hidden Writer from the list and replaces the control, then nudges the control width by 1px (`_force_rich_full_reformat`) so the EditEngine lays the refilled text out again. The hidden document stays: copy and paste read the formatted paint. It is not edited in place. A bad element does not leave tags, and a copy that fails halfway is wiped and written again as plain rows of the same list (`You:` / `Assistant:`, role color, blank line).
 
-**Streaming:** each assistant chunk grows one open row (`_open_transcript`) and the control is painted from the list. The committed assistant message replaces that row, then the control is painted again. The open row is not a history write.
+**Streaming:** each assistant chunk grows one open row (`_open_transcript`). `RichTextChatWidget.stream_session` does **not** repaint: it keeps the formatted prefix (everything painted before this turn), appends the turn's user row formatted, and appends assistant text as plain deltas. When a row changes in a way that is not an append (the committed message replaces the open row, think text is dropped), only the plain tail after the prefix is cut and rewritten. The open row is not a history write.
 
-**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. That paints the list. If it does not, an unclosed tag still held by the stream stripper is appended, which records it on the list and paints. Stop already painted the partial answer plus `[Stopped by user]` and skips this second paint.
+Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidden Writer docs a second and left VCL drawing from a stale layout (blank transcript, growing gap below the last line). The greeting painted on load and Clear is kept as the first formatted row (`RichTextChatWidget._greeting`), and the Stop banner is recorded as a plain tail row, so turn 1 and the turn after Stop append instead of repainting. A full repaint still happens when the control length cannot be read or a formatted row changed.
+
+**Stop line display:** `session_history_items` shows the stored `\n[Stopped by user]\n` assistant message as the last paragraph of the answer it stopped (its own row when Stop came before the first token). Display only: `session.messages` and the model context keep the separate message.
+
+**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. That cuts the plain tail at the end of the formatted prefix and appends this turn's rows formatted (a full repaint when the prefix is unknown). If it does not, an unclosed tag still held by the stream stripper is appended, which records it on the list and paints. Stop already painted the partial answer plus `[Stopped by user]` and skips this second paint.
 
 ### RichTextControl vs HTML
 

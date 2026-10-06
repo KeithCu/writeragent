@@ -33,12 +33,14 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import threading
 import time
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Callable, ClassVar, cast, TYPE_CHECKING
+from plugin.framework.i18n import _
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -63,6 +65,8 @@ _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("
 # wait, then TimeoutError.
 _PENDING_POST_CAP = 32
 _PENDING_POST_WAIT_SEC = 30.0
+# Slice for the untimed wait on a claimed marshal (log + shutdown check only).
+_UNTIMED_WAIT_SLICE_SEC = 5.0
 
 # Drain ownership: re-export from async_drain_guard (single-owner VCL pump sentry).
 from plugin.framework.async_drain_guard import (
@@ -315,12 +319,38 @@ def _fn_label(fn: Callable[..., Any]) -> str:
 
 
 @contextmanager
-def llm_request_lane(timeout: float = 60.0) -> Generator[None, None, None]:
-    """Serialize LLM requests when callers choose to opt in."""
-    acquired = _LLM_REQUEST_LOCK.acquire(timeout=timeout)
+def llm_request_lane(timeout: float | None = None, status_callback: Callable[[str], None] | None = None) -> Generator[None, None, None]:
+    """Serialize LLM requests when callers choose to opt in.
+
+    A single global lock exists for single-slot local servers (like Ollama or llama.cpp)
+    that can only process one request at a time process-wide.
+    """
+    if timeout is None:
+        from plugin.framework.config import get_config_int
+        timeout = float(get_config_int("request_timeout") or 60)
+
+    deadline = time.monotonic() + timeout
+    acquired = False
+    notified_status = False
+
+    while time.monotonic() < deadline:
+        cancellation = get_current_send_cancellation()
+        if cancellation and cancellation.is_cancelled():
+            from plugin.framework.async_stream import BlockingWaitStopped
+            raise BlockingWaitStopped("stopped")
+
+        if _LLM_REQUEST_LOCK.acquire(timeout=0.25):
+            acquired = True
+            break
+
+        if not notified_status and status_callback is not None:
+            status_callback(_("Waiting for another document's reply..."))
+            notified_status = True
+
     if not acquired:
         log.warning("llm_request_lane timed out after %ss waiting for LLM lock", timeout)
         raise TimeoutError("Timed out waiting for LLM request lane lock after %ss" % timeout)
+
     try:
         yield
     finally:
@@ -397,6 +427,7 @@ class QueueExecutor:
     _initialized: bool
     _logged_missing_ctx: bool
     _logged_async_callback_failure: bool
+    _order_lock: threading.RLock
 
     def __init__(self, ctx: Any | None = None) -> None:
         from plugin.framework.thread_guard import _unwrap_uno
@@ -412,6 +443,7 @@ class QueueExecutor:
         self._logged_async_callback_failure = False
         self._pending_posts: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any], SendCancellation | None]] = []
         self._pending_lock = threading.Condition()
+        self._order_lock = threading.RLock()
 
     def set_context(self, ctx: Any) -> None:
         """Update or set the UNO component context (e.g. at bootstrap)."""
@@ -427,10 +459,14 @@ class QueueExecutor:
                 self._initialized = False
                 self._async_callback_service = None
                 self._callback_instance = None
-        # Do not create AsyncCallback here. A new context must stay uninitialized
-        # until the next marshal. Flush only when a callback is already live
-        # (same context). _get_async_callback takes _init_lock; calling it while
-        # that lock is held deadlocks bootstrap.
+        # Posts queued before AsyncCallback existed used to sit until the next
+        # marshal created it. When any are waiting, create the callback now and
+        # flush them. _get_async_callback takes _init_lock; call it only after
+        # that lock is released, or bootstrap deadlocks.
+        with self._pending_lock:
+            has_pending = bool(self._pending_posts)
+        if has_pending:
+            self._get_async_callback()
         self._flush_pending_posts()
 
     def pending_work_count(self) -> int:
@@ -453,7 +489,7 @@ class QueueExecutor:
             # ``Queue.queue`` is the deque. The mutex is the one ``put`` /
             # ``get`` hold; ``_claim_lock`` is already held around those calls.
             with self._work_queue.mutex:
-                queued = any(getattr(item, "fn", None) is fn for item in self._work_queue.queue)
+                queued = any(getattr(item, "fn", None) is fn and not getattr(item, "cancelled", False) for item in self._work_queue.queue)
         if queued:
             return True
         with self._pending_lock:
@@ -477,16 +513,24 @@ class QueueExecutor:
         return True
 
     def _flush_pending_posts(self) -> None:
-        """Enqueue posts that arrived before AsyncCallback existed."""
-        if not self._initialized or self._async_callback_service is None:
-            return
-        with self._pending_lock:
-            pending = self._pending_posts
-            self._pending_posts = []
-            # Slots just opened. Waiters in post() are on this condition.
-            self._pending_lock.notify_all()
-        for fn, args, kwargs, scope in pending:
-            self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope)
+        """Enqueue posts that arrived before AsyncCallback existed.
+
+        ``_order_lock`` covers the swap and the puts. A direct ``_enqueue_work``
+        from another thread used to land between them, ahead of older posts.
+        The poke happens after the lock is released.
+        """
+        with self._order_lock:
+            if not self._initialized or self._async_callback_service is None:
+                return
+            with self._pending_lock:
+                pending = self._pending_posts
+                self._pending_posts = []
+                # Slots just opened. Waiters in post() are on this condition.
+                self._pending_lock.notify_all()
+            for fn, args, kwargs, scope in pending:
+                self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope, poke=False)
+        if pending:
+            self._poke_main_thread()
 
     def _get_async_callback(self) -> Any:
         """Lazily create the AsyncCallback UNO service and XCallback instance."""
@@ -599,10 +643,14 @@ class QueueExecutor:
         """
         if not items:
             return
+        self._put_work_items(items)
+        self._poke_main_thread()
+
+    def _put_work_items(self, items: list[_WorkItem]) -> None:
+        """Put *items* under ``_claim_lock`` without poking."""
         with self._claim_lock:
             for item in items:
                 self._work_queue.put(item)
-        self._poke_main_thread()
 
     def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
@@ -638,7 +686,6 @@ class QueueExecutor:
                     self._abandon_unstarted(item)
                     skipped = True
 
-        fn_label = _fn_label(item.fn)
         if skipped:
             log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
             # A timed-out head used to return here and leave the next item
@@ -647,8 +694,13 @@ class QueueExecutor:
                 self._poke_main_thread()
             return
 
-        log.debug("process_queue start fn=%s %s", fn_label, _marshal_thread_tag(self))
+        # The item is claimed: anything that raises from here must reach the
+        # ``finally`` that sets the event. ``_fn_label`` and the start log used
+        # to run before ``try``, so a raise there left the waiter parked.
+        fn_label = "<fn>"
         try:
+            fn_label = _fn_label(item.fn)
+            log.debug("process_queue start fn=%s %s", fn_label, _marshal_thread_tag(self))
             item.result = item.fn(*item.args, **item.kwargs)
         except BaseException as exc:
             # Store KeyboardInterrupt/SystemExit too so the waiter re-raises
@@ -725,8 +777,8 @@ class QueueExecutor:
                 self._pending_posts = [row for row in self._pending_posts if row[3] is not scope]
             self._pending_lock.notify_all()
 
-    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: Any = _SCOPE_UNSET) -> _WorkItem:
-        """Add work item to queue."""
+    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: Any = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
+        """Add work item to queue. *poke* False lets a batch caller poke once."""
         if bound_scope is _SCOPE_UNSET:
             scope = get_current_send_cancellation()
         else:
@@ -735,10 +787,15 @@ class QueueExecutor:
             scope.bind_executor(self)
         item_id = str(uuid.uuid4())
         item = _WorkItem(item_id, fn, args, kwargs, blocking, scope)
-        # Same lock as ``cancel_pending_work``'s drain. Not held across poke:
-        # ``process_queue`` may already hold it and re-enter through the test
-        # poke handler (``threading.Lock`` is not reentrant).
-        self._offer_work_items([item])
+        # ``_order_lock`` (re-entrant: a flush holds it) orders this put behind
+        # a flush in progress. ``_claim_lock`` is the same lock as
+        # ``cancel_pending_work``'s drain. Neither is held across the poke:
+        # ``process_queue`` may re-enter through the test poke handler, and
+        # AsyncCallback is a UNO call.
+        with self._order_lock:
+            self._put_work_items([item])
+        if poke:
+            self._poke_main_thread()
         return item
 
     def _wait_for_result(self, item: Any, timeout: float) -> Any:
@@ -768,13 +825,25 @@ class QueueExecutor:
                     keep_waiting = True
             if keep_waiting and item.event is not None:
                 # Claimed marshal has no second timeout (retry would double-apply).
-                # Log so a hung fn is visible while a pooled worker parks.
-                log.warning(
-                    "QueueExecutor: waiting unbound for in-flight fn=%s %s",
-                    _fn_label(item.fn),
-                    _marshal_thread_tag(self),
-                )
-                item.event.wait()
+                # The main-thread call may still be mutating the document, so the
+                # caller waits it out instead of abandoning it with an unknown
+                # result. The wait is sliced only to log a hung fn (once past 30s,
+                # then every 60s) and to bail out while the interpreter shuts down,
+                # when the main thread will not run the item to completion.
+                waited = 0.0
+                next_log = 30.0
+                while not item.event.wait(_UNTIMED_WAIT_SLICE_SEC):
+                    waited += _UNTIMED_WAIT_SLICE_SEC
+                    if sys.is_finalizing():
+                        raise RuntimeError("outcome unknown: interpreter shutting down while waiting for main-thread fn=%s" % _fn_label(item.fn))
+                    if waited >= next_log:
+                        next_log += 60.0
+                        log.warning(
+                            "QueueExecutor: waiting unbound for in-flight fn=%s %s (%.0fs)",
+                            _fn_label(item.fn),
+                            _marshal_thread_tag(self),
+                            waited,
+                        )
             elif not finished:
                 raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))
 

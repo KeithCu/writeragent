@@ -49,6 +49,7 @@ def _stdin_stop_reader(stop_event: threading.Event) -> None:
         if _is_stop_command(line):
             stop_event.set()
             return
+    stop_event.set()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     silence_config = SilenceDetectorConfig(silence_stop_ms=max(0, args.silence_stop_ms))
 
     stop_event = threading.Event()
+    if os.name != "nt":
+        import signal
+        signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
     reader = threading.Thread(target=_stdin_stop_reader, args=(stop_event,), daemon=True)
     reader.start()
 

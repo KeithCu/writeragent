@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -138,6 +139,7 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
     thread.start()
     try:
         pid = 0
+        proc = None
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             worker = pool._worker
@@ -153,15 +155,13 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
         assert not thread.is_alive()
         assert time.monotonic() - t0 < 8
         assert result.get("code") == "WORKER_CANCELLED"
-        gone = time.monotonic() + 2
-        while True:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            if time.monotonic() >= gone:
-                raise AssertionError("Kokoro child %s was still alive after spawn cancel" % pid)
-            time.sleep(0.05)
+        # Popen.wait, not os.kill(pid, 0): on Windows signal 0 is CTRL_C_EVENT,
+        # not a liveness probe.
+        assert proc is not None
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            raise AssertionError("Kokoro child %s was still alive after spawn cancel" % pid) from None
         flag.unlink()
         recovered = pool.execute({"text": "after", "out_path": str(tmp_path / "after.wav")})
         assert recovered["status"] == "ok"

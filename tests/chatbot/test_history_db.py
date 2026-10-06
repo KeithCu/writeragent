@@ -224,6 +224,26 @@ def test_sqlite_skips_undecodable_row(tmp_path):
     assert all("tool_calls" not in row for row in loaded)
 
 
+def test_json_history_clear_replaces_messages(tmp_path, monkeypatch):
+    import os
+
+    from plugin.chatbot.history_db import JSONHistory
+
+    db_path = str(tmp_path / "writeragent_history.db")
+    jh = JSONHistory("test-session", db_path)
+
+    jh.add_message("user", "first message")
+    assert len(jh.get_messages()) == 1
+
+    # clear() replaces the file instead of swallowing an os.remove error
+    def failing_remove(*args, **kwargs):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(os, "remove", failing_remove)
+    jh.clear()
+    assert jh.get_messages() == []
+
+
 def test_json_history_replace_messages_replaces_the_file(tmp_path):
     history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
     history.add_message("user", "old")

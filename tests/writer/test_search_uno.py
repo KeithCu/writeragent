@@ -123,7 +123,8 @@ def test_find_chained_range_bounds(ctx, doc):
     assert rng is not None
     if isinstance(rng, list):
         rng = rng[0]
-    matched_text = rng.getString()
+    # getString() joins paragraphs with the platform newline: "\r\n" on Windows.
+    matched_text = rng.getString().replace("\r\n", "\n")
 
     assert matched_text == search_string, "Matched text included extra paragraph content!"
 

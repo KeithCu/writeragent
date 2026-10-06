@@ -311,7 +311,9 @@ class SettingsDialog:
         test_conn_btn = get_optional(self._dlg, "btn_test_conn")
         if test_conn_btn:
             test_conn_btn.addActionListener(
-                TestConnectionListener(self._ctx, self._dlg, catalog_recheck=self._force_catalog_recheck)
+                TestConnectionListener(
+                    self._ctx, self._dlg, catalog_recheck=self._force_catalog_recheck, api_key_override=self._endpoint_api_key_override
+                )
             )
 
         self._setup_module_tabs()
@@ -486,6 +488,13 @@ class SettingsDialog:
         if hasattr(prov_ctrl, "addTextListener"):
             prov_ctrl.addTextListener(self._stt_listener)
         self._stt_listener.sync_ui()
+
+    def _endpoint_api_key_override(self) -> str | None:
+        """The key the model fetch would send for the current URL, or None."""
+        listener = self._endpoint_listener
+        if listener is None:
+            return None
+        return listener._api_key_override()
 
     def _force_catalog_recheck(self) -> None:
         """Test Connection: refetch catalogs even when the process memo is warm."""
@@ -789,10 +798,13 @@ class TestConnectionListener(BaseActionListener):
     _ctx: Any
     _dlg: Any
     _catalog_recheck: Any
+    _api_key_override: Any
 
-    def __init__(self, ctx: Any, dlg: Any, catalog_recheck: Any = None) -> None:
+    def __init__(self, ctx: Any, dlg: Any, catalog_recheck: Any = None, api_key_override: Any = None) -> None:
         self._ctx = ctx
         self._dlg = dlg
+        # Returns the key the endpoint listener would send for the current URL.
+        self._api_key_override = api_key_override
         # Test Connection is the explicit catalog recheck. Opening Settings,
         # typing, and OK do not refetch a warm OpenRouter/Together memo.
         self._catalog_recheck = catalog_recheck
@@ -819,7 +831,25 @@ class TestConnectionListener(BaseActionListener):
         endpoint = endpoint_from_selector_text(endpoint_text)
 
         api_key_ctrl = get_optional(self._dlg, "api_key")
-        api_key = str(get_control_text(api_key_ctrl)) if api_key_ctrl else ""
+        # Same key decision as the model fetch (effective_api_key via the
+        # endpoint listener), so Test Connection never sends a stale key.
+        override = self._api_key_override() if self._api_key_override is not None else None
+        if override is not None:
+            api_key = override
+        elif api_key_ctrl:
+            from plugin.chatbot.settings_dialog import effective_api_key
+            from plugin.framework.config import get_api_key_for_endpoint
+
+            saved_endpoint = get_current_endpoint()
+            api_key = effective_api_key(
+                str(get_control_text(api_key_ctrl)),
+                saved_endpoint,
+                endpoint,
+                get_api_key_for_endpoint(saved_endpoint),
+                get_api_key_for_endpoint(endpoint),
+            )
+        else:
+            api_key = ""
 
         def _worker() -> None:
             msg = check_endpoint_connection(endpoint, api_key)[1]
@@ -1327,6 +1357,8 @@ class ApiKeyTextListener(BaseListener, XTextListener):
     def __init__(self, endpoint_listener: Any) -> None:
         self._el = endpoint_listener
     def textChanged(self, rEvent: TextEvent) -> None:
+        if not getattr(self._el, "_syncing_api_key", False):
+            self._el._user_edited_key = True
         self._el._schedule_debounced_models_fetch()
 
 
@@ -1339,6 +1371,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _timer: threading.Timer | None
     _synced_endpoint: str | None
     _applied_catalog: tuple[str, str] | None
+    _painted_provider: str | None
+    _has_painted: bool
     post_to_main_thread: Callable[..., Any]
     run_in_background: Callable[..., Any]
     get_api_key_for_endpoint: Callable[..., Any]
@@ -1387,7 +1421,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # Endpoint + live key last painted from the in-memory catalog.
         # A later keystroke with the same pair must not refetch or rewrite.
         self._applied_catalog = None
-        
+        # Provider the model combos were last filled for. None until the
+        # first fill; that fill compares against the saved endpoint.
+        self._painted_provider = None
+        self._has_painted = False
+
         self.post_to_main_thread = post_to_main_thread
         self.run_in_background = run_in_background
         self.get_api_key_for_endpoint = get_api_key_for_endpoint
@@ -1416,6 +1454,10 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         except Exception:
             opened = ""
         self._synced_endpoint = self.endpoint_from_selector_text(opened) or None
+        # True once the user types in the key field after the last URL sync.
+        self._user_edited_key: bool = False
+        # Set while _sync_api_key writes the field, so that write is not an edit.
+        self._syncing_api_key: bool = False
 
         self._update_key_link_state()
 
@@ -1439,7 +1481,23 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         ak_ctrl = get_optional(self._dlg, "api_key")
         if not ak_ctrl:
             return None
-        return str(get_control_text(ak_ctrl))
+
+        from plugin.chatbot.settings_dialog import effective_api_key
+
+        typed_key = str(get_control_text(ak_ctrl))
+        saved_endpoint = get_current_endpoint()
+        target_endpoint = self.endpoint_from_selector_text(self._ctrl.getText())
+        saved_key = self.get_api_key_for_endpoint(saved_endpoint)
+        target_key = self.get_api_key_for_endpoint(target_endpoint)
+
+        return effective_api_key(
+            typed_key,
+            saved_endpoint,
+            target_endpoint,
+            saved_key,
+            target_key,
+            self._user_edited_key,
+        )
 
     def _catalog_is_warm(self, resolved: str) -> bool:
         return bool(self.settings_catalog_is_warm(resolved, api_key_override=self._api_key_override()))
@@ -1473,8 +1531,26 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         api_key_ov = self._live_api_key()
         skip_remote = bool(skip_fetch)
         resolved_provider = self.get_provider_from_endpoint(resolved)
-        saved_provider = self.get_provider_from_endpoint(get_current_endpoint())
-        same_provider = bool(resolved_provider and resolved_provider == saved_provider)
+        # What was wrong: this compared against the saved endpoint on every
+        # fill. After switching OpenRouter -> Together (not yet OK'd), each
+        # later fill (catalog landing, API key typing, Test Connection)
+        # discarded the combo text again: a typed Text model went back to
+        # the Together default and the Image model jumped to the catalog's
+        # first id, so a Text model edit looked like it changed Image too.
+        # How: the first fill still compares against the saved endpoint's
+        # provider; every later fill compares against the provider this
+        # listener last filled for (_painted_provider).
+        # Why: the combos only hold ids from the wrong provider right after
+        # the provider changes. Once filled for Together, a repaint for
+        # Together must keep what the user typed or picked; switching back to
+        # the saved provider must still drop the Together ids.
+        if self._has_painted:
+            baseline_provider = self._painted_provider
+        else:
+            baseline_provider = self.get_provider_from_endpoint(get_current_endpoint())
+        same_provider = bool(resolved_provider and resolved_provider == baseline_provider)
+        self._painted_provider = resolved_provider
+        self._has_painted = True
 
         text_ctrl = get_optional(self._dlg, "text_model")
         if text_ctrl:
@@ -1630,7 +1706,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             return
         ak_ctrl = get_optional(self._dlg, "api_key")
         if ak_ctrl is not None and (force or self._api_key_field_follows_saved(ak_ctrl, previous)):
-            set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
+            self._syncing_api_key = True
+            try:
+                set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
+            finally:
+                self._syncing_api_key = False
+            self._user_edited_key = False
         self._synced_endpoint = resolved
 
     def _tts_model_id_for_voice_fetch(self) -> str:
@@ -1738,12 +1819,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         )
 
     def textChanged(self, rEvent: TextEvent) -> None:
-        # What was wrong: every keystroke called _sync_api_key, which setText'd
-        # the API key whenever the resolved URL changed, and a warm catalog
-        # rewrote the model combos on the UI thread. Typing does not write the
-        # key and does not refetch a catalog already in memory. A preset click
-        # still loads that preset's saved key (itemStateChanged, force=True).
+        # A typed URL reloads that URL's saved key, but only while the field
+        # still follows the saved key (_api_key_field_follows_saved). A key the
+        # user typed stays. Without this, the debounced fetch sent the previous
+        # endpoint's key to the newly typed URL. A warm catalog is not refetched.
         del rEvent
+        self._sync_api_key()
         self._schedule_debounced_models_fetch()
 
     def itemStateChanged(self, rEvent: ItemEvent) -> None:

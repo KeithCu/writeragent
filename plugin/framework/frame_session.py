@@ -30,7 +30,7 @@ listeners, the focus pin, and the panel. Dispose removes only this session.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger("writeragent.frame_session")
 
@@ -178,6 +178,10 @@ class FrameSession:
         self._trackers: list[Any] = []
         self._frame_listener: Any = None
         self._closed = False
+        self._close_hooks: list[Callable[[], None]] = []
+
+    def add_close_hook(self, hook: Callable[[], None]) -> None:
+        self._close_hooks.append(hook)
 
     def bind_panel(self, panel: Any) -> None:
         """This sidebar is the one the session owns."""
@@ -212,20 +216,64 @@ class FrameSession:
         self._restore_query = False
         log.debug("stream focus: left query")
 
+    def frame_is_active_window(self) -> bool:
+        """True when this frame's window is LibreOffice's active top-level window.
+
+        Main thread only: off it this returns False, so callers skip
+        ``setFocus`` rather than touch UNO from a worker.
+
+        ``getActiveTopWindow()`` is None when another application has the
+        focus, and a dialog of this office (Options, a message box) is its own
+        top window. Both count as "not this frame", so a stream never pulls
+        focus out of them either. Any UNO failure also counts as "not active":
+        losing one caret restore is cheap, stealing focus is the bug.
+        """
+        from plugin.framework.thread_guard import on_main_thread
+
+        if self._closed or self.frame is None or not on_main_thread():
+            return False
+        try:
+            container = self.frame.getContainerWindow()
+            if container is None:
+                return False
+            # The window peer hands out its toolkit, so no component context
+            # is needed here (XToolkit2 includes XExtendedToolkit).
+            toolkit = container.getToolkit()
+            top = toolkit.getActiveTopWindow() if toolkit is not None else None
+        except Exception as exc:
+            log.debug("stream focus: active window probe failed doc=%s: %s", self.doc_uid, exc)
+            return False
+        # _same_frame is the main-thread uno_same identity test; PyUNO hands
+        # out a new wrapper per call, so ``is`` alone would always miss.
+        return _same_frame(top, container)
+
     def restore_focus(self) -> None:
         """Put the caret back in this frame's Ask field.
 
         Closes over this session. Callers do not pass a frame or look up the
         current component.
+
+        What was wrong (release QA BUG A): while doc B streamed, every chunk
+        called ``query.setFocus()`` here about 3 times with no check that B
+        was the window the user was in. VCL's GrabFocus pulls keyboard focus
+        into a background top window, so a window the user switched to was
+        raised but never activated, and its Window menu would not open until
+        B finished. How: restore only while this frame's container window is
+        the active top window. Why not deactivate the restore flag instead:
+        when the user comes back to B, chunks should keep the caret in Ask
+        again without a fresh click there.
         """
         if self._closed or not self._restore_query:
             return
         query = self.focus_pin
         if query is None or not hasattr(query, "setFocus"):
             return
+        if not self.frame_is_active_window():
+            log.debug("stream focus: skip restore, frame not active doc=%s", self.doc_uid)
+            return
         try:
             query.setFocus()
-            log.debug("FrameSession.restore_focus")
+            log.debug("FrameSession.restore_focus doc=%s", self.doc_uid)
         except Exception as exc:
             log.debug("FrameSession.restore_focus: %s", exc)
 
@@ -375,6 +423,12 @@ class FrameSession:
         if self._closed:
             return
         self._closed = True
+        for hook in self._close_hooks:
+            try:
+                hook()
+            except Exception:
+                log.debug("Error in FrameSession close hook", exc_info=True)
+        self._close_hooks.clear()
         self.release_listeners()
         self._frame_listener = None
         self.focus_pin = None

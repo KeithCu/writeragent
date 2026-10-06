@@ -197,13 +197,30 @@ def _proc_running(proc: subprocess.Popen[Any] | None) -> bool:
     return proc is not None and proc.poll() is None
 
 
+def _is_spd_say(proc: subprocess.Popen[Any] | None) -> bool:
+    args = getattr(proc, "args", None)
+    return isinstance(args, (list, tuple)) and bool(args) and os.path.basename(str(args[0])) == "spd-say"
+
+
 def _terminate_proc(proc: subprocess.Popen[Any] | None) -> None:
     if proc is None:
         return
     try:
+        if proc.stdin:
+            proc.stdin.close()
+    except Exception:
+        pass
+    try:
         log.info("Terminating speech process (PID %s)", proc.pid)
         proc.terminate()
-        proc.poll()
+        try:
+            proc.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            else:
+                proc.kill()
+            proc.wait(timeout=5)
     except Exception as exc:
         log.debug("speech terminate error: %s", exc)
 
@@ -250,14 +267,18 @@ def clean_text_for_speech(text: str) -> str:
     # Remove markdown headers #, ##, etc.
     cleaned = re.sub(r"^#{1,6}\s+", "", cleaned, flags=re.MULTILINE)
 
-    # Remove bold/italic markers
-    cleaned = re.sub(r"[*_]{1,3}([^*_]+)[*_]{1,3}", r"\1", cleaned)
+    # Remove bold/italic * markers. Underscores are handled below.
+    cleaned = re.sub(r"[*]{1,3}([^*]+)[*]{1,3}", r"\1", cleaned)
 
     # Remove HTML/XML tags
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
 
     # Remove raw URLs
     cleaned = re.sub(r"https?://\S+", "link", cleaned)
+
+    # Underscores become spaces after URLs are gone: my_var_name reads as
+    # "my var name", and __bold__ / _italic_ markers drop out.
+    cleaned = cleaned.replace("_", " ")
 
     # Normalize whitespace
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -305,9 +326,19 @@ def stop_speech() -> None:
     # Why this change: terminate the player (and synth processes) on the calling thread
     # immediately so the next utterance cannot overlap with the previous one.
     # Temp-file unlinking remains in the background.
+    # spd-say -w only waits on speech-dispatcher, which keeps talking after
+    # the client dies. Only stop it when our own spd-say was speaking:
+    # stop_speech runs before every utterance, and an unconditional stop would
+    # also cut off other speech-dispatcher clients such as a screen reader.
+    stop_spd = _proc_running(play) and _is_spd_say(play)
     _terminate_proc(play)
     for proc in synths:
         _terminate_proc(proc)
+    if stop_spd:
+        try:
+            subprocess.run(["spd-say", "-S"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        except Exception as exc:
+            log.debug("spd-say stop failed: %s", exc)
     if cancel_token is not None:
         try:
             from plugin.audio.kokoro_pool import cancel_kokoro_inflight
@@ -389,6 +420,9 @@ def _popen_for_speech(
     stdin: Any = None,
     stderr: Any = subprocess.DEVNULL,
     text: bool = False,
+    encoding: str | None = None,
+    errors: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.Popen[Any] | None:
     """Spawn a play or synth process and register it so ``stop_speech`` can kill it."""
     global _play_proc
@@ -402,6 +436,9 @@ def _popen_for_speech(
             stdout=subprocess.DEVNULL,
             stderr=stderr,
             text=text,
+            encoding=encoding,
+            errors=errors,
+            env=env,
         )
         if slot == "play":
             _play_proc = proc
@@ -1131,16 +1168,20 @@ def _resolve_tts_voice(model: str, voice: str) -> str:
 def _play_audio_file(file_path: str, generation: int | None = None) -> None:
     """Play an audio file using available OS command-line utilities."""
     cmd: list[str] | None = None
+    env: dict[str, str] | None = None
 
     if sys.platform == "darwin":
         cmd = ["afplay", file_path]
     elif sys.platform == "win32":
+        # The path goes in the environment, not into the script text. Extra
+        # arguments after -Command are joined into the command, not $args.
         cmd = [
             "powershell",
             "-NoProfile",
             "-Command",
-            f'(New-Object Media.SoundPlayer "{file_path}").PlaySync()',
+            "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()",
         ]
+        env = {**os.environ, "WA_AUDIO_PATH": file_path}
     else:
         # Linux / Unix: prioritize players supporting MP3/WAV out-of-the-box
         if shutil.which("ffplay"):
@@ -1163,7 +1204,7 @@ def _play_audio_file(file_path: str, generation: int | None = None) -> None:
     proc: subprocess.Popen[Any] | None = None
     try:
         log.info("Playing audio with command: %s", " ".join(cmd))
-        proc = _popen_for_speech(cmd, generation, slot="play")
+        proc = _popen_for_speech(cmd, generation, slot="play", env=env)
         if proc is None:
             return
         proc.wait()
@@ -1178,32 +1219,33 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
     """Speak text using built-in OS speech synthesis utilities."""
     cmd: list[str] | None = None
 
+    env = None
     if sys.platform == "darwin":
         # macOS native say command
         rate = int(175 * speed)
-        cmd = ["/usr/bin/say", "-r", str(rate), text]
+        cmd = ["/usr/bin/say", "-r", str(rate), "--", text]
     elif sys.platform == "win32":
         # Windows SAPI via PowerShell
         # Rate is integer from -10 to 10
         rate_int = int((speed - 1.0) * 5)
         rate_int = max(-10, min(10, rate_int))
-        escaped = text.replace('"', '`"').replace("'", "''")
         ps_script = (
-            f"Add-Type -AssemblyName System.Speech; "
-            f"$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            "Add-Type -AssemblyName System.Speech; "
+            "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
             f"$synth.Rate = {rate_int}; "
-            f"$synth.Speak('{escaped}')"
+            "$synth.Speak($env:SAPI_TEXT)"
         )
         cmd = ["powershell", "-NoProfile", "-Command", ps_script]
+        env = {**os.environ, "SAPI_TEXT": text}
     else:
         # Linux native
         if shutil.which("spd-say"):
             rate_pct = int((speed - 1.0) * 100)
             rate_pct = max(-100, min(100, rate_pct))
-            cmd = ["spd-say", "-r", str(rate_pct), "-w", text]
+            cmd = ["spd-say", "-r", str(rate_pct), "-w", "--", text]
         elif shutil.which("espeak"):
             speed_wpm = int(160 * speed)
-            cmd = ["espeak", "-s", str(speed_wpm), text]
+            cmd = ["espeak", "-s", str(speed_wpm), "--", text]
 
     if not cmd:
         log.warning("No OS native text-to-speech utility (say/spd-say/espeak) found on system.")
@@ -1212,7 +1254,7 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
     proc: subprocess.Popen[Any] | None = None
     try:
         log.info("Speaking via system command: %s", " ".join(cmd[:3]))
-        proc = _popen_for_speech(cmd, generation, slot="play")
+        proc = _popen_for_speech(cmd, generation, slot="play", env=env)
         if proc is None:
             return
         proc.wait()
@@ -1376,6 +1418,11 @@ def _post_audio_speech(
         return None, "", code, message
 
 
+def _default_endpoint_format() -> str:
+    """First response_format to ask for. Windows plays WAV with SoundPlayer."""
+    return "wav" if sys.platform == "win32" else "mp3"
+
+
 def _download_endpoint_speech(
     text: str,
     endpoint_url: str,
@@ -1420,9 +1467,9 @@ def _download_endpoint_speech(
             url = f"{url}/v1/audio/speech"
 
     eff_voice = _resolve_tts_voice(model, voice)
-    response_format = cached_tts_response_format(model) or "mp3"
+    response_format = cached_tts_response_format(model)
     if response_format not in ("mp3", "pcm", "wav"):
-        response_format = "mp3"
+        response_format = _default_endpoint_format()
 
     headers = {
         "Content-Type": "application/json",
@@ -1915,7 +1962,7 @@ def _kokoro_oneshot_to_file(
     cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
     proc: subprocess.Popen[Any] | None = None
     try:
-        proc = _popen_for_speech(cmd, generation, slot="synth", stderr=subprocess.PIPE, text=True)
+        proc = _popen_for_speech(cmd, generation, slot="synth", stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
         if proc is None:
             _release_temp(tmp_wav)
             return None
@@ -2105,6 +2152,8 @@ def _piper_audio_file(
             stdin=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if proc is None:
             _release_temp(tmp_wav)
@@ -2239,6 +2288,7 @@ def _run_sentence_pipeline(
         _ready_queue = ready
 
     def _produce() -> None:
+        done = 0
         try:
             for index, sentence in enumerate(sentences):
                 if _playback_blocked(generation):
@@ -2263,6 +2313,14 @@ def _run_sentence_pipeline(
                 if not ready.put(clip, generation):
                     _release_temp(clip.path)
                     return
+                done = index + 1
+        except Exception:
+            # A crash here used to end the reply silently. Speak the sentences
+            # not yet queued with OS speech so the user still hears them once.
+            log.exception("Prefetch thread failed")
+            rest = sentences[done:]
+            if rest and not _playback_blocked(generation):
+                ready.put(_ReadyClip(None, " ".join(rest), 0, True), generation)
         finally:
             ready.close()
 
