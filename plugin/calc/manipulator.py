@@ -215,6 +215,28 @@ class CellManipulator:
 
     # ── Internal helpers ───────────────────────────────────────────────
 
+    def _raise_if_intersects_array(self, sheet: Any, start_col: int, start_row: int, end_col: int, end_row: int, allow_contained: bool = False) -> None:
+        '''Raise CalcError if the range intersects an array formula.
+
+        If allow_contained is True, it's permissible for the range to fully enclose an array formula
+        (e.g., when clearing a large area). It's an error only if the array formula is partially outside the range.
+        '''
+        for r in range(start_row, end_row + 1):
+            for c in range(start_col, end_col + 1):
+                existing = self._array_block(sheet, c, r)
+                if existing:
+                    if allow_contained:
+                        if existing.StartColumn >= start_col and existing.EndColumn <= end_col and existing.StartRow >= start_row and existing.EndRow <= end_row:
+                            continue
+
+                    def block_name(a: int, b: int, c_: int, d: int) -> str:
+                        from plugin.calc.address_utils import index_to_column
+                        return f"{index_to_column(a)}{b + 1}:{index_to_column(c_)}{d + 1}"
+                    from plugin.calc.address_utils import index_to_column
+                    cell_name = f"{index_to_column(c)}{r + 1}"
+                    arr_name = block_name(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow)
+                    raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
+
     def _is_valid_cell_address(self, address: str) -> bool:
         """Validate if a string is a valid cell address (e.g., A1)."""
         if not address:
@@ -738,8 +760,13 @@ class CellManipulator:
         return applied
 
 
-    def prepare_array_formula_if_needed(self, range_str: str, formula_or_values: Any, array: Any = None) -> None:
-        '''Run the array formula measure and occupancy check without committing.'''
+    def prepare_array_formula_if_needed(self, range_str: str, formula_or_values: Any, array: Any = None) -> tuple[int, int] | None:
+        '''Run the array formula measure and occupancy check without committing.
+
+        Returns (rows, cols) if an array formula was measured, else None.
+        Locks the UndoManager and restores the document's isModified state
+        so the probe doesn't leave the document dirty or record undo actions.
+        '''
         if isinstance(formula_or_values, str) and returns_array(formula_or_values, array):
             cell_range = self.bridge.resolve_range_or_address(range_str)
             addr = _uno_range_address(cell_range)
@@ -756,16 +783,25 @@ class CellManipulator:
                 sheet = self.bridge.get_active_document().getSheets().getByIndex(sheet_idx)
                 doc = self.bridge.get_active_document()
                 was_modified = doc.isModified()
+                undo_mgr = doc.getUndoManager() if hasattr(doc, "getUndoManager") else None
+                if undo_mgr:
+                    undo_mgr.lock()
                 try:
-                    self._write_array_formula(sheet, formula_or_values, start, end, measure_only=True)
+                    c2, r2 = end
+                    rows, cols = self._measure_array(sheet, formula_or_values, avoid_col=c2, avoid_start_row=start[1], avoid_end_row=r2)
+                    self._write_array_formula(sheet, formula_or_values, start, end, measure_only=True, premeasured_array_size=(rows, cols))
+                    return (rows, cols)
                 finally:
+                    if undo_mgr:
+                        undo_mgr.unlock()
                     if not was_modified:
                         try:
                             doc.setModified(False)
                         except Exception:
                             pass
+        return None
 
-    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None, *, literal_text: bool = False) -> str | dict[str, Any]:
+    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None, *, literal_text: bool = False, premeasured_array_size: tuple[int, int] | None = None) -> str | dict[str, Any]:
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -790,6 +826,7 @@ class CellManipulator:
             Summary string, or a dict with ``array_range`` / ``rows`` /
             ``cols`` when an array formula was written.
         """
+        expand_overwrite_warning: str | None = None
         try:
             # Handle empty values as a clear_range operation
             is_empty = formula_or_values is None or formula_or_values == "" or formula_or_values == [] or formula_or_values == "[]" or formula_or_values == "{}"
@@ -845,7 +882,7 @@ class CellManipulator:
                                 if cell.getFormula() or cell.getString():
                                     non_empty_count += 1
                         if non_empty_count > 0:
-                            self._expand_overwrite_warning = f"overwrote {non_empty_count} non-empty cell(s)"
+                            expand_overwrite_warning = f"overwrote {non_empty_count} non-empty cell(s)"
 
                         range_str = f"{self.bridge._index_to_column(start[0])}{start[1] + 1}:{self.bridge._index_to_column(end[0])}{end[1] + 1}"
 
@@ -973,15 +1010,11 @@ class CellManipulator:
             if total_cells <= UNDO_CLEAR_THRESHOLD:
                 # Check if there's any empty cell in the target range
                 has_empty = False
-                CCT = sys.modules.get("com.sun.star.table", None)
-                if CCT is not None and hasattr(CCT, "CellContentType"):
-                    empty_type = CCT.CellContentType.EMPTY
-                else:
-                    try:
-                        from com.sun.star.table import CellContentType
-                        empty_type = CellContentType.EMPTY
-                    except ImportError:
-                        empty_type = None
+                try:
+                    from com.sun.star.table import CellContentType
+                    empty_type = CellContentType.EMPTY
+                except ImportError:
+                    empty_type = None
 
                 for r in range(start[1], end[1] + 1):
                     for c in range(start[0], end[0] + 1):
@@ -1088,10 +1121,8 @@ class CellManipulator:
             values_word = "value" if n_vals == 1 else "values"
             msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}{formula_warning}."
 
-            warning = getattr(self, "_expand_overwrite_warning", None)
-            if warning:
-                msg = f"{msg} ({warning})"
-                self._expand_overwrite_warning = None
+            if expand_overwrite_warning:
+                msg = f"{msg} ({expand_overwrite_warning})"
 
             log.info("%s", msg)
             return msg
@@ -1208,7 +1239,7 @@ class CellManipulator:
                 raise
             return None
 
-    def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int], measure_only: bool = False) -> dict[str, Any]:
+    def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int], measure_only: bool = False, premeasured_array_size: tuple[int, int] | None = None) -> dict[str, Any]:
         """Enter *formula* as an array formula so its whole result shows.
 
         From a single cell, the result range is sized from the result and
@@ -1220,7 +1251,10 @@ class CellManipulator:
         c1, r1 = start
         c2, r2 = end
         explicit = (c1, r1) != (c2, r2)
-        rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_start_row=r1, avoid_end_row=r2)
+        if premeasured_array_size:
+            rows, cols = premeasured_array_size
+        else:
+            rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_start_row=r1, avoid_end_row=r2)
 
         def block_name(a: int, b: int, c: int, d: int) -> str:
             return "%s%d:%s%d" % (index_to_column(a), b + 1, index_to_column(c), d + 1)

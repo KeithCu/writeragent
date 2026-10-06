@@ -494,17 +494,19 @@ class WriteCellRange(ToolBase):
                 return self._tool_error("array must be a boolean")
 
         try:
+            premeasured: list[tuple[int, int] | None] = []
             for r in rn:
-                manipulator.prepare_array_formula_if_needed(r, fov, array=array_flag)
+                sz = manipulator.prepare_array_formula_if_needed(r, fov, array=array_flag)
+                premeasured.append(sz)
 
             with WriterCompoundUndo(ctx.doc, "WriterAgent: Write formulas"):
                 if len(rn) == 1:
-                    result = manipulator.write_formula_range(rn[0], fov, array=array_flag)
+                    result = manipulator.write_formula_range(rn[0], fov, array=array_flag, premeasured_array_size=premeasured[0])
                     if isinstance(result, dict):
                         return {"status": "ok", **result}
                     return {"status": "ok", "message": result}
-                for r in rn:
-                    manipulator.write_formula_range(r, fov, array=array_flag)
+                for i, r in enumerate(rn):
+                    manipulator.write_formula_range(r, fov, array=array_flag, premeasured_array_size=premeasured[i])
                 return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
         except Exception as e:
             return self._tool_error(str(e))
