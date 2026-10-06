@@ -83,7 +83,11 @@ PEER_ACCEPTED_FINISH_HINT = (
 
 @dataclass
 class PeerPendingTurn:
-    """One queued extracted send on a listener."""
+    """One queued extracted send on a listener.
+
+    We compare turns by value, not identity (eq=False), because identical
+    queued turns are interchangeable for q.remove.
+    """
 
     wrapped_text: str
     already_appended: bool
@@ -91,7 +95,6 @@ class PeerPendingTurn:
 
 _listener_queues: WeakKeyDictionary[Any, deque[PeerPendingTurn]] = WeakKeyDictionary()
 _global_fifo: deque[tuple[weakref.ref[Any], PeerPendingTurn]] = deque()
-_idle_kick_scheduled = False
 
 
 def _supports_service(model: Any, service: str) -> bool:
@@ -387,16 +390,13 @@ def drop_listener_queue(listener: Any) -> None:
 
 def reset_peer_queues() -> None:
     """Test hook: clear all pending turns."""
-    global _global_fifo, _idle_kick_scheduled
+    global _global_fifo
     _listener_queues.clear()
     _global_fifo.clear()
-    _idle_kick_scheduled = False
 
 
 def kick_pending_peer_starts() -> None:
     """Start at most one queued extracted send when the process drain is idle."""
-    global _idle_kick_scheduled
-    _idle_kick_scheduled = False
     if get_drain_owner() is not None:
         return
     skipped: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
@@ -420,8 +420,14 @@ def kick_pending_peer_starts() -> None:
         start_fn = getattr(listener, "start_extracted_peer_send", None)
         if not callable(start_fn):
             continue
+        # A peer sidebar using the hands-free mic drops the turn and an
+        # already-appended user message sits unanswered if EXTRACTED_SEND
+        # refuses during recording.
+        if start_fn(turn.wrapped_text, already_appended=turn.already_appended) is False:
+            q.appendleft(turn)
+            skipped.append((ref, turn))
+            continue
         started = True
-        start_fn(turn.wrapped_text, already_appended=turn.already_appended)
     for item in reversed(skipped):
         _global_fifo.appendleft(item)
 
@@ -436,12 +442,10 @@ def _on_drain_idle() -> None:
     Packet P dispatches ``KICK_PEERS`` after Writer Ready (do not force-marshal
     from this callback: that starts Calc during Writer wrapup and sticks Stop).
     """
-    global _idle_kick_scheduled
     if get_drain_owner() is not None:
         return
     if not _global_fifo:
         return
-    _idle_kick_scheduled = True
     try:
         from plugin.framework.queue_executor import default_executor
 
@@ -479,7 +483,7 @@ def summarize_peer_tool_on_wire(schemas: list[dict[str, Any]]) -> tuple[bool, in
             continue
         fn = schema.get("function")
         desc = str(fn.get("description") or "") if isinstance(fn, dict) else str(schema.get("description") or "")
-        return True, desc.count("uid=")
+        return True, desc.count("(uid=")
     return False, 0
 
 

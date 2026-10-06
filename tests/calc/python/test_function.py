@@ -1676,3 +1676,161 @@ def test_off_main_spill_timer_does_not_register_empty_lkey(monkeypatch: pytest.M
 
     assert t_start_called[0], "Timer should still be started"
     assert not reg_called[0], "Timer should not be registered when lkey is empty"
+
+
+def test_matrix_cache_staleness_after_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 1: [1,2,3] gives 1; after the gap, the next call gives 1 again and the worker is called."""
+    import time
+
+    ctx = _ctx_with_doc(CalcDocStub())
+    python_function.clear_python_addin_cache()
+
+    curr_time = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: curr_time[0])
+    monkeypatch.setattr(
+        python_function,
+        "session_key",
+        lambda *_a, **_k: ("file:///doc.ods", "Sheet1", "sid", "code_gap", "0,0"),
+    )
+
+    worker_calls: list[int] = []
+
+    def mock_run(*_a, **_k):
+        worker_calls.append(1)
+        return {"status": "ok", "result": [1, 2, 3]}
+
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", mock_run)
+
+    # 1. First call: worker is called, returns 1st element
+    res1 = python_function._execute_python_addin_impl(ctx, "code_gap")
+    assert res1 == 1.0
+    assert len(worker_calls) == 1
+
+    # 2. Second call within gap: worker is NOT called, returns 2nd element
+    curr_time[0] += 0.5
+    res2 = python_function._execute_python_addin_impl(ctx, "code_gap")
+    assert res2 == 2.0
+    assert len(worker_calls) == 1
+
+    # 3. Third call after gap (> _PY_PASS_GAP_SEC = 2.0s):
+    # Cache is treated as stale, worker is called again, returns 1st element
+    curr_time[0] += 3.0
+    res3 = python_function._execute_python_addin_impl(ctx, "code_gap")
+    assert res3 == 1.0
+    assert len(worker_calls) == 2
+
+
+def test_scalar_for_list_result_stale_after_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 1: scalar_for_list_result resets next_index to 0 after gap."""
+    import time
+
+    ctx = _ctx_with_doc(CalcDocStub())
+    python_function.clear_python_addin_cache()
+
+    curr_time = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: curr_time[0])
+    monkeypatch.setattr(
+        python_function,
+        "session_key",
+        lambda *_a, **_k: ("file:///doc.ods", "Sheet1", "sid", "code_gap2", "0,0"),
+    )
+
+    a = python_function.scalar_for_list_result(ctx, "code_gap2", [1, 2, 3])
+    assert a == 1.0
+    curr_time[0] += 0.5
+    b = python_function.scalar_for_list_result(ctx, "code_gap2", [1, 2, 3])
+    assert b == 2.0
+
+    curr_time[0] += 3.0  # > _PY_PASS_GAP_SEC
+    c = python_function.scalar_for_list_result(ctx, "code_gap2", [1, 2, 3])
+    assert c == 1.0
+
+
+def test_text_single_cell_arg_spills_instead_of_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 2: Single cell text arg spills normally; numeric arg stays an index."""
+    ctx = _ctx_with_doc(CalcDocStub())
+    python_function.clear_python_addin_cache()
+
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": ["hello", "world"]},
+    )
+    spill_calls: list[int] = []
+    monkeypatch.setattr(
+        python_function,
+        "_prepare_auto_spill",
+        lambda *_a, **_k: ("file:///u.ods", "Sheet1", 0, 0),
+    )
+    monkeypatch.setattr(
+        python_function,
+        "_queue_deferred_spill_write",
+        lambda *_a, **_k: spill_calls.append(1),
+    )
+
+    # Text arg: A1 contains "text"
+    res_text = python_function._execute_python_addin_impl(ctx, "[data]*3", data=[["text"]])
+    # Spills normally (returns corner "hello" and queued deferred spill write, does NOT error)
+    assert res_text == "hello"
+    assert len(spill_calls) == 1
+
+    # Numeric arg: e.g. ROW()-1 (value 1.0) -> acts as index, returns 2nd element
+    res_num = python_function._execute_python_addin_impl(ctx, "[data]*3", data=[[1.0]])
+    assert res_num == "world"
+
+
+def test_prepare_auto_spill_with_16384_columns() -> None:
+    """Item 3: A mock sheet with 16384 columns and a spill past column 1024 is not #SPILL!."""
+    import unittest.mock
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    cols = MagicMock()
+    cols.getCount.return_value = 16384
+    rows = MagicMock()
+    rows.getCount.return_value = 1048576
+    sheet.getColumns.return_value = cols
+    sheet.getRows.return_value = rows
+
+    cell = MagicMock()
+    cell.getType.return_value = 0  # EMPTY
+    sheet.getCellByPosition.return_value = cell
+
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///wide.ods"
+    doc.getPropertyValue.side_effect = lambda prop: "uid-wide" if prop == "RuntimeUID" else None
+    doc.getSheets().getByName.return_value = sheet
+
+    # Locate formula at (row 0, col 1020)
+    with unittest.mock.patch(
+        "plugin.calc.python.function.locate_formula_cell_in_doc",
+        return_value=(sheet, cell, (0, 1020)),
+    ):
+        # 1 row by 10 columns grid -> targets col 1020..1029 (crosses past 1024)
+        grid = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]
+        prepared = python_function._prepare_auto_spill(ctx, "py_code", grid, doc)
+        assert prepared != "#SPILL!"
+        assert prepared == ("uid-wide", "Sheet1", 0, 1020)
+
+
+
+def test_ragged_results_handling() -> None:
+    """Item 4: Ragged results in flatten_result_values and _result_as_spill_grid."""
+    # flatten_result_values:
+    # [[1, 2], 3] -> [1, 2, 3] (no TypeError)
+    assert python_function.flatten_result_values([[1, 2], 3]) == [1, 2, 3]
+    assert python_function.flatten_result_values([1, [2, 3]]) == [1, 2, 3]
+    assert python_function.flatten_result_values([1, 2, 3]) == [1, 2, 3]
+    assert python_function.flatten_result_values(42) == [42]
+    assert python_function.flatten_result_values([]) == []
+
+    # _result_as_spill_grid:
+    # [[1, 2], 3] -> [[1, 2], [3]]
+    assert python_function._result_as_spill_grid([[1, 2], 3]) == [[1, 2], [3]]
+    # [[1, 2], "hello"] -> [[1, 2], ["hello"]] (does not split strings into chars)
+    assert python_function._result_as_spill_grid([[1, 2], "hello"]) == [[1, 2], ["hello"]]
+    assert python_function._result_as_spill_grid([1, 2, 3]) == [[1], [2], [3]]
+    assert python_function._result_as_spill_grid([]) == []
+
