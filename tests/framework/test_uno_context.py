@@ -492,7 +492,7 @@ def test_get_desktop_returns_none_without_service_manager():
     try:
         with (
             patch.object(sys, "argv", ["soffice"]),
-            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=("/usr/lib64/libreoffice/program/soffice.bin", "soffice.bin", [])),
         ):
             assert get_desktop(ctx) is None
     finally:
@@ -529,7 +529,7 @@ def test_get_desktop_skips_create_when_proc_exe_is_uno_bin():
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
+    proc = ("/usr/lib64/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"])
     reset_desktop_create_is_unsafe_for_tests()
     try:
         with (
@@ -554,7 +554,7 @@ def test_get_desktop_creates_on_soffice():
     try:
         with (
             patch.object(sys, "argv", ["soffice"]),
-            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=("/usr/lib64/libreoffice/program/soffice.bin", "soffice.bin", [])),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
         ):
             assert get_desktop(ctx) is desktop
@@ -621,6 +621,7 @@ def test_new_blank_writer_returns_none_when_template_text_survives():
         patch("plugin.framework.uno_context.clear_writer_body", return_value=False),
     ):
         assert new_blank_writer(MagicMock()) is None
+        doc.close.assert_called_once_with(True)
 
 
 def test_new_blank_writer_keeps_an_already_empty_body():
@@ -864,7 +865,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
         with (
             patch("plugin.framework.thread_guard.guard_uno", side_effect=_guard),
             patch.object(sys, "argv", ["soffice"]),
-            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["soffice.bin"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=("soffice.bin", "soffice.bin", [])),
             patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
         ):
             assert uc.get_ctx() is ctx
@@ -1028,3 +1029,36 @@ def test_resolve_document_by_url_reraises_disposed_on_nextelement():
     finally:
         set_fallback_ctx(saved_ctx)
         reset_desktop_create_is_unsafe_for_tests()
+
+def test_desktop_create_is_unsafe_now_false_for_soffice_with_uno_arg():
+    from plugin.framework.uno_context import _desktop_create_is_unsafe_now
+    proc = ("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", ["/usr/lib/libreoffice/program/soffice.bin", "/home/u/uno"])
+    with (
+        patch.object(sys, "argv", [""]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+    ):
+        assert _desktop_create_is_unsafe_now() is False
+
+def test_desktop_create_is_unsafe_now_true_for_uno_bin_exe():
+    from plugin.framework.uno_context import _desktop_create_is_unsafe_now
+    proc = ("/usr/lib/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib/libreoffice/program/uno.bin", "arg"])
+    with (
+        patch.object(sys, "argv", [""]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+    ):
+        assert _desktop_create_is_unsafe_now() is True
+
+def test_new_blank_writer_returns_none_and_closes_when_body_unreadable():
+    from plugin.framework.uno_context import new_blank_writer
+
+    doc = MagicMock()
+    doc.getText.return_value.getString.side_effect = Exception("failed")
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.clear_writer_body", return_value=False),
+        patch("plugin.framework.uno_context._reraise_document_disposed"),
+    ):
+        assert new_blank_writer(MagicMock()) is None
+        doc.close.assert_called_once_with(True)
