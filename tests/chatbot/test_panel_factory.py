@@ -194,32 +194,25 @@ def test_setup_sessions_missing_session_url_forks_url_hash_id(tmp_path):
 
 
 def test_setup_sessions_fork_failure_keeps_old_id(tmp_path, monkeypatch):
+    """A failed fork keeps the old id and leaves the URL unstamped so the next open retries."""
     import hashlib
 
-    from plugin.chatbot.history_db import get_chat_history
+    import plugin.chatbot.panel_factory
 
     old_url = "file:///tmp/original.odt"
     new_url = "file:///tmp/copy.odt"
     old_id = hashlib.sha256(old_url.encode("utf-8")).hexdigest()
-    new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
     props = {"WriterAgentSessionID": old_id}
-    db_path = str(tmp_path / "writeragent_history.db")
 
-    # Mock the fork to raise an exception
-    import plugin.chatbot.panel_factory
     def failing_fork(old, new):
         raise OSError("Permission denied")
 
     monkeypatch.setattr(plugin.chatbot.panel_factory, "_fork_doc_chat_history", failing_fork)
 
-    history = _save_as_sessions(tmp_path, props, new_url)
+    _save_as_sessions(tmp_path, props, new_url)
 
-    # Since fork failed, properties should remain the old ones.
-    # Actually, the fallback at line 1133 sets WriterAgentSessionURL
-    # if it's empty, so it will get set to new_url. The main point is
-    # the ID doesn't change.
     assert props["WriterAgentSessionID"] == old_id
-    assert props.get("WriterAgentSessionURL", "") == new_url
+    assert "WriterAgentSessionURL" not in props
 
 
 def test_setup_sessions_untitled_uuid_keeps_history_on_first_save(tmp_path):
@@ -833,35 +826,22 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     assert el._apply_sidebar_mode.call_args.args[-1] is toggle
 
 
-def test_fork_doc_chat_history_ignores_system_only_destination(tmp_path):
-    import hashlib
-
+def test_fork_doc_chat_history_ignores_system_only_destination(tmp_path, monkeypatch):
+    import plugin.chatbot.history_db
     from plugin.chatbot.history_db import get_chat_history
     from plugin.chatbot.panel_factory import _fork_doc_chat_history
 
-    old_id = "test-old"
-    new_id = "test-new"
     db_path = str(tmp_path / "writeragent_history.db")
+    monkeypatch.setattr(plugin.chatbot.history_db, "_get_db_path", lambda: db_path)
 
-    import plugin.chatbot.history_db
-    original_get = plugin.chatbot.history_db._get_db_path
-    plugin.chatbot.history_db._get_db_path = lambda: db_path
+    get_chat_history("test-old").add_message("user", "this should copy")
+    # Clear seeds a system prompt; that alone is not a conversation to preserve.
+    get_chat_history("test-new").add_message("system", "seeded prompt")
 
-    try:
-        # Seed the old
-        get_chat_history(old_id).add_message("user", "this should copy")
+    _fork_doc_chat_history("test-old", "test-new")
 
-        # Seed the new with ONLY a system prompt
-        get_chat_history(new_id).add_message("system", "seeded prompt")
-
-        _fork_doc_chat_history(old_id, new_id)
-
-        msgs = get_chat_history(new_id).get_messages()
-        # Should have replaced the system prompt with the forked history
-        assert len(msgs) == 1
-        assert msgs[0]["content"] == "this should copy"
-    finally:
-        plugin.chatbot.history_db._get_db_path = original_get
+    msgs = get_chat_history("test-new").get_messages()
+    assert [m["content"] for m in msgs] == ["this should copy"]
 
 
 def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_path):
