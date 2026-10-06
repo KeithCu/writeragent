@@ -494,6 +494,9 @@ class WriteCellRange(ToolBase):
                 return self._tool_error("array must be a boolean")
 
         try:
+            for r in rn:
+                manipulator.prepare_array_formula_if_needed(r, fov, array=array_flag)
+
             with WriterCompoundUndo(ctx.doc, "WriterAgent: Write formulas"):
                 if len(rn) == 1:
                     result = manipulator.write_formula_range(rn[0], fov, array=array_flag)
