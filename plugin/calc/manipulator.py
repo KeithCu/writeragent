@@ -791,7 +791,7 @@ class CellManipulator:
                 if undo_mgr:
                     was_possible = undo_mgr.isUndoPossible()
                     try:
-                        undo_mgr.enterHiddenUndoContext("WriterAgent: array probe")
+                        undo_mgr.enterHiddenUndoContext()
                         hidden_context_entered = True
                     except Exception as e:
                         if "EmptyUndoStackException" in type(e).__name__:
