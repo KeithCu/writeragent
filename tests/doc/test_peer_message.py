@@ -875,12 +875,56 @@ def test_summarize_peer_tool_on_wire():
         {
             "function": {
                 "name": PEER_WORK_TOOL_NAME,
-                "description": "base Open peers: Budget.ods (uid=u2, url=, type=calc).",
+                "description": "base uid=u1 Open peers: Budget.ods (uid=u2, url=, type=calc). uid=u3 Open peers: Memo.odt (uid=u4, url=, type=text).",
             }
         }
     ]
-    assert summarize_peer_tool_on_wire(schemas) == (True, 1)
+    assert summarize_peer_tool_on_wire(schemas) == (True, 2)
     log_peer_tool_on_wire(schemas)
+
+
+def test_kick_start_extracted_peer_send_returns_false():
+    from plugin.doc.peer_message import (
+        _global_fifo,
+        _listener_queues,
+        kick_pending_peer_starts,
+        reset_peer_queues,
+        PeerPendingTurn,
+    )
+
+    reset_peer_queues()
+    try:
+        class FakeListener:
+            def __init__(self):
+                self.started = 0
+            def start_extracted_peer_send(self, text, already_appended=True):
+                if self.started == 0:
+                    self.started += 1
+                    return False
+                self.started += 1
+                return True
+
+        listener = FakeListener()
+        turn = PeerPendingTurn(wrapped_text="hi", already_appended=True)
+        from plugin.doc.peer_message import enqueue_peer_turn
+
+        # enqueue manually to avoid schedule_peer_turn calling kick_pending_peer_starts immediately
+        enqueue_peer_turn(listener, turn)
+
+        # first kick -> start_fn returns False -> turn put back in queue
+        kick_pending_peer_starts()
+        assert len(_global_fifo) == 1
+        assert len(_listener_queues[listener]) == 1
+        assert listener.started == 1
+
+        # second kick -> start_fn returns True -> turn removed from queue
+        kick_pending_peer_starts()
+        assert len(_global_fifo) == 0
+        assert len(_listener_queues[listener]) == 0
+        assert listener.started == 2
+
+    finally:
+        reset_peer_queues()
 
 
 def test_chat_tier_excluded_from_mcp_frozensets():
