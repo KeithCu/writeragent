@@ -266,6 +266,8 @@ def _pause_script_alarm() -> tuple[int, float] | None:
     an error frame while the host was still writing the tool reply, and the next
     cell read that reply as a request.
     """
+    if sys.platform == "win32":
+        return None
     try:
         import signal
 
@@ -396,6 +398,8 @@ def _resume_script_alarm(paused: tuple[int, float] | None) -> bool:
     left = remaining - (time.monotonic() - started)
     if left <= 0:
         return True
+    if sys.platform == "win32":
+        return False
     try:
         import signal
 
@@ -674,6 +678,9 @@ def _read_available_line_bytes(fd: int) -> bytes | None:
     The caller must be the only reader of this fd. A wrapper ``readline`` would
     desync its own buffer from this read.
     """
+    if sys.platform == "win32":
+        # No non-blocking pipe reads on win32; report "nothing available".
+        return None
     was_blocking = True
     try:
         was_blocking = os.get_blocking(fd)
