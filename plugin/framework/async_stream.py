@@ -33,7 +33,8 @@ uses a small lock only while coalescing pending text chunks; it does not
 make UNO calls under that lock. While a drain is active it is the single
 owner of the UI pump — see ``async_drain_guard``. The event-driven drain
 holds that owner across callbacks; it does not keep the main thread inside
-one callback for the idle wait.
+one callback for the idle wait, and it does not call ``pump_ui_idle`` —
+returning to VCL between slices is what keeps Stop and paints alive.
 """
 
 from __future__ import annotations
@@ -1121,10 +1122,12 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     When *rearm* is passed, or ``AsyncCallback`` can be armed, process the
     items already queued and return to the VCL loop. The next slice is an
     ``addCallback`` (queue non-empty) or a ~100 ms idle re-arm (queue empty).
-    Callers that used to run after this function returns must use
-    :func:`defer_until_drain_done` so that work still waits for the terminal
-    slice. Without a callback (unit tests, eval harness, force-marshal) the
-    blocking loop below is unchanged, including ``pump_ui_idle``.
+    That event-driven path does **not** call ``pump_ui_idle``; each slice
+    returns to VCL so paints and Stop stay responsive. Callers that used to
+    run after this function returns must use :func:`defer_until_drain_done`
+    so that work still waits for the terminal slice. Without a callback
+    (unit tests via :func:`set_drain_scheduler_override`, eval harness,
+    force-marshal) the blocking loop still runs ``q.get`` + ``pump_ui_idle``.
 
     Do not fold the slices back into one ``while`` inside the callback. That
     holds SolarMutex across the idle wait; a worker freeing a PyUNO proxy
@@ -1188,9 +1191,30 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
         job_done[0] = True
 
 
+# Pytest (and similar) can force the blocking drain without sniffing MagicMock
+# inside queue_executor. A factory that returns None selects the blocking path.
+_drain_scheduler_override: Callable[[], Any | None] | None = None
+
+
+def set_drain_scheduler_override(factory: Callable[[], Any | None] | None) -> Callable[[], Any | None] | None:
+    """Install a factory used by :func:`_make_drain_rearm` instead of production.
+
+    Returns the previous factory so callers can restore it. Pass ``None`` to
+    clear. Headless pytest sets ``lambda: None`` so ``run_stream_drain_loop``
+    keeps the blocking path (event-driven re-arm needs a live AsyncCallback).
+    Explicit ``rearm=`` on :func:`run_stream_drain_loop` still bypasses this.
+    """
+    global _drain_scheduler_override
+    previous = _drain_scheduler_override
+    _drain_scheduler_override = factory
+    return previous
+
+
 def _make_drain_rearm() -> _AsyncCallbackRearm | None:
     """Production re-arm, or None when the blocking loop must be used."""
     # crosshair: off
+    if _drain_scheduler_override is not None:
+        return _drain_scheduler_override()
     service = async_callback_for_drain_rearm()
     if service is None:
         return None
