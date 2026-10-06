@@ -14,6 +14,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+@pytest.fixture(autouse=True)
+def _drain_scheduler_override_for_tests():
+    from plugin.framework.async_stream import set_drain_scheduler_override
+    previous = set_drain_scheduler_override(lambda: None)
+    try:
+        yield
+    finally:
+        set_drain_scheduler_override(previous)
 
 
 def pytest_collection_modifyitems(config, items):
