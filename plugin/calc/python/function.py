@@ -956,7 +956,6 @@ def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
                 return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
     except Exception:
         log.debug("_cell_is_matrix check failed", exc_info=True)
-        return False
     return False
 
 

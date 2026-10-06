@@ -419,6 +419,30 @@ def test_finalize_python_return_matrix_formula_does_not_spill() -> None:
     assert val == 1.0
 
 
+def test_finalize_python_return_multi_cell_selection_skips_formula_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A multi-cell selection is already a matrix; matrix detection must not scan formula cells."""
+    import sys
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    doc.CurrentController.Selection = sheet.getCellRangeByPosition(1, 1, 2, 1)
+    ctx = _ctx_with_doc(doc)
+    callers: list[str] = []
+
+    def fake_locate(*_a: Any, **_k: Any) -> None:
+        # session_key still locates for the scalar session key; only the
+        # matrix check in finalize_python_return must skip the scan.
+        callers.append(sys._getframe(1).f_code.co_name)
+        return None
+
+    monkeypatch.setattr(python_function, "locate_formula_cell_in_doc", fake_locate)
+
+    val = finalize_python_return(ctx, "test_code_matrix_no_scan", [[1.0, 2.0], [3.0, 4.0]])
+
+    assert val == 1.0
+    assert "finalize_python_return" not in callers
+
+
 def test_spill_collision_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that finalize_python_return returns #SPILL! when a cell in the spill target is occupied."""
     doc = CalcDocStub(url="file:///fake.ods", selection="B2")
