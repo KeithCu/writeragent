@@ -780,91 +780,93 @@ class ToolCallingMixin:
             self._execute_effect(effect)
 
     def _handle_stream_error(self: ToolLoopHost, e: Any) -> bool | None:
-        from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
-        try:
-            live = current_turn(self)
-            if isinstance(live, TurnController) and not live.alive:
-                return None
-            # Native-audio rejection retries as text on this drain. WAV attach and
-            # the STT retry live in audio_recorder_service, next to recording.
-            from plugin.scripting.audio_recorder_service import try_native_audio_stt_fallback
+        from plugin.scripting.audio_recorder_service import clear_pending_audio_wav, try_native_audio_stt_fallback
 
-            fallback = try_native_audio_stt_fallback(self, e)
-            if fallback is not False:
-                return fallback
-
-            # If we reached here, it's either not a modality error or STT is not configured.
-            # Drain ERROR items are format_error_payload dicts (see _spawn_llm_worker),
-            # not Exception — format_error_message() requires Exception (deal.pre).
-            if isinstance(e, dict):
-                err_msg = str(e.get("message") or e.get("code") or e)
-                crash_blob = "%s %s" % (err_msg, e)
-            elif isinstance(e, Exception):
-                err_msg = format_error_message(e)
-                crash_blob = err_msg
-            else:
-                err_msg = str(e)
-                crash_blob = err_msg
-            # Prompt-too-large: respawn the worker with force_compact. Never call
-            # compact_session on this drain / UI thread (UNO + lane). Process death
-            # is not overflow — compact-and-retry on a dead llama-server is worse
-            # than today's sentence. Kill switch offs this path too.
-            if get_config_bool_safe("chat_compaction_enabled"):
-                stop_checker = self.resolve_stop_checker()
-                stopped = bool(self.stop_requested or stop_checker())
-                live_turn = running_turn(self)
-                retry_q = spawn_queue(live_turn) if live_turn is not None else None
-                if (
-                    not stopped
-                    and retry_q is not None
-                    and self._active_client is not None
-                    and not is_process_death_error(crash_blob)
-                    and is_context_overflow_error(crash_blob)
-                    and isinstance(live_turn, TurnController)
-                    and getattr(live_turn, "_overflow_compact_attempts", 0) < MAX_OVERFLOW_COMPACTION_ATTEMPTS
-                    and should_retry_overflow(
-                        getattr(live_turn, "_overflow_compact_attempts", 0),
-                        getattr(live_turn, "_last_compact_reason", None),
-                        getattr(live_turn, "_last_compact_tokens_before", None),
-                        getattr(live_turn, "_last_compact_tokens_after", None),
-                    )
-                ):
-                    live_turn._overflow_compact_attempts += 1
-                    self._set_status("Compacting conversation...")
-                    self._spawn_llm_worker(
-                        retry_q,
-                        self._active_client,
-                        self._active_max_tokens,
-                        self._active_tools or [],
-                        self._sm_state.round_num,
-                        query_text=self._active_query_text,
-                        force_compact=True,
-                    )
-                    return True
-            # Issue #570: llama-server died / prompt overflow. Plain sentence only —
-            # never dump the format_error_payload dict into the sidebar.
-            if is_local_model_server_crash(crash_blob):
-                display = err_msg
-                if (
-                    not isinstance(display, str)
-                    or display.lstrip()[:1] in "{["
-                    or "HTTP Error" in display
-                    or not is_local_model_server_crash(display)
-                ):
-                    display = local_model_overflow_message()
-                banner = "\n%s\n" % display
-            else:
-                banner = "\n[API error: %s]\n" % err_msg
-            self._append_response(banner)
-            # The user row is already stored. Leaving the banner widget-only made
-            # a retry append a second user row with a hole where the assistant was.
-            # Overflow respawn and audio fallback return before this write.
-            persist_assistant_on_turn(self, content=banner.strip())
-            self._terminal_status = "Error"
-            self._set_status("Error")
-            return None
-        finally:
+        live = current_turn(self)
+        if isinstance(live, TurnController) and not live.alive:
+            # Dead turn (e.g. after Stop): nothing will retry, so drop the WAV.
+            # Not a try/finally: the overflow respawn below returns True, and a
+            # native-audio rejection on that retry still needs the WAV for STT.
             clear_pending_audio_wav(self)
+            return None
+        # Native-audio rejection retries as text on this drain. WAV attach and
+        # the STT retry live in audio_recorder_service, next to recording.
+
+        fallback = try_native_audio_stt_fallback(self, e)
+        if fallback is not False:
+            return fallback
+
+        # If we reached here, it's either not a modality error or STT is not configured.
+        # Drain ERROR items are format_error_payload dicts (see _spawn_llm_worker),
+        # not Exception — format_error_message() requires Exception (deal.pre).
+        if isinstance(e, dict):
+            err_msg = str(e.get("message") or e.get("code") or e)
+            crash_blob = "%s %s" % (err_msg, e)
+        elif isinstance(e, Exception):
+            err_msg = format_error_message(e)
+            crash_blob = err_msg
+        else:
+            err_msg = str(e)
+            crash_blob = err_msg
+        # Prompt-too-large: respawn the worker with force_compact. Never call
+        # compact_session on this drain / UI thread (UNO + lane). Process death
+        # is not overflow — compact-and-retry on a dead llama-server is worse
+        # than today's sentence. Kill switch offs this path too.
+        if get_config_bool_safe("chat_compaction_enabled"):
+            stop_checker = self.resolve_stop_checker()
+            stopped = bool(self.stop_requested or stop_checker())
+            live_turn = running_turn(self)
+            retry_q = spawn_queue(live_turn) if live_turn is not None else None
+            if (
+                not stopped
+                and retry_q is not None
+                and self._active_client is not None
+                and not is_process_death_error(crash_blob)
+                and is_context_overflow_error(crash_blob)
+                and isinstance(live_turn, TurnController)
+                and live_turn._overflow_compact_attempts < MAX_OVERFLOW_COMPACTION_ATTEMPTS
+                and should_retry_overflow(
+                    live_turn._overflow_compact_attempts,
+                    live_turn._last_compact_reason,
+                    live_turn._last_compact_tokens_before,
+                    live_turn._last_compact_tokens_after,
+                )
+            ):
+                live_turn._overflow_compact_attempts += 1
+                self._set_status("Compacting conversation...")
+                self._spawn_llm_worker(
+                    retry_q,
+                    self._active_client,
+                    self._active_max_tokens,
+                    self._active_tools or [],
+                    self._sm_state.round_num,
+                    query_text=self._active_query_text,
+                    force_compact=True,
+                )
+                return True
+        # Issue #570: llama-server died / prompt overflow. Plain sentence only —
+        # never dump the format_error_payload dict into the sidebar.
+        if is_local_model_server_crash(crash_blob):
+            display = err_msg
+            if (
+                not isinstance(display, str)
+                or display.lstrip()[:1] in "{["
+                or "HTTP Error" in display
+                or not is_local_model_server_crash(display)
+            ):
+                display = local_model_overflow_message()
+            banner = "\n%s\n" % display
+        else:
+            banner = "\n[API error: %s]\n" % err_msg
+        self._append_response(banner)
+        # The user row is already stored. Leaving the banner widget-only made
+        # a retry append a second user row with a hole where the assistant was.
+        # Overflow respawn and audio fallback return before this write.
+        persist_assistant_on_turn(self, content=banner.strip())
+        self._terminal_status = "Error"
+        self._set_status("Error")
+        clear_pending_audio_wav(self)
+        return None
 
     def _on_tool_loop_approval_required(self: ToolLoopHost, item: Any) -> None:
         """Main-thread handler: show inline Accept/Reject and unblock the tool worker."""
@@ -884,7 +886,7 @@ class ToolCallingMixin:
         if max_tool_rounds is None:
             max_tool_rounds = get_config_int("chatbot.max_tool_rounds")
         log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
-        # Worker is recreated per send; do not carry overflow retries across turns.
+        # Overflow retry counters live on the fresh per-send TurnController.
         self._append_response("\nAI: ")
         self._record_assistant_start = True
 

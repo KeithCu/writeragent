@@ -729,3 +729,16 @@ def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
     test_instance._spawn_llm_worker.assert_not_called()
     assert test_instance._terminal_status == "Error"
 
+
+
+def test_stream_error_on_dead_turn_still_deletes_wav(test_instance, tmp_path):
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    wav = tmp_path / "rec.wav"
+    wav.write_bytes(b"RIFF")
+    test_instance.audio_wav_path = str(wav)
+    current_turn(test_instance).abort()
+
+    assert _handle_stream_error(test_instance, _overflow_payload("boom")) is None
+    assert test_instance.audio_wav_path is None
+    assert not wav.exists()

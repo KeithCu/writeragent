@@ -165,7 +165,6 @@ def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_get_config_int, m
 @patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
 def test_control_state_lives_only_on_sm_state(mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     """After STREAM_DONE with tools, pending/round live on _sm_state; host has no mirror attrs."""
     panel, _session = setup_mock_panel()
     tool_calls = [
@@ -244,7 +243,6 @@ def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_get_conf
 @patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 def test_stream_done_with_tools(mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -283,7 +281,6 @@ def test_stream_done_with_tools(mock_get_config, mock_get_config_int, mock_drain
 @patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 def test_next_tool_advances_round(mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []
@@ -306,7 +303,6 @@ def test_next_tool_advances_round(mock_get_config, mock_get_config_int, mock_dra
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
 def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -358,7 +354,6 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_get
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
 def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -417,7 +412,6 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
 def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []
@@ -457,7 +451,6 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_ge
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
 def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -543,7 +536,6 @@ def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_d
 @patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 def test_final_done_handling(mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []
@@ -565,7 +557,6 @@ def test_final_done_handling(mock_get_config, mock_get_config_int, mock_drain_lo
 @patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 def test_error_handling_in_loop(mock_get_config, mock_get_config_int, mock_drain_loop):
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
 
     results = []

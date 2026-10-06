@@ -1104,24 +1104,3 @@ def test_catalog_truncated_json_is_not_a_model_list():
     conn.getresponse.return_value = response
     with patch("http.client.HTTPSConnection", return_value=conn):
         assert cfg.fetch_available_models(endpoint, api_key_override="sk-catalog-trunc") is None
-
-def test_query_ollama_runtime_num_ctx_caches_result():
-    from plugin.framework.client.model_fetcher import query_ollama_show, _ollama_show_cache
-    from unittest.mock import patch
-
-    endpoint = "http://test-endpoint:11434"
-    model = "test-model"
-    cache_key = f"{endpoint}@{model}"
-
-    # clear cache if exists
-    _ollama_show_cache.pop(cache_key, None)
-
-    with patch("plugin.framework.client.requests.sync_request", side_effect=Exception("network error")) as mock_req:
-        res1 = query_ollama_show(endpoint, model)
-        assert res1 == {}
-        assert mock_req.call_count == 1
-
-        # Second call should not hit network
-        res2 = query_ollama_show(endpoint, model)
-        assert res2 == {}
-        assert mock_req.call_count == 1

@@ -1445,10 +1445,7 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
             return info
     except Exception as e:
         log.debug("query_ollama_show failed: %s", e)
-
-    # Cache the miss so we don't spam the network on every tool-loop round
-    _ollama_show_cache[cache_key] = {}
-    return {}
+    return None
 
 
 def query_ollama_model_capabilities(endpoint: str, model_id: str) -> bool | None:
