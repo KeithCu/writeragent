@@ -1007,7 +1007,8 @@ class TestComputeSettings:
     def test_compute_settings_rejects_nonfinite_ttl(self, field: str, value: float) -> None:
         """Direct construction skips _as_float. validate() still rejects non-finite TTLs."""
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
-            ComputeSettings(**{field: value})
+            kwargs: dict[str, Any] = {field: value}
+            ComputeSettings(**kwargs)
 
     def test_non_utf8_key_and_config_files_are_config_errors(self, tmp_path) -> None:
         """Binary key and config files raise ConfigError, not UnicodeDecodeError."""
@@ -1025,7 +1026,8 @@ class TestComputeSettings:
 
     def test_compute_settings_none_worker_counts(self) -> None:
         """Verify ComputeSettings handles None for workers and ocr_workers gracefully."""
-        s = ComputeSettings(workers=None, ocr_workers=None)
+        kwargs: dict[str, Any] = {"workers": None, "ocr_workers": None}
+        s = ComputeSettings(**kwargs)
         assert s.workers == 2
         assert s.ocr_workers == 0
         assert s.threads == 2
@@ -2365,22 +2367,21 @@ def test_clamp_timeout_sec_boolean() -> None:
 
 
 def test_source_text_from_part_unicode_chars() -> None:
-    """_source_text_from_part must count characters, not bytes, for UTF-8 code parts."""
-    from compute_service.server import _source_text_from_part
+    """_validate_source_text must count characters, not bytes, for UTF-8 code parts."""
+    from compute_service.server import _validate_source_text
+    from compute_service.json_forward import ExecuteRequestError
 
     # 10 Greek letters (each 2 bytes in UTF-8 = 20 bytes total)
     greek_code = "αβγδεζηθικ".encode("utf-8")
     assert len(greek_code) == 20
     # With limit=10, 10 characters should pass even though byte length is 20
-    text, err = _source_text_from_part(greek_code, limit=10, label="code", required=True)
-    assert err is None
+    text = _validate_source_text(greek_code, limit=10, label="code", required=True)
     assert text == "αβγδεζηθικ"
 
     # With limit=9, 10 characters should be rejected
-    text, err = _source_text_from_part(greek_code, limit=9, label="code", required=True)
-    assert text is None
-    assert err is not None
-    assert err.get("code") == "CODE_TOO_LARGE"
+    with pytest.raises(ExecuteRequestError) as exc_info:
+        _validate_source_text(greek_code, limit=9, label="code", required=True)
+    assert exc_info.value.code == "CODE_TOO_LARGE"
 
 
 def test_log_level_cli_arg() -> None:

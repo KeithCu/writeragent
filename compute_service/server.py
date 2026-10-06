@@ -301,19 +301,6 @@ def _validate_source_text(
     raise ExecuteRequestError(f"{label} must be text.")
 
 
-def _source_text_from_part(
-    raw: Any,
-    limit: int,
-    label: str = "code",
-    required: bool = True,
-) -> tuple[str | None, dict[str, str] | None]:
-    """Compatibility helper returning (text, error_dict) like old _source_text_from_part."""
-    try:
-        return _validate_source_text(raw, limit=limit, label=label, required=required), None
-    except ExecuteRequestError as e:
-        return None, {"error": str(e), "code": e.code or "BAD_REQUEST"}
-
-
 def _check_valid_session_id(session_id: str) -> None:
     """Reject reserved session namespace patterns to prevent session collision."""
     if session_id.endswith(":init") or session_id.startswith("isolated:"):
@@ -1080,7 +1067,9 @@ class DeadlineRequestHandler(WSGIRequestHandler):
                 raise socket.timeout("Header read deadline expired")
             self.connection.settimeout(max(0.01, remaining))
             if callable(orig_readinto):
-                return int(orig_readinto(b))
+                res = orig_readinto(b)
+                if isinstance(res, int):
+                    return res
             return 0
 
         if rfile_raw is not None and callable(orig_readinto):

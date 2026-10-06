@@ -45,156 +45,6 @@ class _Session:
     last_active: float
 
 
-class _ActiveSessionsProxy(dict[str, BaseProcessWorker]):
-    def __init__(self, pool: FormulaProcessPool) -> None:
-        self._pool = pool
-        super().__init__()
-
-    def __getitem__(self, sid: str) -> BaseProcessWorker:
-        return self._pool._sessions[sid].worker
-
-    def __setitem__(self, sid: str, worker: BaseProcessWorker) -> None:
-        proc = worker.process
-        pid = proc.pid if proc is not None else None
-        self._pool._sessions[sid] = _Session(worker=worker, pid=pid, last_active=time.monotonic())
-
-    def get(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, str):
-            return default
-        s = self._pool._sessions.get(key)
-        return s.worker if s is not None else default
-
-    def __contains__(self, sid: object) -> bool:
-        return sid in self._pool._sessions
-
-    def __iter__(self):
-        return iter(self._pool._sessions)
-
-    def __len__(self) -> int:
-        return len(self._pool._sessions)
-
-    def items(self):
-        return [(sid, s.worker) for sid, s in self._pool._sessions.items()]
-
-    def values(self):
-        return [s.worker for s in self._pool._sessions.values()]
-
-    def pop(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, str):
-            return default
-        s = self._pool._sessions.pop(key, None)
-        return s.worker if s is not None else default
-
-
-class _WorkerSessionsProxy(dict[BaseProcessWorker, set[str]]):
-    def __init__(self, pool: FormulaProcessPool) -> None:
-        self._pool = pool
-        super().__init__()
-
-    def get(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, BaseProcessWorker):
-            return default
-        sids = {sid for sid, s in self._pool._sessions.items() if s.worker is key}
-        return sids if sids else default
-
-    def __getitem__(self, worker: BaseProcessWorker) -> set[str]:
-        sids = {sid for sid, s in self._pool._sessions.items() if s.worker is worker}
-        if not sids:
-            raise KeyError(worker)
-        return sids
-
-    def setdefault(self, worker: BaseProcessWorker, default: Any = None) -> Any:
-        class _SetProxy(set):
-            def __init__(self, pool: FormulaProcessPool, w: BaseProcessWorker):
-                self._pool = pool
-                self._w = w
-                super().__init__(sid for sid, s in pool._sessions.items() if s.worker is w)
-
-            def add(self, sid: str) -> None:
-                proc = self._w.process
-                pid = proc.pid if proc is not None else None
-                if sid in self._pool._sessions:
-                    self._pool._sessions[sid].worker = self._w
-                    self._pool._sessions[sid].pid = pid
-                else:
-                    self._pool._sessions[sid] = _Session(worker=self._w, pid=pid, last_active=time.monotonic())
-                super().add(sid)
-
-        return _SetProxy(self._pool, worker)
-
-    def __contains__(self, worker: object) -> bool:
-        return any(s.worker is worker for s in self._pool._sessions.values())
-
-    def items(self):
-        workers = {s.worker for s in self._pool._sessions.values()}
-        return [(w, {sid for sid, s in self._pool._sessions.items() if s.worker is w}) for w in workers]
-
-
-class _SessionLastActivityProxy(dict[str, float]):
-    def __init__(self, pool: FormulaProcessPool) -> None:
-        self._pool = pool
-        super().__init__()
-
-    def __getitem__(self, sid: str) -> float:
-        return self._pool._sessions[sid].last_active
-
-    def __setitem__(self, sid: str, val: float) -> None:
-        if sid in self._pool._sessions:
-            self._pool._sessions[sid].last_active = val
-
-    def get(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, str):
-            return default
-        s = self._pool._sessions.get(key)
-        return s.last_active if s is not None else default
-
-    def __contains__(self, sid: object) -> bool:
-        return sid in self._pool._sessions
-
-    def items(self):
-        return [(sid, s.last_active) for sid, s in self._pool._sessions.items()]
-
-    def pop(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, str):
-            return default
-        s = self._pool._sessions.pop(key, None)
-        return s.last_active if s is not None else default
-
-
-class _SessionPidProxy(dict[str, int]):
-    def __init__(self, pool: FormulaProcessPool) -> None:
-        self._pool = pool
-        super().__init__()
-
-    def __getitem__(self, sid: str) -> int:
-        pid = self._pool._sessions[sid].pid
-        if pid is None:
-            raise KeyError(sid)
-        return pid
-
-    def __setitem__(self, sid: str, val: int) -> None:
-        if sid in self._pool._sessions:
-            self._pool._sessions[sid].pid = val
-
-    def get(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, str):
-            return default
-        s = self._pool._sessions.get(key)
-        return s.pid if (s is not None and s.pid is not None) else default
-
-    def __contains__(self, sid: object) -> bool:
-        if not isinstance(sid, str):
-            return False
-        s = self._pool._sessions.get(sid)
-        return s is not None and s.pid is not None
-
-    def pop(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, str):
-            return default
-        s = self._pool._sessions.pop(key, None)
-        return s.pid if (s is not None and s.pid is not None) else default
-
-
 class FormulaProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for formula calculations."""
 
@@ -210,10 +60,6 @@ class FormulaProcessPool(BaseProcessPool):
 
         # Single source of truth for session tracking
         self._sessions: dict[str, _Session] = {}
-        self._active_sessions = _ActiveSessionsProxy(self)
-        self._worker_sessions = _WorkerSessionsProxy(self)
-        self._session_last_activity = _SessionLastActivityProxy(self)
-        self._session_pid = _SessionPidProxy(self)
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
         self._max_lost_sessions: int = 1000
         self.shared_kernel_ttl_sec = eff_shared_ttl
@@ -252,8 +98,8 @@ class FormulaProcessPool(BaseProcessPool):
                 continue
             try:
                 with self._cond:
-                    s = self._sessions.get(sid)
-                    still_stale = s is not None and s.worker is worker and (time.monotonic() - s.last_active) >= ttl
+                    sess = self._sessions.get(sid)
+                    still_stale = sess is not None and sess.worker is worker and (time.monotonic() - sess.last_active) >= ttl
                 if not still_stale:
                     continue
                 res = self._reset_session_on_worker(leased, sid, timeout_sec=2.0)

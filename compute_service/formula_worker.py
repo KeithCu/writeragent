@@ -129,7 +129,7 @@ def _json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: b
     try:
         result_json = dumps_response(res)
     except (TypeError, ValueError) as exc:
-        fallback = {"status": "error", "error": f"JSON encode failed: {exc}"}
+        fallback: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {exc}"}
         if req_id is not None:
             fallback["id"] = req_id
         if session_reset:

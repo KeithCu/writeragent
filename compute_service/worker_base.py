@@ -206,6 +206,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         if req is None or _shutdown_requested:
             break
 
+        res: dict[str, Any]
         try:
             if not isinstance(req, dict):
                 res = {"status": "error", "error": "Request must be a dict"}

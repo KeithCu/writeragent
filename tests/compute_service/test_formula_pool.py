@@ -157,14 +157,14 @@ class TestFormulaPoolSupervisor:
             res_b = pool.execute(code="marker = 'b'\nresult = marker", session_id=sid_b, mode="shared")
             assert res_a.get("status") == "ok", res_a
             assert res_b.get("status") == "ok", res_b
-            worker = pool._active_sessions[sid_a]
-            assert pool._active_sessions[sid_b] is worker
+            worker = pool._sessions[sid_a].worker
+            assert pool._sessions[sid_b].worker is worker
             worker.kill()
             assert not worker.is_alive()
             again = pool.execute(code="result = marker", session_id=sid_a, mode="shared")
             assert again.get("status") == "error"
-            assert sid_b not in pool._active_sessions
-            assert pool._active_sessions.get(sid_a) is worker
+            assert sid_b not in pool._sessions
+            assert pool.live_session_worker(sid_a) is worker
             assert worker.is_alive()
         finally:
             pool.shutdown()
@@ -696,17 +696,17 @@ class TestFormulaPoolSupervisor:
             sid = "ttl-evict-test"
             r1 = pool.execute(code="val = 42\nresult = val", session_id=sid, mode="shared", req_id="ttl-1")
             assert r1.get("status") == "ok"
-            assert pool._active_sessions.get(sid) is not None
+            assert pool.live_session_worker(sid) is not None
 
             # Record pid before eviction
             pid_before = pool.workers[0].process.pid if pool.workers[0].process else None
             assert pid_before is not None
 
             # Simulate passage of idle time and trigger eviction
-            with pool._lock:
-                pool._session_last_activity[sid] = time.monotonic() - 4000.0
+            with pool._cond:
+                pool._sessions[sid].last_active = time.monotonic() - 4000.0
             pool._evict_stale_sessions()
-            assert pool._active_sessions.get(sid) is None, "Session should be evicted after TTL expiration"
+            assert pool.live_session_worker(sid) is None, "Session should be evicted after TTL expiration"
 
             # Eviction runs a reset task on the worker and releases it.
             # Because tasks_executed (2) >= max_tasks (1), release_worker triggers async recycling.
@@ -795,13 +795,13 @@ class TestFormulaPoolSupervisor:
             sid = "busy-reset"
             ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="busy-1")
             assert ok.get("status") == "ok"
-            worker = pool._active_sessions[sid]
+            worker = pool._sessions[sid].worker
             held = pool.lease_specific(worker, timeout_sec=1)
             assert held is worker
             try:
                 res = pool.reset_session(sid, timeout_sec=0.05)
                 assert res.get("code") == "WORKER_POOL_BUSY"
-                assert pool._active_sessions.get(sid) is worker
+                assert pool.live_session_worker(sid) is worker
             finally:
                 pool.release_worker(held)
         finally:
@@ -814,7 +814,7 @@ class TestFormulaPoolSupervisor:
             sid = "reset-fail-keeps-map"
             ok = pool.execute(code="x = 9\nresult = x", session_id=sid, mode="shared", req_id="rf-1")
             assert ok.get("status") == "ok"
-            worker = pool._active_sessions[sid]
+            worker = pool._sessions[sid].worker
             real_execute = worker.execute
 
             def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
@@ -822,12 +822,12 @@ class TestFormulaPoolSupervisor:
                     return {"status": "error", "error": "namespace still held"}
                 return real_execute(payload, timeout_sec)
 
-            worker.execute = fail_reset  # type: ignore[method-assign]
+            setattr(worker, "execute", fail_reset)
             with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
                 res = pool.reset_session(sid)
             assert res.get("status") == "error"
-            assert pool._active_sessions.get(sid) is worker
-            assert sid in pool._worker_sessions.get(worker, ())
+            assert pool.live_session_worker(sid) is worker
+            assert sid in pool._worker_sessions_for(worker)
             assert "keeping session map" in caplog.text
             again = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="rf-2")
             assert again.get("status") == "ok"
@@ -842,7 +842,7 @@ class TestFormulaPoolSupervisor:
             sid = "ttl-reset-fail"
             ok = pool.execute(code="x = 4\nresult = x", session_id=sid, mode="shared", req_id="ttl-fail-1")
             assert ok.get("status") == "ok"
-            worker = pool._active_sessions[sid]
+            worker = pool._sessions[sid].worker
 
             def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
                 del timeout_sec
@@ -850,13 +850,13 @@ class TestFormulaPoolSupervisor:
                     return {"status": "error", "error": "namespace still held"}
                 raise AssertionError(payload)
 
-            worker.execute = fail_reset  # type: ignore[method-assign]
+            setattr(worker, "execute", fail_reset)
             with pool._cond:
-                pool._session_last_activity[sid] = time.monotonic() - 4000.0
+                pool._sessions[sid].last_active = time.monotonic() - 4000.0
             with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
                 pool._evict_stale_sessions()
-            assert pool._active_sessions.get(sid) is worker
-            assert sid in pool._worker_sessions.get(worker, ())
+            assert pool.live_session_worker(sid) is worker
+            assert sid in pool._worker_sessions_for(worker)
             assert "keeping session map" in caplog.text
         finally:
             pool.shutdown()
@@ -869,16 +869,16 @@ class TestFormulaPoolSupervisor:
             assert setx.get("status") == "ok"
             original = pool.lease_specific
 
-            def _refresh(worker, timeout_sec=0.0):
+            def _refresh(worker: Any, timeout_sec: float = 0.0) -> Any:
                 with pool._cond:
-                    pool._session_last_activity[sid] = time.monotonic()
+                    pool._sessions[sid].last_active = time.monotonic()
                 return original(worker, timeout_sec=timeout_sec)
 
-            pool.lease_specific = _refresh  # type: ignore[method-assign]
+            setattr(pool, "lease_specific", _refresh)
             with pool._cond:
-                pool._session_last_activity[sid] = time.monotonic() - 4000.0
+                pool._sessions[sid].last_active = time.monotonic() - 4000.0
             pool._evict_stale_sessions()
-            assert sid in pool._active_sessions
+            assert sid in pool._sessions
             later = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-race-2")
             assert later.get("status") == "ok"
             assert later.get("result") == 3
@@ -986,18 +986,16 @@ class TestFormulaPoolSupervisor:
             # Map session to worker #2 explicitly, including the owning pid.
             # A map entry without that pid is a stale cache and is dropped.
             target_worker = pool.workers[2]
-            assert target_worker.process is not None
             with pool._cond:
-                pool._active_sessions[sid] = target_worker
-                pool._worker_sessions.setdefault(target_worker, set()).add(sid)
-                pool._session_last_activity[sid] = time.monotonic()
-                pool._session_pid[sid] = target_worker.process.pid
+                from compute_service.formula_pool import _Session
+                assert target_worker.process is not None
+                pool._sessions[sid] = _Session(worker=target_worker, pid=target_worker.process.pid, last_active=time.monotonic())
 
             res = pool.execute(code="state = 42\nresult = state", session_id=sid, mode="shared")
             assert res.get("status") == "ok"
             assert res.get("result") == 42
             with pool._cond:
-                assert pool._active_sessions.get(sid) is target_worker
+                assert pool.live_session_worker(sid) is target_worker
         finally:
             pool.shutdown()
 
@@ -1368,12 +1366,12 @@ class TestFormulaHttpEndpoint:
             # First session lands on worker 0 or 1
             res1 = pool.execute(code="result = 1", session_id="sess-1", mode="shared")
             assert res1.get("status") == "ok"
-            w1 = pool._active_sessions["sess-1"]
+            w1 = pool.live_session_worker("sess-1")
 
             # Second session should pick the other worker because it has 0 sessions
             res2 = pool.execute(code="result = 2", session_id="sess-2", mode="shared")
             assert res2.get("status") == "ok"
-            w2 = pool._active_sessions["sess-2"]
+            w2 = pool.live_session_worker("sess-2")
 
             assert w1 is not w2, "Sessions must balance across distinct workers when both are available"
         finally:
@@ -1386,7 +1384,7 @@ class TestFormulaHttpEndpoint:
             # Register a shared session on one worker
             res1 = pool.execute(code="x = 10; result = x", session_id="shared-worker-test", mode="shared")
             assert res1.get("status") == "ok"
-            shared_worker = pool._active_sessions["shared-worker-test"]
+            shared_worker = pool.live_session_worker("shared-worker-test")
 
             # An isolated execution should prefer the session-free worker
             with pool._cond:
@@ -1510,7 +1508,7 @@ class TestFormulaHttpEndpoint:
             assert results[1].get("result") == 43
             # Session must be bound to exactly one worker
             with pool._cond:
-                worker_ids = [w.worker_id for w, sids in pool._worker_sessions.items() if sid in sids]
+                worker_ids = [w.worker_id for w in pool.workers if sid in pool._worker_sessions_for(w)]
                 assert len(worker_ids) == 1
 
             # Shared state is maintained on this worker

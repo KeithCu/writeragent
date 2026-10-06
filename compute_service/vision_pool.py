@@ -47,8 +47,8 @@ class VisionProcessPool(BaseProcessPool):
         self,
         helper: str,
         # bytes: for direct programmatic calls; HTTP passes str or bytes
-        image: str | bytes | None = None,
-        image_b64: str | bytes | None = None,
+        image: str | bytes | bytearray | None = None,
+        image_b64: str | bytes | bytearray | None = None,
         file_path: str | None = None,
         params: dict[str, Any] | None = None,
         timeout_sec: int | None = None,

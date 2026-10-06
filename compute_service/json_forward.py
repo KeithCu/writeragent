@@ -49,6 +49,8 @@ VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 class ExecuteRequestError(ValueError):
     """Raised when an execute request or response does not match the one schema."""
 
+    code: str | None
+
     def __init__(self, message: str, code: str | None = None) -> None:
         super().__init__(message)
         self.code = code
