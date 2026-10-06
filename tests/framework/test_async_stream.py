@@ -2113,10 +2113,44 @@ def test_drain_scheduler_override_forces_blocking_and_restores() -> None:
         stream_mod.set_drain_scheduler_override(previous)
 
 
-def test_drain_scheduler_override_none_uses_blocking_path() -> None:
-    """A None hook selects _run_stream_drain_blocking (pumps idle before return)."""
-    from plugin.framework import async_stream as stream_mod
+def test_drain_scheduler_override_none_uses_blocking_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A None hook selects _run_stream_drain_blocking (pumps idle before return).
 
+    What was wrong: this asserted ``toolkit.idle_calls >= 1`` and failed in CI
+    (run 37510062234) with ``0 >= 1`` while the chunk and STREAM_DONE were
+    applied. ``pump_ui_idle`` skips VCL whenever the process-wide drain depth
+    is above 1, and it runs work other tests left in ``default_executor``. On
+    an xdist worker both are shared with every earlier test, so the count
+    measured leftover state, not the scheduler choice. The silent
+    ``on_error`` also hid any crash inside the pump.
+    Why this change: spy the blocking loop and its ``pump_ui_idle`` calls,
+    give the pump a private executor, start from a clean drain guard, and
+    fail on any error. VCL gating by depth is covered by the
+    ``test_pump_ui_idle_*`` tests.
+    """
+    from plugin.framework import async_stream as stream_mod
+    from plugin.framework import queue_executor as qe
+    from plugin.framework.async_drain_guard import reset_sentry_state
+
+    blocking_calls: list[object] = []
+    real_blocking = stream_mod._run_stream_drain_blocking
+
+    def spy_blocking(state, toolkit_arg, stop_checker, flush_pending):
+        blocking_calls.append(toolkit_arg)
+        return real_blocking(state, toolkit_arg, stop_checker, flush_pending)
+
+    private_executor = qe.QueueExecutor()
+    pumps: list[object] = []
+    real_pump = stream_mod.pump_ui_idle
+
+    def spy_pump(toolkit_arg, **kwargs):
+        pumps.append(toolkit_arg)
+        kwargs.setdefault("executor", private_executor)
+        return real_pump(toolkit_arg, **kwargs)
+
+    monkeypatch.setattr(stream_mod, "_run_stream_drain_blocking", spy_blocking)
+    monkeypatch.setattr(stream_mod, "pump_ui_idle", spy_pump)
+    reset_sentry_state()
     previous = stream_mod.set_drain_scheduler_override(lambda: None)
     try:
         q: queue.Queue = queue.Queue()
@@ -2125,6 +2159,7 @@ def test_drain_scheduler_override_none_uses_blocking_path() -> None:
         toolkit = DummyToolkit()
         job_done = [False]
         applied: list[str] = []
+        errors: list[object] = []
 
         run_stream_drain_loop(
             q,
@@ -2133,14 +2168,18 @@ def test_drain_scheduler_override_none_uses_blocking_path() -> None:
             lambda text, is_thinking: applied.append(text),
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
-            on_error=lambda _err: None,
+            on_error=errors.append,
         )
 
+        assert errors == []
+        assert blocking_calls == [toolkit]
         assert applied == ["hello"]
         assert job_done[0] is True
-        assert toolkit.idle_calls >= 1
+        assert pumps, "blocking drain returned without pump_ui_idle"
+        assert all(tk is toolkit for tk in pumps)
     finally:
         stream_mod.set_drain_scheduler_override(previous)
+        reset_sentry_state()
 
 
 def test_event_drain_batches_one_slice_and_stops_on_terminal() -> None:

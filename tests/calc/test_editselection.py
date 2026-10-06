@@ -1,6 +1,33 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.tests.testing_utils import CalcDocStub
+
+
+@pytest.fixture(autouse=True)
+def _restore_drain_idle_callbacks():
+    """Drop the next-task hooks ``stream_completion_tasks`` registers here.
+
+    What was wrong: each test's on_done added a ``post_to_main_thread(run_next_task)``
+    lambda to the process-wide drain-idle list, which is never cleared. Every
+    later drain on the same xdist worker then queued stale ``run_next_task``
+    items on ``default_executor``, and unrelated drain tests pumped them.
+    Why this change: after each test, remove only the hooks that
+    ``plugin.chatbot.selection`` added. A blanket restore could drop the
+    persistent ``peer_message`` callback if that module first imports here.
+    """
+    from plugin.framework import async_drain_guard as guard
+
+    saved = list(guard._drain_idle_callbacks)
+    try:
+        yield
+    finally:
+        with guard._drain_lock:
+            guard._drain_idle_callbacks[:] = [
+                cb for cb in guard._drain_idle_callbacks
+                if cb in saved or getattr(cb, "__module__", None) != "plugin.chatbot.selection"
+            ]
 
 
 def _model_for_data(data):
