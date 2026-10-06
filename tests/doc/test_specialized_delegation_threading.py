@@ -699,3 +699,18 @@ def test_calc_shapes_domain_tools():
     assert "shape_summary" in names
 
 
+def test_outer_turn_is_peer_work_probe_logs_exception_repr(caplog):
+    """When _probe raises an exception with empty message, repr is logged."""
+    import logging
+    from plugin.doc.specialized_base import _outer_turn_is_peer_work
+
+    class EmptyMessageError(Exception):
+        def __str__(self):
+            return ""
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=EmptyMessageError):
+        with caplog.at_level(logging.WARNING, logger="plugin.doc.specialized_base"):
+            res = _outer_turn_is_peer_work(MagicMock())
+
+    assert res is False
+    assert any("EmptyMessageError" in r.message for r in caplog.records)

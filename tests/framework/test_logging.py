@@ -531,6 +531,43 @@ class TestOptionalFlushFileHandler:
                 handler.close()
                 assert super_flush.call_count == 2
 
+    def test_emit_warning_forces_flush_within_interval(self):
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as tmp:
+            path = tmp.name
+        handler = OptionalFlushFileHandler(path, encoding="utf-8")
+        try:
+            with patch("plugin.framework.logging._monotonic", return_value=100.0):
+                with patch.object(logging.FileHandler, "flush") as super_flush:
+                    # Initial flush consumes rate limit
+                    handler.flush()
+                    assert super_flush.call_count == 1
+
+                    # Emitting INFO within interval does not flush
+                    info_record = logging.LogRecord("test", logging.INFO, "test.py", 1, "info msg", (), None)
+                    handler.emit(info_record)
+                    assert super_flush.call_count == 1
+
+                    # Emitting WARNING within interval forces flush
+                    warn_record = logging.LogRecord("test", logging.WARNING, "test.py", 2, "warn msg", (), None)
+                    handler.emit(warn_record)
+                    assert super_flush.call_count == 2
+        finally:
+            handler.close()
+
+    def test_watchdog_check_flushes_debug_log(self):
+        from plugin.framework.logging import _watchdog_check
+        import sys
+
+        mock_handler = MagicMock(spec=OptionalFlushFileHandler)
+        old_h = getattr(sys, "_writeragent_debug_file_handler", None)
+        try:
+            setattr(sys, "_writeragent_debug_file_handler", mock_handler)
+            _watchdog_check(None)
+            mock_handler.flush.assert_called_once_with(force=True)
+        finally:
+            setattr(sys, "_writeragent_debug_file_handler", old_h)
+
+
 
 class TestLoggingErrorHandling():
 

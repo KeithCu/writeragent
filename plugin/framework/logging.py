@@ -160,11 +160,22 @@ class OptionalFlushFileHandler(logging.FileHandler):
     # FileHandler assigns stream in __init__ with no annotation basedpyright can see.
     stream: Any
 
-    def flush(self) -> None:
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        # What was wrong: OptionalFlushFileHandler rate-limited flush() to at most once
+        # per second, and nothing flushed unwritten records after a burst ended. If a
+        # crash or unhandled exception occurred, recent logs and warnings were lost.
+        # How it happened: emit relied purely on subsequent flush() calls which were throttled.
+        # Why this change fixes it: always force-flushing WARNING+ records ensures critical
+        # warnings and errors immediately reach disk without waiting for the 1s interval.
+        if record.levelno >= logging.WARNING:
+            self.flush(force=True)
+
+    def flush(self, force: bool = False) -> None:
         global _debug_log_last_flush
         now = _monotonic()
         with _debug_log_flush_lock:
-            if now - _debug_log_last_flush < FLUSH_INTERVAL_SEC:
+            if not force and now - _debug_log_last_flush < FLUSH_INTERVAL_SEC:
                 return
             _debug_log_last_flush = now
         super().flush()
@@ -643,9 +654,21 @@ def _clear_hung_status(status_control: Any) -> None:
         status_control.setText("")
 
 
+def _flush_debug_log() -> None:
+    handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    if isinstance(handler, OptionalFlushFileHandler):
+        handler.flush(force=True)
+
+
 def _watchdog_check(status_control: Any) -> None:
     """One watchdog pass. Posts Hung: after the idle threshold, and clears it when activity resumes."""
     global _watchdog_hung_shown
+    # What was wrong: watchdog did not flush the debug log despite module docstring,
+    # leaving buffered records in memory after a burst of logs stopped.
+    # How it happened: _watchdog_check monitored activity timestamps but never invoked flush().
+    # Why this change fixes it: flushing the debug file handler on watchdog checks ensures
+    # the unwritten tail of logs is periodically flushed to disk.
+    _flush_debug_log()
     with _activity_lock:
         phase = _activity_state["phase"]
         round_num = _activity_state["round_num"]

@@ -445,13 +445,19 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     if not isinstance(messages, list):
         return False
     if role == "user":
-        # The send path stores the user row first. A second copy would paint
-        # the question twice. Image mode only had the widget line; record it
-        # so the paint has the question.
-        if messages and messages[-1].get("role") == "user":
-            return False
+        # What was wrong: fold_transcript_chunk returned False when the user
+        # row was already in session.messages (e.g. from add_user_message at send time).
+        # That caused panel._paint_from_list to early-return without painting the session,
+        # so the 'You:' row only appeared upon the first stream chunk. If stopped before
+        # the first token, the 'You:' row was never drawn and '[Stopped by user]' was
+        # appended directly under the greeting.
+        # How it happened: early return on duplicate user row was treated as no-op.
+        # Why this change fixes it: returning True without re-appending ensures
+        # panel._paint_from_list paints the session with the user row immediately upon sending.
         if not text or not str(text).strip():
             return False
+        if messages and messages[-1].get("role") == "user":
+            return True
         messages.append({"role": "user", "content": text})
         return True
     if not text or not str(text).strip():
