@@ -889,6 +889,28 @@ def test_b1c_no_html_rerender_after_stop(ctx):
 
 
 @native_test
+def test_b1d_stop_before_first_token(ctx):
+    """Stop before the first chunk: the You: row and the stop line are both painted, in order."""
+    _reset_mock_runtime()
+    query = "question before first token"
+    try:
+        try:
+            before = _start_until_stop_enabled(query, delay_ms=2000, timeout=8.0)
+        except AssertionError:
+            raise unittest.SkipTest("Stop never enabled before the first chunk")
+        _stop_and_wait_idle(before)
+        _assert_stopped_banner(before)
+        text = _transcript()
+        suffix = text[len(before) :] if text.startswith(before) else text
+        idx_query = suffix.rfind(query)
+        assert idx_query >= 0, "You: row missing after Stop before first token: %r" % suffix[-400:]
+        assert suffix.rfind("[Stopped by user]") > idx_query, "stop line not under the You: row: %r" % suffix[-400:]
+    finally:
+        _reset_mock_runtime()
+    _hello_ok()
+
+
+@native_test
 def test_b2_stop_then_immediate_hello(ctx):
     _reset_mock_runtime()
     before = _start_until_stop_enabled("keep talking", delay_ms=40)

@@ -120,7 +120,11 @@ class EndpointImageProvider(ImageProvider):
                         return paths, ""
                     return [], "No image data returned from provider"
                 except Exception as e:
-                    log.exception("OpenRouter dedicated image generation failed")
+                    # A user Stop closes the socket mid-request; that is not a failure.
+                    if stop_checker is not None and stop_checker():
+                        log.debug("OpenRouter dedicated image generation cancelled by Stop: %s", e)
+                    else:
+                        log.exception("OpenRouter dedicated image generation failed")
                     return [], str(e)
 
             _method, _path, body, _headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
@@ -186,7 +190,10 @@ class EndpointImageProvider(ImageProvider):
                     return paths, ""
                 return [], "No image data returned from provider"
             except Exception as e:
-                log.exception("Image generation failed")
+                if stop_checker is not None and stop_checker():
+                    log.debug("Image generation cancelled by Stop: %s", e)
+                else:
+                    log.exception("Image generation failed")
                 return [], str(e)
 
         # Fallback: image in content string (some endpoints)

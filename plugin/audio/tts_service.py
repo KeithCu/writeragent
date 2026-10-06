@@ -267,10 +267,7 @@ def clean_text_for_speech(text: str) -> str:
     # Remove markdown headers #, ##, etc.
     cleaned = re.sub(r"^#{1,6}\s+", "", cleaned, flags=re.MULTILINE)
 
-    # Preserve underscores in identifiers like my_var_name by converting them to spaces.
-    cleaned = cleaned.replace("_", " ")
-
-    # Remove bold/italic markers (now only checking for *)
+    # Remove bold/italic * markers. Underscores are handled below.
     cleaned = re.sub(r"[*]{1,3}([^*]+)[*]{1,3}", r"\1", cleaned)
 
     # Remove HTML/XML tags
@@ -278,6 +275,10 @@ def clean_text_for_speech(text: str) -> str:
 
     # Remove raw URLs
     cleaned = re.sub(r"https?://\S+", "link", cleaned)
+
+    # Underscores become spaces after URLs are gone: my_var_name reads as
+    # "my var name", and __bold__ / _italic_ markers drop out.
+    cleaned = cleaned.replace("_", " ")
 
     # Normalize whitespace
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -1167,17 +1168,20 @@ def _resolve_tts_voice(model: str, voice: str) -> str:
 def _play_audio_file(file_path: str, generation: int | None = None) -> None:
     """Play an audio file using available OS command-line utilities."""
     cmd: list[str] | None = None
+    env: dict[str, str] | None = None
 
     if sys.platform == "darwin":
         cmd = ["afplay", file_path]
     elif sys.platform == "win32":
+        # The path goes in the environment, not into the script text. Extra
+        # arguments after -Command are joined into the command, not $args.
         cmd = [
             "powershell",
             "-NoProfile",
             "-Command",
-            "(New-Object Media.SoundPlayer $args[0]).PlaySync()",
-            file_path,
+            "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()",
         ]
+        env = {**os.environ, "WA_AUDIO_PATH": file_path}
     else:
         # Linux / Unix: prioritize players supporting MP3/WAV out-of-the-box
         if shutil.which("ffplay"):
@@ -1200,7 +1204,7 @@ def _play_audio_file(file_path: str, generation: int | None = None) -> None:
     proc: subprocess.Popen[Any] | None = None
     try:
         log.info("Playing audio with command: %s", " ".join(cmd))
-        proc = _popen_for_speech(cmd, generation, slot="play")
+        proc = _popen_for_speech(cmd, generation, slot="play", env=env)
         if proc is None:
             return
         proc.wait()

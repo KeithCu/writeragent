@@ -9,6 +9,7 @@ import base64
 import io
 import json
 import socket
+import sys
 import threading
 import time
 import urllib.error
@@ -1798,6 +1799,7 @@ def _run_docker_entrypoint(tmp_path, extra: dict[str, str]):
     return proc, ran
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 class TestDockerEntrypoint:
     def test_wildcard_without_key_exits(self, tmp_path) -> None:
         proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "0.0.0.0"})
@@ -1953,6 +1955,7 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     assert "Failed to bind 127.0.0.1:1" in err
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
     """Spaces and glob characters in the key must stay one docker argument."""
     import subprocess
@@ -1982,6 +1985,7 @@ def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
     assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_mounts_api_key_file_read_only(tmp_path) -> None:
     """The host key file is mounted; the container env points at the mount.
 

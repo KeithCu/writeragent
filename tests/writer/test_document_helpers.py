@@ -1,4 +1,5 @@
 import pytest
+import sys
 
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.writer.edit_review import (
@@ -1015,6 +1016,7 @@ def test_do_extend_selection_failure_visible(monkeypatch):
     assert "simulated stream failure" in messages[0][2]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the child imports LibreOffice pyuno, which is built for LO's bundled Python, not the venv")
 def test_document_helpers_unohelper_import_error():
     """Verify document_helpers handles unohelper ImportError gracefully."""
     import os

@@ -82,7 +82,10 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
     try:
         return bool(queue_executor.execute_on_main_thread(_probe))
     except Exception as e:
-        log.warning("peer-work turn probe failed: %s", e)
+        # What was wrong: cancelling peer-work logged warning with empty message because str(e) is empty.
+        # How it happened: string interpolation %s converted empty exceptions like CancelledError() to "".
+        # Why this change fixes it: %r prints exception class name and repr so context is preserved.
+        log.warning("peer-work turn probe failed: %r", e)
         return False
 
 
