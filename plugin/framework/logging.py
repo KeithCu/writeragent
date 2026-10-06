@@ -78,6 +78,8 @@ _activity_lock = threading.Lock()
 _watchdog_interval_sec = 15
 _watchdog_threshold_sec = 30
 _watchdog_hung_shown = False
+# True once this stall episode's thread stack dump was logged; cleared when activity resumes.
+_watchdog_stacks_dumped = False
 
 DEBUG_LOG_FILENAME = "writeragent_debug.log"
 
@@ -660,9 +662,30 @@ def _flush_debug_log() -> None:
         handler.flush(force=True)
 
 
+def _dump_thread_stacks() -> None:
+    """Log every thread's current Python stack as one DEBUG record.
+
+    Why: a hang log only said "no activity". We suspect the main thread holds
+    the SolarMutex in the stream drain while a worker blocks freeing a PyUNO
+    proxy; the stacks show where each thread is actually waiting.
+    """
+    try:
+        names = {t.ident: t for t in threading.enumerate()}
+        lines = ["[Chat] WATCHDOG: thread stack dump\n"]
+        for ident, frame in sys._current_frames().items():
+            thread = names.get(ident)
+            name = thread.name if thread else "?"
+            daemon = thread.daemon if thread else "?"
+            lines.append("--- Thread %s (ident=%s, daemon=%s) ---\n" % (name, ident, daemon))
+            lines.extend(traceback.format_stack(frame))
+        log.debug("".join(lines))
+    except Exception:
+        log.debug("watchdog: thread stack dump failed", exc_info=True)
+
+
 def _watchdog_check(status_control: Any) -> None:
     """One watchdog pass. Posts Hung: after the idle threshold, and clears it when activity resumes."""
-    global _watchdog_hung_shown
+    global _watchdog_hung_shown, _watchdog_stacks_dumped
     # What was wrong: watchdog did not flush the debug log despite module docstring,
     # leaving buffered records in memory after a burst of logs stopped.
     # How it happened: _watchdog_check monitored activity timestamps but never invoked flush().
@@ -679,6 +702,7 @@ def _watchdog_check(status_control: Any) -> None:
     last_val = last if isinstance(last, (int, float)) else 0.0
     elapsed = time.monotonic() - last_val
     if elapsed < _watchdog_threshold_sec:
+        _watchdog_stacks_dumped = False
         if _watchdog_hung_shown and status_control is not None:
             try:
                 from plugin.framework.queue_executor import post_to_main_thread
@@ -690,6 +714,12 @@ def _watchdog_check(status_control: Any) -> None:
         return
     msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (int(elapsed), phase, round_num, tool_name if tool_name else "")
     log.debug(f"[Chat] {msg}")
+    # Once per stall episode: later ticks of the same stall would only repeat it.
+    if not _watchdog_stacks_dumped:
+        _watchdog_stacks_dumped = True
+        _dump_thread_stacks()
+        # Write it now; a hang that ends in a crash may not reach the next tick.
+        _flush_debug_log()
     if status_control:
         hung_text = "Hung: %s round %s" % (phase, round_num)
         if tool_name:

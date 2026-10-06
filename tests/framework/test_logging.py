@@ -778,3 +778,106 @@ def test_start_watchdog_is_dedicated_and_idempotent() -> None:
         assert getattr(sys, "_writeragent_watchdog_started") is True
     finally:
         setattr(sys, "_writeragent_watchdog_started", saved)
+
+
+def test_watchdog_dumps_thread_stacks_on_stall() -> None:
+    """Watchdog dumps thread stacks once per stall episode, and dumps again on a new stall."""
+    import threading
+
+    import plugin.framework.logging as logging_mod
+
+    captured_messages: list[str] = []
+
+    class CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured_messages.append(record.getMessage())
+
+    handler = CaptureHandler()
+    handler.setLevel(logging.DEBUG)
+    logging_mod.log.addHandler(handler)
+
+    worker_started = threading.Event()
+    worker_stop = threading.Event()
+
+    def worker_func() -> None:
+        worker_started.set()
+        worker_stop.wait(timeout=5.0)
+
+    worker_thread = threading.Thread(
+        target=worker_func,
+        name="test-stall-worker-thread",
+        daemon=True,
+    )
+    worker_thread.start()
+    assert worker_started.wait(timeout=2.0)
+
+    saved_hung = logging_mod._watchdog_hung_shown
+    try:
+        logging_mod._watchdog_hung_shown = False
+        update_activity_state("chat", round_num=1)
+        with logging_mod._activity_lock:
+            logging_mod._activity_state["last_activity"] = 0.0
+
+        # Call _watchdog_check several times during the first stall episode
+        for idx in range(3):
+            logging_mod._watchdog_check(None)
+
+        # Assert exactly one stack dump was logged during this stall
+        dumps = [m for m in captured_messages if "WATCHDOG: thread stack dump" in m]
+        assert len(dumps) == 1
+
+        dump = dumps[0]
+        current_thread_name = threading.current_thread().name
+        assert current_thread_name in dump
+        assert "test-stall-worker-thread" in dump
+        assert f"ident={worker_thread.ident}" in dump
+        assert "daemon=True" in dump
+
+        # Simulate activity resuming (last_activity updated, elapsed < threshold)
+        update_activity_state("chat", round_num=2)
+        logging_mod._watchdog_check(None)
+
+        # Confirm no additional dump occurred when activity resumed
+        dumps_after_resume = [m for m in captured_messages if "WATCHDOG: thread stack dump" in m]
+        assert len(dumps_after_resume) == 1
+
+        # Simulate a second stall episode
+        with logging_mod._activity_lock:
+            logging_mod._activity_state["last_activity"] = 0.0
+
+        for idx in range(3):
+            logging_mod._watchdog_check(None)
+
+        # Assert a second dump was logged for the new stall episode
+        dumps_after_second_stall = [m for m in captured_messages if "WATCHDOG: thread stack dump" in m]
+        assert len(dumps_after_second_stall) == 2
+
+        second_dump = dumps_after_second_stall[1]
+        assert current_thread_name in second_dump
+        assert "test-stall-worker-thread" in second_dump
+    finally:
+        worker_stop.set()
+        worker_thread.join(timeout=2.0)
+        logging_mod._watchdog_hung_shown = saved_hung
+        update_activity_state("")
+        logging_mod.log.removeHandler(handler)
+
+
+def test_watchdog_dump_thread_stacks_never_raises() -> None:
+    """If inspecting frames fails, watchdog check catches the error and does not raise."""
+    import plugin.framework.logging as logging_mod
+
+    saved_hung = logging_mod._watchdog_hung_shown
+    try:
+        logging_mod._watchdog_hung_shown = False
+        update_activity_state("chat", round_num=1)
+        with logging_mod._activity_lock:
+            logging_mod._activity_state["last_activity"] = 0.0
+
+        with patch("sys._current_frames", side_effect=RuntimeError("simulated frame inspection error")):
+            # Must not raise
+            logging_mod._watchdog_check(None)
+    finally:
+        logging_mod._watchdog_hung_shown = saved_hung
+        update_activity_state("")
+
