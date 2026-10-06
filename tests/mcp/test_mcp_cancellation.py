@@ -43,7 +43,7 @@ def test_mcp_protocol_cancelled_in_flight_request():
     protocol = MCPProtocolHandler(services_mock)
 
     # Mark request as in-flight
-    protocol._in_flight_requests.add("123")
+    protocol._in_flight_requests["123"] = 1
 
     item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "123"}}
     protocol._process_jsonrpc(item)
