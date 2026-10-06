@@ -1856,3 +1856,93 @@ def test_endpoint_and_native_do_not_split():
     assert "sentences" not in captured
     assert oneshot == {"system": "Hi. Not done yet"}
 
+
+def test_clean_text_for_speech_identifiers():
+    assert clean_text_for_speech("my_var_name") == "my var name"
+    assert clean_text_for_speech("**my_var_name**") == "my var name"
+    assert clean_text_for_speech("__bold__ and _it_") == "bold and it"
+    # URL removal runs first, so an underscore inside a URL leaves no tail.
+    assert clean_text_for_speech("see https://x.org/a_b now") == "see link now"
+
+@patch("plugin.audio.tts_service._popen_for_speech")
+@patch("plugin.audio.tts_service.shutil.which")
+def test_speak_system_security(mock_which, mock_popen):
+    from plugin.audio.tts_service import _speak_system
+
+    # Test curl quotes, backticks, leading dashes
+    text = "don't `rm -rf` --version"
+
+    # Test macOS
+    with patch("sys.platform", "darwin"):
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["/usr/bin/say", "-r", "175", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Test Linux spd-say
+    with patch("sys.platform", "linux"):
+        mock_which.side_effect = lambda x: "/usr/bin/spd-say" if x == "spd-say" else None
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["spd-say", "-r", "0", "-w", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Test Linux espeak
+    with patch("sys.platform", "linux"):
+        mock_which.side_effect = lambda x: "/usr/bin/espeak" if x == "espeak" else None
+        _speak_system(text, speed=1.0)
+        mock_popen.assert_called_with(["espeak", "-s", "160", "--", text], None, slot="play", env=None)
+
+    mock_popen.reset_mock()
+
+    # Windows: text reaches PowerShell through the environment, not the script.
+    with patch("sys.platform", "win32"):
+        _speak_system(text, speed=1.0)
+        cmd = mock_popen.call_args.args[0]
+        assert text not in " ".join(cmd)
+        assert "$env:SAPI_TEXT" in cmd[-1]
+        assert mock_popen.call_args.kwargs["env"]["SAPI_TEXT"] == text
+
+
+def test_stop_speech_stops_spd_only_for_own_spd_say():
+    from plugin.audio import tts_service
+
+    spd = MagicMock()
+    spd.args = ["spd-say", "-w", "--", "hi"]
+    spd.poll.return_value = None
+    other = MagicMock()
+    other.args = ["paplay", "/tmp/x.wav"]
+    other.poll.return_value = None
+    assert tts_service._is_spd_say(spd) is True
+    assert tts_service._is_spd_say(other) is False
+    assert tts_service._is_spd_say(None) is False
+
+
+def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
+    import plugin.audio.tts_service as tts
+
+    calls = []
+
+    def synth(sentence, *args):
+        del args
+        calls.append(sentence)
+        if sentence == "Two.":
+            raise RuntimeError("boom")
+        path = tmp_path / f"{len(calls)}.wav"
+        path.write_bytes(b"RIFF")
+        return tts._ReadyClip(str(path), sentence, 4, False)
+
+    generation = tts._begin_utterance()
+    try:
+        with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
+             patch.object(tts, "_play_audio_file") as play, \
+             patch.object(tts, "_speak_system") as system:
+            tts._run_sentence_pipeline(
+                ["One.", "Two.", "Three."], "endpoint", "", 1.0, "", "", "", None, generation,
+            )
+    finally:
+        tts.stop_speech()
+
+    assert play.call_count == 1
+    system.assert_called_once()
+    assert system.call_args.args[0] == "Two. Three."
