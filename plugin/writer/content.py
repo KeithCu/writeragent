@@ -825,10 +825,15 @@ class ApplyDocumentContent(ToolBase):
         return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if kwargs.get("dry_run"):
-            return self._dry_run_preview(ctx, **kwargs)
-        wait_seconds = self._review_wait_seconds(ctx.ctx)
         on_main = threading.current_thread() is threading.main_thread()
+        if kwargs.get("dry_run"):
+            if on_main:
+                return self._dry_run_preview(ctx, **kwargs)
+            else:
+                from plugin.framework.queue_executor import execute_on_main_thread
+                result, _ = execute_on_main_thread(lambda: (self._dry_run_preview(ctx, **kwargs), None), timeout=60.0)
+                return result
+        wait_seconds = self._review_wait_seconds(ctx.ctx)
         if get_agent_edit_review_mode(ctx.ctx) != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
             # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
