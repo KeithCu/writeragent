@@ -1183,6 +1183,10 @@ def consume_office_recycle_request() -> bool:
     return wanted
 
 
+# Windows: must run on the original soffice, before any suite-end recycle.
+_WINDOWS_FIRST_IN_DIR = frozenset({"test_designs_uno.py"})
+
+
 def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
     """Windows: leftover-leaving suites run last so they do not poison later loads.
 
@@ -1206,10 +1210,22 @@ def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
     after slash, ``document_research_uno``, and import-filter so the
     copy Hidden-open stays 3/3. Same band as ``test_draw_uno`` (calc
     paths sort first). Do not skip the Hidden-open tests.
+
+    GHA 37406913485 (master d66aa2e1): ``draw/test_bridge_uno`` (new
+    since the last green Windows run) sorts before ``test_designs_uno``.
+    It became the first Impress suite with leftovers open, so its
+    teardown asked for the suite-end recycle and designs ran on the
+    fresh soffice. There it exited 0 mid-suite and the runner aborted.
+    On 36804071142 designs was the first Impress suite and passed on
+    the original office. Keep it first in ``draw/``.
     """
     name = os.path.basename(module_path)
     if sys.platform != "win32":
         return (0, module_path)
+    if name in _WINDOWS_FIRST_IN_DIR:
+        # "\0" sorts before every sibling; the path prefix keeps the
+        # suite inside its own directory's slot in band 0.
+        return (0, module_path[: -len(name)] + "\0" + name)
     if name == "test_peer_message_uno.py":
         return (2, module_path)
     if name in (
