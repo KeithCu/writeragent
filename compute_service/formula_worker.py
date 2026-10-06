@@ -29,7 +29,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, dumps_response, require_execute_wire, validate_execute_response
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, dumps_response, require_execute_wire, validate_execute_response
 from compute_service.worker_base import run_worker_stdio_loop
 
 # execute_code pulls in the sandbox. Import it on the first real request so
@@ -60,12 +60,9 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     if action == "reset_session":
         session_id = req.get("session_id")
         if session_id and isinstance(session_id, str):
-            from compute_service.executor import release_session_lock
             from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
             res = reset_sandbox_session(session_id)
-            # Sandbox reset does not touch the executor lock map in this process.
-            release_session_lock(session_id)
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             return res
@@ -73,7 +70,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
     code = req.get("code")
     if not code or not isinstance(code, str):
-        return {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter"}
+        err = {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter", "stdout": ""}
+        return _json_forward_envelope(err, req_id=req_id)
 
     session_id = req.get("session_id")
     # Same mode rule as the HTTP handler. Missing is isolated. false / 0 / a
@@ -86,12 +84,9 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             require_execute_wire(raw_wire)
     except ExecuteRequestError as exc:
         err = {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc), "stdout": ""}
-        if _is_json_forward(req):
-            return _json_forward_envelope(err, req_id=req_id)
-        return err
+        return _json_forward_envelope(err, req_id=req_id)
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")
-    json_forward = _is_json_forward(req)
 
     try:
         from compute_service.executor import execute_code
@@ -100,22 +95,12 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         res = validate_execute_response(execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script))
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
-        if json_forward:
-            return _json_forward_envelope(res, req_id=req_id)
-        return res
+        return _json_forward_envelope(res, req_id=req_id)
     except Exception as exc:
         # Traceback included server paths on the kit wire. Eval errors from
         # json_egress are only status/error/stdout; this path must match.
         err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "stdout": ""}
-        if json_forward:
-            return _json_forward_envelope(err, req_id=req_id)
-        return err
-
-
-def _is_json_forward(req: dict[str, Any]) -> bool:
-    if req.get("wire") == WIRE_JSON_FORWARD:
-        return True
-    return isinstance(req.get("data_json"), (bytes, bytearray))
+        return _json_forward_envelope(err, req_id=req_id)
 
 
 def _load_request_data(req: dict[str, Any]) -> Any:

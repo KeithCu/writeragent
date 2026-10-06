@@ -202,15 +202,6 @@ class ComputeSettings:
         object.__setattr__(self, "log_level", normalize_log_level(self.log_level))
         self.validate()
 
-    @property
-    def max_threads(self) -> int:
-        """Alias for threads (HTTP listener capacity)."""
-        return self.threads
-
-    @property
-    def max_workers(self) -> int:
-        """Alias for workers (formula subprocess pool)."""
-        return self.workers
 
     @property
     def auth_required(self) -> bool:

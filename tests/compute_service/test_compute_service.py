@@ -861,11 +861,9 @@ class TestComputeSettings:
     def test_workers_default(self) -> None:
         s = load_settings(environ={})
         assert s.workers == 2
-        assert s.max_workers == 2
         assert s.threads == 2  # workers + ocr_workers, vision off
         direct = ComputeSettings()
         assert direct.workers == 2
-        assert direct.max_workers == 2
         assert direct.threads == 2
 
     def test_workers_env_and_cli(self) -> None:

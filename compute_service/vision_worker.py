@@ -74,7 +74,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     elif image_b64:
         try:
             if isinstance(image_b64, str):
-                image_bytes = base64.b64decode(image_b64)
+                image_bytes = base64.b64decode(image_b64, validate=True)
             elif isinstance(image_b64, (bytes, bytearray)):
                 image_bytes = bytes(image_b64)
             else:

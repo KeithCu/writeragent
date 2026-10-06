@@ -17,15 +17,18 @@ Provides:
 
 from __future__ import annotations
 
+import builtins
 import enum
+import io
 import logging
 import os
+import pickle
 import subprocess
 import sys
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar, cast
+from typing import IO, Any, Generic, TypeVar, cast
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
@@ -38,6 +41,62 @@ _STDERR_SNIPPET = 500
 
 _PoolT = TypeVar("_PoolT", bound="BaseProcessPool")
 _ValT = TypeVar("_ValT")
+
+# Allowed builtins for child->host and child stdin compute frames (strictly primitives/scalars/containers).
+_RESTRICTED_PICKLE_BUILTINS = frozenset({
+    "dict",
+    "list",
+    "tuple",
+    "set",
+    "frozenset",
+    "bytes",
+    "bytearray",
+    "str",
+    "int",
+    "float",
+    "complex",
+    "bool",
+})
+
+_PICKLE_LOAD_ERRORS = (
+    pickle.UnpicklingError,
+    EOFError,
+    AttributeError,
+    ImportError,
+    IndexError,
+    TypeError,
+    OverflowError,
+    RecursionError,
+)
+
+
+class RestrictedUnpickler(pickle.Unpickler):
+    """Restricted unpickler for child->host IPC frames.
+
+    Only allows standard builtin container and scalar types (dict, list, tuple,
+    str, int, float, bytes, bool, None). Forbids all module imports and callable
+    reconstructors (including NumPy) so child processes running untrusted user
+    code cannot execute arbitrary code on the host via pickle globals.
+
+    Remaining risk:
+    Pickle parsing can still be vulnerable to resource consumption attacks
+    (deeply nested structures causing recursion or memory exhaustion), though
+    bounded by max_payload_bytes and Python's recursion limit. A future plain
+    encoding (JSON metadata + raw byte frames) would eliminate pickle entirely.
+    """
+
+    def find_class(self, module: str, name: str) -> Any:
+        if module in ("builtins", "__builtin__") and name in _RESTRICTED_PICKLE_BUILTINS:
+            return getattr(builtins, name)
+        raise pickle.UnpicklingError(f"global {module}.{name} is forbidden in compute child frames")
+
+
+def unpack_restricted_pickle_frame(payload: bytes) -> Any:
+    """Decode one child IPC payload using RestrictedUnpickler."""
+    try:
+        return RestrictedUnpickler(io.BytesIO(payload)).load()
+    except _PICKLE_LOAD_ERRORS as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def resolve_override(override: _ValT | None, default: _ValT) -> _ValT:
@@ -71,16 +130,45 @@ class PoolSingleton(Generic[_PoolT]):
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
     stdin_bin = sys.stdin.buffer
-    stdout_bin = sys.stdout.buffer
+
+    # Duplicate fd 1 (stdout) to a private descriptor for the IPC frame channel,
+    # then duplicate fd 2 (stderr) onto fd 1. Any stray output from C extensions or
+    # untrusted user Python code (e.g. print() or direct OS write to fd 1) will flow
+    # to stderr (drained by the supervisor's StderrTail) rather than corrupting the
+    # binary IPC framing on stdout.
+    try:
+        is_real_fd1 = hasattr(sys.stdout, "fileno") and sys.stdout.fileno() == 1
+    except (io.UnsupportedOperation, AttributeError, OSError):
+        is_real_fd1 = False
+
+    if is_real_fd1:
+        try:
+            pipe_out_fd = os.dup(1)
+            os.dup2(2, 1)
+            sys.stdout = sys.stderr
+            stdout_bin: IO[bytes] = os.fdopen(pipe_out_fd, "wb", buffering=0)
+        except Exception:
+            stdout_bin = sys.stdout.buffer
+    else:
+        stdout_bin = sys.stdout.buffer
 
     # Signal readiness to supervisor
     write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
 
     while True:
         try:
-            req = read_pickle_frame(stdin_bin, max_payload_bytes=max_payload_bytes)
-            if req is None:
-                break
+            req = read_pickle_frame(stdin_bin, max_payload_bytes=max_payload_bytes, unpacker=unpack_restricted_pickle_frame)
+        except Exception as exc:
+            # If reading/decoding the frame from stdin fails, the stream is desynced.
+            # Attempting to continue reading frames from an offset stream corrupts subsequent requests.
+            # Break so the worker process terminates and the pool supervisor respawns it.
+            log.error("Fatal: failed to read/decode IPC frame from stdin: %s", exc)
+            break
+
+        if req is None:
+            break
+
+        try:
             if not isinstance(req, dict):
                 res = {"status": "error", "error": "Request must be a dict"}
             else:
@@ -202,7 +290,7 @@ class BaseProcessWorker:
         if drain is not None:
             drain.join(timeout=0.2)
 
-    def respawn(self) -> None:
+    def respawn(self, timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC) -> None:
         """Spawn worker subprocess and await readiness handshake."""
         self._reap_previous_process()
         cmd = [sys.executable, self.script_path]
@@ -228,7 +316,14 @@ class BaseProcessWorker:
             self._stderr_drain = start_stderr_drain(proc.stderr, name=f"{self.worker_name}-stderr-{self.worker_id}")
             ready_data: Any = None
             if proc.stdout is not None:
-                ready_data = read_pickle_frame_with_timeout(proc.stdout, _SPAWN_READY_TIMEOUT_SEC, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, require_dict=True)
+                ready_data = read_pickle_frame_with_timeout(
+                    proc.stdout,
+                    timeout_sec,
+                    is_alive=self.is_alive,
+                    max_payload_bytes=self.max_payload_bytes,
+                    require_dict=True,
+                    unpacker=unpack_restricted_pickle_frame,
+                )
             # EOF (None) and any dict whose status is not "ready" used to
             # count as success. The worker was marked idle, and the next
             # execute burned the full call timeout before EMPTY_RESPONSE.
@@ -276,11 +371,17 @@ class BaseProcessWorker:
             # The pool reads this after the call. A respawn replaces the
             # kernel; session maps that still name this wrapper are stale.
             self.did_respawn = False
+            start_t = time.monotonic()
             if not self.is_alive():
-                self.respawn()
+                # Respect request deadline: do not allow spawn handshake to exceed
+                # the remaining request budget.
+                spawn_budget = max(0.01, min(_SPAWN_READY_TIMEOUT_SEC, timeout_sec))
+                self.respawn(timeout_sec=spawn_budget)
                 self.did_respawn = True
                 if not self.is_alive():
                     return {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": f"{self.worker_name} #{self.worker_id} could not be started."}
+                elapsed = time.monotonic() - start_t
+                timeout_sec = max(0.01, timeout_sec - elapsed)
 
             assert self.process is not None
             assert self.process.stdin is not None
@@ -301,7 +402,13 @@ class BaseProcessWorker:
                 return {"status": "error", "code": "WORKER_PIPE_BROKEN", "error": err}
 
             try:
-                resp = read_pickle_frame_with_timeout(self.process.stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes)
+                resp = read_pickle_frame_with_timeout(
+                    self.process.stdout,
+                    timeout_sec,
+                    is_alive=self.is_alive,
+                    max_payload_bytes=self.max_payload_bytes,
+                    unpacker=unpack_restricted_pickle_frame,
+                )
             except subprocess.TimeoutExpired:
                 snippet = self._stderr_snippet()
                 msg = f"Execution exceeded maximum timeout of {int(timeout_sec)} seconds."
@@ -363,7 +470,13 @@ class BaseProcessWorker:
         try:
             resp: Any = None
             if stdout is not None and self.is_alive():
-                resp = read_pickle_frame_with_timeout(stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes)
+                resp = read_pickle_frame_with_timeout(
+                    stdout,
+                    timeout_sec,
+                    is_alive=self.is_alive,
+                    max_payload_bytes=self.max_payload_bytes,
+                    unpacker=unpack_restricted_pickle_frame,
+                )
             if not isinstance(resp, dict):
                 # EOF or a non-frame: the pipe cannot take another request.
                 self.kill()
@@ -642,9 +755,24 @@ class BaseProcessPool:
 
         if recycle:
             log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
+            # Per AGENTS.md, prefer run_in_background in the LibreOffice extension.
+            # In compute_service, standard threading.Thread is intentionally used
+            # to keep the standalone compute microservice completely free of plugin.framework.
+            threading.Thread(
+                target=self._recycle_worker_async,
+                args=(worker,),
+                name=f"{self.worker_name}-recycle-{worker.worker_id}",
+                daemon=True,
+            ).start()
+
+    def _recycle_worker_async(self, worker: BaseProcessWorker) -> None:
+        """Kill and respawn recycled worker off the request path."""
+        kill_worker = False
+        try:
             worker.kill()
-            # Re-spawn so the next lease does not pay spawn latency inside execute().
-            worker.respawn()
+            if not self._is_shutdown:
+                worker.respawn()
+        finally:
             with self._cond:
                 # Drop the recycle lease before idle. The other order lets a
                 # concurrent lease pop idle while this wrapper is still leased,

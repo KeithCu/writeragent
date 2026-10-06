@@ -34,19 +34,18 @@ def cleanup_formula_pool():
 
 
 class TestFormulaPoolSupervisor:
-    def test_reset_session_drops_executor_lock(self) -> None:
-        from compute_service.executor import _SESSION_RUN_LOCKS, _session_lock
+    def test_session_locks_removed_and_reset_succeeds(self) -> None:
+        """Verify dead session locks are removed and reset_session succeeds cleanly."""
+        import compute_service.executor as ex
         from compute_service.formula_worker import _handle_request
 
-        sid = "lock-reset-session"
-        _session_lock(sid)
-        assert sid in _SESSION_RUN_LOCKS
-        try:
-            res = _handle_request({"action": "reset_session", "session_id": sid})
-            assert res.get("status") == "ok"
-            assert sid not in _SESSION_RUN_LOCKS
-        finally:
-            _SESSION_RUN_LOCKS.pop(sid, None)
+        assert not hasattr(ex, "_SESSION_RUN_LOCKS")
+        assert not hasattr(ex, "_session_lock")
+        assert not hasattr(ex, "release_session_lock")
+
+        sid = "clean-reset-session"
+        res = _handle_request({"action": "reset_session", "session_id": sid})
+        assert res.get("status") == "ok"
 
     def test_default_pool_workers(self) -> None:
         pool = FormulaProcessPool(default_timeout_sec=15)
@@ -599,11 +598,19 @@ class TestFormulaPoolSupervisor:
             res = pool.execute(code="result = 'first'", req_id="recycle-1")
             assert res.get("status") == "ok"
 
-            # After release_worker ran, the worker in idle must be alive (re-spawned)
+            # After release_worker ran, recycling happens off-path in a background thread.
+            # Wait for the re-spawned worker to return to idle.
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                with pool._cond:
+                    if len(pool._idle) == 1:
+                        break
+                time.sleep(0.02)
+
             with pool._cond:
                 idle_workers = list(pool._idle)
             assert len(idle_workers) == 1, "Expected exactly one worker back in idle"
-            assert idle_workers[0].is_alive(), "Recycled worker must be alive after re-spawn in release_worker"
+            assert idle_workers[0].is_alive(), "Recycled worker must be alive after re-spawn"
         finally:
             pool.shutdown()
 
@@ -690,18 +697,32 @@ class TestFormulaPoolSupervisor:
             assert r1.get("status") == "ok"
             assert pool._active_sessions.get(sid) is not None
 
+            # Record pid before eviction
+            pid_before = pool.workers[0].process.pid if pool.workers[0].process else None
+            assert pid_before is not None
+
             # Simulate passage of idle time and trigger eviction
             with pool._lock:
                 pool._session_last_activity[sid] = time.monotonic() - 4000.0
             pool._evict_stale_sessions()
             assert pool._active_sessions.get(sid) is None, "Session should be evicted after TTL expiration"
 
-            # After eviction, next task will recycle worker because tasks_executed (1) >= max_tasks (1)
-            pid_before = pool.workers[0].process.pid if pool.workers[0].process else None
+            # Eviction runs a reset task on the worker and releases it.
+            # Because tasks_executed (2) >= max_tasks (1), release_worker triggers async recycling.
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                with pool._cond:
+                    if len(pool._idle) == 1 and pool.workers[0].process is not None and pool.workers[0].process.pid != pid_before:
+                        break
+                time.sleep(0.02)
+
+            # Next task runs on the recycled worker
+            worker = pool.workers[0]
+            assert worker.process is not None
+            assert worker.process.pid != pid_before, "Worker should be recycled after session TTL eviction"
+
             r2 = pool.execute(code="result = 'recycled'", mode="isolated", req_id="ttl-2")
             assert r2.get("status") == "ok"
-            pid_after = pool.workers[0].process.pid if pool.workers[0].process else None
-            assert pid_after != pid_before, "Worker should be recycled after session TTL eviction"
         finally:
             pool.shutdown()
 
@@ -898,15 +919,16 @@ class TestFormulaPoolSupervisor:
         to isolated on the HTTP path and rejected here.
         """
         from compute_service.formula_worker import _handle_request
+        from compute_service.json_forward import decode_worker_result
 
-        pickled = _handle_request({"id": "pk", "code": "result = data", "wire": "pickle", "data": [1, 2, 3]})
+        pickled = decode_worker_result(_handle_request({"id": "pk", "code": "result = data", "wire": "pickle", "data": [1, 2, 3]}))
         assert pickled.get("code") == "INVALID_REQUEST"
         assert pickled.get("result") != [1, 2, 3]
 
-        plain = _handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]})
+        plain = decode_worker_result(_handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]}))
         assert plain.get("result") != [1, 2, 3]
 
-        bad_mode = _handle_request({"id": "m", "code": "result = 1", "mode": False})
+        bad_mode = decode_worker_result(_handle_request({"id": "m", "code": "result = 1", "mode": False}))
         assert bad_mode.get("code") == "INVALID_REQUEST"
         assert bad_mode.get("result") != 1
 
