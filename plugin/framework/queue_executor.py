@@ -40,6 +40,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Callable, ClassVar, cast, TYPE_CHECKING
+from plugin.framework.i18n import _
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -318,12 +319,38 @@ def _fn_label(fn: Callable[..., Any]) -> str:
 
 
 @contextmanager
-def llm_request_lane(timeout: float = 60.0) -> Generator[None, None, None]:
-    """Serialize LLM requests when callers choose to opt in."""
-    acquired = _LLM_REQUEST_LOCK.acquire(timeout=timeout)
+def llm_request_lane(timeout: float | None = None, status_callback: Callable[[str], None] | None = None) -> Generator[None, None, None]:
+    """Serialize LLM requests when callers choose to opt in.
+
+    A single global lock exists for single-slot local servers (like Ollama or llama.cpp)
+    that can only process one request at a time process-wide.
+    """
+    if timeout is None:
+        from plugin.framework.config import get_config_int
+        timeout = float(get_config_int("request_timeout") or 60)
+
+    deadline = time.monotonic() + timeout
+    acquired = False
+    notified_status = False
+
+    while time.monotonic() < deadline:
+        cancellation = get_current_send_cancellation()
+        if cancellation and cancellation.is_cancelled():
+            from plugin.framework.async_stream import BlockingWaitStopped
+            raise BlockingWaitStopped("stopped")
+
+        if _LLM_REQUEST_LOCK.acquire(timeout=0.25):
+            acquired = True
+            break
+
+        if not notified_status and status_callback is not None:
+            status_callback(_("Waiting for another document's reply..."))
+            notified_status = True
+
     if not acquired:
         log.warning("llm_request_lane timed out after %ss waiting for LLM lock", timeout)
         raise TimeoutError("Timed out waiting for LLM request lane lock after %ss" % timeout)
+
     try:
         yield
     finally:
