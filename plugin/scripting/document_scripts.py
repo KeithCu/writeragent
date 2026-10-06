@@ -198,35 +198,9 @@ def set_calc_init_script(doc: Any, code: str) -> str | None:
     else:
         scripts.pop("INIT", None)
         scripts.pop("Init", None)
-    res = set_document_scripts(doc, scripts)
-    try:
-        from plugin.scripting.session_manager import calc_workbook_base_session_id, record_active_calc_session
-
-        # Bugfix: record_active_calc_session(None, kwargs) stored the snapshot
-        # on _LAST_ACTIVE_CALC_SESSION_ID. Clearing INIT on workbook A while B
-        # was focused wiped B (build_python_eval_init_kwargs returns {} before
-        # it records A's id). Pass A's shared-kernel session explicitly.
-        record_active_calc_session(
-            calc_workbook_base_session_id(doc),
-            build_python_eval_init_kwargs(doc),
-            doc=doc,
-        )
-    except Exception:
-        # What was wrong: this returned None after the cache refresh raised, so
-        # the editor treated the save as success while off-main =PY() kept the
-        # previous init script.
-        # How: set_document_scripts had already written the property; the
-        # shared-kernel cache is a second call and was only logged.
-        # Why this works: a failed refresh returns an error string (unless the
-        # property write already failed) so the caller does not assume =PY()
-        # sees the new script.
-        log.exception("document_scripts: failed to refresh the shared-kernel init cache")
-        if res is not None:
-            return res
-        return _(
-            "Initialization script was saved on the document, but the shared-kernel cache did not update. =PY() may still run the previous script."
-        )
-    return res
+    # =PY() reads the init script from the calling document on each UI-thread
+    # evaluation, so there is no host-side cache to refresh here.
+    return set_document_scripts(doc, scripts)
 
 
 
@@ -260,45 +234,16 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
 
 
 def _select_enumerated_calc_document(matches: list[Any]) -> Any | None:
-    """One Calc model, or the cached session when several workbooks are open.
+    """The only open Calc model, or None when there are zero or several.
 
-    What was wrong: the first enumerated Calc workbook was returned. UNO
-    component order is not the focused file, so the picker could attach,
-    save, or run against a different open workbook.
-    How: ``getComponents().createEnumeration()`` has no defined order.
-    Why this works: one match is unambiguous. Several matches use the same
-    session-id cache tiebreak as ``session_manager._find_document_by_predicate``.
-    If that cache does not name exactly one of them, return None. The
-    predicate helper's last-match fallback would still be an arbitrary workbook.
+    UNO component order is not the focused file, so with several workbooks
+    open no enumerated match is safe to pick.
     """
     from plugin.framework.thread_guard import guard_uno
 
-    if not matches:
-        return None
     if len(matches) == 1:
         return guard_uno(matches[0])
-
-    from plugin.scripting.session_manager import (
-        _cached_calc_session_matches,
-        get_cached_calc_session_id,
-    )
-
-    cached_sid = get_cached_calc_session_id()
-    if not cached_sid:
-        return None
-    chosen: Any | None = None
-    for model in matches:
-        try:
-            if not _cached_calc_session_matches(model, cached_sid):
-                continue
-        except Exception:
-            continue
-        if chosen is not None:
-            return None
-        chosen = model
-    if chosen is None:
-        return None
-    return guard_uno(chosen)
+    return None
 
 
 def get_calc_document_from_ctx(ctx: Any) -> Any | None:

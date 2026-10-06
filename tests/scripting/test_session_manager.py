@@ -94,16 +94,25 @@ def test_workbook_session_id_with_explicit_doc() -> None:
     mock_doc = MagicMock()
     mock_doc.getURL.return_value = "file:///custom_sheet.ods"
 
-    try:
-        with (
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-            patch("plugin.scripting.session_manager.is_calc", return_value=True),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        ):
-            sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
-            assert sid == "calc:file:///custom_sheet.ods"
-    finally:
-        session_manager.clear_active_calc_session()
+    with (
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+    ):
+        sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
+        assert sid == "calc:file:///custom_sheet.ods"
+
+
+def test_workbook_session_id_without_doc_is_none() -> None:
+    """No caller document means no shared session; the front window is not consulted."""
+    from unittest.mock import MagicMock, patch
+
+    with (
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.session_manager.get_desktop") as get_desktop,
+    ):
+        assert session_manager.workbook_session_id(MagicMock(), doc=None) is None
+    get_desktop.assert_not_called()
 
 
 def test_reset_workbook_python_session_prefers_calc() -> None:
@@ -251,7 +260,6 @@ def test_reset_reports_init_reseed_failure() -> None:
         patch("plugin.scripting.document_scripts.build_python_eval_init_kwargs", return_value={"init_script": "FACTOR = 1", "init_session_id": "calc:wb:init", "init_script_hash": "h"}),
         patch("plugin.scripting.document_scripts.get_calc_init_script", return_value="FACTOR = 1"),
         patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-        patch("plugin.scripting.session_manager.record_active_calc_session"),
         patch("plugin.scripting.venv_worker.run_code_in_user_venv", return_value={"status": "error", "message": "init boom"}),
         patch("plugin.scripting.session_manager._msgbox") as msgbox,
     ):
@@ -262,347 +270,6 @@ def test_reset_reports_init_reseed_failure() -> None:
     assert "init boom" in msgbox.call_args[0][1]
 
 
-def test_reset_one_workbook_keeps_sibling_sessions() -> None:
-    """Reset re-records the target only. Sibling unsaved ids stay recorded.
-
-    The no-doc re-record used to drop every ``calc:unsaved:`` id. One saved
-    workbook's reset then made ``off_main_calc_session_is_unambiguous`` true
-    while another book was still open.
-    """
-    from unittest.mock import MagicMock, patch
-
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    target = CalcDocStub(url="file:///reset-me.ods", props={"RuntimeUID": "uid-reset"})
-    sibling = CalcDocStub(url="", props={"RuntimeUID": "uid-sibling"})
-    other = CalcDocStub(url="file:///other-book.ods", props={"RuntimeUID": "uid-other"})
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:sibling", doc=sibling)
-        session_manager.record_active_calc_session("calc:file:///other-book.ods", doc=other)
-        with (
-            patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}),
-            patch("plugin.scripting.session_manager._msgbox"),
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="isolated"),
-        ):
-            session_manager._reset_calc_python_sessions(MagicMock(), target)
-        ids = session_manager.recorded_calc_session_ids()
-        assert "calc:unsaved:sibling" in ids
-        assert "calc:file:///other-book.ods" in ids
-        assert "calc:file:///reset-me.ods" in ids
-        assert session_manager.recorded_calc_session_count() == 3
-        assert session_manager.off_main_calc_session_is_unambiguous() is False
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_reset_unsaved_workbook_keeps_other_unsaved_sibling() -> None:
-    """Reset of one unsaved book must not drop a different unsaved book's id."""
-    from unittest.mock import MagicMock, patch
-
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    target = CalcDocStub(url="", props={"RuntimeUID": "uid-reset-unsaved"})
-    sibling = CalcDocStub(url="", props={"RuntimeUID": "uid-other-unsaved"})
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:other-book", doc=sibling)
-        with (
-            patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}),
-            patch("plugin.scripting.session_manager._msgbox"),
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="isolated"),
-        ):
-            session_manager._reset_calc_python_sessions(MagicMock(), target)
-        ids = session_manager.recorded_calc_session_ids()
-        assert "calc:unsaved:other-book" in ids
-        assert session_manager.recorded_calc_session_count() >= 2
-        assert session_manager.off_main_calc_session_is_unambiguous() is False
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_workbook_session_id_off_main_ambiguous_when_two_workbooks() -> None:
-    from unittest.mock import MagicMock, patch
-
-    ctx = MagicMock()
-    session_manager.clear_active_calc_session()
-    session_manager.record_active_calc_session("calc:file:///a.ods")
-    session_manager.record_active_calc_session("calc:file:///b.ods")
-    try:
-        with (
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        ):
-            assert session_manager.workbook_session_id(ctx, doc=None) is None
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_cached_calc_document_unambiguous_and_cleared() -> None:
-    """Off-main spill may pass through the UI-thread model when one session is recorded."""
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    doc = CalcDocStub(url="file:///SpillTest.ods")
-    try:
-        session_manager.record_active_calc_session("calc:file:///SpillTest.ods", doc=doc)
-        assert session_manager.get_cached_calc_document() is doc
-        session_manager.record_active_calc_session("calc:file:///other.ods")
-        assert session_manager.get_cached_calc_document() is None
-    finally:
-        session_manager.clear_active_calc_session()
-    assert session_manager.get_cached_calc_document() is None
-
-
-def test_cached_calc_document_isolated_zero_sessions() -> None:
-    """Isolated (no recorded id) still returns the last UI-thread model."""
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    doc = CalcDocStub(url="file:///isolated.ods")
-    try:
-        session_manager.record_active_calc_document(doc)
-        assert session_manager.recorded_calc_session_count() == 0
-        assert session_manager.get_cached_calc_document() is doc
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_workbook_session_id_uses_cached_session_off_main() -> None:
-    """Off the main thread without explicit doc, workbook_session_id returns UI-cached session id."""
-    from unittest.mock import MagicMock, patch
-
-    ctx = MagicMock()
-    session_manager.clear_active_calc_session()
-    session_manager.record_active_calc_session("calc:file:///cached_sheet.ods")
-
-    try:
-        with (
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        ):
-            sid = session_manager.workbook_session_id(ctx, doc=None)
-            assert sid == "calc:file:///cached_sheet.ods"
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_record_active_calc_session_ignores_opencl_probe() -> None:
-    """Headless soffice opens cl-test.ods — must not make leftover recorded=2."""
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session(
-            "calc:file:///usr/lib/libreoffice/program/../program/opencl/cl-test.ods"
-        )
-        assert session_manager.recorded_calc_session_count() == 0
-        session_manager.record_active_calc_session("calc:e058adf2-8a4e-4556-a488-589b4e93e983")
-        session_manager.record_active_calc_session(
-            "calc:file:///usr/lib/libreoffice/program/../program/opencl/cl-test.ods"
-        )
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.off_main_calc_session_is_unambiguous() is True
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_record_active_calc_session_replaces_prior_unsaved() -> None:
-    """Two unsaved: fallbacks must not leave recorded=2 (leftover Isolated)."""
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:first")
-        session_manager.record_active_calc_session("calc:unsaved:second")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.get_cached_calc_session_id() == "calc:unsaved:second"
-        assert session_manager.off_main_calc_session_is_unambiguous() is True
-        assert session_manager.recorded_calc_session_ids() == ("calc:unsaved:second",)
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_record_active_calc_session_drops_ephemeral_unsaved_when_durable() -> None:
-    """OnOpen unsaved: fallback must not poison unambiguous after UDProp sticks."""
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:early-open")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.off_main_calc_session_is_unambiguous() is True
-
-        session_manager.record_active_calc_session("calc:persisted-uuid")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.get_cached_calc_session_id() == "calc:persisted-uuid"
-        assert session_manager.off_main_calc_session_is_unambiguous() is True
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_record_durable_id_for_other_doc_keeps_unsaved_session() -> None:
-    """A different book's durable id must not delete a live calc:unsaved: id."""
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    unsaved = CalcDocStub(url="", props={"RuntimeUID": "uid-unsaved-live"})
-    saved = CalcDocStub(url="file:///other-book.ods", props={"RuntimeUID": "uid-saved-other"})
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:live-book", doc=unsaved)
-        session_manager.record_active_calc_session("calc:file:///other-book.ods", doc=saved)
-        assert session_manager.recorded_calc_session_count() == 2
-        assert session_manager.off_main_calc_session_is_unambiguous() is False
-        assert "calc:unsaved:live-book" in session_manager.recorded_calc_session_ids()
-        assert "calc:file:///other-book.ods" in session_manager.recorded_calc_session_ids()
-
-        # A second unsaved book is also a real id, not a replacement.
-        other_unsaved = CalcDocStub(url="", props={"RuntimeUID": "uid-unsaved-other"})
-        session_manager.record_active_calc_session("calc:unsaved:other-book", doc=other_unsaved)
-        assert session_manager.recorded_calc_session_count() == 3
-        assert "calc:unsaved:live-book" in session_manager.recorded_calc_session_ids()
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_same_doc_durable_id_drops_its_unsaved_id() -> None:
-    """Promoting one document from calc:unsaved:{uuid} to its file URL drops that id only."""
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    doc = CalcDocStub(url="file:///promoted.ods", props={"RuntimeUID": "uid-promote"})
-    neighbor = CalcDocStub(url="", props={"RuntimeUID": "uid-neighbor"})
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:promote-me", doc=doc)
-        session_manager.record_active_calc_session("calc:unsaved:neighbor", doc=neighbor)
-        session_manager.record_active_calc_session("calc:file:///promoted.ods", doc=doc)
-        assert session_manager.recorded_calc_session_count() == 2
-        assert "calc:unsaved:promote-me" not in session_manager.recorded_calc_session_ids()
-        assert "calc:unsaved:neighbor" in session_manager.recorded_calc_session_ids()
-        assert "calc:file:///promoted.ods" in session_manager.recorded_calc_session_ids()
-        assert session_manager.off_main_calc_session_is_unambiguous() is False
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_same_nonweakref_doc_drops_only_its_unsaved_id() -> None:
-    """PyUNO models often reject weakref. Promotion still uses object identity."""
-
-    class _NoWeakDoc:
-        __slots__ = ("url",)
-
-        def __init__(self, url: str) -> None:
-            self.url = url
-
-        def getURL(self) -> str:
-            return self.url
-
-    session_manager.clear_active_calc_session()
-    doc = _NoWeakDoc("file:///nw.ods")
-    other = _NoWeakDoc("")
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:nw-book", doc=doc)
-        session_manager.record_active_calc_session("calc:unsaved:nw-other", doc=other)
-        session_manager.record_active_calc_session("calc:file:///nw.ods", doc=doc)
-        ids = session_manager.recorded_calc_session_ids()
-        assert "calc:unsaved:nw-book" not in ids
-        assert "calc:unsaved:nw-other" in ids
-        assert "calc:file:///nw.ods" in ids
-        assert session_manager.off_main_calc_session_is_unambiguous() is False
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_geometric_record_passes_doc_so_other_unsaved_stays() -> None:
-    """record_geometric_calc_session must pass doc into the session GC."""
-    from unittest.mock import patch
-
-    from plugin.calc.python.geometric_recalc import record_geometric_calc_session
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    unsaved = CalcDocStub(url="", props={"RuntimeUID": "uid-geo-unsaved"})
-    other = CalcDocStub(url="file:///geo-other.ods", props={"RuntimeUID": "uid-geo-other"})
-
-    def _key(doc):
-        if doc is unsaved:
-            return "unsaved:geo-book"
-        return "file:///geo-other.ods"
-
-    try:
-        session_manager.record_active_calc_session("calc:unsaved:geo-book", doc=unsaved)
-        with patch("plugin.scripting.session_manager._workbook_session_key", side_effect=_key):
-            sid = record_geometric_calc_session(other)
-        assert sid == "calc:file:///geo-other.ods"
-        assert session_manager.recorded_calc_session_count() == 2
-        assert session_manager.off_main_calc_session_is_unambiguous() is False
-        assert "calc:unsaved:geo-book" in session_manager.recorded_calc_session_ids()
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_scoped_dir_from_calc_session_id_uses_file_url(tmp_path: Path) -> None:
-    workbook = tmp_path / "python_showcase_demo.xlsx"
-    workbook.write_bytes(b"pk")
-    assert session_manager.scoped_dir_from_calc_session_id(f"calc:{workbook.as_uri()}") == str(
-        tmp_path
-    )
-    assert session_manager.scoped_dir_from_calc_session_id("calc:unsaved:abc") is None
-    assert session_manager.scoped_dir_from_calc_session_id(None) is None
-
-
-def test_record_active_calc_session_caches_scoped_dir(tmp_path: Path) -> None:
-    first_dir = tmp_path / "one"
-    second_dir = tmp_path / "two"
-    first_dir.mkdir()
-    second_dir.mkdir()
-    first = first_dir / "demo.ods"
-    second = second_dir / "other.ods"
-    first.write_bytes(b"PK")
-    second.write_bytes(b"PK")
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session(f"calc:{first.as_uri()}")
-        assert session_manager.get_cached_calc_scoped_dir() == str(first_dir)
-        session_manager.record_active_calc_session(f"calc:{second.as_uri()}")
-        # Two recorded sessions: do not guess which folder belongs to =PY().
-        assert session_manager.recorded_calc_session_count() == 2
-        assert session_manager.get_cached_calc_scoped_dir() is None
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_off_main_two_workbooks_do_not_share_a_kernel() -> None:
-    from unittest.mock import MagicMock, patch
-
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session("calc:file:///a.ods")
-        session_manager.record_active_calc_session("calc:file:///b.ods")
-        assert session_manager.off_main_calc_session_is_unambiguous() is False
-        with (
-            patch.object(session_manager, "python_session_mode", return_value="shared"),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        ):
-            assert session_manager.workbook_session_id(MagicMock(), doc=None) is None
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_clear_active_calc_session_logs_addin_cache_failure(caplog) -> None:
-    # What was wrong: logger.debug calls are stripped in release builds.
-    # Why: skip when running against stripped release bundle.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.debug stripped in release bundle")
-    import logging
-    from unittest.mock import patch
-
-    with (
-        patch(
-            "plugin.calc.python.function.clear_python_addin_cache",
-            side_effect=RuntimeError("cache"),
-        ),
-        caplog.at_level(logging.DEBUG, logger="plugin.scripting.session_manager"),
-    ):
-        session_manager.clear_active_calc_session()
-    assert "clear_python_addin_cache failed" in caplog.text
-
-
 def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
     """If is_calc throws, workbook_session_id falls back to doc URL directly."""
     from unittest.mock import MagicMock, patch
@@ -611,15 +278,12 @@ def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
     mock_doc = MagicMock()
     mock_doc.getURL.return_value = "file:///fallback_sheet.ods"
 
-    try:
-        with (
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-            patch("plugin.scripting.session_manager.is_calc", side_effect=RuntimeError("UNO thread error")),
-        ):
-            sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
-            assert sid == "calc:file:///fallback_sheet.ods"
-    finally:
-        session_manager.clear_active_calc_session()
+    with (
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.session_manager.is_calc", side_effect=RuntimeError("UNO thread error")),
+    ):
+        sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
+        assert sid == "calc:file:///fallback_sheet.ods"
 
 
 def test_workbook_session_id_non_calc_does_not_record() -> None:
@@ -627,226 +291,13 @@ def test_workbook_session_id_non_calc_does_not_record() -> None:
 
     ctx = MagicMock()
     writer = MagicMock()
-    session_manager.clear_active_calc_session()
-    try:
-        with (
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-            patch("plugin.scripting.session_manager.is_calc", return_value=False),
-            patch("plugin.scripting.session_manager.calc_workbook_base_session_id") as mint,
-        ):
-            assert session_manager.workbook_session_id(ctx, doc=writer) is None
-        mint.assert_not_called()
-        assert session_manager.recorded_calc_session_count() == 0
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_empty_init_kwargs_clears_cached_calc_init() -> None:
-    """{} is a cleared workbook init. Omitting kwargs must leave the cache alone."""
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session(
-            "calc:file:///a.ods", {"init_script": "A = 1"}
-        )
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
-        session_manager.record_active_calc_session(None, {})
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-        session_manager.record_active_calc_session(
-            "calc:file:///a.ods", {"init_script": "A = 1"}
-        )
-        session_manager.record_active_calc_session("calc:file:///a.ods")
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_closing_one_workbook_keeps_the_other_document() -> None:
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    first = CalcDocStub(url="file:///a.ods")
-    second = CalcDocStub(url="file:///b.ods")
-    try:
-        session_manager.record_active_calc_session("calc:file:///a.ods", doc=first, init_kwargs={"init_script": "A = 1"})
-        session_manager.record_active_calc_session("calc:file:///b.ods", doc=second, init_kwargs={"init_script": "B = 2"})
-        session_manager.clear_active_calc_session("calc:file:///b.ods")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.get_cached_calc_session_id() == "calc:file:///a.ods"
-        assert session_manager.get_cached_calc_document() is first
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_focus_switch_without_kwargs_does_not_keep_other_init() -> None:
-    """calc_workbook_base_session_id records with init_kwargs=None."""
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session(
-            "calc:file:///a.ods", {"init_script": "A = 1"}
-        )
-        session_manager.record_active_calc_session(
-            "calc:file:///b.ods", {"init_script": "B = 2"}
-        )
-        session_manager.record_active_calc_session("calc:file:///a.ods")
-        # Two recorded workbooks: off-main =PY() must not see either init.
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-        session_manager.clear_active_calc_session("calc:file:///b.ods")
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
-        session_manager.record_active_calc_session(
-            "calc:file:///b.ods", {"init_script": "B = 2"}
-        )
-        # B becomes last-active the way workbook focus does: no kwargs.
-        session_manager.record_active_calc_session("calc:file:///a.ods")
-        session_manager.record_active_calc_session("calc:file:///b.ods")
-        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-        session_manager.clear_active_calc_session("calc:file:///a.ods")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.off_main_calc_session_is_unambiguous()
-        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "B = 2"
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_cleared_init_is_not_restored_on_focus_return() -> None:
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session(
-            "calc:file:///a.ods", {"init_script": "A = 1"}
-        )
-        session_manager.record_active_calc_session(
-            "calc:file:///b.ods", {"init_script": "B = 2"}
-        )
-        session_manager.record_active_calc_session("calc:file:///a.ods")
-        session_manager.record_active_calc_session(None, {})
-        session_manager.record_active_calc_session("calc:file:///b.ods")
-        session_manager.record_active_calc_session("calc:file:///a.ods")
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-        session_manager.clear_active_calc_session("calc:file:///b.ods")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.get_cached_calc_session_id() == "calc:file:///a.ods"
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_closing_other_workbook_drops_its_init_when_it_still_owns_the_cache() -> None:
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.record_active_calc_session(
-            "calc:file:///a.ods", {"init_script": "A = 1"}
-        )
-        session_manager.record_active_calc_session("calc:file:///b.ods")
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-        session_manager.clear_active_calc_session("calc:file:///a.ods")
-        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_off_main_session_and_init_use_one_lock() -> None:
-    """len==1 and the cached value are read under a single acquisition."""
-    import threading
-    from unittest.mock import MagicMock, patch
-
-    class _CountingLock:
-        def __init__(self) -> None:
-            self._inner = threading.Lock()
-            self.enters = 0
-
-        def __enter__(self) -> bool:
-            self.enters += 1
-            return self._inner.__enter__()
-
-        def __exit__(self, exc_type, exc, tb) -> bool | None:
-            return self._inner.__exit__(exc_type, exc, tb)
-
-    counting = _CountingLock()
-    session_manager.clear_active_calc_session()
-    session_manager.record_active_calc_session(
-        "calc:file:///only.ods", {"init_script": "A = 1"}
-    )
-    previous = session_manager._ACTIVE_CALC_SESSION_LOCK
-    session_manager._ACTIVE_CALC_SESSION_LOCK = counting
-    try:
-        with (
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        ):
-            assert session_manager.workbook_session_id(MagicMock(), doc=None) == "calc:file:///only.ods"
-        assert counting.enters == 1
-        counting.enters = 0
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
-        assert counting.enters == 1
-        session_manager._ACTIVE_CALC_SESSION_LOCK = previous
-        session_manager.record_active_calc_session("calc:file:///other.ods", {"init_script": "B = 2"})
-        session_manager._ACTIVE_CALC_SESSION_LOCK = counting
-        counting.enters = 0
-        with (
-            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        ):
-            assert session_manager.workbook_session_id(MagicMock(), doc=None) is None
-        assert counting.enters == 1
-        counting.enters = 0
-        assert session_manager.get_cached_calc_init_kwargs() == {}
-        assert counting.enters == 1
-    finally:
-        session_manager._ACTIVE_CALC_SESSION_LOCK = previous
-        session_manager.clear_active_calc_session()
-
-
-def test_opencl_probe_does_not_replace_cached_document() -> None:
-    """Probe id is discarded; its model must not become the spill target."""
-    from plugin.tests.testing_utils import CalcDocStub
-
-    session_manager.clear_active_calc_session()
-    real = CalcDocStub(url="file:///real.ods")
-    probe = CalcDocStub(url="file:///usr/lib/libreoffice/program/opencl/cl-test.ods")
-    probe_sid = "calc:file:///usr/lib/libreoffice/program/opencl/cl-test.ods"
-    try:
-        session_manager.record_active_calc_session(probe_sid, doc=probe)
-        assert session_manager.get_cached_calc_document() is None
-        session_manager.record_active_calc_session("calc:file:///real.ods", doc=real)
-        session_manager.record_active_calc_session(probe_sid, doc=probe)
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.get_cached_calc_document() is real
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_scoped_dir_stat_runs_outside_the_session_lock(tmp_path: Path) -> None:
-    first_dir = tmp_path / "one"
-    second_dir = tmp_path / "two"
-    first_dir.mkdir()
-    second_dir.mkdir()
-    first = first_dir / "demo.ods"
-    second = second_dir / "other.ods"
-    first.write_bytes(b"PK")
-    second.write_bytes(b"PK")
-    held: list[bool] = []
-    real = session_manager.scoped_dir_from_calc_session_id
-
-    def _wrapped(session_id: str | None) -> str | None:
-        held.append(session_manager._ACTIVE_CALC_SESSION_LOCK.locked())
-        return real(session_id)
-
-    session_manager.clear_active_calc_session()
-    try:
-        session_manager.scoped_dir_from_calc_session_id = _wrapped
-        session_manager.record_active_calc_session(f"calc:{first.as_uri()}")
-        session_manager.record_active_calc_session(f"calc:{second.as_uri()}")
-        session_manager.clear_active_calc_session(f"calc:{second.as_uri()}")
-        assert session_manager.recorded_calc_session_count() == 1
-        assert session_manager.get_cached_calc_scoped_dir() == str(first_dir)
-        assert held
-        assert held == [False] * len(held)
-    finally:
-        session_manager.scoped_dir_from_calc_session_id = real
-        session_manager.clear_active_calc_session()
+    with (
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.session_manager.is_calc", return_value=False),
+        patch("plugin.scripting.session_manager.calc_workbook_base_session_id") as mint,
+    ):
+        assert session_manager.workbook_session_id(ctx, doc=writer) is None
+    mint.assert_not_called()
 
 
 def test_workbook_session_key_unsaved_when_property_does_not_stick() -> None:
@@ -895,18 +346,14 @@ def test_find_document_headless_controller_none_still_matches() -> None:
     doc.getCurrentController.return_value = None
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = doc
-    session_manager.clear_active_calc_session()
-    try:
-        with (
-            patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
-            patch("plugin.scripting.session_manager.is_calc", return_value=True),
-        ):
-            found = session_manager._calc_document(ctx)
-        from plugin.framework.thread_guard import _unwrap_uno
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+    ):
+        found = session_manager._calc_document(ctx)
+    from plugin.framework.thread_guard import _unwrap_uno
 
-        assert _unwrap_uno(found) is doc
-    finally:
-        session_manager.clear_active_calc_session()
+    assert _unwrap_uno(found) is doc
 
 
 def test_find_document_skips_controller_without_frame() -> None:
@@ -1029,63 +476,3 @@ def test_ppt_master_unsaved_decks_unique_session_id() -> None:
     assert id2.startswith("ppt_master:unsaved:")
 
 
-def test_calc_document_regression_sim_event_doc_order():
-    """Regression sim: when demo is opened after untitled, _calc_document must return demo."""
-    from unittest.mock import MagicMock, patch
-    from plugin.calc.excel_py_convert.auto_open import _record_desktop_calc_sessions
-    from plugin.scripting.session_manager import (
-        _calc_document,
-        calc_workbook_base_session_id,
-        clear_active_calc_session,
-    )
-
-    clear_active_calc_session()
-    demo = MagicMock(name="demo")
-    demo.getURL.return_value = "file:///x/demo.xlsx"
-    demo_ctrl = MagicMock()
-    demo_ctrl.getFrame.return_value = MagicMock()
-    demo.getCurrentController.return_value = demo_ctrl
-    demo.getSheets.return_value = MagicMock()
-
-    untitled = MagicMock(name="untitled")
-    untitled.getURL.return_value = ""
-    untitled_ctrl = MagicMock()
-    untitled_ctrl.getFrame.return_value = MagicMock()
-    untitled.getCurrentController.return_value = untitled_ctrl
-    untitled.getSheets.return_value = MagicMock()
-
-    desktop = MagicMock()
-    desktop.getCurrentComponent.return_value = demo
-
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [demo, untitled]
-    comps = MagicMock()
-    comps.createEnumeration.return_value = enum
-    desktop.getComponents.return_value = comps
-
-    ctx = MagicMock()
-
-    try:
-        with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-            patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
-            patch("plugin.scripting.session_manager.is_calc", return_value=True),
-            patch("plugin.doc.doc_type.is_calc", return_value=True),
-            patch("plugin.calc.excel_py_convert.auto_open._is_calc_doc", return_value=True),
-        ):
-            # Old scan order: demo then untitled -> _LAST_ACTIVE_CALC_SESSION_ID became untitled
-            calc_workbook_base_session_id(demo)
-            calc_workbook_base_session_id(untitled)
-
-            # Now run the new scan with event_doc=demo
-            _record_desktop_calc_sessions(ctx, event_doc=demo)
-
-            # _calc_document(ctx) must return demo
-            resolved = _calc_document(ctx)
-            from plugin.framework.thread_guard import _unwrap_uno
-
-            assert _unwrap_uno(resolved) is demo
-    finally:
-        clear_active_calc_session()

@@ -308,12 +308,25 @@ def collect_matching_formula_origins(sheet: Any, code_str: str, *, doc_url: str 
     return found
 
 
-def _collect_formula_origins_in_doc(doc: Any, code_str: str, *, cache: FormulaLocationCache | None = None, max_matches: int = 2) -> list[tuple[Any, Any, tuple[int, int]]]:
-    """Scan doc sheets for formula code matches, stopping once max_matches is reached."""
+def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str, *, cache: FormulaLocationCache | None = None) -> tuple[Any, Any, tuple[int, int]] | None:
+    """Find unique (sheet, cell, (row, col)) for this Python formula in *doc*.
+
+    Returns None when zero or two+ origins match: XAddIn has no calling cell, so
+    spilling or caching from the first hit writes the wrong formula.
+    """
     if doc is None:
-        return []
+        return None
+
     active_cache = cache if cache is not None else FORMULA_LOCATION_CACHE
     doc_url = document_cache_key(doc)
+    # Uniqueness is a negative ("no second origin"). FormulaLocationCache is an
+    # opportunistic MRU, not a complete index, so a cached coord still matching
+    # does not prove there is no duplicate. Do not skip queryContentCells on a
+    # cache hit (that was the first-match bug: spill/image/scalar wrote the wrong
+    # cell). Follow-up: a live complete index (sheet modify listener tracking
+    # every =PY() origin as unique vs ambiguous) could skip the walk when the
+    # formula set is known unchanged. Until then every unique-origin lookup must
+    # scan formula cells.
     collected: list[tuple[Any, Any, tuple[int, int]]] = []
     seen: set[tuple[str, int, int]] = set()
 
@@ -336,33 +349,12 @@ def _collect_formula_origins_in_doc(doc: Any, code_str: str, *, cache: FormulaLo
                 sheet = sheets.getByIndex(i)
                 for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc_url=doc_url, cache=active_cache):
                     _add(sheet, cell, r, c)
-                    if len(collected) >= max_matches:
-                        return collected
+                    if len(collected) > 1:
+                        return None
     except Exception:
-        log.debug("scan across sheets failed in doc", exc_info=True)
-    return collected
-
-
-def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str, *, cache: FormulaLocationCache | None = None) -> tuple[Any, Any, tuple[int, int]] | None:
-    """Find unique (sheet, cell, (row, col)) for this Python formula in *doc*.
-
-    Returns None when zero or two+ origins match: XAddIn has no calling cell, so
-    spilling or caching from the first hit writes the wrong formula.
-    """
-    if doc is None:
+        log.debug("locate_formula_cell_in_doc failed across sheets", exc_info=True)
         return None
 
-    active_cache = cache if cache is not None else FORMULA_LOCATION_CACHE
-    doc_url = document_cache_key(doc)
-    # Uniqueness is a negative ("no second origin"). FormulaLocationCache is an
-    # opportunistic MRU, not a complete index, so a cached coord still matching
-    # does not prove there is no duplicate. Do not skip queryContentCells on a
-    # cache hit (that was the first-match bug: spill/image/scalar wrote the wrong
-    # cell). Follow-up: a live complete index (sheet modify listener tracking
-    # every =PY() origin as unique vs ambiguous) could skip the walk when the
-    # formula set is known unchanged. Until then every unique-origin lookup must
-    # scan formula cells.
-    collected = _collect_formula_origins_in_doc(doc, code_str, cache=active_cache, max_matches=2)
     if len(collected) != 1:
         return None
     sheet, cell, coord = collected[0]
@@ -377,126 +369,19 @@ def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str, *, cache: Form
     return (sheet, cell, coord)
 
 
-def locate_formula_cell_in_open_docs(
-    ctx: Any,
-    preferred_doc: Any | None,
-    code_str: str,
-    *,
-    cache: FormulaLocationCache | None = None,
-) -> tuple[Any, Any, Any, tuple[int, int]] | None:
-    """Find unique (doc, sheet, cell, (row, col)) for this formula across open Calc docs.
-
-    1. Checks preferred_doc first:
-       - Unique match -> returns (preferred_doc, sheet, cell, coord).
-       - Ambiguous (2+ matches in preferred_doc) -> returns None (same-doc ambiguity).
-       - 0 matches -> falls through to other open Calc docs.
-    2. Only when preferred_doc has 0 matches (or was None):
-       Walks other open Calc docs on the main thread.
-       Returns (doc, sheet, cell, coord) if and only if exactly one origin
-       exists across all other open docs; otherwise None.
-    """
-    active_cache = cache if cache is not None else FORMULA_LOCATION_CACHE
-
-    if preferred_doc is not None:
-        pref_matches = _collect_formula_origins_in_doc(preferred_doc, code_str, cache=active_cache, max_matches=2)
-        if len(pref_matches) == 1:
-            sheet, cell, coord = pref_matches[0]
-            doc_url = document_cache_key(preferred_doc)
-            try:
-                sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
-                active_cache.put(doc_url, code_str, sheet_name, coord[0], coord[1])
-                for stale_sheet, stale_r, stale_c in list(active_cache.get(doc_url, code_str)):
-                    if (stale_sheet, stale_r, stale_c) != (sheet_name, coord[0], coord[1]):
-                        active_cache.remove_coordinate(doc_url, code_str, stale_sheet, stale_r, stale_c)
-            except Exception:
-                pass
-            return (preferred_doc, sheet, cell, coord)
-        elif len(pref_matches) > 1:
-            # Ambiguity within preferred document stays an error; do not consult other docs.
-            return None
-
-    from plugin.framework.thread_guard import on_main_thread
-
-    if not on_main_thread():
-        return None
-
-    try:
-        from plugin.framework.uno_context import get_desktop, uno_same
-        from plugin.scripting.document_scripts import _enumerate_calc_documents
-
-        desktop = get_desktop(ctx)
-        calcs = _enumerate_calc_documents(desktop)
-    except Exception:
-        log.debug("locate_formula_cell_in_open_docs desktop enumeration failed", exc_info=True)
-        return None
-
-    total_matches: list[tuple[Any, Any, Any, tuple[int, int]]] = []
-    for other_doc in calcs:
-        if preferred_doc is not None:
-            if other_doc is preferred_doc:
-                continue
-            try:
-                if uno_same(other_doc, preferred_doc):
-                    continue
-            except Exception:
-                pass
-
-        matches = _collect_formula_origins_in_doc(other_doc, code_str, cache=active_cache, max_matches=2)
-        if len(matches) > 1:
-            # 2+ matches in this document means overall ambiguity
-            return None
-        elif len(matches) == 1:
-            sheet, cell, coord = matches[0]
-            total_matches.append((other_doc, sheet, cell, coord))
-            if len(total_matches) > 1:
-                # Multiple documents have matching formula cells
-                return None
-
-    if len(total_matches) == 1:
-        doc, sheet, cell, coord = total_matches[0]
-        # What was wrong: if target_doc was the wrong document (e.g. an untitled doc opened first),
-        # image egress failed to locate the formula cell and aborted image insertion.
-        # How: fallback to other open Calc documents when preferred has 0 hits.
-        # Why: locate_formula_cell_in_open_docs recovers the correct calling document.
-        log.debug(
-            "locate_formula_cell_in_open_docs: fallback picked different doc %s for formula code",
-            document_cache_key(doc),
-        )
-        doc_url = document_cache_key(doc)
-        try:
-            sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
-            active_cache.put(doc_url, code_str, sheet_name, coord[0], coord[1])
-            for stale_sheet, stale_r, stale_c in list(active_cache.get(doc_url, code_str)):
-                if (stale_sheet, stale_r, stale_c) != (sheet_name, coord[0], coord[1]):
-                    active_cache.remove_coordinate(doc_url, code_str, stale_sheet, stale_r, stale_c)
-        except Exception:
-            pass
-        return (doc, sheet, cell, coord)
-
-    return None
-
-
-def locate_formula_cell(ctx: Any, sheet: Any, code_str: str, *, cache: FormulaLocationCache | None = None, doc: Any | None = None) -> tuple[int, int] | None:
+def locate_formula_cell(ctx: Any, sheet: Any, code_str: str, *, cache: FormulaLocationCache | None = None) -> tuple[int, int] | None:
     """Find (row, col) containing the Python formula on sheet."""
     try:
         from plugin.framework.thread_guard import on_main_thread
 
         if not on_main_thread() or not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
             return None
-        target_doc = doc
-        if target_doc is None:
-            try:
-                from plugin.calc.python.sheet_modify import _owning_calc_doc
+        # The sheet's own spreadsheet, not the front window.
+        from plugin.calc.python.sheet_modify import _owning_calc_doc
 
-                target_doc = _owning_calc_doc(sheet)
-            except Exception:
-                pass
-        if target_doc is None:
-            from plugin.calc.python.function import _get_calc_doc
-
-            target_doc = _get_calc_doc(ctx)
-        if target_doc is not None:
-            located = locate_formula_cell_in_doc(ctx, target_doc, code_str, cache=cache)
+        doc = _owning_calc_doc(sheet)
+        if doc is not None:
+            located = locate_formula_cell_in_doc(ctx, doc, code_str, cache=cache)
             if located is not None:
                 found_sheet, _, (r, c) = located
                 if found_sheet == sheet or (hasattr(found_sheet, "getName") and hasattr(sheet, "getName") and found_sheet.getName() == sheet.getName()):

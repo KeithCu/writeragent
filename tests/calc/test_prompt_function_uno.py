@@ -7,6 +7,7 @@
 # (at your option) any later version.
 
 from plugin.testing_runner import native_test
+from plugin.tests.testing_utils import with_native_doc
 
 
 @native_test
@@ -22,7 +23,8 @@ def test_prompt_addin_metadata(ctx):
 
 
 @native_test
-def test_python_addin_execution(ctx):
+@with_native_doc("calc")
+def test_python_addin_execution(ctx, doc):
     from plugin.calc.python.addin import PythonFunction
     from plugin.calc.python.function import clear_python_addin_cache
     from plugin.framework.config import set_config
@@ -38,7 +40,7 @@ def test_python_addin_execution(ctx):
         with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 42}
-            res = func.py(None, "result = 21 * 2")
+            res = func.py(doc, "result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
                 func.ctx,
@@ -51,7 +53,7 @@ def test_python_addin_execution(ctx):
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 42}
-            res = func.python(None, "result = 21 * 2")
+            res = func.python(doc, "result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
                 func.ctx,
@@ -64,7 +66,7 @@ def test_python_addin_execution(ctx):
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 6}
-            res = func.python(None, "result = float(np.sum(data))", (((1.0,), (2.0,), (3.0,)),))
+            res = func.python(doc, "result = float(np.sum(data))", (((1.0,), (2.0,), (3.0,)),))
             assert res == 6.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
@@ -80,7 +82,7 @@ def test_python_addin_execution(ctx):
             mock_run.return_value = {"status": "ok", "result": 9.0}
             col_a = ((1.0,), (2.0,), (3.0,))
             col_b = ((4.0,), (5.0,))
-            res = func.python(None, "result = float(np.sum(data[0])) + float(np.sum(data[1]))", (col_a, col_b))
+            res = func.python(doc, "result = float(np.sum(data[0])) + float(np.sum(data[1]))", (col_a, col_b))
             assert res == 9.0
             wire = mock_run.call_args.kwargs["data"]
             from plugin.scripting.payload_codec import is_multi_data
@@ -89,7 +91,7 @@ def test_python_addin_execution(ctx):
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 7919}
-            res = func.python(None, "result = sp.prime(int(data.values[0][0]))", 1000.0)
+            res = func.python(doc, "result = sp.prime(int(data.values[0][0]))", 1000.0)
             assert res == 7919.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
@@ -100,22 +102,22 @@ def test_python_addin_execution(ctx):
             assert wire["data"] == [[1000.0]]
 
             mock_run.return_value = {"status": "error", "message": "Syntax error"}
-            res = func.python(None, "bad code")
+            res = func.python(doc, "bad code")
             assert "Error: Syntax error" in res
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
-            res = func.python(None, "some code 1d")
+            res = func.python(doc, "some code 1d")
             assert res == 2.0
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": [[2, 3], [5, 7]]}
-            res = func.python(None, "some code 2d")
+            res = func.python(doc, "some code 2d")
             assert res == 2.0
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": [7919, 7927, 7933, 7937, 7949, 7951]}
-            res = func.python(None, "[sp.prime(x) for x in range(1000, 1006)]")
+            res = func.python(doc, "[sp.prime(x) for x in range(1000, 1006)]")
             assert res == 7919.0
             mock_run.assert_called_with(
                 func.ctx,

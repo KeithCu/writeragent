@@ -305,15 +305,8 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     sid = ""
     origin = ""
     try:
+        # The calling document comes only from the add-in caller argument.
         target = doc
-        if target is None:
-            # AST lint only treats a bare ``if on_main_thread():`` as a guard.
-            if on_main_thread():
-                from plugin.calc.python.caller_doc import resolve_formula_document
-
-                target = resolve_formula_document(ctx, code, None)
-                if target is None and (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
-                    target = _get_calc_doc(ctx)
         if target is not None:
             url_val = getattr(target, "getURL", lambda: "")()
             doc_url = url_val if isinstance(url_val, str) else ""
@@ -738,14 +731,6 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
         if not on_main_thread():
             return
         if doc is None:
-            from plugin.calc.python.caller_doc import resolve_formula_document
-
-            doc = resolve_formula_document(ctx, code, None)
-            if doc is None:
-                if not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager")):
-                    return
-                doc = _get_calc_doc(ctx)
-        if doc is None:
             return
 
         with _undo_lock(doc):
@@ -978,39 +963,6 @@ def _selection_is_multi_cell(target_doc: Any) -> bool:
     return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
 
 
-def _spill_target_doc(ctx: Any, doc: Any | None) -> Any | None:
-    """Document to use for auto-spill. Off-main: cached model when unambiguous.
-
-    Do not query the desktop off-main (Yellow / #402). The cached object is
-    passed through to a UI-thread callback — do not invoke UNO on it here.
-    """
-    if doc is not None:
-        return doc
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.scripting.session_manager import get_cached_calc_document, record_active_calc_document
-
-    if on_main_thread():
-        resolved = _get_calc_doc(ctx)
-        if resolved is not None:
-            record_active_calc_document(resolved)
-        return resolved
-    return get_cached_calc_document()
-
-
-def _off_main_may_auto_spill(doc: Any | None) -> bool:
-    """Off-main spill is safe when the caller named a doc or at most one session is recorded.
-
-    Two recorded workbooks: XAddIn has no calling document, so do not guess.
-    Zero recorded sessions (Isolated) still defers — ``_get_calc_doc`` on the UI
-    thread uses the current component, same as the on-main path.
-    """
-    if doc is not None:
-        return True
-    from plugin.scripting.session_manager import recorded_calc_session_count
-
-    return recorded_calc_session_count() <= 1
-
-
 def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> str | tuple[str, str, int, int] | None:
     """Locate the unique formula origin and check spill collisions (UNO / UI thread).
 
@@ -1106,29 +1058,19 @@ def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[An
     t.start()
 
 
-def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any | None) -> None:
-    """Resolve the document on the UI thread, then locate and write the spill.
+def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
+    """Locate and write the spill on the UI thread in the calling document.
 
-    Yellow/off-main finalize must not touch UNO. Collision ``#SPILL!`` is too
+    Yellow/off-main finalize must not touch UNO: *doc* (the add-in caller) is
+    only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """
     from plugin.framework.queue_executor import post_to_main_thread
-    from plugin.scripting.session_manager import off_main_calc_session_is_unambiguous, recorded_calc_session_count
 
-    log.debug("Spill: scheduling off-main deferred locate code=%r has_doc=%s recorded=%s unambiguous=%s", code, doc is not None, recorded_calc_session_count(), off_main_calc_session_is_unambiguous())
+    log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
     def _on_main() -> None:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.calc.python.caller_doc import resolve_formula_document
-
-        target_doc = resolve_formula_document(ctx, code, doc)
-        if target_doc is None:
-            # AST lint only treats a bare ``if on_main_thread():`` as a guard.
-            if on_main_thread():
-                target_doc = _get_calc_doc(ctx)
-        if target_doc is None:
-            log.debug("Spill: off-main deferred locate found no Calc document")
-            return
+        target_doc = doc
         try:
             prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
         except Exception:
@@ -1168,10 +1110,9 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
     # ``target_doc is None and not on_main`` as a matrix formula and returned
     # only grid[0][0], so DataFrames and 2D lists painted a single corner with
     # no Spill: logs. Matrix is only when we actually see a multi-cell selection.
-    # Off-main, locate + collision + write are posted to the UI thread when the
-    # target document/session is unambiguous (caller passed *doc*, or at most
-    # one recorded Calc session). Two recorded workbooks stay corner-only —
-    # XAddIn has no calling document.
+    # Off-main, locate + collision + write are posted to the UI thread with the
+    # calling document (*doc* is only passed through there). No *doc* means
+    # no spill: the corner value is returned.
     is_matrix = False
     if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
         from plugin.framework.config import get_config_bool
@@ -1181,12 +1122,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
                 try:
-                    from plugin.calc.python.caller_doc import resolve_formula_document
-
-                    target_doc = resolve_formula_document(ctx, code, doc)
-                    if target_doc is None:
-                        if on_main_thread():
-                            target_doc = _get_calc_doc(ctx)
+                    target_doc = doc
                     if target_doc is not None:
                         # We check the selection first, not the locator, because the locator scans every formula cell.
                         is_matrix = _selection_is_multi_cell(target_doc)
@@ -1204,13 +1140,12 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             grid_to_spill = _result_as_spill_grid(result)
             try:
                 if not on_main_thread():
-                    spill_doc = _spill_target_doc(ctx, doc)
-                    if _off_main_may_auto_spill(spill_doc):
-                        _queue_off_main_auto_spill(ctx, code, grid_to_spill, spill_doc)
+                    if doc is not None:
+                        _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
                     # We return the corner as to_calc_compatible (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
                     return to_calc_compatible(grid_to_spill[0][0])
 
-                target_doc = _spill_target_doc(ctx, doc)
+                target_doc = doc
                 if target_doc is not None:
                     prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
                     if prepared == "#SPILL!":
@@ -1275,14 +1210,12 @@ def _code_uses_indexed_multi_data(code: str) -> bool:
 def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
     """Document folder for in-cell folder SQL.
 
-    On-main with a model: ``get_document_directory`` (UNO ``getURL()``).
-    Off-main / missing doc: reuse the folder cached from a ``calc:file:``
-    session id — do not call ``getURL()`` on a cached model (Yellow / #402).
-    Bind ``scoped_dir`` as ``None`` only when no folder is known so join
+    On-main with the calling document: ``get_document_directory`` (UNO
+    ``getURL()``). Off-main the doc is only passed through, so no folder is
+    read. Bind ``scoped_dir`` as ``None`` when no folder is known so join
     formulas do not ``NameError`` (file joins then fail loud).
     """
     from plugin.framework.thread_guard import on_main_thread
-    from plugin.scripting.session_manager import get_cached_calc_scoped_dir, get_cached_calc_session_id, record_active_calc_scoped_dir, scoped_dir_from_calc_session_id
 
     if doc is not None and on_main_thread():
         try:
@@ -1293,47 +1226,31 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
             log.debug("scoped_dir binding failed", exc_info=True)
             folder = None
         if folder:
-            record_active_calc_scoped_dir(folder)
             return {"scoped_dir": folder}
-
-    folder = get_cached_calc_scoped_dir()
-    if folder:
-        return {"scoped_dir": folder}
-    folder = scoped_dir_from_calc_session_id(get_cached_calc_session_id())
-    if folder:
-        record_active_calc_scoped_dir(folder)
-        return {"scoped_dir": folder}
     return {"scoped_dir": None}
 
 
 def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
+    """Init-script kwargs for the calling document, read on the UI thread.
+
+    Off-main the doc is only passed through (its document scripts are UNO),
+    and with no doc there is nothing to read: both return ``{}``.
+    """
     try:
         from plugin.framework.thread_guard import on_main_thread
-        from plugin.scripting.session_manager import get_cached_calc_init_kwargs
 
-        # Off-main threads must not query UNO on target document or desktop.
-        # Treat doc off-main as an identity token only.
-        if not on_main_thread():
-            return get_cached_calc_init_kwargs()
+        if doc is None or not on_main_thread():
+            return {}
 
-        from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
-        from plugin.scripting.session_manager import record_active_calc_session
+        from plugin.scripting.document_scripts import build_python_eval_init_kwargs
 
-        target = doc
-        if target is None:
-            target = get_calc_document_from_ctx(ctx)
-        if target is not None:
-            try:
-                from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+        try:
+            from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 
-                ensure_calc_workbook_unload_resets_python(ctx, target)
-            except Exception:
-                log.debug("python workbook unload listener install failed", exc_info=True)
-            kwargs = build_python_eval_init_kwargs(target)
-            if kwargs:
-                record_active_calc_session(None, kwargs, doc=target)
-            return kwargs
-        return get_cached_calc_init_kwargs()
+            ensure_calc_workbook_unload_resets_python(ctx, doc)
+        except Exception:
+            log.debug("python workbook unload listener install failed", exc_info=True)
+        return build_python_eval_init_kwargs(doc)
     except Exception:
         log.debug("get_python_init_kwargs failed", exc_info=True)
     return {}
@@ -1522,23 +1439,14 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         # Geometric predecessor is a Calc-only DAG token. Strip it before
         # calc_addin_args_from_split (1 vs N flips `data` to a list) and
         # before the matrix-index peel (a leftover 1×1 pred becomes index_arg).
-        from plugin.calc.python.caller_doc import resolve_formula_document
-
-        target_doc = resolve_formula_document(ctx, code, doc)
-        if target_doc is not None:
-            from plugin.framework.thread_guard import on_main_thread
-
-            if on_main_thread():
-                from plugin.scripting.session_manager import record_active_calc_document
-
-                record_active_calc_document(target_doc)
-        spill_doc = target_doc if target_doc is not None else _spill_target_doc(ctx, None)
+        # *doc* is the add-in caller argument (the calling document). There is
+        # no other source: no front window, open-documents search, or cache.
         from plugin.calc.python.geometric_recalc import ensure_geometric_strip_index_for_eval, maybe_strip_geometric_eval_args
 
         # Same-process hydrate: client/URP attach cannot fill soffice's map.
         ensure_geometric_strip_index_for_eval(target_doc, ctx)
-        # UI-thread target_doc is a real workbook_key even when two Calc
-        # files are open; off-main still needs the len==1 session gate.
+        # UI-thread target_doc is a real workbook_key. Off-main never strips
+        # (the doc is only passed through there, so no key is read).
         args = maybe_strip_geometric_eval_args(code, args, doc=target_doc)
         py_data = calc_addin_args_from_split(args, true_strings, false_strings)
         log.debug("PYTHON parsed py_data: %r", py_data)
@@ -1581,7 +1489,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             pack_ms = int(round((time.perf_counter() - t_pack) * 1000))
         # Synchronous: =PY() runs during Calc recalc; UI event pumping from
         # run_blocking_in_thread can re-enter the formula engine and yield #VALUE!.
-        # target_doc was resolved above (strip hydrate + worker session).
+        # target_doc is the add-in caller argument (strip hydrate + worker session).
 
         tid = threading.get_ident()
         sk = session_key(ctx, code, doc=target_doc)
@@ -1598,20 +1506,18 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             res = {"status": "ok", "result": cached.raw}
         else:
             from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
-            from plugin.scripting.session_manager import off_main_calc_session_is_unambiguous, recorded_calc_session_count, recorded_calc_session_ids
 
-            session_doc = target_doc if on_main_thread() else None
-            session_id = workbook_session_id(ctx, doc=session_doc)
+            # Off-main the caller doc is only passed through: reading its URL or
+            # init script is UNO. Such a call runs with no shared session id and
+            # no init kwargs rather than borrowing another workbook's.
+            on_main = on_main_thread()
+            session_id = workbook_session_id(ctx, doc=target_doc) if on_main else None
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
 
             log.debug(
-                "PYTHON eval: target_doc=%s spill_doc=%s session_id=%r recorded=%s ids=%s unambiguous=%s has_init=%s on_main=%s in_sync_host=%s",
+                "PYTHON eval: target_doc=%s session_id=%r has_init=%s on_main=%s in_sync_host=%s",
                 target_doc is not None,
-                spill_doc is not None,
                 session_id,
-                recorded_calc_session_count(),
-                recorded_calc_session_ids(),
-                off_main_calc_session_is_unambiguous(),
                 bool(init_kwargs),
                 on_main_thread(),
                 in_sync_host_dispatch(),
@@ -1643,7 +1549,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 if timings:
                     image_ms = int(round((time.perf_counter() - t_img) * 1000))
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
-            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=spill_doc)
+            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc)
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
             return final_ret
 
@@ -1667,29 +1573,21 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
 
 
 def _diagnostics_workbook_key(ctx: Any, doc: Any | None = None) -> str:
-    """Stable workbook key for the diagnostics store (UNO-light best effort)."""
-    # What was wrong: diagnostics called calc_workbook_base_session_id on the front window.
-    # That mutated _LAST_ACTIVE_CALC_SESSION_ID as a side effect during formula evaluation,
-    # causing subsequent =PY() calls to target the wrong workbook.
-    # How: avoid calc_workbook_base_session_id; use non-recording _existing_calc_session_id
-    # and prefer the passed doc (calling document) over the front window.
-    # Why: diagnostics recording must be pure and never alter session state.
+    """Stable workbook key for the diagnostics store (UNO-light best effort).
+
+    Uses the calling document only, and only reads an existing session id
+    (``existing_calc_session_id`` does not mint a UDProp).
+    """
     try:
         from plugin.framework.thread_guard import on_main_thread
 
-        if not on_main_thread():
+        if doc is None or not on_main_thread():
             return "unknown"
-        from plugin.scripting.session_manager import _existing_calc_session_id
+        from plugin.scripting.session_manager import existing_calc_session_id
 
-        target = doc
-        if target is None:
-            from plugin.scripting.document_scripts import get_calc_document_from_ctx
-
-            target = get_calc_document_from_ctx(ctx)
-        if target is not None:
-            existing = _existing_calc_session_id(target)
-            if existing:
-                return existing
+        existing = existing_calc_session_id(doc)
+        if existing:
+            return existing
     except Exception:
         log.debug("diagnostics workbook key failed", exc_info=True)
     return "unknown"

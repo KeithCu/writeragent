@@ -171,8 +171,8 @@ def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
     Posts execution asynchronously to the main VCL UI thread if invoked from a background worker thread.
-    Pass *doc* from the add-in or tool when known: get_calc_document_from_ctx is the front window,
-    not the recalculating workbook or the MCP ``document_url`` target.
+    *doc* is required (=PY() passes its caller argument; tools pass their target
+    document). With no doc the insert fails rather than using the front window.
 
     Raises:
         ImageEgressError: the synchronous (main-thread) insert did not place a graphic.
@@ -214,7 +214,7 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
             # What was wrong: this check called _egress_fail, which raises at
             # runtime but is only a Call in the AST. The thread-safety linter
             # treats an early exit as Return or Raise, so it still flagged the
-            # get_calc_document_from_ctx below as unguarded UNO access.
+            # document access below as unguarded UNO access.
             # How: the off-main path ended in a helper call. Why: a literal
             # raise is the exit the linter recognizes, and it still refuses to
             # touch the document off the main thread.
@@ -224,10 +224,9 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
             raise ImageEgressError("image insertion must run on the main thread")
 
         from plugin.calc.calc_utils import get_cell_geometry
-        from plugin.scripting.document_scripts import get_calc_document_from_ctx
 
-        if doc is None:
-            doc = get_calc_document_from_ctx(ctx)
+        # Callers pass the document (=PY() passes its caller argument). Do not
+        # fall back to the front window.
         if doc is None:
             _egress_fail("no Calc document for image insertion")
 
@@ -236,21 +235,13 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
 
         if code:
             try:
-                from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_open_docs
+                from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 
-                located = locate_formula_cell_in_open_docs(ctx, doc, code)
+                located = locate_formula_cell_in_doc(ctx, doc, code)
                 if located is not None:
-                    located_doc, sheet, target_cell, _unused_anchor = located
-                    # What was wrong: if doc was the wrong document (e.g. Untitled doc from OnNew),
-                    # locate_formula_cell_in_doc failed, and even if located, createInstance would run
-                    # on the wrong model.
-                    # How: locate_formula_cell_in_open_docs finds the sheet/cell across open docs,
-                    # and we set doc = located_doc before getCurrentController and createInstance.
-                    # Why: the graphic shape must be created and added to the model that owns the sheet.
-                    if located_doc is not None:
-                        doc = located_doc
+                    sheet, target_cell, _unused_anchor = located
             except Exception:
-                log.debug("insert_image_result_on_sheet: locate_formula_cell_in_open_docs failed", exc_info=True)
+                log.debug("insert_image_result_on_sheet: locate_formula_cell_in_doc failed", exc_info=True)
 
             if sheet is None or target_cell is None:
                 # Bugfix (#385/#389): When formula code is provided (=PYTHON / =PY), failing to locate
@@ -261,11 +252,6 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                     "could not locate formula cell for formula code; image was not inserted",
                     level="warning",
                 )
-
-        # Re-narrow after the locate block reassigns doc (basedpyright reads
-        # located_doc as Optional); the earlier None check does not carry over.
-        if doc is None:
-            _egress_fail("no Calc document for image insertion")
 
         ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None
 

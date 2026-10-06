@@ -101,13 +101,7 @@ _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks).
 
 
 def _clear_host_state_after_worker_death() -> None:
-    """IPC is desynced after a kill; drop add-in scalar cache so the next turn is cold.
-
-    Do **not** clear ``_RECORDED_CALC_SESSION_IDS``. Off-main Shared ``=PY()``
-    needs that single id (leftover after cap-hit / worker restart otherwise
-    sees ``recorded=0`` and Isolated ``x_geo_live`` undefined). The new
-    worker is a fresh namespace; the host still knows which workbook it is.
-    """
+    """IPC is desynced after a kill; drop add-in scalar cache so the next turn is cold."""
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 

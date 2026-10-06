@@ -108,25 +108,8 @@ def test_get_calc_document_from_ctx_ambiguous_enumeration_returns_none():
     with (
         patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
         patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model in (first, second)),
-        patch("plugin.scripting.session_manager.get_cached_calc_session_id", return_value=None),
     ):
         assert get_calc_document_from_ctx(MagicMock()) is None
-
-
-def test_get_calc_document_from_ctx_enumeration_uses_cached_session():
-    first = MagicMock()
-    first.getURL.return_value = "file:///a.ods"
-    second = MagicMock()
-    second.getURL.return_value = "file:///b.ods"
-    desktop = MagicMock()
-    desktop.getCurrentComponent.return_value = None
-    desktop.getComponents.return_value = _calc_component_enum(first, second)
-    with (
-        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
-        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model in (first, second)),
-        patch("plugin.scripting.session_manager.get_cached_calc_session_id", return_value="calc:file:///b.ods"),
-    ):
-        assert get_calc_document_from_ctx(MagicMock()) is second
 
 
 def test_get_document_scripts_empty():
@@ -927,42 +910,6 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
     assert config["last_python_script_name_writer"] == "[Doc] Regional"
 
 
-def test_set_calc_init_script_logs_when_session_cache_fails(caplog) -> None:
-    import logging
-
-    from plugin.scripting import document_scripts as ds
-
-    with (
-        patch.object(ds, "get_document_scripts", return_value={}),
-        patch.object(ds, "set_document_scripts", return_value=None),
-        patch(
-            "plugin.scripting.session_manager.record_active_calc_session",
-            side_effect=RuntimeError("cache"),
-        ),
-        caplog.at_level(logging.ERROR, logger="plugin.scripting.document_scripts"),
-    ):
-        result = ds.set_calc_init_script(MagicMock(), "x = 1")
-    assert result is not None
-    assert "shared-kernel cache did not update" in result
-    assert "failed to refresh the shared-kernel init cache" in caplog.text
-
-
-def test_set_calc_init_script_keeps_persist_error_when_cache_refresh_fails() -> None:
-    """A failed property write stays the error even if the cache refresh also raises."""
-    from plugin.scripting import document_scripts as ds
-
-    with (
-        patch.object(ds, "get_document_scripts", return_value={}),
-        patch.object(ds, "set_document_scripts", return_value="read-only"),
-        patch(
-            "plugin.scripting.session_manager.record_active_calc_session",
-            side_effect=RuntimeError("cache"),
-        ),
-    ):
-        result = ds.set_calc_init_script(MagicMock(), "x = 1")
-    assert result == "read-only"
-
-
 def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
     """GHA 34679494812: leftover_open=3 create_native_doc uid=41 then 30s hang."""
     src = Path(__file__).with_name("test_document_scripts_uno.py").read_text(encoding="utf-8")
@@ -1040,3 +987,15 @@ def test_monaco_overwrite_check_uses_document_display_key():
     # My Scripts keeps the raw name, including when it matches a document script.
     assert exists_in_section(sections, "user", "Regional")
     assert not exists_in_section(sections, "user", document_script_display_name("Regional"))
+
+
+def test_set_calc_init_script_returns_the_property_write_result() -> None:
+    """No host-side init cache to refresh: the result is the document write's."""
+    from plugin.scripting import document_scripts as ds
+
+    with (
+        patch.object(ds, "get_document_scripts", return_value={}),
+        patch.object(ds, "set_document_scripts", return_value="read-only") as write,
+    ):
+        assert ds.set_calc_init_script(MagicMock(), "x = 1") == "read-only"
+    assert write.call_args[0][1] == {"INIT": "x = 1"}

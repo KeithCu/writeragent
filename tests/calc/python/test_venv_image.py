@@ -104,10 +104,12 @@ def test_insert_image_result_on_sheet_none_doc_is_failure():
     """A missing document is an insert failure, not a silent success."""
     ctx = MagicMock()
     with (
-        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=None),
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx") as front_window,
         pytest.raises(ImageEgressError, match="no Calc document"),
     ):
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD)
+    # The front window is never used as a fallback.
+    front_window.assert_not_called()
 
 
 def test_insert_image_result_on_sheet_active_sheet_fallback():
@@ -126,11 +128,10 @@ def test_insert_image_result_on_sheet_active_sheet_fallback():
     doc.createInstance.return_value = shape
 
     with (
-        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
     ):
-        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD)
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, doc=doc)
 
     assert draw_page.add.call_count == 1
     shape.setPropertyValue.assert_called_with("GraphicURL", "file:///tmp/chart.svg")
@@ -160,8 +161,8 @@ def test_insert_image_result_on_sheet_uses_passed_doc_not_front_window():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=front),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs",
-            return_value=(target, sheet, cell, (0, 0)),
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 0)),
         ) as locate,
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
@@ -171,35 +172,6 @@ def test_insert_image_result_on_sheet_uses_passed_doc_not_front_window():
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target)
     locate.assert_called()
     assert locate.call_args[0][1] is target
-
-
-def test_insert_image_result_on_sheet_fallback_doc_creates_instance_on_located_doc():
-    """When preferred doc has no match and fallback doc is located, createInstance is called on located doc."""
-    ctx = MagicMock()
-    passed_doc = MagicMock(name="passed_doc")
-    located_doc = MagicMock(name="located_doc")
-    sheet = MagicMock()
-    cell = MagicMock()
-    draw_page = MagicMock()
-    sheet.DrawPage = draw_page
-    located_doc.getCurrentController.return_value = MagicMock(getActiveSheet=MagicMock(return_value=None))
-    shape = MagicMock()
-    located_doc.createInstance.return_value = shape
-
-    with (
-        patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs",
-            return_value=(located_doc, sheet, cell, (0, 0)),
-        ),
-        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
-        patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
-    ):
-        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=passed_doc)
-
-    located_doc.createInstance.assert_called_once_with(_DRAW_GRAPHIC_SERVICE)
-    passed_doc.createInstance.assert_not_called()
-    draw_page.add.assert_called_once_with(shape)
 
 
 def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_code():
@@ -216,12 +188,11 @@ def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_cod
     code = "import matplotlib.pyplot as plt; plt.plot([1, 2, 3])"
 
     with (
-        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=doc),
-        patch("plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs", return_value=None),
+        patch("plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc", return_value=None),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp") as mock_write,
         pytest.raises(ImageEgressError, match="could not locate formula cell"),
     ):
-        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code=code)
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code=code, doc=doc)
 
     # Must abort before writing temp file or adding shape to active sheet's DrawPage
     mock_write.assert_not_called()
@@ -281,8 +252,8 @@ def _insert_at_cell(cell: CalcCellStub, page: _DrawPage, *, doc: MagicMock | Non
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_open_docs",
-            return_value=(target, sheet, cell, (cell._row, cell._col)),
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
@@ -353,11 +324,10 @@ def test_temp_image_removed_after_graphic_url_and_on_failure(tmp_path):
     doc.createInstance.return_value = shape
 
     with (
-        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value=str(png)),
         patch("uno.systemPathToFileUrl", return_value=png.as_uri()),
     ):
-        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD)
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, doc=doc)
 
     assert not png.exists()
     shape.setPropertyValue.assert_any_call("GraphicURL", png.as_uri())
@@ -371,11 +341,10 @@ def test_temp_image_removed_after_graphic_url_and_on_failure(tmp_path):
 
     shape.setPropertyValue.side_effect = _set_fail
     with (
-        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value=str(png)),
         patch("uno.systemPathToFileUrl", return_value=png.as_uri()),
         pytest.raises(ImageEgressError),
     ):
-        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD)
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, doc=doc)
 
     assert not png.exists()

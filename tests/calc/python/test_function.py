@@ -130,7 +130,7 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"})
+    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, doc=doc)
 
     shape.setPosition.assert_called_once_with(pos)
     shape.setSize.assert_any_call(size)
@@ -182,7 +182,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"})
+    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, doc=doc)
 
     shape.setPosition.assert_called_once_with(pos)
     shape.setSize.assert_any_call(("Size", 10000, 6000))
@@ -248,7 +248,7 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, code=code_str)
+    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, code=code_str, doc=doc)
 
     # Must be added to Viz_Gallery's DrawPage, NOT Overview's DrawPage
     sheet_viz.DrawPage.add.assert_called_once_with(shape)
@@ -321,7 +321,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"})
+    python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, doc=doc)
 
     shape.setPosition.assert_called_once_with(pos)
     # For single unmerged cells, default size (10000, 6000) should be applied and not overwritten by cell size
@@ -356,7 +356,7 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
     python_function.LOADED_DOCUMENTS.clear()
 
     result = [10.0, 20.0]  # 1D list, will be treated as shape (2, 1)
-    val = finalize_python_return(ctx, "test_code", result)
+    val = finalize_python_return(ctx, "test_code", result, doc=doc)
 
     assert val == 10.0
     # B2 is the formula cell (left alone); spill writes B3 via setDataArray.
@@ -395,7 +395,7 @@ def test_finalize_python_return_spills_on_secondary_sheet(monkeypatch: pytest.Mo
     python_function.LOADED_DOCUMENTS.clear()
 
     result = [100.0, 200.0]
-    val = finalize_python_return(ctx, "secondary_code", result)
+    val = finalize_python_return(ctx, "secondary_code", result, doc=doc)
 
     assert val == 100.0
     assert sheet2.getCellByPosition(1, 2).getValue() == 200.0
@@ -455,7 +455,7 @@ def test_spill_collision_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
 
-    val = finalize_python_return(ctx, "test_code_spill_blocked", [[100], [200]])
+    val = finalize_python_return(ctx, "test_code_spill_blocked", [[100], [200]], doc=doc)
 
     assert val == "#SPILL!"
     key = ("file:///fake.ods", "Sheet1", 1, 1)
@@ -616,76 +616,6 @@ def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pyte
     assert kwargs == {}
 
 
-def test_get_python_init_kwargs_off_main_uses_single_recorded_session(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.scripting import session_manager as sm
-
-    sm.clear_active_calc_session()
-    sm.record_active_calc_session("calc:file:///a.ods", {"init_script": "A = 1"})
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-    try:
-        assert python_function.get_python_init_kwargs(MagicMock()).get("init_script") == "A = 1"
-    finally:
-        sm.clear_active_calc_session()
-
-
-def test_get_python_init_kwargs_off_main_empty_when_two_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.scripting import session_manager as sm
-
-    sm.record_active_calc_session("calc:file:///a.ods", {"init": "a"})
-    sm.record_active_calc_session("calc:file:///b.ods", {"init": "b"})
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-    try:
-        assert python_function.get_python_init_kwargs(MagicMock()) == {}
-    finally:
-        sm.clear_active_calc_session()
-
-
-def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.MonkeyPatch) -> None:
-    doc = CalcDocStub(url="file:///fake_lifecycle.ods")
-    calls: list[tuple] = []
-
-    monkeypatch.setattr("plugin.scripting.document_scripts.get_calc_document_from_ctx", lambda ctx: doc)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
-    monkeypatch.setattr(
-        "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
-        lambda ctx, workbook: calls.append((ctx, workbook)),
-    )
-
-    ctx = MagicMock()
-    from plugin.scripting import session_manager as sm
-
-    sm.clear_active_calc_session()
-    try:
-        kwargs = python_function.get_python_init_kwargs(ctx)
-    finally:
-        sm.clear_active_calc_session()
-    assert kwargs == {"dummy": True}
-    assert calls == [(ctx, doc)]
-
-
-def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    doc = CalcDocStub(url="file:///fake_lifecycle_fail.ods")
-
-    def _boom(_ctx, _doc):
-        raise RuntimeError("listener failed")
-
-    monkeypatch.setattr("plugin.scripting.document_scripts.get_calc_document_from_ctx", lambda ctx: doc)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
-    monkeypatch.setattr(
-        "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
-        _boom,
-    )
-
-    from plugin.scripting import session_manager as sm
-
-    sm.clear_active_calc_session()
-    try:
-        kwargs = python_function.get_python_init_kwargs(MagicMock())
-    finally:
-        sm.clear_active_calc_session()
-    assert kwargs == {"dummy": True}
-
-
 def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that a 2D result triggers block spills via setDataArray on appropriate ranges."""
     doc = CalcDocStub(url="file:///fake2d.ods", selection="B2")
@@ -711,7 +641,7 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
     python_function.LOADED_DOCUMENTS.clear()
 
     result = [[10.0, 20.0], [30.0, 40.0]]
-    val = finalize_python_return(ctx, "test_code_2d", result)
+    val = finalize_python_return(ctx, "test_code_2d", result, doc=doc)
 
     assert val == 10.0
     assert sheet.getCellByPosition(2, 1).getValue() == 20.0  # C2
@@ -756,10 +686,9 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
 
     Headed repro (Scrolly): worker returns the full grid, then
     ``PYTHON eval: target_doc=False on_main=False`` / ``returning scalar: 11``
-    with zero ``Spill:`` lines. Off-main finalize must resolve the cached
-    document and deferred-spill the neighbors.
+    with zero ``Spill:`` lines. Off-main finalize passes the caller document
+    through and deferred-spills the neighbors on the UI thread.
     """
-    from plugin.scripting import session_manager as sm
     from plugin.tests.testing_utils import CalcSheetStub
 
     spilltest_code = "result=[[11,22],[33,44]]"
@@ -775,23 +704,17 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
-    sm.clear_active_calc_session()
-    sm.record_active_calc_session("calc:file:///SpillTest.ods", doc=doc)
 
     on_main = {"value": False}
     monkeypatch.setattr(
         "plugin.framework.thread_guard.on_main_thread",
         lambda: on_main["value"],
     )
-    # Desktop resolve must not be required once the session cached the model.
+    # The front window is never consulted; the caller doc is the only source.
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: None)
-    assert python_function._spill_target_doc(ctx, None) is doc
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
-    try:
-        val = finalize_python_return(ctx, spilltest_code, [[11, 22], [33, 44]], doc=None)
-    finally:
-        sm.clear_active_calc_session()
+    val = finalize_python_return(ctx, spilltest_code, [[11, 22], [33, 44]], doc=doc)
 
     assert val == 11
     assert sheet.getCellByPosition(1, 0).getValue() == 22  # B1
@@ -802,17 +725,14 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
     assert set(python_function.SPILL_REGISTRY[key]) == {(0, 1), (1, 0), (1, 1)}
 
 
-def test_finalize_python_return_spills_off_main_when_doc_unambiguous(
+def test_finalize_python_return_spills_off_main_into_caller_doc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Off-main finalize used to treat missing target_doc as a matrix formula.
+    """Off-main finalize with the caller doc defers locate+write to the UI thread.
 
-    That returned only grid[0][0] (SpillTest [[11,22],[33,44]] painted 11) with
-    zero Spill: logs. When at most one Calc session is recorded, deferred
-    locate+write must still paint the full grid.
+    Treating it as a matrix formula returned only grid[0][0] (SpillTest
+    [[11,22],[33,44]] painted 11) with zero Spill: logs.
     """
-    from plugin.scripting import session_manager as sm
-
     doc = CalcDocStub(url="file:///offmain-spill.ods", selection="B2")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(1, 1).setFormula('=PYTHON("off_main_spill")')
@@ -820,20 +740,15 @@ def test_finalize_python_return_spills_off_main_when_doc_unambiguous(
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
-    sm.clear_active_calc_session()
 
     on_main = {"value": False}
     monkeypatch.setattr(
         "plugin.framework.thread_guard.on_main_thread",
         lambda: on_main["value"],
     )
-    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
-    try:
-        val = finalize_python_return(ctx, "off_main_spill", [[11, 22], [33, 44]], doc=None)
-    finally:
-        sm.clear_active_calc_session()
+    val = finalize_python_return(ctx, "off_main_spill", [[11, 22], [33, 44]], doc=doc)
 
     assert val == 11
     assert sheet.getCellByPosition(2, 1).getValue() == 22  # C2
@@ -848,8 +763,6 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """DataFrame envelopes must spill header+body off-main, not only the first header."""
-    from plugin.scripting import session_manager as sm
-
     doc = CalcDocStub(url="file:///offmain-df.ods", selection="A1")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(0, 0).setFormula('=PYTHON("df_spill")')
@@ -857,15 +770,12 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
-    sm.clear_active_calc_session()
-    sm.record_active_calc_session("calc:file:///offmain-df.ods", {})
 
     on_main = {"value": False}
     monkeypatch.setattr(
         "plugin.framework.thread_guard.on_main_thread",
         lambda: on_main["value"],
     )
-    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
     payload = {
@@ -873,10 +783,7 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
         "columns": ["Region", "Channel"],
         "data": [["North", "Search"], ["South", "Email"]],
     }
-    try:
-        val = finalize_python_return(ctx, "df_spill", payload, doc=None)
-    finally:
-        sm.clear_active_calc_session()
+    val = finalize_python_return(ctx, "df_spill", payload, doc=doc)
 
     assert val == "Region"
     assert sheet.getCellByPosition(1, 0).getString() == "Channel"
@@ -886,12 +793,10 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
     assert sheet.getCellByPosition(1, 2).getString() == "Email"
 
 
-def test_finalize_python_return_off_main_no_spill_when_two_sessions(
+def test_finalize_python_return_off_main_no_spill_without_doc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two recorded workbooks: do not guess which book to spill into."""
-    from plugin.scripting import session_manager as sm
-
+    """No caller doc: do not guess which book to spill into (front window ignored)."""
     doc = CalcDocStub(url="file:///ambig.ods", selection="B2")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(1, 1).setFormula('=PYTHON("ambig_spill")')
@@ -899,9 +804,6 @@ def test_finalize_python_return_off_main_no_spill_when_two_sessions(
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
-    sm.clear_active_calc_session()
-    sm.record_active_calc_session("calc:file:///a.ods", {"init": "a"})
-    sm.record_active_calc_session("calc:file:///b.ods", {"init": "b"})
 
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
@@ -919,10 +821,7 @@ def test_finalize_python_return_off_main_no_spill_when_two_sessions(
 
     monkeypatch.setattr(python_function.threading, "Timer", _NoStartTimer)
 
-    try:
-        val = finalize_python_return(ctx, "ambig_spill", [[11, 22], [33, 44]], doc=None)
-    finally:
-        sm.clear_active_calc_session()
+    val = finalize_python_return(ctx, "ambig_spill", [[11, 22], [33, 44]], doc=None)
 
     assert val == 11
     assert spill_started["n"] == 0
@@ -1263,7 +1162,6 @@ def test_calc_python_function_zero_event_pumping_invariant() -> None:
 def test_function_module_avoids_document_helpers_import() -> None:
     """First =PY() must not load document_helpers → SheetAnalyzer or the dialog stack."""
     import ast
-    from pathlib import Path
 
     tree = ast.parse(Path(python_function.__file__).read_text(encoding="utf-8"))
     mods: list[str] = []
@@ -1389,7 +1287,7 @@ def test_py_timing_cached_matrix_skips_ipc(monkeypatch: pytest.MonkeyPatch, capl
     ctx = _ctx_with_doc(doc)
     worker_data = None
     tid = threading.get_ident()
-    key = (tid, python_function.session_key(ctx, code), repr(worker_data))
+    key = (tid, python_function.session_key(ctx, code, doc=doc), repr(worker_data))
     python_function._MATRIX_SCALAR_SESSIONS[key] = python_function.WorkerResultSession(
         [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]
     )
@@ -1401,7 +1299,7 @@ def test_py_timing_cached_matrix_skips_ipc(monkeypatch: pytest.MonkeyPatch, capl
 
     monkeypatch.setattr(python_function, "run_code_in_user_venv", _should_not_run)
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    out = python_function.execute_python_addin(ctx, code)
+    out = python_function.execute_python_addin(ctx, code, doc=doc)
     assert called == []
     assert out == 1.0
     from tests.harness.strip_bundle import module_source_contains
@@ -1449,139 +1347,6 @@ def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytes
     assert a == 10
     assert b == 20
     assert c == 30
-
-
-def test_py_scoped_dir_bindings_none_doc() -> None:
-    from plugin.scripting import session_manager
-
-    session_manager.clear_active_calc_session()
-    try:
-        assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": None}
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Yellow / #402: off-main recalc must not call getURL() on a cached model."""
-    from plugin.scripting import session_manager
-
-    called: list[int] = []
-
-    def boom(doc: object) -> str:
-        called.append(1)
-        raise AssertionError("must not touch UNO off-main")
-
-    session_manager.clear_active_calc_session()
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-    monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
-    try:
-        assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": None}
-        assert called == []
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_py_scoped_dir_bindings_off_main_uses_cached_file_session(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """File-based run_sql needs the document folder even when recalc is off-main."""
-    from plugin.scripting import session_manager
-
-    workbook = tmp_path / "python_showcase_demo.xlsx"
-    workbook.write_bytes(b"pk")
-    session_manager.clear_active_calc_session()
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-
-    def boom(doc: object) -> str:
-        raise AssertionError("must not touch UNO off-main")
-
-    monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
-    try:
-        session_manager.record_active_calc_session(f"calc:{workbook.as_uri()}")
-        assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": str(tmp_path)}
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_py_scoped_dir_bindings_on_main_uses_document_directory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from plugin.scripting import session_manager
-
-    session_manager.clear_active_calc_session()
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
-    monkeypatch.setattr(
-        "plugin.doc.document_research.get_document_directory",
-        lambda doc: "/tmp/workbook-dir",
-    )
-    try:
-        assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": "/tmp/workbook-dir"}
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.scripting import session_manager
-
-    python_function.clear_python_addin_cache()
-    session_manager.clear_active_calc_session()
-    captured: dict[str, Any] = {}
-
-    def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
-        captured.update(kwargs)
-        return {"status": "ok", "result": 1.0}
-
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
-    monkeypatch.setattr(
-        "plugin.doc.document_research.get_document_directory",
-        lambda doc: "/folder",
-    )
-    monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
-    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
-    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
-    doc = CalcDocStub()
-    try:
-        # Pass doc= — CalcDocStub is not a UNO Calc model, so desktop lookup is None.
-        out = python_function.execute_python_addin(_ctx_with_doc(doc), "1+1", doc=doc)
-        assert out == 1.0
-        assert captured.get("bindings") == {"scoped_dir": "/folder"}
-    finally:
-        session_manager.clear_active_calc_session()
-
-
-def test_execute_python_addin_off_main_injects_cached_scoped_dir(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Host must inject the document folder for file-based run_sql, not None."""
-    from plugin.scripting import session_manager
-
-    workbook = tmp_path / "demo.xlsx"
-    workbook.write_bytes(b"pk")
-    python_function.clear_python_addin_cache()
-    session_manager.clear_active_calc_session()
-    captured: dict[str, Any] = {}
-
-    def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
-        captured.update(kwargs)
-        return {"status": "ok", "result": 1.0}
-
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-    monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
-    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
-    monkeypatch.setattr(
-        python_function,
-        "workbook_session_id",
-        lambda *_a, **_k: f"calc:{workbook.as_uri()}",
-    )
-    try:
-        session_manager.record_active_calc_session(f"calc:{workbook.as_uri()}")
-        out = python_function.execute_python_addin(_ctx_with_doc(None), "result=1")
-        assert out == 1.0
-        assert captured.get("bindings") == {"scoped_dir": str(tmp_path)}
-    finally:
-        session_manager.clear_active_calc_session()
 
 
 def test_format_error_for_display_distinguishes_timeout_error() -> None:
@@ -1772,7 +1537,8 @@ def test_scalar_for_list_result_stale_after_gap(monkeypatch: pytest.MonkeyPatch)
 
 def test_text_single_cell_arg_spills_instead_of_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Item 2: Single cell text arg spills normally; numeric arg stays an index."""
-    ctx = _ctx_with_doc(CalcDocStub())
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
     python_function.clear_python_addin_cache()
 
     monkeypatch.setattr(
@@ -1793,13 +1559,13 @@ def test_text_single_cell_arg_spills_instead_of_error(monkeypatch: pytest.Monkey
     )
 
     # Text arg: A1 contains "text"
-    res_text = python_function._execute_python_addin_impl(ctx, "[data]*3", data=[["text"]])
+    res_text = python_function._execute_python_addin_impl(ctx, "[data]*3", data=[["text"]], doc=doc)
     # Spills normally (returns corner "hello" and queued deferred spill write, does NOT error)
     assert res_text == "hello"
     assert len(spill_calls) == 1
 
     # Numeric arg: e.g. ROW()-1 (value 1.0) -> acts as index, returns 2nd element
-    res_num = python_function._execute_python_addin_impl(ctx, "[data]*3", data=[[1.0]])
+    res_num = python_function._execute_python_addin_impl(ctx, "[data]*3", data=[[1.0]], doc=doc)
     assert res_num == "world"
 
 
@@ -1857,3 +1623,132 @@ def test_ragged_results_handling() -> None:
     assert python_function._result_as_spill_grid([1, 2, 3]) == [[1], [2], [3]]
     assert python_function._result_as_spill_grid([]) == []
 
+
+
+def test_get_python_init_kwargs_off_main_returns_empty_without_touching_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Off-main the caller doc is only passed through: its init script is UNO."""
+
+    def boom(_doc: object) -> dict[str, Any]:
+        raise AssertionError("must not read document scripts off-main")
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", boom)
+    assert python_function.get_python_init_kwargs(MagicMock(), doc=CalcDocStub()) == {}
+
+
+def test_get_python_init_kwargs_without_doc_does_not_guess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No caller document means no init kwargs; the front window is not consulted."""
+
+    def boom(_ctx: object) -> object:
+        raise AssertionError("must not look up the front window")
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.scripting.document_scripts.get_calc_document_from_ctx", boom)
+    assert python_function.get_python_init_kwargs(MagicMock()) == {}
+
+
+def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///fake_lifecycle.ods")
+    calls: list[tuple] = []
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
+    monkeypatch.setattr(
+        "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
+        lambda ctx, workbook: calls.append((ctx, workbook)),
+    )
+
+    ctx = MagicMock()
+    kwargs = python_function.get_python_init_kwargs(ctx, doc=doc)
+    assert kwargs == {"dummy": True}
+    assert calls == [(ctx, doc)]
+
+
+def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///fake_lifecycle_fail.ods")
+
+    def _boom(_ctx, _doc):
+        raise RuntimeError("listener failed")
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
+    monkeypatch.setattr(
+        "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
+        _boom,
+    )
+    assert python_function.get_python_init_kwargs(MagicMock(), doc=doc) == {"dummy": True}
+
+
+def test_py_scoped_dir_bindings_none_doc() -> None:
+    assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": None}
+
+
+def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Yellow / #402: off-main recalc must not call getURL() on the caller doc."""
+    called: list[int] = []
+
+    def boom(doc: object) -> str:
+        called.append(1)
+        raise AssertionError("must not touch UNO off-main")
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
+    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": None}
+    assert called == []
+
+
+def test_py_scoped_dir_bindings_on_main_uses_document_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(
+        "plugin.doc.document_research.get_document_directory",
+        lambda doc: "/tmp/workbook-dir",
+    )
+    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": "/tmp/workbook-dir"}
+
+
+def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    python_function.clear_python_addin_cache()
+    captured: dict[str, Any] = {}
+
+    def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"status": "ok", "result": 1.0}
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(
+        "plugin.doc.document_research.get_document_directory",
+        lambda doc: "/folder",
+    )
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
+    doc = CalcDocStub()
+    out = python_function.execute_python_addin(_ctx_with_doc(doc), "1+1", doc=doc)
+    assert out == 1.0
+    assert captured.get("bindings") == {"scoped_dir": "/folder"}
+
+
+def test_execute_python_addin_off_main_passes_doc_through_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Off-main the caller doc yields no session id, init kwargs, or folder (all UNO)."""
+    python_function.clear_python_addin_cache()
+    captured: dict[str, Any] = {}
+
+    def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"status": "ok", "result": 1.0}
+
+    def boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("must not derive a session off-main")
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr(python_function, "workbook_session_id", boom)
+    out = python_function.execute_python_addin(_ctx_with_doc(None), "result=1", doc=CalcDocStub())
+    assert out == 1.0
+    assert captured.get("bindings") == {"scoped_dir": None}
+    assert captured.get("session_id") is None
+    assert "init_script" not in captured

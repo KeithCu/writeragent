@@ -653,17 +653,6 @@ def geometric_workbook_key(doc: Any) -> str:
     return f"calc:{key}"
 
 
-def record_geometric_calc_session(doc: Any) -> str:
-    """Isolated UI load/repair must record the same string eval reads."""
-    from plugin.scripting.session_manager import record_active_calc_session
-
-    sid = geometric_workbook_key(doc)
-    # Pass doc so this GC can tell workbooks apart. Without it, recording
-    # calc:<url> drops every other book's calc:unsaved:{uuid}.
-    record_active_calc_session(sid, doc=doc)
-    return sid
-
-
 def current_geometric_strip_safe() -> frozenset[EvalIndexKey]:
     """Worker-safe read: return the current snapshot name (do not copy-mutate)."""
     return _STRIP_SAFE
@@ -697,7 +686,7 @@ def replace_records_for_sheet(workbook_key: str, sheet_name: str, records: Mappi
 
 def load_geometric_registry_for_doc(doc: Any) -> str:
     """Load UDProp into the in-memory map. Returns the live workbook_key."""
-    workbook_key = record_geometric_calc_session(doc)
+    workbook_key = geometric_workbook_key(doc)
     try:
         from plugin.doc.udprops import get_document_property
 
@@ -775,28 +764,22 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc:
     Must run after ``split_python_addin_data_args`` and before
     ``calc_addin_args_from_split`` / the matrix-index heuristic.
 
-    Off-main (or no *doc*): two open workbooks (unambiguous false) → no
-    strip. UI-thread with a resolved *doc* uses that workbook's key even
-    when more than one Calc session is recorded — the common "two files
-    open, F9 this one" case. Does **not** consult
+    Off-main (or no *doc*): no strip. The caller doc is only passed through
+    off-main, so its workbook key is not read there. UI-thread with the
+    caller *doc* uses that workbook's key. Does **not** consult
     ``geometric_flag_enabled`` — §9.4 flag-off leaves leftover refs, so
     leftover attached last args must still strip.
     """
     if not args:
         return args
     from plugin.framework.thread_guard import on_main_thread
-    from plugin.scripting.session_manager import get_cached_calc_session_id, off_main_calc_session_is_unambiguous
 
     workbook_key: str | None = None
     unambiguous = False
     if doc is not None and on_main_thread():
-        # Focused / caller doc is a real key. Wrong-book lookup misses
-        # the triple and leaves the arg (same residual as no-strip).
+        # The caller doc is a real key.
         workbook_key = geometric_workbook_key(doc)
         unambiguous = True
-    else:
-        unambiguous = off_main_calc_session_is_unambiguous()
-        workbook_key = get_cached_calc_session_id() if unambiguous else None
     if not should_strip_eval_args(workbook_key=workbook_key, resolved_code=resolved_code, n_args=len(args), strip_safe=current_geometric_strip_safe(), unambiguous=unambiguous):
         return args
     return args[:-1]
@@ -952,7 +935,7 @@ def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = F
     global _GEOMETRIC_REPAIRING
     if doc is None or _GEOMETRIC_REPAIRING:
         return
-    workbook_key = record_geometric_calc_session(doc) if already_loaded else load_geometric_registry_for_doc(doc)
+    workbook_key = geometric_workbook_key(doc) if already_loaded else load_geometric_registry_for_doc(doc)
     _GEOMETRIC_REPAIRING = True
     try:
         from plugin.calc.python.function import _undo_lock
