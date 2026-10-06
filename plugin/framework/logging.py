@@ -717,7 +717,7 @@ def _watchdog_check(status_control: Any) -> None:
         round_num = _activity_state["round_num"]
         tool_name = _activity_state["tool_name"]
         last = _activity_state["last_activity"]
-        active_status_control = _activity_state.get("status_control", status_control)
+        active_status_control: Any = _activity_state.get("status_control", status_control)
     if active_status_control is None:
         active_status_control = status_control
     if not phase:
