@@ -579,7 +579,7 @@ class BaseProcessPool:
         self._reaper_stop_event = threading.Event()
         self._idle_reaper_thread: threading.Thread | None = None
         self._recycle_queue: queue.Queue[BaseProcessWorker | None] = queue.Queue()
-        self._recycle_thread = threading.Thread(
+        self._recycle_thread: threading.Thread = threading.Thread(
             target=self._recycle_loop,
             name=f"{self.worker_name}-recycle-loop",
             daemon=True,
