@@ -67,9 +67,9 @@ def test_page_index_alias() -> None:
     assert "page_index" not in params
 
 
-def test_execute_impl_uses_bypass_thread_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execute_impl_uses_execute_unguarded(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_tools = MagicMock()
-    mock_tools.execute.return_value = {"status": "ok", "tree": []}
+    mock_tools.execute_unguarded.return_value = {"status": "ok", "tree": []}
     monkeypatch.setattr("plugin.main.get_tools", lambda: mock_tools)
     monkeypatch.setattr(tl.LOBackend, "acquire_document", classmethod(lambda cls, kind=None: object()))
     monkeypatch.setattr(tl.LOBackend, "current_kind", classmethod(lambda cls: "draw"))
@@ -88,16 +88,16 @@ def test_execute_impl_uses_bypass_thread_guard(monkeypatch: pytest.MonkeyPatch) 
         },
     )
     assert json.loads(out)["status"] == "ok"
-    mock_tools.execute.assert_called_once()
-    call_args, call_kwargs = mock_tools.execute.call_args
+    mock_tools.execute_unguarded.assert_called_once()
+    call_args, call_kwargs = mock_tools.execute_unguarded.call_args
     assert call_args[0] == "shape_upsert"
-    assert call_kwargs["bypass_thread_guard"] is True
+    assert "bypass_thread_guard" not in call_kwargs
     assert call_kwargs["action"] == "create"
 
 
 def test_execute_impl_calc_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_tools = MagicMock()
-    mock_tools.execute.return_value = {"status": "ok"}
+    mock_tools.execute_unguarded.return_value = {"status": "ok"}
     monkeypatch.setattr("plugin.main.get_tools", lambda: mock_tools)
     monkeypatch.setattr(tl.LOBackend, "acquire_document", classmethod(lambda cls, kind=None: object()))
     monkeypatch.setattr(tl.LOBackend, "current_kind", classmethod(lambda cls: "calc"))
@@ -105,7 +105,7 @@ def test_execute_impl_calc_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tl, "_sheet_headers_and_used", lambda doc: (["Product", "Revenue"], "A1:B5"))
 
     tl._execute_lo_tool_impl("write_cell_range", {"range": "C1", "values": "Tax"})
-    call_args, call_kwargs = mock_tools.execute.call_args
+    call_args, call_kwargs = mock_tools.execute_unguarded.call_args
     assert call_args[0] == "write_formula_range"
-    assert call_kwargs["bypass_thread_guard"] is True
+    assert "bypass_thread_guard" not in call_kwargs
     assert call_kwargs["range"] == ["C1"]

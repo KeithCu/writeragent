@@ -6,6 +6,7 @@
 
 import json
 import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -838,4 +839,9 @@ def test_sse_post_registers_keepalive(mcp_server, monkeypatch):
         assert response.status == 200
 
     assert "note" in events
+    # The server forgets the keepalive in a finally after the response is
+    # written, so the client can see the response first. Wait for it briefly.
+    deadline = time.monotonic() + 5
+    while "forget" not in events and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert "forget" in events
