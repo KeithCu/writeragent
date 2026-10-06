@@ -925,7 +925,7 @@ def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
         "Local TTS engines (optional): uv pip install kokoro-onnx soundfile piper-tts "
         "'misaki[ja,zh]' phonemizer-fork espeakng-loader"
     ) in msg
-    assert "Local Whisper (optional): uv pip install faster-whisper" in msg
+    assert 'Local Whisper (optional): uv pip install faster-whisper "av<14"' in msg
 
 
 def _audio_self_check_data(packages: dict[str, str | None]) -> dict:
@@ -961,7 +961,7 @@ def test_format_self_check_success_whisper_missing_does_not_print_tts_recipe():
         )
     )
     assert "Optional (not installed): faster_whisper" in msg
-    assert "Local Whisper (optional): uv pip install faster-whisper" in msg
+    assert 'Local Whisper (optional): uv pip install faster-whisper "av<14"' in msg
     assert "Local TTS engines (optional):" not in msg
     assert "kokoro-onnx" not in msg
 
@@ -985,7 +985,7 @@ def test_format_self_check_success_tts_missing_does_not_print_whisper_recipe():
     assert "faster_whisper" not in msg.split("Optional (not installed):", 1)[-1].split("\n", 1)[0]
     assert "Local TTS engines (optional):" in msg
     assert "Local Whisper (optional):" not in msg
-    assert "uv pip install faster-whisper" not in msg
+    assert 'uv pip install faster-whisper "av<14"' not in msg
 
 
 def test_audio_probe_lists_faster_whisper_as_optional_pip_package():

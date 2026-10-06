@@ -128,7 +128,7 @@ def test_local_transcribe_does_not_call_client(monkeypatch: pytest.MonkeyPatch) 
 
 def test_local_without_venv_names_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: None)
-    with pytest.raises(ConfigError, match="uv pip install faster-whisper"):
+    with pytest.raises(ConfigError, match='uv pip install faster-whisper "av<14"'):
         stt_service._transcribe_local("/tmp/a.wav", "base", None)
 
 
@@ -175,7 +175,7 @@ def test_missing_package_errors_with_install_hint_and_does_not_pip(
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
-    with pytest.raises(ConfigError, match="uv pip install faster-whisper") as exc_info:
+    with pytest.raises(ConfigError, match='uv pip install faster-whisper "av<14"') as exc_info:
         stt_service._transcribe_local("/tmp/a.wav", "base", None)
     message = str(exc_info.value)
     assert "Python Test" in message

@@ -249,8 +249,8 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         with suppress_disposed("send button width stabilize", logger=log):
             fw = _measure_send_button_max_width(controls["send"], has_recording)
             if fw:
-                if hasattr(self, "send_listener"):
-                    self.send_listener.set_fixed_send_width(fw)
+                # No width is pinned on the listener any more: the layout shares
+                # the button row and _relabel_button keeps that rect.
                 sr = controls["send"].getPosSize()
                 controls["send"].setPosSize(sr.X, sr.Y, fw, sr.Height, 15)
         with suppress_disposed("stop/clear button width stabilize", logger=log):
