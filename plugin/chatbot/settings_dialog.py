@@ -150,12 +150,50 @@ def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
     return field_specs
 
 
+def effective_api_key(
+    typed_key: str,
+    saved_endpoint: str,
+    target_endpoint: str,
+    saved_key: str,
+    target_key: str,
+    user_edited_key: bool | None = None,
+) -> str:
+    """The key to use for target_endpoint.
+
+    If the user explicitly edited the key for this target_endpoint, use it.
+    If the typed key still equals the saved key for the saved_endpoint,
+    it belongs to the saved_endpoint, so use the target_endpoint's saved key.
+    Otherwise, if the user didn't edit it, it might be a stale custom key from
+    the previous endpoint. The safe thing is to use the target's saved key unless
+    user_edited_key is True.
+    """
+    saved_norm = normalize_endpoint_url(saved_endpoint or "")
+    target_norm = normalize_endpoint_url(target_endpoint or "")
+    typed = str(typed_key)
+
+    if user_edited_key is True:
+        return typed
+
+    if target_norm == saved_norm:
+        return typed
+
+    if user_edited_key is False:
+        if typed == str(target_key or ""):
+            return typed
+        return str(target_key or "")
+
+    if typed == str(saved_key or ""):
+        return str(target_key or "")
+    return typed
+
+
 def endpoint_for_api_key_write(
     typed_key: str,
     saved_endpoint: str,
     target_endpoint: str,
     saved_key: str,
     target_key: str,
+    user_edited_key: bool | None = None,
 ) -> str | None:
     """Normalized endpoint to store *typed_key* under, or None for no write.
 
@@ -173,15 +211,10 @@ def endpoint_for_api_key_write(
     pasted and then a one-character URL correction. An unchanged key for
     the same endpoint is not a write.
     """
-    saved_norm = normalize_endpoint_url(saved_endpoint or "")
-    target_norm = normalize_endpoint_url(target_endpoint or "")
-    typed = str(typed_key)
-    if target_norm != saved_norm and typed == str(saved_key or ""):
+    eff_key = effective_api_key(typed_key, saved_endpoint, target_endpoint, saved_key, target_key, user_edited_key)
+    if eff_key == str(target_key or ""):
         return None
-    if typed == str(target_key or ""):
-        return None
-    return target_norm
-
+    return normalize_endpoint_url(target_endpoint or "")
 
 def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc.

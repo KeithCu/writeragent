@@ -351,7 +351,12 @@ def populate_combobox_with_lru(
 
     curr_val_str = _sanitize_model_combobox_value(current_val)
     if not auth_blocked and not curr_val_str and req_cap == "text":
-        if provider:
+        # Restore the last-used model from the LRU list if one exists.
+        lru_models_for_provider = _filter_models_for_provider(lru_clean, provider) if provider else lru_clean
+        if lru_models_for_provider:
+            curr_val_str = lru_models_for_provider[0]
+
+        if not curr_val_str and provider:
             from plugin.framework.default_models import get_provider_defaults
 
             curr_val_str = str(get_provider_defaults(provider).get("text_model", "") or "").strip()

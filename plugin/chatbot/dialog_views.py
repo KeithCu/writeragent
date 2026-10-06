@@ -819,7 +819,24 @@ class TestConnectionListener(BaseActionListener):
         endpoint = endpoint_from_selector_text(endpoint_text)
 
         api_key_ctrl = get_optional(self._dlg, "api_key")
-        api_key = str(get_control_text(api_key_ctrl)) if api_key_ctrl else ""
+        if api_key_ctrl:
+            typed_key = str(get_control_text(api_key_ctrl))
+            from plugin.framework.config import get_current_endpoint
+            from plugin.chatbot.settings_dialog import effective_api_key
+
+            saved_endpoint = get_current_endpoint()
+            target_endpoint = endpoint
+            from plugin.framework.config import get_api_key_for_endpoint
+            saved_key = get_api_key_for_endpoint(saved_endpoint)
+            target_key = get_api_key_for_endpoint(target_endpoint)
+            try:
+                user_edited = getattr(self._catalog_recheck.__self__, "_user_edited_key", None)
+            except Exception:
+                user_edited = None
+
+            api_key = effective_api_key(typed_key, saved_endpoint, target_endpoint, saved_key, target_key, user_edited)
+        else:
+            api_key = ""
 
         def _worker() -> None:
             msg = check_endpoint_connection(endpoint, api_key)[1]
@@ -1327,6 +1344,8 @@ class ApiKeyTextListener(BaseListener, XTextListener):
     def __init__(self, endpoint_listener: Any) -> None:
         self._el = endpoint_listener
     def textChanged(self, rEvent: TextEvent) -> None:
+        if not getattr(self._el, "_syncing_api_key", False):
+            self._el._user_edited_key = True
         self._el._schedule_debounced_models_fetch()
 
 
@@ -1416,6 +1435,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         except Exception:
             opened = ""
         self._synced_endpoint = self.endpoint_from_selector_text(opened) or None
+        self._user_edited_key = False
+        self._syncing_api_key = False
 
         self._update_key_link_state()
 
@@ -1439,7 +1460,24 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         ak_ctrl = get_optional(self._dlg, "api_key")
         if not ak_ctrl:
             return None
-        return str(get_control_text(ak_ctrl))
+
+        typed_key = str(get_control_text(ak_ctrl))
+        from plugin.framework.config import get_current_endpoint
+        from plugin.chatbot.settings_dialog import effective_api_key
+
+        saved_endpoint = get_current_endpoint()
+        target_endpoint = self.endpoint_from_selector_text(self._ctrl.getText())
+        saved_key = self.get_api_key_for_endpoint(saved_endpoint)
+        target_key = self.get_api_key_for_endpoint(target_endpoint)
+
+        return effective_api_key(
+            typed_key,
+            saved_endpoint,
+            target_endpoint,
+            saved_key,
+            target_key,
+            getattr(self, "_user_edited_key", None)
+        )
 
     def _catalog_is_warm(self, resolved: str) -> bool:
         return bool(self.settings_catalog_is_warm(resolved, api_key_override=self._api_key_override()))
@@ -1630,7 +1668,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             return
         ak_ctrl = get_optional(self._dlg, "api_key")
         if ak_ctrl is not None and (force or self._api_key_field_follows_saved(ak_ctrl, previous)):
-            set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
+            self._syncing_api_key = True
+            try:
+                set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
+            finally:
+                self._syncing_api_key = False
+            self._user_edited_key = False
         self._synced_endpoint = resolved
 
     def _tts_model_id_for_voice_fetch(self) -> str:
@@ -1738,12 +1781,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         )
 
     def textChanged(self, rEvent: TextEvent) -> None:
-        # What was wrong: every keystroke called _sync_api_key, which setText'd
-        # the API key whenever the resolved URL changed, and a warm catalog
-        # rewrote the model combos on the UI thread. Typing does not write the
-        # key and does not refetch a catalog already in memory. A preset click
-        # still loads that preset's saved key (itemStateChanged, force=True).
         del rEvent
+        self._sync_api_key()
         self._schedule_debounced_models_fetch()
 
     def itemStateChanged(self, rEvent: ItemEvent) -> None:
