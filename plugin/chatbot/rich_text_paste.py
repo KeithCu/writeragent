@@ -556,6 +556,28 @@ def _replace_control_with_plain(
     )
 
 
+def _force_rich_full_reformat(control: Any) -> None:
+    """Make the RichTextControl EditEngine lay out the whole control again.
+
+    What was wrong: after clear_control and a bulk refill, the EditEngine drew
+    a layout that disagreed with its own text height. Lines were missing and
+    a gap below the last line grew with the transcript, until the sidebar
+    went blank in long sessions. invalidate() and hide/show did not fix it.
+    Why this fixes it: a paper-width change does. Resizing the peer reaches
+    EditEngine::SetPaperSize (editeng/source/editeng/editeng.cxx), which
+    reformats the whole document when the width changes. Narrow by 1px, then
+    restore.
+    """
+    try:
+        ps = control.getPosSize()
+        if ps.Width <= 2:
+            return
+        control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
+        control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
+    except Exception:
+        log.debug("_force_rich_full_reformat failed", exc_info=True)
+
+
 def paint_message_items(
     ctx: Any,
     control: Any,
@@ -614,6 +636,8 @@ def paint_message_items(
             if rows[-1][0] == "user":
                 with focus_preserved(ctx, restore):
                     _ensure_trailing_line_break(control)
+            # Reformat before the restick so the scroll target is the real end.
+            _force_rich_full_reformat(control)
             _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             return True
         log.warning("paint_message_items: formatted copy failed; plain paint")
