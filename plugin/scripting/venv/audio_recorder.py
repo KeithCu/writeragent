@@ -92,7 +92,7 @@ def record_to_wav(
         stream.start()
         if on_stream_started is not None:
             on_stream_started()
-        stop_event.wait()
+        stop_event.wait(timeout=4 * 3600)
     except AssertionError as exc:
         raise RuntimeError(
             "Audio recording is not available on this system (PortAudio backend error)."
