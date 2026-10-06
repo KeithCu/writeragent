@@ -1184,7 +1184,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self.send_control.getModel().Enabled = bool(send_enabled)
         if self.stop_control and self.stop_control.getModel():
             with suppress_disposed("set stop_control enabled state", logger=log):
-                self.stop_control.getModel().Enabled = bool(stop_enabled)
+                btn_model = self.stop_control.getModel()
+                if btn_model.Enabled and not stop_enabled:
+                    try:
+                        session = getattr(self, "frame_session", None)
+                        if session is not None:
+                            session.note_user_wants_query()
+                        if self.query_control and hasattr(self.query_control, "setFocus"):
+                            self.query_control.setFocus()
+                    except Exception as e:
+                        log.debug("query setFocus before stop disable: %s", e)
+                btn_model.Enabled = bool(stop_enabled)
 
     def dispatch(self, event: Any) -> None:
         """Dispatch an event to the state machine, compute new state, and apply effects."""
@@ -1746,8 +1756,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._append_response("\n" + _("[Audio error: recording stopped without a sound file.]") + "\n")
                 self._terminal_status = "Error"
                 self._set_status(_("Error"))
+                if self.query_control and self.query_control.getModel():
+                    from plugin.chatbot.dialogs import set_control_text
+                    set_control_text(self.query_control, query_text)
                 return
             self._terminal_status = ""
+            if self.query_control and self.query_control.getModel():
+                from plugin.chatbot.dialogs import set_control_text
+                set_control_text(self.query_control, query_text)
             return
 
         if self.query_control and self.query_control.getModel():
@@ -1792,11 +1808,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     try:
                         transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
                         if self._terminal_status == "Stopped":
-                            if transcript and self.query_control and self.query_control.getModel():
-                                from plugin.chatbot.dialogs import get_control_text, set_control_text
+                            if self.query_control and self.query_control.getModel():
+                                from plugin.chatbot.dialogs import set_control_text
 
-                                existing = (get_control_text(self.query_control) or "").strip()
-                                new_text = (existing + "\n" + transcript).strip() if existing else transcript
+                                new_text = (query_text + "\n" + transcript).strip() if (query_text and transcript) else (transcript or query_text)
                                 set_control_text(self.query_control, new_text)
                                 self._sync_has_text_from_query()
                             return
@@ -1810,21 +1825,35 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         else:
                             log.exception("Error during STT fallback")
                         self._terminal_status = "Error"
+                        if self.query_control and self.query_control.getModel():
+                            from plugin.chatbot.dialogs import set_control_text
+                            set_control_text(self.query_control, query_text)
                         return
                     # WAV is deleted in _transcribe_audio finally. Empty STT must not
                     # fall through into a chat POST with a blank user message (G27).
                     if not query_text.strip():
                         self._append_response("\n" + _("[No speech detected.]") + "\n")
                         self._terminal_status = "Stopped"
+                        if self.query_control and self.query_control.getModel():
+                            from plugin.chatbot.dialogs import set_control_text
+                            set_control_text(self.query_control, query_text)
                         return
                 else:
                     err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
                     self._append_response("\n%s\n" % err_msg)
                     self._terminal_status = "Error"
                     self._set_status(_("Error"))
+                    if self.query_control and self.query_control.getModel():
+                        from plugin.chatbot.dialogs import set_control_text
+                        set_control_text(self.query_control, query_text)
                     return
             else:
                 log.debug("_do_send: model %s supports native audio, proceeding" % current_model)
+                if self._terminal_status == "Stopped":
+                    if self.query_control and self.query_control.getModel():
+                        from plugin.chatbot.dialogs import set_control_text
+                        set_control_text(self.query_control, query_text)
+                    return
 
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_BRAINSTORMING,
@@ -1909,6 +1938,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
             self._terminal_status = "Error"
             self._set_status(_("Error"))
+            if self.query_control and self.query_control.getModel():
+                from plugin.chatbot.dialogs import set_control_text
+                set_control_text(self.query_control, query_text)
             return
 
         # Regular Chat with Tools or Streams
@@ -2018,11 +2050,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if not model:
             self._append_response("\n" + _("[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]") + "\n")
             self._terminal_status = "Error"
+            if self.query_control and self.query_control.getModel():
+                from plugin.chatbot.dialogs import set_control_text
+                set_control_text(self.query_control, query_text)
             return
         doc_type_label = getattr(self, "cached_doc_type", None)
         if not doc_type_label or doc_type_label == "unknown":
             self._append_response("\n[Internal Error: Could not identify document type.]\n")
             self._terminal_status = "Error"
+            if self.query_control and self.query_control.getModel():
+                from plugin.chatbot.dialogs import set_control_text
+                set_control_text(self.query_control, query_text)
             return
         flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
         sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
@@ -2031,6 +2069,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 "\n" + _("[Peer send requires Chat mode on this sidebar.]") + "\n"
             )
             self._terminal_status = "Error"
+            if self.query_control and self.query_control.getModel():
+                from plugin.chatbot.dialogs import set_control_text
+                set_control_text(self.query_control, query_text)
             return
         started = current_turn(self)
         if isinstance(started, TurnController):

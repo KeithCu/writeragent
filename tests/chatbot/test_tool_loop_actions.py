@@ -769,10 +769,9 @@ def test_stop_closes_a_pending_tool_call():
     assert len(cancelled) == 1
     assert "may have completed" in cancelled[0]["content"]
     assert any(
-        message.get("role") == "assistant" and "[Stopped by user]" in str(message.get("content") or "")
+        message.get("role") == "assistant" and "[Stopped by user]" in str(message.get("content") or "") and "Still working" in str(message.get("content") or "")
         for message in host.session.messages
     )
-    assert any(message.get("content") == "Still working" for message in host.session.messages)
 
 
 def test_stop_keeps_open_row_instead_of_no_response():

@@ -582,16 +582,45 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 # show a second API error."
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
                 host._terminal_status = ""
+                if host.session.messages and host.session.messages[-1].get("role") == "user":
+                    host.session.messages.pop()
+                    host.session.add_user_message(host._active_query_text or "")
+                    if getattr(host.session, "db", None) and hasattr(host.session.db, "replace_messages"):
+                        host.session.db.replace_messages(host.session.messages)
+                if host._terminal_status == "Stopped" or getattr(host, "_terminal_status", "") == "Stopped" or not transcript:
+                    if hasattr(host, "query_control") and host.query_control and host.query_control.getModel():
+                        from plugin.chatbot.dialogs import set_control_text
+                        set_control_text(host.query_control, host._active_query_text or "")
                 return None
             combined = (host._active_query_text + "\n" + transcript).strip() if host._active_query_text else transcript
+            if getattr(host, "_terminal_status", "") == "Stopped":
+                if host.session.messages and host.session.messages[-1].get("role") == "user":
+                    host.session.messages.pop()
+                    host.session.add_user_message(host._active_query_text or "")
+                    if getattr(host.session, "db", None) and hasattr(host.session.db, "replace_messages"):
+                        host.session.db.replace_messages(host.session.messages)
+                if hasattr(host, "query_control") and host.query_control and host.query_control.getModel():
+                    from plugin.chatbot.dialogs import set_control_text
+                    set_control_text(host.query_control, combined)
+                return None
             if host.session.messages and host.session.messages[-1].get("role") == "user":
                 host.session.messages.pop()
             host.session.add_user_message(combined)
+            if getattr(host.session, "db", None) and hasattr(host.session.db, "replace_messages"):
+                host.session.db.replace_messages(host.session.messages)
             host._active_query_text = combined
             host._spawn_llm_worker(retry_q, host._active_client, host._active_max_tokens, host._active_tools or [], host._sm_state.round_num, query_text=combined)
             return True
         except Exception:
             log.exception("STT fallback after native-audio error failed")
+            if host.session.messages and host.session.messages[-1].get("role") == "user":
+                host.session.messages.pop()
+                host.session.add_user_message(host._active_query_text or "")
+                if getattr(host.session, "db", None) and hasattr(host.session.db, "replace_messages"):
+                    host.session.db.replace_messages(host.session.messages)
+            if hasattr(host, "query_control") and host.query_control and host.query_control.getModel():
+                from plugin.chatbot.dialogs import set_control_text
+                set_control_text(host.query_control, host._active_query_text or "")
         return None
     return False
 

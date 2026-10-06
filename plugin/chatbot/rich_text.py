@@ -541,18 +541,3 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
             if getattr(turn, "_stop_banner_appended", False):
                 return
             turn._stop_banner_appended = True
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE
-        from plugin.chatbot.dialogs import get_control_text, set_control_text
-
-        widget = getattr(listener, "rich_text_widget", None)
-        if widget is not None:
-            run_rich = getattr(listener, "_run_rich_ui", None)
-            if callable(run_rich):
-                run_rich(lambda: widget.append_chunk(_STOP_LINE))
-            else:
-                widget.append_chunk(_STOP_LINE)
-        else:
-            control = getattr(listener, "response_control", None)
-            if control is not None and control.getModel():
-                cur = get_control_text(control, default="") or ""
-                set_control_text(control, cur + _STOP_LINE)

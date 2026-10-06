@@ -266,18 +266,19 @@ class SendHandlersMixin:
 
             cl = self.client
             assert cl is not None
+            transcribing = status_for_transcription()
+
             if cancel_scope is not None and not cancel_scope.is_cancelled():
                 clearer = getattr(cl, "clear_stop", None)
                 if callable(clearer):
                     clearer()
-            if cancel_scope is not None:
+            if cancel_scope is not None and not transcribing and not getattr(self, "audio_wav_path", None):
                 register = getattr(cancel_scope, "register_client", None)
                 if callable(register):
                     register(cl)
 
-            transcribing = status_for_transcription()
             self._set_status(transcribing)
-            self._append_response("\n[" + transcribing + "]\n")
+            self._append_response("\n[" + transcribing + "]\n", role="user")
 
             def on_status(message: str) -> None:
                 # Worker thread: the status control is UNO. run_blocking_in_thread

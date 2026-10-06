@@ -208,13 +208,15 @@ class TurnController:
             chosen = fallback
         else:
             chosen = ""
-        if chosen:
-            self.persist_assistant(host, content=chosen)
         messages = self.messages if isinstance(self.messages, list) and self.same_messages() else None
         closed = _append_cancelled_tool_rows(messages) if messages is not None else 0
+
         if not chosen and closed == 0:
-            self.persist_assistant(host, content="No response.")
-        self.persist_assistant(host, content=_STOP_LINE)
+            chosen = _STOP_LINE
+        else:
+            chosen = (chosen + "\n\n" + _STOP_LINE).strip() if chosen else _STOP_LINE
+
+        self.persist_assistant(host, content=chosen)
 
 
 def _discard_batcher(batcher: Any) -> None:
