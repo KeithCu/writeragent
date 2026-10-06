@@ -84,7 +84,10 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     else:
         return {"id": req_id, "status": "error", "code": "MISSING_IMAGE_SOURCE", "error": "Either 'image_b64' (base64 string buffer), 'image_bytes', or 'file_path' (server filesystem path) must be provided."}
 
-    from plugin.vision.venv.vision import run_vision
+    try:
+        from plugin.vision.venv.vision import run_vision
+    except (ModuleNotFoundError, ImportError):
+        return {"id": req_id, "status": "error", "code": "VISION_UNAVAILABLE", "error": "OCR is not installed in this server"}
 
     try:
         spec = {"helper": helper, "params": params}

@@ -49,7 +49,7 @@ _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # VISION_POOL_BUSY is that miss on /v1/vision (lease wait expired, no
 # worker). The route's accept-deadline pre-check is already 503; this code
 # was not in the set, so the same miss came back HTTP 200.
-_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE", "QUEUE_TIMEOUT", "VISION_POOL_BUSY"})
+_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE", "QUEUE_TIMEOUT", "VISION_POOL_BUSY", "VISION_UNAVAILABLE"})
 
 
 def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
@@ -328,6 +328,39 @@ def authenticate_request(environ: dict[str, Any], settings: ComputeSettings) -> 
     return settings.default_principal, None
 
 
+def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> list[bytes] | None:
+    """In keyless mode, reject cross-origin requests and non-loopback hosts to prevent CSRF/SSRF."""
+    if settings.auth_required:
+        return None
+
+    # Browsers send Origin on cross-origin POSTs.
+    if environ.get("HTTP_ORIGIN"):
+        return _start_json(
+            start_response,
+            "403 Forbidden",
+            {"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "Cross-origin requests are forbidden in keyless mode."},
+        )
+
+    # DNS rebinding protection: only allow loopback hostnames/IPs.
+    # We allow an absent Host header because non-browser clients and HTTP/1.0 tools may omit it.
+    # Browsers always send Host, so the DNS-rebinding guard only needs to reject a Host that is present and not loopback.
+    if "HTTP_HOST" in environ:
+        raw_host = environ["HTTP_HOST"].lower()
+        # Handle IPv6 with or without port e.g. [::1]:8000
+        if raw_host.startswith("["):
+            host = raw_host.split("]")[0] + "]"
+        else:
+            host = raw_host.split(":")[0]
+
+        if host not in ("localhost", "127.0.0.1", "[::1]"):
+            return _start_json(
+                start_response,
+                "403 Forbidden",
+                {"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "Only loopback hosts are allowed in keyless mode."},
+            )
+    return None
+
+
 def _authenticate_or_401(
     environ: dict[str, Any],
     settings: ComputeSettings,
@@ -343,7 +376,7 @@ def _authenticate_or_401(
             {"status": "error", "error": "Unauthorized"},
             extra_headers=[("WWW-Authenticate", "Bearer")],
         )
-    return None
+    return _check_keyless_cors(environ, settings, start_response)
 
 
 def _parse_session_id(environ: dict[str, Any]) -> str | None:
@@ -490,7 +523,7 @@ def create_wsgi_app(
                 except Exception as e:
                     duration_ms = (time.perf_counter() - start_t) * 1000.0
                     log.exception("fail /v1/execute id=%r duration=%.2fms: %s", req_id, duration_ms, e)
-                    err_body = {"status": "error", "error": f"Server execution failure: {e}"}
+                    err_body = {"status": "error", "code": "INTERNAL_ERROR", "error": "Internal server execution failure"}
                     return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
             finally:
                 worker_semaphore.release()
@@ -549,7 +582,7 @@ def create_wsgi_app(
                 except Exception as e:
                     duration_ms = (time.perf_counter() - start_t) * 1000.0
                     log.exception("fail /v1/session/reset id=%r session=%r duration=%.2fms: %s", req_id, session_id, duration_ms, e)
-                    err_body = {"status": "error", "error": f"Server execution failure: {e}"}
+                    err_body = {"status": "error", "code": "INTERNAL_ERROR", "error": "Internal server execution failure"}
                     return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
             finally:
                 worker_semaphore.release()
@@ -615,7 +648,7 @@ def create_wsgi_app(
                     return _send_execution_result(start_response, result_payload, req_id)
                 except Exception as e:
                     log.exception("fail /v1/vision id=%r: %s", req_id, e)
-                    err_body = {"status": "error", "error": f"Server execution failure: {e}"}
+                    err_body = {"status": "error", "code": "INTERNAL_ERROR", "error": "Internal server execution failure"}
                     return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
             finally:
                 vision_semaphore.release()
