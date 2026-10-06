@@ -188,6 +188,21 @@ def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> 
     ``terminate`` alone left a PortAudio thread holding the mic, and dropping
     the drain at the same time filled the stderr pipe and stalled the child.
     """
+    if proc.stdin:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+    if proc.stdout:
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+    if proc.stderr:
+        try:
+            proc.stderr.close()
+        except Exception:
+            pass
     try:
         proc.wait(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
@@ -218,16 +233,41 @@ def stop_recording_process(proc: subprocess.Popen[str], *, timeout_sec: float = 
     if handoff is not None:
         return _stop_recording_via_handoff(proc, handoff, timeout_sec=timeout_sec, fallback_path=fallback_path)
 
-    if proc.poll() is not None:
-        if proc.stdout is not None:
-            try:
-                payload = read_json_line(proc.stdout, timeout_sec=0.25)
-            except (subprocess.TimeoutExpired, ValueError, RuntimeError):
-                payload = None
-            if isinstance(payload, dict) and payload.get("status") == "ok":
-                path = payload.get("path")
-                if isinstance(path, str) and path:
-                    return path
+    try:
+        if proc.poll() is not None:
+            if proc.stdout is not None:
+                try:
+                    payload = read_json_line(proc.stdout, timeout_sec=0.25)
+                except (subprocess.TimeoutExpired, ValueError, RuntimeError):
+                    payload = None
+                if isinstance(payload, dict) and payload.get("status") == "ok":
+                    path = payload.get("path")
+                    if isinstance(path, str) and path:
+                        return path
+            if fallback_path:
+                return fallback_path
+            raise RuntimeError("Recording subprocess already exited without a WAV path.")
+
+        if proc.stdin is None:
+            raise RuntimeError("Recording subprocess stdin is not available.")
+        try:
+            write_json_line(proc.stdin, {"command": "stop"})
+        except OSError as exc:
+            raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
+
+        payload = _read_json_line(proc, timeout_sec)
+        status = payload.get("status")
+        if status != "ok":
+            message = payload.get("message") if status == "error" else f"Unexpected status {status!r}"
+            raise RuntimeError(str(message or "Audio recording failed to stop."))
+        path = payload.get("path")
+        if not isinstance(path, str) or not path:
+            raise RuntimeError("Recording subprocess did not return a WAV path.")
+
+        return path
+    finally:
+        _reap_recording_process(proc, timeout_sec)
+        _reap_recording_process(proc, timeout_sec)
         if fallback_path:
             return fallback_path
         raise RuntimeError("Recording subprocess already exited without a WAV path.")
@@ -364,6 +404,14 @@ def monitor_recording_stdout(proc: subprocess.Popen[str], *, on_auto_stopped: Ca
                 log.debug("Recording IPC monitor stopped: %s", exc)
                 break
             if payload is None:
+                if proc.poll() is not None:
+                    # EOF from child that exited.
+                    # Wait, we need to check if handoff got ok/error.
+                    if handoff is not None:
+                        # Only invoke error if the child didn't emit a path or error before exiting
+                        if not handoff.snapshot_path() and handoff._error is None:
+                            if on_error is not None:
+                                on_error("Recording subprocess exited unexpectedly.")
                 break
             _dispatch_recording_stdout(payload, handoff=handoff, on_auto_stopped=on_auto_stopped, on_silence_progress=on_silence_progress, on_error=on_error)
 

@@ -68,7 +68,7 @@ def _wav_file_has_bytes(path: str | None) -> bool:
     if not path:
         return False
     try:
-        return os.path.isfile(path) and os.path.getsize(path) > 0
+        return os.path.isfile(path) and os.path.getsize(path) > 44
     except OSError:
         return False
 
@@ -240,12 +240,7 @@ class AudioRecorder:
             except Exception:
                 pass
             self.wav_file = None
-        if self.temp_filename:
-            try:
-                os.remove(self.temp_filename)
-            except OSError as exc:
-                log.debug("Failed to remove temp_filename during cleanup: %s", exc)
-            self.temp_filename = None
+        self._delete_wav()
 
     def _keep_recorded_wav_or_cleanup(
         self,
@@ -432,6 +427,7 @@ class AudioRecorder:
                     )
 
         elif isinstance(effect, StartRecordingEffect):
+            self._delete_wav()
             if self.stream is not None:
                 try:
                     self.stream.start()
@@ -513,7 +509,9 @@ class AudioRecorder:
 
     def stop_recording(self) -> str | None:
         self._apply_event(StopRequestedEvent())
-        return self.temp_filename
+        path = self.temp_filename
+        self.temp_filename = None
+        return path
 
     def _close_host_wav(self) -> None:
         """Close the host WAV after the capture callback has dropped it.
@@ -559,3 +557,12 @@ class AudioRecorder:
                     self.stream = None
                 self._close_host_wav()
                 self._silence_detector = None
+        self._delete_wav()
+
+    def _delete_wav(self) -> None:
+        if self.temp_filename:
+            try:
+                os.remove(self.temp_filename)
+            except OSError as exc:
+                log.debug("Failed to remove temp_filename: %s", exc)
+            self.temp_filename = None
