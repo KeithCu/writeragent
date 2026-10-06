@@ -1361,3 +1361,25 @@ def test_wait_for_result_claimed_item_keeps_waiting_past_slices():
         t.start()
         assert qe._wait_for_result(item, timeout=0.01) == "done"
     t.join()
+
+
+def test_llm_request_lane_stop_while_waiting():
+    from plugin.framework.async_stream import BlockingWaitStopped
+    from plugin.framework.queue_executor import llm_request_lane, _LLM_REQUEST_LOCK
+
+    # Block the lane
+    _LLM_REQUEST_LOCK.acquire()
+    try:
+        class FakeCancellation:
+            def is_cancelled(self):
+                return True
+        from unittest.mock import patch
+        with patch('plugin.framework.queue_executor.get_current_send_cancellation', return_value=FakeCancellation()):
+            try:
+                with llm_request_lane(timeout=1.0):
+                    pass
+                assert False, "Should have raised BlockingWaitStopped"
+            except BlockingWaitStopped:
+                pass
+    finally:
+        _LLM_REQUEST_LOCK.release()

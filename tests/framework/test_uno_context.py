@@ -1062,3 +1062,30 @@ def test_new_blank_writer_returns_none_and_closes_when_body_unreadable():
     ):
         assert new_blank_writer(MagicMock()) is None
         doc.close.assert_called_once_with(True)
+
+
+def test_focus_preserved_routes_through_restore_focus_callback():
+    """BUG A fix 3: with a session callback, focus_preserved never calls setFocus itself."""
+    from plugin.framework.uno_context import focus_preserved
+
+    query = MagicMock()
+    restore_focus = MagicMock()
+    with patch("plugin.framework.uno_context.get_toolkit") as mock_tk:
+        with focus_preserved(MagicMock(), query, restore_focus=restore_focus):
+            pass
+
+    restore_focus.assert_called_once_with()
+    query.setFocus.assert_not_called()
+    mock_tk.assert_not_called()
+
+
+def test_focus_preserved_callback_runs_when_block_raises():
+    from plugin.framework.uno_context import focus_preserved
+
+    restore_focus = MagicMock()
+    try:
+        with focus_preserved(MagicMock(), restore_focus=restore_focus):
+            raise ValueError("boom")
+    except ValueError:
+        pass
+    restore_focus.assert_called_once_with()

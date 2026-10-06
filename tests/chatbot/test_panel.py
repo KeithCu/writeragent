@@ -737,8 +737,11 @@ class TestSendDispose:
         other.set_focus_pin(other_query)
         other.note_user_wants_query()
         notify_stop_mouse_entered(listener)
-        session.restore_focus()
-        other.restore_focus()
+        # This test is about the per-frame restore flag, not the active-window
+        # gate, so treat both frames as active.
+        with patch.object(FrameSession, "frame_is_active_window", return_value=True):
+            session.restore_focus()
+            other.restore_focus()
         query.setFocus.assert_not_called()
         other_query.setFocus.assert_called_once()
 
@@ -1160,6 +1163,7 @@ class TestHandsFreeRecord:
         listener._poll_sticky_rerecord(3)
         assert listener.sidebar_state.send.is_recording is False
 
+
 class TestStopPreservesAudioWavPath:
     def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
         listener = _make_send_listener()
@@ -1319,6 +1323,7 @@ def test_do_send_restores_query_text_on_error() -> None:
             # _restore_query_text should be called on error
             assert mock_set.call_count == 1
             assert mock_set.call_args_list[0][0][0] == "hello text"
+
 
 def test_normal_turn_end_does_not_set_focus() -> None:
     from plugin.chatbot.panel import SendButtonListener

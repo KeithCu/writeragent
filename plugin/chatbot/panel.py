@@ -1700,8 +1700,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         return doc_type_title_for_label(getattr(self, "cached_doc_type", None))
 
-
     def _restore_query_text(self, text: str) -> None:
+        """Put text back in the Ask box after a send returns early (Stop, STT error).
+
+        _do_send clears the Ask box before transcription, so every early return
+        must hand the typed text (plus any transcript) back or it is lost.
+        """
         if self.query_control and self.query_control.getModel():
             from plugin.chatbot.dialogs import set_control_text
             set_control_text(self.query_control, text)
@@ -1768,10 +1772,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._append_response("\n" + _("[Audio error: recording stopped without a sound file.]") + "\n")
                 self._terminal_status = "Error"
                 self._set_status(_("Error"))
-                self._restore_query_text(query_text)
                 return
             self._terminal_status = ""
-            self._restore_query_text(query_text)
             return
 
         if self.query_control and self.query_control.getModel():
@@ -1837,7 +1839,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     if not query_text.strip():
                         self._append_response("\n" + _("[No speech detected.]") + "\n")
                         self._terminal_status = "Stopped"
-                        self._restore_query_text(query_text)
                         return
                 else:
                     err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)

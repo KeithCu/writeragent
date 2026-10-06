@@ -78,23 +78,35 @@ class AddSlide(ToolBase):
         active_idx = landed if switch_view else bridge.get_active_page_index()
 
         result = {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
-        # insertNewByIndex can attach factory Default even when the deck already
-        # has a designed master (M1′). Copy the neighbor slide's MasterPage.
-        # Pass the landed index: page=0 used to claim insert_at=0 while the
-        # new page sat at 1, so the "neighbor" was the new page itself.
-        if is_impress:
-            from plugin.draw.designs import inherit_master_from_neighbor
 
-            inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
-            if inherited:
-                result["master"] = inherited
-        if is_impress and layout_name is not None:
-            result["placeholders_hint"] = "call list_placeholders on this page"
-            # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
-            # leaves that id with 0 shapes; assigning it keeps the page empty.
-            # Skipping used to be required because the PowerPoint blank id (11)
-            # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
-            result["layout"] = apply_slide_layout(new_page, layout_name)
+        try:
+            # insertNewByIndex can attach factory Default even when the deck already
+            # has a designed master (M1′). Copy the neighbor slide's MasterPage.
+            # Pass the landed index: page=0 used to claim insert_at=0 while the
+            # new page sat at 1, so the "neighbor" was the new page itself.
+            if is_impress:
+                from plugin.draw.designs import inherit_master_from_neighbor
+
+                inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
+                if inherited:
+                    result["master"] = inherited
+            if is_impress and layout_name is not None:
+                result["placeholders_hint"] = "call list_placeholders on this page"
+                # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
+                # leaves that id with 0 shapes; assigning it keeps the page empty.
+                # Skipping used to be required because the PowerPoint blank id (11)
+                # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
+                result["layout"] = apply_slide_layout(new_page, layout_name)
+        except Exception as exc:
+            from plugin.framework.errors import is_disposed_exception
+            if is_disposed_exception(exc):
+                raise
+            try:
+                bridge.get_pages().remove(new_page)
+            except Exception:
+                pass
+            return self._tool_error(f"Failed to set layout or master on new slide: {exc}")
+
         return result
 
 

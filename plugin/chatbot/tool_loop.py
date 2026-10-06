@@ -548,7 +548,7 @@ class ToolCallingMixin:
                 # Status via queue only — never self._set_status from this worker (UNO).
                 def status_cb(t: str) -> None:
                     emit((StreamQueueKind.STATUS, t))
-                with llm_request_lane():
+                with llm_request_lane(status_callback=status_cb):
                     # Compact + stream share one lane hold. compaction.py must
                     # not take the non-reentrant lock itself.
                     if get_config_bool_safe("chat_compaction_enabled"):
@@ -580,12 +580,6 @@ class ToolCallingMixin:
                         stop_checker=stop_checker,
                         status_callback=status_cb,
                     )
-
-                    if session.messages and session.messages[-1].get("role") == "user" and isinstance(session.messages[-1].get("content"), list):
-                        has_audio = any(isinstance(c, dict) and c.get("type") == "input_audio" for c in session.messages[-1]["content"])
-                        if has_audio:
-                            from plugin.scripting.audio_recorder_service import _replace_audio_with_text
-                            _replace_audio_with_text(self, getattr(self, "_active_query_text", "") or "")
                 # Stop during pre-send host-gap wait returns finish_reason "stop"
                 # without raising. The captured scope stays cancelled after the
                 # next send clears the panel field and calls clear_stop() on
@@ -599,12 +593,17 @@ class ToolCallingMixin:
                     if batched: batched.flush()
                     emit((StreamQueueKind.STREAM_DONE, response))
             except Exception as e:
-                if isinstance(e, NetworkError):
-                    log.exception("Tool loop round %d: NetworkError" % round_num)
+                from plugin.framework.async_stream import BlockingWaitStopped
+                if isinstance(e, BlockingWaitStopped):
+                    if batched: batched.flush()
+                    emit((StreamQueueKind.STOPPED,))
                 else:
-                    log.exception("Tool loop round %d: API ERROR" % round_num)
-                if batched: batched.flush()
-                emit((StreamQueueKind.ERROR, format_error_payload(e)))
+                    if isinstance(e, NetworkError):
+                        log.exception("Tool loop round %d: NetworkError" % round_num)
+                    else:
+                        log.exception("Tool loop round %d: API ERROR" % round_num)
+                    if batched: batched.flush()
+                    emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run, name=f"llm-worker-{round_num}", dedicated=True)
 
@@ -658,7 +657,7 @@ class ToolCallingMixin:
                     return
                 def status_cb(t: str) -> None:
                     emit((StreamQueueKind.STATUS, t))
-                with llm_request_lane():
+                with llm_request_lane(status_callback=status_cb):
                     # Same compact-then-view path as _spawn_llm_worker. Final
                     # stream has no tools; still compact when the transcript
                     # is over the tiered threshold.
@@ -696,12 +695,17 @@ class ToolCallingMixin:
                     if batched: batched.flush()
                     emit((StreamQueueKind.FINAL_DONE, "".join(last_streamed)))
             except Exception as e:
-                if isinstance(e, NetworkError):
-                    log.exception("Final stream NetworkError")
+                from plugin.framework.async_stream import BlockingWaitStopped
+                if isinstance(e, BlockingWaitStopped):
+                    if batched: batched.flush()
+                    emit((StreamQueueKind.STOPPED,))
                 else:
-                    log.exception("Final stream failed")
-                if batched: batched.flush()
-                emit((StreamQueueKind.ERROR, format_error_payload(e)))
+                    if isinstance(e, NetworkError):
+                        log.exception("Final stream NetworkError")
+                    else:
+                        log.exception("Final stream failed")
+                    if batched: batched.flush()
+                    emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run_final, name="llm-worker-final", dedicated=True)
 

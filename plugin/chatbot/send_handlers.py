@@ -270,6 +270,10 @@ class SendHandlersMixin:
                 clearer = getattr(cl, "clear_stop", None)
                 if callable(clearer):
                     clearer()
+            if cancel_scope is not None:
+                register = getattr(cancel_scope, "register_client", None)
+                if callable(register):
+                    register(cl)
 
             transcribing = status_for_transcription()
             self._set_status(transcribing)
@@ -677,13 +681,17 @@ class SendHandlersMixin:
                 if extra:
                     lean_system_prompt += "\n\n" + extra
 
-                with llm_request_lane():
+                def status_cb(t: str) -> None:
+                    q.put((StreamQueueKind.STATUS, t))
+                with llm_request_lane(status_callback=status_cb):
                     adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=stop_checker)
             except Exception as e:
-                log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
-
-
-                q.put((StreamQueueKind.ERROR, format_error_payload(e)))
+                from plugin.framework.async_stream import BlockingWaitStopped
+                if isinstance(e, BlockingWaitStopped):
+                    q.put((StreamQueueKind.STOPPED,))
+                else:
+                    log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
+                    q.put((StreamQueueKind.ERROR, format_error_payload(e)))
             finally:
                 self._current_agent_backend = None
 

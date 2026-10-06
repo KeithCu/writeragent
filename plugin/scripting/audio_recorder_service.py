@@ -531,14 +531,6 @@ def append_wav_as_input_audio(content_list: list[dict[str, Any]], wav_path: str)
         return False
 
 
-
-def _replace_audio_with_text(host: Any, text: str) -> None:
-    if host.session.messages and host.session.messages[-1].get("role") == "user":
-        host.session.messages.pop()
-        host.session.add_user_message(text)
-        if getattr(host.session, "db", None) and hasattr(host.session.db, "replace_messages"):
-            host.session.db.replace_messages(host.session.messages)
-
 def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     """After a native ``input_audio`` rejection, transcribe and respawn this drain.
 

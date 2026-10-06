@@ -93,6 +93,7 @@ class TurnController:
         self._alive = True
         self._stop_banner_appended = False
         self._stop_partial_text = None
+        self.closed_by_document: bool = False
         self._overflow_compact_attempts = 0
         self._last_compact_reason = None
         self._last_compact_tokens_before = None
@@ -164,7 +165,7 @@ class TurnController:
         tool_calls: Any = None,
         reasoning_replay: Any = None,
     ) -> None:
-        if not self.accepts_history(host) or self.session is None:
+        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
         kwargs: dict[str, Any] = {}
         if tool_calls is not None:
@@ -174,7 +175,7 @@ class TurnController:
         self.session.add_assistant_message(content=content, **kwargs)
 
     def persist_tool(self, host: Any, call_id: str | None, content: Any) -> None:
-        if not self.accepts_history(host) or self.session is None:
+        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
         self.session.add_tool_result(call_id, content)
 
@@ -203,9 +204,14 @@ class TurnController:
         later result is discarded. Document side effects may still land.
         Rows already written stay. The open assistant row is committed, each
         tool call with no tool row gets one cancelled row, and the stop line
-        is an ordinary assistant message. ``tool_calls`` are not removed.
+        is folded into the partial reply as one assistant message.
+        ``tool_calls`` are not removed.
+
+        Why one row, not partial + a separate stop row: the separate row was
+        repainted as its own block and sent to the model as an extra
+        assistant turn.
         """
-        if not self.accepts_history(host) or self.session is None:
+        if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
         tail = self.take_stripper_tail()
         if tail:
@@ -219,14 +225,10 @@ class TurnController:
         else:
             chosen = ""
         messages = self.messages if isinstance(self.messages, list) and self.same_messages() else None
-        closed = _append_cancelled_tool_rows(messages) if messages is not None else 0
-
-        if not chosen and closed == 0:
-            chosen = _STOP_LINE
-        else:
-            chosen = (chosen + "\n\n" + _STOP_LINE).strip() if chosen else _STOP_LINE
-
-        self.persist_assistant(host, content=chosen)
+        if messages is not None:
+            _append_cancelled_tool_rows(messages)
+        content = chosen.rstrip() + "\n\n" + _STOP_LINE.strip() if chosen else _STOP_LINE
+        self.persist_assistant(host, content=content)
 
 
 def _discard_batcher(batcher: Any) -> None:
