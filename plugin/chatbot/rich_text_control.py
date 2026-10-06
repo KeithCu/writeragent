@@ -135,10 +135,6 @@ class RichTextChatWidget:
         """Clear the control contents."""
         clear_control(self.control)
 
-    def truncate(self, start_len: int | None) -> None:
-        """Truncate text starting from the specified length index."""
-        truncate_control_from(self.control, start_len)
-
     def reveal_caret(self, reason: str = "widget") -> None:
         """Ask EditView to show its caret (AUTOSCROLL); does not move the caret."""
         reveal_rich_control_caret(self.control, ctx=self.ctx, reason=reason, restore=self.query)
@@ -154,54 +150,6 @@ class RichTextChatWidget:
             query=self.query,
             restore_focus=self.restore_focus,
         )
-
-    def append_rich_message(
-        self,
-        text: str,
-        role: str = "assistant",
-        auto_scroll: bool = True,
-        on_after_insert: Any = None,
-    ) -> bool:
-        """Append formatted HTML message via the hidden Writer paste pipeline.
-
-        True only when every element was inserted. A skipped element is False
-        so callers can put back text they removed before the copy.
-        """
-        from plugin.chatbot.rich_text_paste import append_rich_text_via_clipboard
-
-        return append_rich_text_via_clipboard(
-            self.ctx,
-            self.control,
-            text,
-            role=role,
-            style_window=self.style_window,
-            auto_scroll=auto_scroll,
-            on_after_insert=on_after_insert,
-            restore=self.query,
-            restore_focus=self.restore_focus,
-        )
-
-    def append_rich_messages_batch(
-        self,
-        items: Any,
-        batch_chars: int = HISTORY_RENDER_BATCH_CHARS,
-    ) -> None:
-        """Append a list of history messages in batches to minimize UI repaint iterations."""
-        from plugin.chatbot.rich_text_paste import append_rich_messages_via_clipboard
-
-        append_rich_messages_via_clipboard(
-            self.ctx,
-            self.control,
-            items,
-            style_window=self.style_window,
-            batch_chars=batch_chars,
-            restore=self.query,
-            restore_focus=self.restore_focus,
-        )
-
-    def apply_style_defaults(self) -> None:
-        """Apply the standard chat sidebar margins, fonts, and colors to the control."""
-        _apply_rich_control_style_defaults(self.control, style_window=self.style_window)
 
     def paint_session(self, session: Any, greeting: str = "") -> None:
         """Draw the control from ``session.messages``. The hidden doc is that paint."""
@@ -250,17 +198,6 @@ class RichTextChatWidget:
         if not content or not str(content).strip():
             return False
         self.paint_session(session)
-        return True
-
-    def append_user_message(self, text: str, on_after_insert: Any = None) -> None:
-        """Append a formatted user message and optionally record control length after insert."""
-        self.append_rich_message(text, role="user", on_after_insert=on_after_insert)
-
-    def append_assistant_stream_chunk(self, text: str, auto_scroll: bool = True) -> bool:
-        """Append plain streaming assistant text; return False when legacy AI/status lines are skipped."""
-        if skip_legacy_assistant_stream_chunk(text):
-            return False
-        self.append_chunk(text, auto_scroll=auto_scroll)
         return True
 
     def clear_and_greeting(self, greeting: str = "") -> None:
@@ -568,10 +505,6 @@ def skip_legacy_assistant_stream_chunk(text: str) -> bool:
     if not text:
         return False
     stripped = text.strip()
-    if stripped in ("AI:", "AI"):
-        return True
-    if stripped.startswith("AI:") and len(stripped) <= 12:
-        return True
     if stripped.startswith("[Using chat model"):
         return True
     return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
@@ -710,8 +643,6 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
         peer_attempts.append(("toolkit+peer", (toolkit, parent_peer)))
     if toolkit is not None and parent_window is not None:
         peer_attempts.append(("toolkit+window", (toolkit, parent_window)))
-    if parent_peer is not None:
-        peer_attempts.append(("peer+noid", (parent_peer, 0)))
 
     for service in (
         "com.sun.star.form.control.RichTextControl",
@@ -1184,13 +1115,9 @@ def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:  # 
         if peer is None or not hasattr(peer, "queryDispatch"):
             return False
         import uno
+        # _dispatch_rich_uno: We set only URL.Complete, not URLTransformer.parseStrict, because ORichTextPeer::queryDispatch and OSelectAllDispatcher match on URL.Complete.
         url = uno.createUnoStruct("com.sun.star.util.URL")
         setattr(url, "Complete", command)
-        if ctx is not None and hasattr(ctx, "ServiceManager"):
-            transformer = ctx.ServiceManager.createInstanceWithContext(
-                "com.sun.star.util.URLTransformer", ctx
-            )
-            transformer.parseStrict(url)
         disp = peer.queryDispatch(url, "", 0)
         if disp is None:
             return False
@@ -1304,7 +1231,7 @@ def get_control_text_length(control: Any) -> int | None:
         model = control.getModel()
         if model is None:
             return 0
-        return len(model.Text or "")
+        return len((model.Text or "").encode("utf-16-le")) // 2
     except Exception:
         # What was wrong: any exception returned 0. Rollback and cell-link
         # spans treat 0 as the start of the control, so a failed length read
@@ -1327,7 +1254,8 @@ def truncate_control_from(control: Any, start_len: int | None) -> None:
             log.warning("truncate_control_from: no text cursor; skip truncate to preserve formatting")
             return
         text = model.Text or ""
-        if start_len >= len(text):
+        text_len = len(text.encode("utf-16-le")) // 2
+        if start_len >= text_len:
             return
         cursor = model.createTextCursor()
         cursor.gotoStart(False)
