@@ -289,6 +289,32 @@ class TestHistoryMessageBatching:
             ("assistant", "[Thinking...]"),
         ]
 
+    def test_session_history_items_puts_the_stop_line_inside_the_stopped_answer(self):
+        """No empty 'Assistant:' row and no trailing blank line for the stop banner."""
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+
+        session = MagicMock()
+        session.messages = [
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "content": "Paragraph 1\n\nParagraph 2 can press"},
+            {"role": "assistant", "content": _STOP_LINE},
+            {"role": "user", "content": "q2"},
+        ]
+        assert session_history_items(session) == [
+            ("user", "q"),
+            ("assistant", "Paragraph 1\n\nParagraph 2 can press\n\n[Stopped by user]"),
+            ("user", "q2"),
+        ]
+        session.messages[1]["content"] = "<p>partial</p>"
+        assert session_history_items(session)[1] == ("assistant", "<p>partial</p><p>[Stopped by user]</p>")
+
+    def test_session_history_items_stop_before_first_token_keeps_a_bare_banner_row(self):
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+
+        session = MagicMock()
+        session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": _STOP_LINE}]
+        assert session_history_items(session) == [("user", "q"), ("assistant", "[Stopped by user]")]
+
     def test_append_rich_messages_single_batch(self):
         control = MagicMock()
         control.getModel.return_value = MagicMock(Text="")

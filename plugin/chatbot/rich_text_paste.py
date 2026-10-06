@@ -531,10 +531,40 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
             items.append(("user", _visible_message_text(content)))
         elif role == "assistant":
             if content:
-                items.append(("assistant", _visible_message_text(content)))
+                text = _visible_message_text(content)
+                if text.strip() == _STOP_BANNER:
+                    _append_stop_banner(items, text)
+                else:
+                    items.append(("assistant", text))
             elif msg.get("tool_calls"):
                 items.append(("assistant", "[Thinking...]"))
     return items
+
+
+# Body of tool_loop_actions._STOP_LINE ("\n[Stopped by user]\n"), stored by
+# close_stopped as its own assistant message.
+_STOP_BANNER = "[Stopped by user]"
+
+
+def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
+    """Show the stop line as the last paragraph of the answer it stopped.
+
+    What was wrong: the stop line is a separate assistant message whose
+    content is "\n[Stopped by user]\n". Painted as its own row it gave a bold
+    "Assistant:" label with nothing after it, the banner on the next line,
+    and a double blank gap before the next "You:" row (every full repaint of a
+    stopped turn, and the turn-end format after a Stop). Display only:
+    session.messages and the model context keep the separate message.
+    """
+    if items and items[-1][0] == "assistant" and items[-1][1].strip():
+        prev = items[-1][1]
+        looks_html = bool(_HTML_TAG_RE.search(prev)) or contains_html_tag(prev)
+        joined = prev + ("<p>%s</p>" % _STOP_BANNER if looks_html else "\n\n" + _STOP_BANNER)
+        items[-1] = ("assistant", joined)
+        return
+    # Stop before the first token: no answer to attach to. Keep the row, without
+    # the newlines that made the empty label line and the extra gap.
+    items.append(("assistant", text.strip()))
 
 
 def _hidden_doc_text(doc: Any) -> str:
