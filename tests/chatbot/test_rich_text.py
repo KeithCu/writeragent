@@ -128,7 +128,7 @@ class TestAppendRichText:
         content = doc.getText().getString()
         assert ("Assistant: ") in (content)
 
-    def test_append_rich_text_chunks_go_right(self):
+    def test_go_right_chunks_large_moves(self):
         from plugin.chatbot.rich_text import _go_right
 
         cursor = MockTextCursor()

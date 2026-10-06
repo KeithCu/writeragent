@@ -75,3 +75,33 @@ def test_user_row_color_does_not_bleed_into_previous_answer(ctx):
         assert runs[-1][1] == theme.user_color, "user row lost its color: %r" % runs
     finally:
         doc.close(True)
+
+
+@native_test
+def test_html_body_range_covers_the_imported_list(ctx):
+    """The body range now starts at a position taken before the HTML import.
+
+    If that position moved to the end of the insert, list tightening would get
+    an empty range and sidebar lists would keep the wide default indent.
+    """
+    from unittest.mock import patch
+
+    import plugin.chatbot.rich_text as rich_text
+
+    seen: list[str] = []
+    real_tighten = rich_text._tighten_list_indent
+
+    def record(body_range: Any) -> None:
+        seen.append(body_range.getString())
+        real_tighten(body_range)
+
+    doc = _hidden_writer(ctx)
+    try:
+        assert rich_text.append_rich_text(doc, "first question", role="user")
+        with patch.object(rich_text, "_tighten_list_indent", record):
+            assert rich_text.append_rich_text(doc, "<ul><li>alpha</li><li>beta</li></ul>", role="assistant")
+        assert seen, "list tightening did not run"
+        assert "alpha" in seen[-1] and "beta" in seen[-1], "body range missed the list: %r" % seen
+        assert "first question" not in seen[-1], "body range reached the previous row: %r" % seen
+    finally:
+        doc.close(True)
