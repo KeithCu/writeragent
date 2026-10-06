@@ -42,15 +42,14 @@ class NestedDrainOwnerError(RuntimeError):
     """Raised when a second drain owner attempts to start while another is active."""
 
 
-@contextmanager
-def drain_owner_scope(owner_name: str) -> Generator[None, None, None]:
-    """Sentry context manager for main-thread UI event pumping.
+def acquire_drain_owner(owner_name: str) -> str | None:
+    """Mark *owner_name* as the pump owner. Return the previous owner.
 
-    A different owner name raises :class:`NestedDrainOwnerError`. The same name
-    re-enters and increments the depth counter (``pump_ui_idle`` skips VCL when
-    depth > 1). ``run_stream_drain_loop`` still refuses any current owner before
-    taking this scope. The owner may call :func:`pump_ui_idle`; other code must
-    use :func:`process_events_to_idle`, which no-ops VCL while owned.
+    A different owner raises :class:`NestedDrainOwnerError`. The same name
+    re-enters and increments the depth counter. Pair with
+    :func:`release_drain_owner`. The event-driven stream drain holds this
+    across VCL callbacks, so it cannot use the context manager (that would
+    drop the owner when the callback returns).
     """
     global _active_owner_name, _drain_depth
     with _drain_lock:
@@ -61,20 +60,40 @@ def drain_owner_scope(owner_name: str) -> Generator[None, None, None]:
         previous_owner = _active_owner_name
         _active_owner_name = owner_name
         _drain_depth += 1
+        return previous_owner
 
+
+def release_drain_owner(previous_owner: str | None) -> None:
+    """Undo one :func:`acquire_drain_owner`. Idle callbacks run at depth 0."""
+    global _active_owner_name, _drain_depth
     became_idle = False
+    with _drain_lock:
+        _drain_depth -= 1
+        if _drain_depth <= 0:
+            _drain_depth = 0
+            _active_owner_name = None
+            became_idle = True
+        else:
+            _active_owner_name = previous_owner
+    if became_idle:
+        _notify_drain_idle()
+
+
+@contextmanager
+def drain_owner_scope(owner_name: str) -> Generator[None, None, None]:
+    """Sentry context manager for main-thread UI event pumping.
+
+    A different owner name raises :class:`NestedDrainOwnerError`. The same name
+    re-enters and increments the depth counter (``pump_ui_idle`` skips VCL when
+    depth > 1). ``run_stream_drain_loop`` still refuses any current owner before
+    taking this scope. The owner may call :func:`pump_ui_idle`; other code must
+    use :func:`process_events_to_idle`, which no-ops VCL while owned.
+    """
+    previous_owner = acquire_drain_owner(owner_name)
     try:
         yield
     finally:
-        with _drain_lock:
-            _drain_depth -= 1
-            if _drain_depth == 0:
-                _active_owner_name = None
-                became_idle = True
-            else:
-                _active_owner_name = previous_owner
-        if became_idle:
-            _notify_drain_idle()
+        release_drain_owner(previous_owner)
 
 
 def get_drain_owner() -> str | None:

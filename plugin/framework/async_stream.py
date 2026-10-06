@@ -17,8 +17,11 @@
 """Unified async stream orchestration for WriterAgent.
 
 Handles both simple streaming and complex tool-calling loops with thinking/status updates.
-Runs blocking API calls on worker threads and drains logic via a main-thread loop
-to keep the LibreOffice UI responsive (pump_ui_idle: QueueExecutor + VCL).
+Runs blocking API calls on worker threads and drains results on the main
+thread. When ``AsyncCallback`` exists, each slice handles the items already
+queued and returns to the VCL loop; the next slice is armed with
+``addCallback`` or a short idle delay. The blocking ``Queue.get`` loop remains
+only when that callback cannot be armed.
 
 Concurrency: the LLM/network work runs on a **background** thread so
 LibreOffice’s UI does not freeze. That worker only ``put``s tuples onto a
@@ -27,9 +30,10 @@ updates widgets. The first element of each tuple must be a
 ``StreamQueueKind`` enum member (not a raw string) so the drain loop can
 tell tokens from errors from “stream finished.” ``BatchingStreamQueue``
 uses a small lock only while coalescing pending text chunks; it does not
-make UNO calls under that lock. While the drain loop is pumping
-LibreOffice events (``processEventsToIdle``), it is the single owner of
-that pump — see ``async_drain_guard``.
+make UNO calls under that lock. While a drain is active it is the single
+owner of the UI pump — see ``async_drain_guard``. The event-driven drain
+holds that owner across callbacks; it does not keep the main thread inside
+one callback for the idle wait.
 """
 
 from __future__ import annotations
@@ -48,7 +52,8 @@ from typing import Any, TypeAlias, Callable, cast
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
-from plugin.framework.queue_executor import NestedDrainOwnerError, _marshal_thread_tag, default_executor, drain_owner_scope, get_drain_owner, pump_ui_idle
+from plugin.framework.async_drain_guard import acquire_drain_owner, release_drain_owner
+from plugin.framework.queue_executor import NestedDrainOwnerError, _marshal_thread_tag, async_callback_for_drain_rearm, default_executor, drain_owner_scope, get_drain_owner, pump_ui_idle
 
 log = logging.getLogger(__name__)
 
@@ -732,11 +737,359 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
         state.job_done[0] = True
 
 
-def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None, flush_pending: Any = None) -> None:
+# Idle re-arm. Same cadence as the old ``Queue.get(0.1)`` wait, inside the
+# 50–100 ms band. Immediate re-arm is used only when items are already queued,
+# so an empty stream does not spin the main thread.
+_DRAIN_IDLE_REARM_SEC = 0.1
+
+# The event-driven session, main thread only. Callers register epilogues on it
+# after ``run_stream_drain_loop`` returns and before the VCL callback unwinds.
+_event_drain: Any = None
+
+
+def defer_until_drain_done(fn: Callable[[], None]) -> None:
+    """Run *fn* when the current event-driven drain finishes.
+
+    The blocking drain has already returned, so *fn* runs now. An event-driven
+    drain returns before the stream ends; *fn* is queued and runs on the main
+    thread after the terminal slice, in registration order. Send completion
+    (``abort_turn``, ``SEND_COMPLETED``) has to go through here or it runs
+    while tokens are still arriving.
     """
-    Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
-    and dispatches to callbacks. Keeps UI responsive via pump_ui_idle (QueueExecutor + VCL).
-    Includes comprehensive error handling to prevent UI thread crashes.
+    # crosshair: off
+    session = _event_drain
+    if session is None or session.closed:
+        fn()
+        return
+    session.epilogues.append(fn)
+
+
+def _drain_ready(q: queue.Queue[Any]) -> list[Any]:
+    """Items already queued. Does not block.
+
+    A blocking ``get`` here would sit inside the VCL callback. That holds
+    SolarMutex for the whole timeout. See :func:`run_stream_drain_loop`.
+    """
+    # crosshair: off
+    items: list[Any] = []
+    try:
+        while True:
+            items.append(q.get_nowait())
+    except queue.Empty:
+        return items
+
+
+class _IdleRearmThread:
+    """One dedicated thread that pokes the main thread after a delay.
+
+    A fresh thread per idle would churn for the whole stream. ``arm`` only
+    moves the deadline. The thread never touches UNO objects it created;
+    the fire callable (``addCallback``) is the same one workers already use.
+    """
+
+    def __init__(self) -> None:
+        # crosshair: off
+        self._cv = threading.Condition()
+        self._deadline: float | None = None
+        self._fire: Callable[[], None] | None = None
+        self._generation = 0
+        self._started = False
+        self._stopped = False
+
+    def arm(self, delay: float, fire: Callable[[], None]) -> None:
+        # crosshair: off
+        with self._cv:
+            if self._stopped:
+                return
+            self._generation += 1
+            self._fire = fire
+            self._deadline = time.monotonic() + delay
+            if not self._started:
+                run_in_background(self._run, name="drain-rearm", dedicated=True)
+                self._started = True
+            self._cv.notify()
+
+    def cancel(self) -> None:
+        # crosshair: off
+        with self._cv:
+            self._generation += 1
+            self._deadline = None
+            self._fire = None
+            self._cv.notify()
+
+    def stop(self) -> None:
+        # crosshair: off
+        with self._cv:
+            self._stopped = True
+            self._deadline = None
+            self._fire = None
+            self._cv.notify()
+
+    def _run(self) -> None:
+        # crosshair: off
+        while True:
+            with self._cv:
+                while self._deadline is None and not self._stopped:
+                    self._cv.wait()
+                if self._stopped:
+                    return
+                deadline = self._deadline
+                generation = self._generation
+                fire = self._fire
+                if deadline is None or fire is None:
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    self._cv.wait(timeout=remaining)
+                    continue
+                if generation != self._generation:
+                    continue
+                self._deadline = None
+                self._fire = None
+            try:
+                fire()
+            except Exception:
+                log.exception("drain idle re-arm failed")
+
+
+def _new_xcallback(fn: Callable[[], None]) -> Any:
+    """UNO ``XCallback`` whose ``notify`` runs *fn* on the main thread."""
+    # crosshair: off
+    import unohelper
+    from com.sun.star.awt import XCallback
+
+    class _SliceCallback(unohelper.Base, XCallback):
+        def notify(self, aData: Any) -> None:
+            del aData
+            fn()
+
+    return _SliceCallback()
+
+
+class _AsyncCallbackRearm:
+    """Re-arm a drain slice via ``AsyncCallback.addCallback``.
+
+    ``post`` must not run *fn* on the caller. ``QueueExecutor.post`` does that
+    under ``WRITERAGENT_TESTING``, which would put the loop back on this stack.
+    ``addCallback`` queues a user event and returns (LibreOffice
+    ``AsyncCallback``). The idle path sleeps on a dedicated thread, then
+    calls ``addCallback`` so the wait is not inside the VCL callback.
+
+    Do not put these slices on the send-scoped work queue. Stop's
+    ``cancel_pending_work`` would drop the next slice, and the drain would
+    never see the stop checker or run its epilogue.
+    """
+
+    def __init__(self, service: Any) -> None:
+        # crosshair: off
+        self._service = service
+        self._lock = threading.Lock()
+        self._target: Callable[[], None] | None = None
+        # Created on the main thread. The timer thread only calls addCallback.
+        self._callback = _new_xcallback(self._notify)
+        self._timer = _IdleRearmThread()
+
+    def _notify(self) -> None:
+        # crosshair: off
+        with self._lock:
+            target = self._target
+        if target is not None:
+            target()
+
+    def _poke(self) -> None:
+        # crosshair: off
+        self._service.addCallback(self._callback, None)
+
+    def post(self, fn: Callable[[], None]) -> None:
+        # crosshair: off
+        self._timer.cancel()
+        with self._lock:
+            self._target = fn
+        self._poke()
+
+    def post_after(self, delay: float, fn: Callable[[], None]) -> None:
+        # crosshair: off
+        def _fire() -> None:
+            with self._lock:
+                self._target = fn
+            self._poke()
+
+        self._timer.arm(delay, _fire)
+
+    def close(self) -> None:
+        # crosshair: off
+        self._timer.stop()
+
+
+class _EventDrain:
+    """One stream drain split across VCL callbacks.
+
+    ``scheduler.post`` / ``post_after`` must not call the slice inline.
+    Tests pass a recording scheduler. Production uses
+    :class:`_AsyncCallbackRearm`.
+    """
+
+    def __init__(self, state: _DrainState, scheduler: Any, stop_checker: Callable[[], bool] | None, flush_pending: Callable[[], None] | None) -> None:
+        # crosshair: off
+        self._state = state
+        self._scheduler = scheduler
+        self._stop_checker = stop_checker
+        self._flush_pending = flush_pending
+        self.epilogues: list[Callable[[], None]] = []
+        self.closed = False
+        self._held = False
+        self._previous_owner: str | None = None
+        self._generation = 0
+
+    def start(self) -> None:
+        """Take the pump owner and arm the first slice. Does not process items."""
+        # crosshair: off
+        global _event_drain
+        self._previous_owner = acquire_drain_owner("stream")
+        self._held = True
+        _event_drain = self
+        try:
+            self._schedule_next(idle=False)
+        except Exception as exc:
+            log.exception("event drain failed to arm")
+            self._report_slice_error(exc)
+            self._state.job_done[0] = True
+            self._finish()
+
+    def _schedule_next(self, *, idle: bool) -> None:
+        # crosshair: off
+        if self.closed:
+            return
+        self._generation += 1
+        generation = self._generation
+
+        def _run() -> None:
+            # A superseded idle callback must not apply items from a later turn.
+            if self.closed or generation != self._generation:
+                return
+            self._slice()
+
+        if idle:
+            self._scheduler.post_after(_DRAIN_IDLE_REARM_SEC, _run)
+        else:
+            self._scheduler.post(_run)
+
+    def _report_slice_error(self, exc: BaseException) -> None:
+        # crosshair: off
+        try:
+            self._state.on_error(format_error_payload(exc))
+        except Exception:
+            log.exception("event drain on_error failed")
+
+    def _slice(self) -> None:
+        """Process the ready batch, then return. Do not wait here.
+
+        Why this must not loop: the slice runs inside a VCL callback, which
+        already holds SolarMutex (recursive). ``VCLXToolkit::processEventsToIdle``
+        takes another ``SolarMutexGuard`` for the whole call
+        (toolkit/source/awt/vclxtoolkit.cxx). GTK's ``Yield`` releases that
+        mutex only during ``g_main_context_iteration``, and the drain used to
+        spend the rest of each idle in ``Queue.get(0.1)`` back in Python, so
+        the acquire count was non-zero again. A worker GC that drops a PyUNO
+        proxy takes SolarMutex from the C++ destructor while that worker holds
+        the GIL; the main thread then cannot leave ``get`` or enter the next
+        yield. Returning to the top-level VCL loop drops both. Do not put the
+        ``while`` back, and do not call ``processEventsToIdle`` from this
+        slice — paints that create hidden documents keep that nested loop from
+        returning, and the executor's own ``AsyncCallback`` runs marshaled UNO
+        once this callback has returned.
+        """
+        # crosshair: off
+        if self.closed:
+            return
+        state = self._state
+        try:
+            if self._stop_checker and self._stop_checker():
+                log.info("run_stream_drain_loop: Stop requested via checker.")
+                _finish_on_stop(state, self._flush_pending)
+                self._finish()
+                return
+            try:
+                items = _drain_ready(state.q)
+            except Exception as exc:
+                log.exception("Stream queue drain failed")
+                self._report_slice_error(exc)
+                state.job_done[0] = True
+                self._finish()
+                return
+            if items:
+                try:
+                    _process_batch(state, items, self._stop_checker, self._flush_pending)
+                except Exception as exc:
+                    log.exception("run_stream_drain_loop batch processing failed")
+                    state.job_done[0] = True
+                    self._report_slice_error(exc)
+                    self._finish()
+                    return
+            if state.job_done[0]:
+                self._finish()
+                return
+            # apply_chunk can be slow enough for the worker to queue the next
+            # batch. Take that on the next callback. An empty queue waits,
+            # otherwise a quiet stream busy-spins addCallback.
+            try:
+                pending = state.q.qsize()
+            except Exception:
+                pending = 0
+            self._schedule_next(idle=pending == 0)
+        except Exception as exc:
+            log.exception("event drain slice failed")
+            self._report_slice_error(exc)
+            state.job_done[0] = True
+            self._finish()
+
+    def _finish(self) -> None:
+        """Release the pump owner, then run epilogues. Later slices are no-ops."""
+        # crosshair: off
+        global _event_drain
+        if self.closed:
+            return
+        self.closed = True
+        self._generation += 1
+        if _event_drain is self:
+            _event_drain = None
+        closer = getattr(self._scheduler, "close", None)
+        if closer is not None:
+            try:
+                closer()
+            except Exception:
+                log.exception("drain re-arm close failed")
+        if self._held:
+            self._held = False
+            # Idle callbacks see a free pump, same as the blocking loop exiting
+            # its ``with`` before the caller continues.
+            release_drain_owner(self._previous_owner)
+        epilogues = self.epilogues
+        self.epilogues = []
+        for fn in epilogues:
+            try:
+                fn()
+            except Exception:
+                log.exception("drain epilogue failed")
+
+
+def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None, flush_pending: Any = None, *, rearm: Any = None) -> None:
+    """
+    Main-thread drain: batches items from the queue, manages thinking/chunk
+    buffers, and dispatches to callbacks.
+
+    When *rearm* is passed, or ``AsyncCallback`` can be armed, process the
+    items already queued and return to the VCL loop. The next slice is an
+    ``addCallback`` (queue non-empty) or a ~100 ms idle re-arm (queue empty).
+    Callers that used to run after this function returns must use
+    :func:`defer_until_drain_done` so that work still waits for the terminal
+    slice. Without a callback (unit tests, eval harness, force-marshal) the
+    blocking loop below is unchanged, including ``pump_ui_idle``.
+
+    Do not fold the slices back into one ``while`` inside the callback. That
+    holds SolarMutex across the idle wait; a worker freeing a PyUNO proxy
+    then blocks in the proxy destructor until this callback returns. See
+    :meth:`_EventDrain._slice`.
 
     Supported queue items (kind, *args); kind must be :class:`StreamQueueKind`:
     - (CHUNK, text): Applied via apply_chunk_fn(text, is_thinking=False).
@@ -763,9 +1116,59 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     # crosshair: off
     state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
     log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
+    scheduler = rearm if rearm is not None else _make_drain_rearm()
+    if scheduler is None:
+        _run_stream_drain_blocking(state, toolkit, stop_checker, flush_pending)
+        return
     try:
         # Same-name nesting is legal for a peer execute under an existing scope.
         # A different drain owner (e.g. MCP) must be rejected so pumps do not conflict.
+        existing_owner = get_drain_owner()
+        if existing_owner is not None and existing_owner != "stream":
+            raise NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
+        _EventDrain(state, scheduler, stop_checker, flush_pending).start()
+    except NestedDrainOwnerError as exc:
+        error_payload = format_error_payload(exc)
+        log.exception("Nested stream drain rejected")
+        try:
+            on_error(error_payload)
+        except Exception:
+            log.exception("Failed to notify error handler for nested drain")
+        job_done[0] = True
+    except Exception as exc:
+        error_payload = format_error_payload(exc)
+        log.exception("Stream drain loop crashed")
+        try:
+            on_error(error_payload)
+        except Exception:
+            log.exception("Failed to notify error handler")
+        job_done[0] = True
+
+
+def _make_drain_rearm() -> _AsyncCallbackRearm | None:
+    """Production re-arm, or None when the blocking loop must be used."""
+    # crosshair: off
+    service = async_callback_for_drain_rearm()
+    if service is None:
+        return None
+    try:
+        return _AsyncCallbackRearm(service)
+    except Exception:
+        log.exception("AsyncCallback re-arm unavailable; blocking drain")
+        return None
+
+
+def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: Any, flush_pending: Any) -> None:
+    """Blocking drain used when ``AsyncCallback`` cannot take the next slice.
+
+    Unit tests and the eval harness have no VCL callback to return to.
+    Do not use this loop when ``addCallback`` works. See :meth:`_EventDrain._slice`.
+    """
+    # crosshair: off
+    q = state.q
+    job_done = state.job_done
+    on_error = state.on_error
+    try:
         # What was wrong: commit 8ea060d0d rejected any existing_owner even when it was
         # "stream", breaking dual-deck peer send drains with NestedDrainOwnerError.
         # How it happened: get_drain_owner() was checked for any truthy value.
@@ -774,7 +1177,6 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
         existing_owner = get_drain_owner()
         if existing_owner is not None and existing_owner != "stream":
             raise NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
-        # One active drain owner: nested Send/drain must not start a second pump loop.
         with drain_owner_scope("stream"):
             while not job_done[0]:
                 if stop_checker and stop_checker():
@@ -1166,6 +1568,11 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     *stop_checker* (notebook Stop): poll the queue with a short timeout and
     return via :class:`BlockingWaitStopped` when the predicate is true. Never
     pumps VCL for that poll — same LayoutIdle livelock as ``pump_idle=False``.
+
+    This wait is not the chat stream drain. Do not turn it into the
+    event-driven slice scheduler: ``pump_idle=False`` (notebook cells,
+    ``=PROMPT()``) must not return to the VCL loop, and ``pump_idle=True``
+    still has to block the caller until *func* returns.
 
     Never runs *func* on the caller thread: a missing Toolkit used to fall back
     to a synchronous call, which blocked recalc with no worker isolation.

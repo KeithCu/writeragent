@@ -2033,3 +2033,243 @@ def test_run_stream_drain_loop_error_clears_defer_next_tool_exit():
 
     assert "replacement1" in applied
     assert "replacement2" in applied
+
+
+class _RecordingRearm:
+    """Scheduler that records slices. ``post`` does not run them inline."""
+
+    def __init__(self) -> None:
+        self.pending: list[tuple[str, float | None, object]] = []
+
+    def post(self, fn: object) -> None:
+        self.pending.append(("now", None, fn))
+
+    def post_after(self, delay: float, fn: object) -> None:
+        self.pending.append(("later", delay, fn))
+
+    def pump(self) -> tuple[str, float | None]:
+        kind, delay, fn = self.pending.pop(0)
+        fn()
+        return kind, delay
+
+
+def _clear_event_drain() -> None:
+    from plugin.framework import async_stream as stream_mod
+    from plugin.framework.async_drain_guard import reset_sentry_state
+
+    session = stream_mod._event_drain
+    if session is not None and not session.closed:
+        session._finish()
+    stream_mod._event_drain = None
+    reset_sentry_state()
+
+
+def test_defer_until_drain_done_runs_immediately_when_blocking() -> None:
+    from plugin.framework.async_stream import defer_until_drain_done
+
+    seen: list[str] = []
+    defer_until_drain_done(lambda: seen.append("now"))
+    assert seen == ["now"]
+
+
+def test_async_callback_for_drain_rearm_keeps_testing_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock-sidebar soffice sets WRITERAGENT_TESTING. Re-arm must still be possible."""
+    from plugin.framework import queue_executor as qe
+
+    sentinel = object()
+    executor = qe.default_executor
+    previous_service = executor._async_callback_service
+    previous_ctx = executor._ctx
+    executor._async_callback_service = sentinel
+    try:
+        monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+        assert qe.async_callback_for_drain_rearm() is sentinel
+        qe.set_force_marshal_mode(True)
+        try:
+            assert qe.async_callback_for_drain_rearm() is None
+        finally:
+            qe.set_force_marshal_mode(False)
+        executor._async_callback_service = MagicMock()
+        executor._ctx = MagicMock()
+        assert qe.async_callback_for_drain_rearm() is None
+    finally:
+        executor._async_callback_service = previous_service
+        executor._ctx = previous_ctx
+
+
+def test_event_drain_batches_one_slice_and_stops_on_terminal() -> None:
+    """Ready items are one batch. STREAM_DONE ends the session and does not re-arm."""
+    rearm = _RecordingRearm()
+    q: queue.Queue = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "a"))
+    q.put((StreamQueueKind.STATUS, "s"))
+    q.put((StreamQueueKind.CHUNK, "b"))
+    q.put((StreamQueueKind.STREAM_DONE, "end"))
+    applied: list[str] = []
+    statuses: list[str] = []
+    done: list[object] = []
+    epilogue: list[str] = []
+    job_done = [False]
+    toolkit = DummyToolkit()
+    try:
+        from plugin.framework.async_stream import defer_until_drain_done
+
+        run_stream_drain_loop(
+            q,
+            toolkit,
+            job_done,
+            lambda text, _thinking: applied.append(text),
+            on_stream_done=lambda item: done.append(item) or True,
+            on_stopped=lambda: None,
+            on_error=lambda _e: None,
+            on_status_fn=statuses.append,
+            rearm=rearm,
+        )
+        assert job_done[0] is False
+        assert applied == []
+        defer_until_drain_done(lambda: epilogue.append("after"))
+        assert epilogue == []
+        kind, delay = rearm.pump()
+        assert (kind, delay) == ("now", None)
+        assert statuses == ["s"]
+        assert applied == ["ab"]
+        assert done and done[0][0] == StreamQueueKind.STREAM_DONE
+        assert epilogue == ["after"]
+        assert job_done[0] is True
+        assert rearm.pending == []
+        assert toolkit.idle_calls == 0
+    finally:
+        _clear_event_drain()
+
+
+def test_event_drain_rearms_idle_then_next_batch() -> None:
+    """An empty queue waits ~100 ms. The next slice keeps order."""
+    from plugin.framework.async_stream import _DRAIN_IDLE_REARM_SEC
+
+    rearm = _RecordingRearm()
+    q: queue.Queue = queue.Queue()
+    applied: list[str] = []
+    job_done = [False]
+    try:
+        run_stream_drain_loop(
+            q,
+            DummyToolkit(),
+            job_done,
+            lambda text, _thinking: applied.append(text),
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda _e: None,
+            rearm=rearm,
+        )
+        assert rearm.pump() == ("now", None)
+        assert applied == []
+        kind, delay = rearm.pending[0][0], rearm.pending[0][1]
+        assert kind == "later"
+        assert delay == _DRAIN_IDLE_REARM_SEC
+        q.put((StreamQueueKind.CHUNK, "one"))
+        rearm.pump()
+        assert applied == ["one"]
+        q.put((StreamQueueKind.CHUNK, "two"))
+        q.put((StreamQueueKind.STREAM_DONE, None))
+        rearm.pump()
+        assert applied == ["one", "two"]
+        assert job_done[0] is True
+        assert rearm.pending == []
+    finally:
+        _clear_event_drain()
+
+
+def test_event_drain_recovered_error_rearms_and_fatal_error_does_not() -> None:
+    rearm = _RecordingRearm()
+    q: queue.Queue = queue.Queue()
+    q.put((StreamQueueKind.ERROR, {"message": "boom"}))
+    q.put((StreamQueueKind.CHUNK, "tail"))
+    errors: list[object] = []
+    applied: list[str] = []
+    job_done = [False]
+    try:
+        run_stream_drain_loop(
+            q,
+            None,
+            job_done,
+            lambda text, _thinking: applied.append(text),
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda payload: errors.append(payload) or True,
+            rearm=rearm,
+        )
+        rearm.pump()
+        assert errors
+        assert applied == []
+        assert job_done[0] is False
+        assert rearm.pending and rearm.pending[0][0] == "later"
+        q.put((StreamQueueKind.STREAM_DONE, "ok"))
+        rearm.pump()
+        assert job_done[0] is True
+    finally:
+        _clear_event_drain()
+
+    rearm = _RecordingRearm()
+    q = queue.Queue()
+    q.put((StreamQueueKind.ERROR, {"message": "fatal"}))
+    job_done = [False]
+    try:
+        run_stream_drain_loop(
+            q,
+            None,
+            job_done,
+            lambda _t, _th: None,
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda _payload: False,
+            rearm=rearm,
+        )
+        rearm.pump()
+        assert job_done[0] is True
+        assert rearm.pending == []
+    finally:
+        _clear_event_drain()
+
+
+def test_event_drain_stop_drops_control_tail_and_closed_slice_drops_late_chunks() -> None:
+    """Stop still shows queued text and does not dispatch STREAM_DONE.
+
+    A slice that fires after the session closed must not apply a chunk from
+    a stopped or replaced turn.
+    """
+    rearm = _RecordingRearm()
+    q: queue.Queue = queue.Queue()
+    applied: list[str] = []
+    done: list[object] = []
+    stopped: list[bool] = []
+    stop = [False]
+    job_done = [False]
+    try:
+        run_stream_drain_loop(
+            q,
+            DummyToolkit(),
+            job_done,
+            lambda text, _thinking: applied.append(text),
+            on_stream_done=lambda item: done.append(item) or True,
+            on_stopped=lambda: stopped.append(True),
+            on_error=lambda _e: None,
+            stop_checker=lambda: stop[0],
+            rearm=rearm,
+        )
+        rearm.pump()
+        assert rearm.pending[0][0] == "later"
+        stale = rearm.pending[0][2]
+        stop[0] = True
+        q.put((StreamQueueKind.CHUNK, "tail"))
+        q.put((StreamQueueKind.STREAM_DONE, "nope"))
+        rearm.pump()
+        assert applied == ["tail"]
+        assert done == []
+        assert stopped == [True]
+        assert job_done[0] is True
+        q.put((StreamQueueKind.CHUNK, "next-turn"))
+        stale()
+        assert applied == ["tail"]
+        assert done == []
+    finally:
+        _clear_event_drain()
