@@ -1609,7 +1609,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _run_send_drain(self) -> None:
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
-        from plugin.framework.i18n import _
         from plugin.framework.queue_executor import agent_session
 
         # A drain posted before StartSend learned STT was in flight must not
@@ -1618,127 +1617,165 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             log.info("Nested send drain ignored during speech-to-text")
             return
 
+        # The event-driven drain returns before the stream ends. Exiting
+        # agent_session and running SEND_COMPLETED on that return would clear
+        # the stop scope and abort the turn while chunks are still landing.
+        # defer_until_drain_done runs this close on the terminal slice; the
+        # blocking drain has already finished, so it runs now.
+        from plugin.framework.async_stream import clear_drain_capture, defer_until_drain_done
+
+        # Another document's drain may still be open; this send must not
+        # defer its completion onto it.
+        clear_drain_capture()
+        cm = agent_session(getattr(self, "_send_cancellation", None))
+        entered = False
+        exit_error: list[BaseException | None] = [None]
         try:
-            with agent_session(getattr(self, "_send_cancellation", None)) as cancel_scope:
-                # Safe now: this callback is already running, not a pending post.
-                cancel_scope.bind_executor(self.queue_executor)
-                self._send_cancellation = cancel_scope
-                if cancel_scope.is_cancelled() or self._stop_requested_fallback:
-                    log.info("Send drain skipped (Stop before drain started)")
-                    return
-                self._do_send()
+            cancel_scope = cm.__enter__()
+            entered = True
+            # Safe now: this callback is already running, not a pending post.
+            cancel_scope.bind_executor(self.queue_executor)
+            self._send_cancellation = cancel_scope
+            if cancel_scope.is_cancelled() or self._stop_requested_fallback:
+                log.info("Send drain skipped (Stop before drain started)")
+                return
+            self._do_send()
         except Exception as e:
+            exit_error[0] = e
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
-            # The drain aborts the turn in its finally before this runs, so
-            # _append_response would treat the line as a late chunk and drop it.
-            self._project_closing_line("\n\n[Error: %s]\n" % str(e))
-            self._terminal_status = "Error"
         finally:
-            update_activity_state("")
-            # Dispose runs inside this drain, then sets ctx to None. The
-            # completion dispatch writes the status line, and the rest starts
-            # TTS or arms the mic on a dead panel.
-            # What was wrong: an inner finally cleared _send_cancellation even
-            # when disposing had just cancelled that scope, so a late reader
-            # saw None on a dead panel.
-            # Why: drop the field only while the panel is still alive.
-            try:
-                if not self._panel_teardown:
-                    self._send_cancellation = None
-                    if self._terminal_status == "Error":
-                        self.clear_pending_audio_wav()
-                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                    else:
-                        self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                        self._sync_has_text_from_query()
-                        if self._terminal_status:
-                            self._set_status(_(self._terminal_status))
-                        try:
-                            from plugin.framework.config import get_config_bool_safe
-                            # What was wrong: checking an alive turn failed because the tool loop finally
-                            # had already run abort_turn(self), marking the turn not alive.
-                            # Why this change: speak from session_for_turn(self) (valid until drop_turn)
-                            # whenever TTS is enabled and terminal status is not Stopped.
-                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
-                                from plugin.chatbot.tool_loop_actions import session_for_turn
+            def _close_send_drain() -> None:
+                err = exit_error[0]
+                if entered:
+                    try:
+                        if err is None:
+                            cm.__exit__(None, None, None)
+                        else:
+                            cm.__exit__(type(err), err, err.__traceback__)
+                    except Exception:
+                        log.exception("send drain agent_session close failed")
+                if err is not None:
+                    # The tool-loop epilogue already aborted the turn, so
+                    # _append_response would treat this as a late chunk.
+                    self._project_closing_line("\n\n[Error: %s]\n" % str(err))
+                    self._terminal_status = "Error"
+                self._finish_send_drain_ui()
 
-                                spoken = session_for_turn(self)
-                                if spoken and spoken.messages:
-                                    last_msg = spoken.messages[-1]
-                                    if last_msg.get("role") == "assistant" and last_msg.get("content"):
-                                        from plugin.chatbot.tool_loop_actions import _STOP_LINE
-                                        content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
-                                        if content_to_speak.strip():
-                                            from plugin.audio.tts_service import speak_text_async, is_speaking
+            defer_until_drain_done(_close_send_drain)
 
-                                            # Restore the send-complete status after download/fallback lines.
-                                            prior_status = self._terminal_status or "Ready"
+    def _finish_send_drain_ui(self) -> None:
+        """SEND_COMPLETED, TTS, and drop_turn after the stream drain is done."""
+        from plugin.framework.i18n import _
 
-                                            def _on_tts_status(message: str) -> None:
-                                                # Speech runs on a worker; the status control is a UNO widget.
-                                                def _apply() -> None:
-                                                    self._set_status(message)
+        update_activity_state("")
+        # Dispose runs inside this drain, then sets ctx to None. The
+        # completion dispatch writes the status line, and the rest starts
+        # TTS or arms the mic on a dead panel.
+        # What was wrong: an inner finally cleared _send_cancellation even
+        # when disposing had just cancelled that scope, so a late reader
+        # saw None on a dead panel.
+        # Why: drop the field only while the panel is still alive.
+        try:
+            if not self._panel_teardown:
+                self._send_cancellation = None
+                if self._terminal_status == "Error":
+                    self.clear_pending_audio_wav()
+                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                else:
+                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                    self._sync_has_text_from_query()
+                    if self._terminal_status:
+                        self._set_status(_(self._terminal_status))
+                    try:
+                        from plugin.framework.config import get_config_bool_safe
+                        # What was wrong: checking an alive turn failed because the tool loop finally
+                        # had already run abort_turn(self), marking the turn not alive.
+                        # Why this change: speak from session_for_turn(self) (valid until drop_turn)
+                        # whenever TTS is enabled and terminal status is not Stopped.
+                        if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
+                            from plugin.chatbot.tool_loop_actions import session_for_turn
 
-                                                try:
-                                                    self.queue_executor.post(_apply)
-                                                except Exception:
-                                                    log.debug("TTS status post failed", exc_info=True)
+                            spoken = session_for_turn(self)
+                            if spoken and spoken.messages:
+                                last_msg = spoken.messages[-1]
+                                if last_msg.get("role") == "assistant" and last_msg.get("content"):
+                                    from plugin.chatbot.tool_loop_actions import _STOP_LINE
+                                    content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
+                                    if content_to_speak.strip():
+                                        from plugin.audio.tts_service import speak_text_async, is_speaking
 
-                                            def _on_speech_complete() -> None:
-                                                def _disable_stop() -> None:
-                                                    if not getattr(self, "_send_busy", False):
-                                                        if self.stop_control and self.stop_control.getModel():
-                                                            with suppress_disposed("disable stop after speech", logger=log):
-                                                                self.stop_control.getModel().Enabled = False
-                                                        # A sticky restart may already be capturing; Ready would hide it.
-                                                        if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
-                                                            self._set_status(hands_free_status_text())
-                                                        else:
-                                                            self._set_status(_(prior_status))
-                                                self.queue_executor.post(_disable_stop)
+                                        # Restore the send-complete status after download/fallback lines.
+                                        prior_status = self._terminal_status or "Ready"
 
-                                            speak_text_async(
-                                                content_to_speak,
-                                                on_complete=_on_speech_complete,
-                                                on_status=_on_tts_status,
-                                                # Sentence breaks use BreakIterator on this UI
-                                                # thread. The audio worker only receives the list.
-                                                ctx=self.ctx,
-                                            )
-                                            if is_speaking():
-                                                if self.stop_control and self.stop_control.getModel():
-                                                    with suppress_disposed("enable stop for speech", logger=log):
-                                                        self.stop_control.getModel().Enabled = True
-                        except Exception as e:
-                            log.debug("TTS playback trigger: %s", e)
-                        self._flush_sticky_restart()
-            finally:
-                # What was wrong: commit 588704555 returned early when content_to_speak was empty,
-                # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
-                # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
-                # finally so no early return or TTS exception can leak active_turns.
-                from plugin.chatbot.tool_loop_actions import drop_turn, session_for_turn
-                from plugin.doc.peer_message import kick_pending_peer_starts
+                                        def _on_tts_status(message: str) -> None:
+                                            # Speech runs on a worker; the status control is a UNO widget.
+                                            def _apply() -> None:
+                                                self._set_status(message)
 
-                sess = session_for_turn(self) or getattr(self, "session", None)
-                if sess and getattr(sess, "messages", None):
-                    # Ensure in-memory audio is not resent on the next turn.
-                    # Iterate backwards to find the last user message.
-                    for msg in reversed(sess.messages):
-                        if msg.get("role") == "user":
-                            content = msg.get("content")
-                            if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
-                                kept_parts = [c for c in content if c.get("type") != "input_audio"]
-                                if kept_parts:
-                                    msg["content"] = kept_parts
-                                else:
-                                    msg["content"] = _("[Voice message]")
-                            break
+                                            try:
+                                                self.queue_executor.post(_apply)
+                                            except Exception:
+                                                log.debug("TTS status post failed", exc_info=True)
 
-                # Spoken text was copied above. Later callbacks must not find this turn.
-                drop_turn(self)
-                kick_pending_peer_starts()
+                                        def _on_speech_complete() -> None:
+                                            def _disable_stop() -> None:
+                                                if not getattr(self, "_send_busy", False):
+                                                    if self.stop_control and self.stop_control.getModel():
+                                                        with suppress_disposed("disable stop after speech", logger=log):
+                                                            self.stop_control.getModel().Enabled = False
+                                                    # A sticky restart may already be capturing; Ready would hide it.
+                                                    if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
+                                                        self._set_status(hands_free_status_text())
+                                                    else:
+                                                        self._set_status(_(prior_status))
+                                            self.queue_executor.post(_disable_stop)
+
+                                        speak_text_async(
+                                            content_to_speak,
+                                            on_complete=_on_speech_complete,
+                                            on_status=_on_tts_status,
+                                            # Sentence breaks use BreakIterator on this UI
+                                            # thread. The audio worker only receives the list.
+                                            ctx=self.ctx,
+                                        )
+                                        if is_speaking():
+                                            if self.stop_control and self.stop_control.getModel():
+                                                with suppress_disposed("enable stop for speech", logger=log):
+                                                    self.stop_control.getModel().Enabled = True
+                    except Exception as e:
+                        log.debug("TTS playback trigger: %s", e)
+                    self._flush_sticky_restart()
+        finally:
+            # What was wrong: commit 588704555 returned early when content_to_speak was empty,
+            # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
+            # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
+            # finally so no early return or TTS exception can leak active_turns.
+            from plugin.chatbot.tool_loop_actions import drop_turn, session_for_turn
+            from plugin.doc.peer_message import kick_pending_peer_starts
+
+            # This runs once per turn, from the deferred drain-done close
+            # (_close_send_drain), on success, Stop and error alike. A slice
+            # returning mid-stream does not reach here, so the audio the model
+            # is still answering is not stripped early.
+            sess = session_for_turn(self) or getattr(self, "session", None)
+            if sess and getattr(sess, "messages", None):
+                # Ensure in-memory audio is not resent on the next turn.
+                # Iterate backwards to find the last user message.
+                for msg in reversed(sess.messages):
+                    if msg.get("role") == "user":
+                        content = msg.get("content")
+                        if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
+                            kept_parts = [c for c in content if c.get("type") != "input_audio"]
+                            if kept_parts:
+                                msg["content"] = kept_parts
+                            else:
+                                msg["content"] = _("[Voice message]")
+                        break
+
+            # Spoken text was copied above. Later callbacks must not find this turn.
+            drop_turn(self)
+            kick_pending_peer_starts()
 
     def _get_doc_type_str(self, model: Any) -> str:
         from plugin.doc.doc_type import doc_type_title_for_label
@@ -2015,61 +2052,82 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         handling that a peer turn must not trigger.
         """
         from plugin.framework.i18n import _
+        from plugin.framework.async_stream import clear_drain_capture, defer_until_drain_done
         from plugin.framework.queue_executor import SendCancellation, agent_session
+
+        clear_drain_capture()
 
         query_text = getattr(self, "_extracted_peer_query", "") or ""
         already_appended = bool(getattr(self, "_extracted_peer_already_appended", True))
         self._stop_requested_fallback = False
         self._terminal_status = "Ready"
+        scope = SendCancellation()
+        self._send_cancellation = scope
+        cm = agent_session(scope)
+        entered = False
+        exit_error: list[BaseException | None] = [None]
         try:
-            scope = SendCancellation()
-            self._send_cancellation = scope
-            with agent_session(scope) as cancel_scope:
-                cancel_scope.bind_executor(self.queue_executor)
-                self._send_cancellation = cancel_scope
-                try:
-                    if cancel_scope.is_cancelled() or self._stop_requested_fallback:
-                        return
-                    self._do_send_extracted_peer(query_text, already_appended=already_appended)
-                finally:
-                    if not getattr(self, "_panel_teardown", False):
-                        self._send_cancellation = None
+            cancel_scope = cm.__enter__()
+            entered = True
+            cancel_scope.bind_executor(self.queue_executor)
+            self._send_cancellation = cancel_scope
+            if not (cancel_scope.is_cancelled() or self._stop_requested_fallback):
+                self._do_send_extracted_peer(query_text, already_appended=already_appended)
         except Exception as e:
+            exit_error[0] = e
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("Extracted peer send unhandled exception [doc: %s]", doc_type_for_log)
-            self._project_closing_line("\n\n[Error: %s]\n" % str(e))
-            self._terminal_status = "Error"
         finally:
-            update_activity_state("")
-            # Same teardown guard as _run_send_drain: completion writes status
-            # and can arm the mic after the sidebar is gone.
-            try:
-                if not self._panel_teardown:
-                    if self._terminal_status == "Error":
-                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                    else:
-                        self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                        self._sync_has_text_from_query()
-                        # Ty: _terminal_status defaults to "Ready", which is unconditionally true.
-                        # _run_send_drain may leave it "" to keep the label as-is, but extracted
-                        # peer ignores those paths. Avoid the redundant if-check.
-                        self._set_status(_(self._terminal_status))
-                        self._flush_sticky_restart()
-            finally:
-                # What was wrong: an exception from the completion dispatch above
-                # skipped drop_turn and kick_pending_peer_starts, leaking the turn
-                # and stalling queued peer turns.
-                # Why this works: same inner finally as _run_send_drain. Drop the
-                # turn after SEND_COMPLETED, never before, so the next peer turn
-                # starts only once this one is finished.
-                from plugin.chatbot.tool_loop_actions import drop_turn
-                from plugin.doc.peer_message import kick_pending_peer_starts
+            def _close_peer_drain() -> None:
+                # Clear the scope only once the drain has finished. Doing it
+                # when the event-driven call returns would drop Stop for the
+                # rest of the turn.
+                if entered and not getattr(self, "_panel_teardown", False):
+                    self._send_cancellation = None
+                err = exit_error[0]
+                if entered:
+                    try:
+                        if err is None:
+                            cm.__exit__(None, None, None)
+                        else:
+                            cm.__exit__(type(err), err, err.__traceback__)
+                    except Exception:
+                        log.exception("peer drain agent_session close failed")
+                if err is not None:
+                    self._project_closing_line("\n\n[Error: %s]\n" % str(err))
+                    self._terminal_status = "Error"
+                update_activity_state("")
+                # Same teardown guard as _run_send_drain: completion writes status
+                # and can arm the mic after the sidebar is gone.
+                try:
+                    if not self._panel_teardown:
+                        if self._terminal_status == "Error":
+                            self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                        else:
+                            self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                            self._sync_has_text_from_query()
+                            # Ty: _terminal_status defaults to "Ready", which is unconditionally true.
+                            # _run_send_drain may leave it "" to keep the label as-is, but extracted
+                            # peer ignores those paths. Avoid the redundant if-check.
+                            self._set_status(_(self._terminal_status))
+                            self._flush_sticky_restart()
+                finally:
+                    # What was wrong: an exception from the completion dispatch above
+                    # skipped drop_turn and kick_pending_peer_starts, leaking the turn
+                    # and stalling queued peer turns.
+                    # Why this works: same inner finally as _run_send_drain. Drop the
+                    # turn after SEND_COMPLETED, never before, so the next peer turn
+                    # starts only once this one is finished.
+                    from plugin.chatbot.tool_loop_actions import drop_turn
+                    from plugin.doc.peer_message import kick_pending_peer_starts
 
-                drop_turn(self)
-                # We kick inline here, not via post like _on_drain_idle, because
-                # SEND_COMPLETED and drop_turn already ran; nesting is bounded by
-                # one full peer turn per hop.
-                kick_pending_peer_starts()
+                    drop_turn(self)
+                    # We kick inline here, not via post like _on_drain_idle, because
+                    # SEND_COMPLETED and drop_turn already ran; nesting is bounded by
+                    # one full peer turn per hop.
+                    kick_pending_peer_starts()
+
+            defer_until_drain_done(_close_peer_drain)
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
         """Force chat-with-tools. No Ask read/clear, no setFocus, no librarian/image."""

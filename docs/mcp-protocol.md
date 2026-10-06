@@ -613,8 +613,7 @@ By having a background Python thread repeatedly schedule an `XCallback`, we guar
 WriterAgent already had the correct threading pattern in `core/async_stream.py` (now `plugin/framework/async_stream.py`):
 
 - **Worker thread** puts items on a `queue.Queue`.
-- **Main thread** runs `run_stream_drain_loop()` — a `while not job_done` loop that calls
-  `q.get(timeout=0.1)` and `toolkit.processEventsToIdle()` on each tick.
+- **Main thread** runs `run_stream_drain_loop()`. With `AsyncCallback` it takes one ready batch and returns to the VCL loop (re-arm via `addCallback`, or ~100 ms when idle). The blocking fallback is `q.get(timeout=0.1)` and `pump_ui_idle` (`processEventsToIdle`) when no callback can be armed.
 
 This IS `main_thread_executor`. Do not reinvent it. The `_Future` class and
 `execute_on_main_thread()` are thin additions on top of this existing pattern:

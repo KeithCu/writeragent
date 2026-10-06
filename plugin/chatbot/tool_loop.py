@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
     from plugin.chatbot.panel import ChatSession
 
-from plugin.framework.async_stream import run_stream_drain_loop, StreamQueueKind, BatchingStreamQueue
+from plugin.framework.async_stream import BatchingStreamQueue, StreamQueueKind, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.errors import format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
@@ -1002,16 +1002,25 @@ class ToolCallingMixin:
                 flush_pending=_flush_active_batcher,
             )
 
-            from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+            def _after_tool_drain() -> None:
+                # Blocking drain: this runs before we return. Event-driven
+                # drain: the function already returned to VCL; this runs on
+                # the terminal slice, still before abort_turn below.
+                from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
-            finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
+                finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
+
+            defer_until_drain_done(_after_tool_drain)
         finally:
-            # The drain has returned. Abort so a timer or a late tool cannot
-            # enqueue. The outer send drain still holds ``_turn`` for the
-            # spoken reply, then drops it.
-            abort_turn(self)
-            self._tool_loop_interpreter = None
-            self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=None)
+            def _end_tool_drain() -> None:
+                # The drain has finished. Abort so a timer or a late tool cannot
+                # enqueue. The outer send drain still holds ``_turn`` for the
+                # spoken reply, then drops it.
+                abort_turn(self)
+                self._tool_loop_interpreter = None
+                self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=None)
+
+            defer_until_drain_done(_end_tool_drain)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Override on ``SendButtonListener`` for real UI. Default: auto-approve (tests / no panel)."""

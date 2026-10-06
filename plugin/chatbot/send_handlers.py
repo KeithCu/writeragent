@@ -19,7 +19,7 @@ import logging
 from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
 
 from plugin.framework.i18n import _
-from plugin.framework.async_stream import StreamQueueKind, run_blocking_in_thread, run_async_worker_with_drain
+from plugin.framework.async_stream import StreamQueueKind, defer_until_drain_done, run_async_worker_with_drain, run_blocking_in_thread
 from plugin.framework.errors import (
     AgentParsingError,
     NetworkError,
@@ -457,9 +457,15 @@ class SendHandlersMixin:
                 on_approval_required=on_approval_callback,
             )
         finally:
-            # Workers that outlive the drain must not enqueue. The send
-            # drain drops ``_turn`` after it has read the reply to speak.
-            abort_turn(self)
+            def _abort_after_drain() -> None:
+                # Workers that outlive the drain must not enqueue. The send
+                # drain drops ``_turn`` after it has read the reply to speak.
+                # Event-driven drains return before the stream ends; aborting
+                # here on the way out would drop the turn while chunks are
+                # still landing.
+                abort_turn(self)
+
+            defer_until_drain_done(_abort_after_drain)
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
         interpreter = EffectInterpreter(self)
@@ -559,18 +565,28 @@ class SendHandlersMixin:
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         self._run_unified_worker_drain_loop(drain_q, run_direct_image, current_state, interpreter)
-        # What was wrong: Image-mode Stop showed no '[Stopped by user]' until a
-        # later repaint. Chat and web call finalize after their drain, which
-        # draws the stop line; the image path never did. Why: same call on Stop.
-        if self.stop_requested:
-            from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
-            finalize_sidebar_assistant_response(self, allow_rerender=False)
-        # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
-        # here made image Stop look like a normal finish. The agent path
-        # below keeps both Error and Stopped.
-        if self._terminal_status not in ("Error", "Stopped"):
-            self._terminal_status = "Ready"
+        def _image_ready() -> None:
+            # Runs when the drain is really done. The event-driven drain returns
+            # to the VCL loop at once, so code placed after the drain call would
+            # run before the queued text and terminal slice are flushed.
+            #
+            # What was wrong (master): Image-mode Stop showed no
+            # '[Stopped by user]' until a later repaint. Chat and web call
+            # finalize after their drain, which draws the stop line; the image
+            # path never did. Why here: the stop line must follow the final
+            # flush, so finalize runs inside this deferred callback.
+            if self.stop_requested:
+                from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+
+                finalize_sidebar_assistant_response(self, allow_rerender=False)
+            # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
+            # here made image Stop look like a normal finish. The agent path
+            # below keeps both Error and Stopped.
+            if self._terminal_status not in ("Error", "Stopped"):
+                self._terminal_status = "Ready"
+
+        defer_until_drain_done(_image_ready)
 
     def _do_send_via_agent_backend(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend (Aider, Hermes). No fallback to built-in on failure."""
@@ -724,9 +740,13 @@ class SendHandlersMixin:
                         log.debug("Error submitting agent backend approval: %s", e)
 
         self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required)
-        if self._terminal_status not in ("Error", "Stopped"):
-            self._terminal_status = "Ready"
-        self._current_agent_backend = None
+
+        def _agent_ready() -> None:
+            if self._terminal_status not in ("Error", "Stopped"):
+                self._terminal_status = "Ready"
+            self._current_agent_backend = None
+
+        defer_until_drain_done(_agent_ready)
 
     def _run_librarian(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the librarian onboarding tool via the sub-agent and stream its result into the response area."""
@@ -1153,9 +1173,12 @@ class SendHandlersMixin:
 
         self._run_unified_worker_drain_loop(drain_q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 
-        from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
+        def _finalize_research() -> None:
+            from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
-        finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
+            finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
+
+        defer_until_drain_done(_finalize_research)
 
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""

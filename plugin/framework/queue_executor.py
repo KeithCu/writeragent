@@ -38,7 +38,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Any, Callable, ClassVar, cast, TYPE_CHECKING
 from plugin.framework.i18n import _
 
@@ -54,6 +54,8 @@ _test_poke_handler: Callable[["QueueExecutor"], None] | None = None
 
 _AGENT_ACTIVE_LOCK = threading.Lock()
 _AGENT_ACTIVE_COUNT = 0
+# Scopes whose agent_session has not exited yet (identity, under the lock).
+_AGENT_OPEN_SCOPES: list["SendCancellation"] = []
 _LLM_REQUEST_LOCK = threading.Lock()
 _GRAMMAR_INFLIGHT_LOCK = threading.Lock()
 _GRAMMAR_INFLIGHT_CV = threading.Condition(_GRAMMAR_INFLIGHT_LOCK)
@@ -277,6 +279,7 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
     token = _current_send_cancellation.set(scope)
     with _AGENT_ACTIVE_LOCK:
         _AGENT_ACTIVE_COUNT += 1
+        _AGENT_OPEN_SCOPES.append(scope)
     abort = True
     try:
         yield scope
@@ -287,9 +290,41 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
         # cancel again when _do_send returns normally after Stop.
         if abort and not scope.is_cancelled():
             scope.cancel()
-        _current_send_cancellation.reset(token)
         with _AGENT_ACTIVE_LOCK:
             _AGENT_ACTIVE_COUNT = max(0, _AGENT_ACTIVE_COUNT - 1)
+            for i, open_scope in enumerate(_AGENT_OPEN_SCOPES):
+                if open_scope is scope:
+                    del _AGENT_OPEN_SCOPES[i]
+                    break
+            previous = token.old_value
+            previous_open = any(open_scope is previous for open_scope in _AGENT_OPEN_SCOPES)
+        _restore_send_cancellation(scope, token, previous_open)
+
+
+def _restore_send_cancellation(scope: SendCancellation, token: Any, previous_open: bool) -> None:
+    """Undo agent_session's ``set`` without resurrecting a finished scope.
+
+    What was wrong: the event-driven drain keeps a session open across VCL
+    callbacks, so two documents' sessions can exit in either order on the
+    main thread. ``ContextVar.reset`` restores the value from when *this*
+    session started. Exiting A first reset B's live scope to None; exiting B
+    then restored A's finished (maybe cancelled) scope, and later main-thread
+    work outside any session was bound to it (posts dropped by its Stop,
+    LLM lane and indexer waits seeing "cancelled").
+    How: leave the variable alone if another session is now current; when
+    this scope is current, restore the earlier value only while that
+    session is still open, otherwise None. Strict nesting behaves as before.
+    """
+    if _current_send_cancellation.get() is not scope:
+        return
+    try:
+        if previous_open or token.old_value is None or token.old_value is Token.MISSING:
+            _current_send_cancellation.reset(token)
+        else:
+            _current_send_cancellation.set(None)
+    except ValueError:
+        # Token from another Context (exit on a different thread/context).
+        _current_send_cancellation.set(None)
 
 
 def is_agent_active() -> bool:
@@ -994,6 +1029,47 @@ class QueueExecutor:
 # We can keep a global default instance to mimic the old main_thread behavior
 # until everything is fully DI injected.
 default_executor = QueueExecutor()
+
+
+def _is_unittest_mock(obj: Any) -> bool:
+    """True for ``MagicMock`` / ``Mock``. Those must not arm the event-driven drain.
+
+    A unit test that sets a component context leaves ``createInstance`` returning
+    a mock ``AsyncCallback``. Treating that as real makes ``run_stream_drain_loop``
+    return before it reads the queue, and every later test in the process fails.
+    """
+    return obj is not None and type(obj).__module__ == "unittest.mock"
+
+
+def async_callback_for_drain_rearm() -> Any | None:
+    """Live ``AsyncCallback`` service for the stream drain, or None.
+
+    None means the drain must keep its blocking loop (unit tests, the eval
+    harness, force-marshal). ``WRITERAGENT_TESTING`` is not a reason to return
+    None: that flag makes :meth:`QueueExecutor.post` run inline, and an inline
+    re-arm would sit on this stack again. The drain calls ``addCallback``
+    directly so the mock-sidebar soffice (which sets the flag) still returns
+    to the VCL loop between batches. A ``unittest.mock`` context or service
+    is not a live callback.
+    """
+    import os
+
+    if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
+        return None
+    if _force_marshal_mode or _test_poke_handler is not None:
+        return None
+    service = default_executor._async_callback_service
+    if _is_unittest_mock(service):
+        return None
+    if service is not None:
+        return service
+    ctx = default_executor._ctx
+    if ctx is None or _is_unittest_mock(ctx):
+        return None
+    created = default_executor._get_async_callback()
+    if _is_unittest_mock(created):
+        return None
+    return created
 
 
 def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> Any:
