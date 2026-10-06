@@ -13,7 +13,9 @@ from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.panel_resize import (
     _PanelResizeListener,
+    column_right_margin,
     compute_chat_panel_layout,
+    fit_snapshot_min_heights,
 )
 
 
@@ -100,7 +102,7 @@ class TestComputeChatPanelLayout:
 
     def test_stretch_controls_fill_column(self):
         layouts = compute_chat_panel_layout(900, 500, _xdl_snapshot())
-        right = 900 - 4
+        right = 900 - column_right_margin(_xdl_snapshot())
         for name in ("status", "query", "chat_mode_selector", "model_selector"):
             rect = layouts[name]
             assert rect.x + rect.width == right
@@ -388,3 +390,117 @@ def test_image_mode_bottom_row_fits_at_1x():
         rect = layouts[name]
         assert rect.y >= image_model.y + image_model.height
         assert rect.y + rect.height == height - 20
+
+
+# Snapshots captured from the real sidebar (LibreOffice 25.2, gen VCL) at
+# SAL_FORCEDPI=96 and 192: ChatPanelDialog.xdl after AppFont mapping.
+_SNAPSHOT_1X = {
+    "btn_settings": (7, 3, 28, 20), "btn_python": (39, 3, 28, 20), "btn_latex": (71, 3, 28, 20),
+    "btn_search": (103, 3, 28, 20), "btn_hamburger": (135, 3, 28, 20), "backend_indicator": (213, 7, 99, 16),
+    "response": (7, 26, 252, 179), "status": (7, 208, 252, 16), "query_label": (7, 228, 252, 16),
+    "query": (7, 247, 252, 49), "send": (7, 302, 89, 24), "stop": (99, 302, 89, 24), "clear": (192, 302, 78, 24),
+    "chk_voice": (273, 224, 39, 23), "chat_mode_selector": (7, 330, 252, 23), "model_label": (7, 353, 252, 16),
+    "model_selector": (7, 372, 252, 23), "image_model_selector": (7, 353, 252, 23),
+    "base_size_label": (7, 379, 36, 16), "base_size_input": (44, 375, 71, 23), "aspect_ratio_selector": (124, 375, 181, 23),
+}
+_SNAPSHOT_2X = {
+    "btn_settings": (13, 6, 52, 38), "btn_python": (72, 6, 52, 38), "btn_latex": (131, 6, 52, 38),
+    "btn_search": (190, 6, 52, 38), "btn_hamburger": (249, 6, 52, 38), "backend_indicator": (393, 13, 183, 31),
+    "response": (13, 50, 465, 344), "status": (13, 400, 465, 31), "query_label": (13, 438, 465, 31),
+    "query": (13, 475, 465, 94), "send": (13, 581, 164, 47), "stop": (183, 581, 164, 47), "clear": (354, 581, 144, 47),
+    "chk_voice": (504, 431, 72, 44), "chat_mode_selector": (13, 634, 465, 44), "model_label": (13, 678, 465, 31),
+    "model_selector": (13, 716, 465, 44), "image_model_selector": (13, 678, 465, 44),
+    "base_size_label": (13, 728, 66, 31), "base_size_input": (82, 722, 131, 44), "aspect_ratio_selector": (229, 722, 334, 44),
+}
+
+
+class TestColumnFitsAtBothScales:
+    def test_right_inset_mirrors_left_inset(self):
+        assert column_right_margin(_SNAPSHOT_1X) == 8
+        assert column_right_margin(_SNAPSHOT_2X) == 16
+
+    def test_panel_request_fits_default_column(self):
+        # The panel asks the deck for max_child_right + left inset (+1 at 2x).
+        # With a 4px right margin that was 262 > 259 (1x) and 305 > 296 (2x):
+        # a horizontal scrollbar at the default width.
+        for snapshot, width in ((_SNAPSHOT_1X, 259), (_SNAPSHOT_1X, 320), (_SNAPSHOT_2X, 235), (_SNAPSHOT_2X, 296)):
+            layouts = compute_chat_panel_layout(width, 900, snapshot)
+            left = snapshot["response"][0]
+            max_right = max(r.x + r.width for r in layouts.values())
+            assert max_right + left + 1 <= width, (width, max_right)
+
+    def test_button_row_shares_width_at_2x(self):
+        width = 296
+        layouts = compute_chat_panel_layout(width, 900, _SNAPSHOT_2X)
+        send, stop, clear = layouts["send"], layouts["stop"], layouts["clear"]
+        assert send.x == 13
+        assert send.x + send.width < stop.x
+        assert stop.x + stop.width < clear.x
+        # Measured minimum widths of Record/Stop/Clear at 2x are 71/67/72.
+        for rect in (send, stop, clear):
+            assert rect.width >= 72
+        assert clear.x + clear.width == layouts["query"].x + layouts["query"].width
+
+    def test_button_row_lines_up_with_boxes_at_1x(self):
+        layouts = compute_chat_panel_layout(259, 900, _SNAPSHOT_1X)
+        assert layouts["clear"].x + layouts["clear"].width == layouts["query"].x + layouts["query"].width
+        # Measured minimum widths at 1x are 49/47/51.
+        assert min(layouts[n].width for n in ("send", "stop", "clear")) >= 51
+
+    def test_checkbox_follows_measured_label(self):
+        for snapshot, label_w, width in ((_SNAPSHOT_2X, 128, 296), (_SNAPSHOT_1X, 67, 259), (_SNAPSHOT_2X, 128, 600)):
+            layouts = compute_chat_panel_layout(width, 900, snapshot, preferred={"query_label": (label_w, 25)})
+            label, voice = layouts["query_label"], layouts["chk_voice"]
+            assert label.width >= label_w, width
+            assert voice.x > label.x + label.width
+            assert voice.x - (label.x + label_w) <= voice.height, width
+            assert voice.x + voice.width <= width - column_right_margin(snapshot)
+
+    def test_checkbox_squeezes_label_only_when_column_is_too_narrow(self):
+        layouts = compute_chat_panel_layout(120, 900, _SNAPSHOT_2X, preferred={"query_label": (128, 25)})
+        label, voice = layouts["query_label"], layouts["chk_voice"]
+        assert voice.x + voice.width <= 120 - column_right_margin(_SNAPSHOT_2X)
+        assert label.x + label.width < voice.x
+
+    def test_status_grows_to_minimum_height_and_pushes_band_down(self):
+        fitted = fit_snapshot_min_heights(_SNAPSHOT_1X, {"status": 21})
+        assert fitted["status"] == (7, 208, 252, 21)
+        assert fitted["query_label"][1] == 228 + 5
+        assert fitted["send"][1] == 302 + 5
+        assert fitted["response"] == _SNAPSHOT_1X["response"]
+        layouts = compute_chat_panel_layout(259, 600, fitted)
+        status = layouts["status"]
+        assert status.height == 21
+        assert status.y + status.height <= layouts["query_label"].y
+        assert layouts["response"].y + layouts["response"].height <= status.y
+
+    def test_status_already_tall_enough_is_unchanged(self):
+        assert fit_snapshot_min_heights(_SNAPSHOT_2X, {"status": 31}) == _SNAPSHOT_2X
+
+    def test_listener_measures_status_and_label_from_peer(self):
+        controls = {name: _mock_control(*rect) for name, rect in _SNAPSHOT_1X.items()}
+        controls["status"].getMinimumSize.return_value = SimpleNamespace(Width=38, Height=21)
+        controls["query_label"].getPreferredSize.return_value = SimpleNamespace(Width=67, Height=13)
+        root = MagicMock()
+        root.getPosSize.return_value = SimpleNamespace(Width=259, Height=600)
+        listener = _PanelResizeListener(controls)
+        listener.relayout_now(root)
+        assert controls["status"].getPosSize().Height == 21
+        label = controls["query_label"].getPosSize()
+        voice = controls["chk_voice"].getPosSize()
+        assert label.Width >= 67
+        assert voice.X > label.X + label.Width
+
+    def test_image_size_box_uses_measured_width_at_2x(self):
+        # Measured preferred width of the "1024" size box at 2x is 68px; its
+        # XDL width is 131px, which left the aspect box ~60px ("Squa").
+        layouts = compute_chat_panel_layout(296, 900, _SNAPSHOT_2X, preferred={"base_size_input": (68, 41)})
+        base, aspect = layouts["base_size_input"], layouts["aspect_ratio_selector"]
+        assert base.width == 68
+        assert aspect.x == base.x + base.width + 16
+        assert aspect.width >= 100
+        assert aspect.x + aspect.width == 296 - column_right_margin(_SNAPSHOT_2X)
+
+    def test_image_size_box_never_grows_past_xdl_width(self):
+        layouts = compute_chat_panel_layout(259, 900, _SNAPSHOT_1X, preferred={"base_size_input": (500, 29)})
+        assert layouts["base_size_input"].width == 71

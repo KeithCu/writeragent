@@ -42,6 +42,10 @@ _BOTTOM_MARGIN = 20
 _MIN_RESPONSE_HEIGHT = 30
 _RIGHT_MARGIN = 4
 
+# Send/Record, Stop, Clear share one row. XDL widths are AppFont, so at 2x the
+# three buttons need ~500px and Clear was clamped to 20px under Stop.
+_BUTTON_ROW = ("send", "stop", "clear")
+
 # Controls below the chat transcript — anchored as one block toward the panel bottom.
 _BOTTOM_CLUSTER = frozenset({
     "status",
@@ -80,6 +84,21 @@ def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[in
     return bottom_top, bottom_bottom - bottom_top, snapshot["response"][1]
 
 
+def column_right_margin(snapshot: dict[str, tuple[int, int, int, int]], right_margin: int = _RIGHT_MARGIN) -> int:
+    """Right inset of the column, as wide as the left inset.
+
+    What was wrong: the right margin was a fixed 4px while the left inset is
+    4 AppFont (7px at 1x, 13px at 2x). The panel window asks the deck for the
+    children's extent plus the left inset (measured: max_child_right + 7 at
+    1x, + 14 at 2x), so it was 3px (1x) / 9-10px (2x) wider than the deck and
+    the deck showed a horizontal scrollbar at every width.
+    Why: mirror the left inset (already DPI-mapped) plus a pixel of slack per
+    AppFont unit of rounding, so the request fits the viewport.
+    """
+    left = snapshot.get("response", (right_margin, 0, 0, 0))[0]
+    return max(right_margin, left + max(1, left // 4))
+
+
 def compute_chat_panel_layout(
     width: int,
     height: int,
@@ -88,11 +107,19 @@ def compute_chat_panel_layout(
     bottom_margin: int = _BOTTOM_MARGIN,
     response_gap: int = _XDL_GAP_BELOW_RESPONSE,
     min_response_height: int = _MIN_RESPONSE_HEIGHT,
-    right_margin: int = _RIGHT_MARGIN,
+    right_margin: int | None = None,
+    preferred: dict[str, tuple[int, int]] | None = None,
 ) -> dict[str, ControlRect]:
-    """Pure layout: bottom band anchored near the bottom, transcript fills the rest."""
+    """Pure layout: bottom band anchored near the bottom, transcript fills the rest.
+
+    *preferred* holds measured (width, height) of controls whose text sets their
+    size (``query_label``); it is optional so the pure layout still works
+    without a peer.
+    """
     if width <= 0 or height <= 0 or not snapshot or "response" not in snapshot:
         return {}
+    if right_margin is None:
+        right_margin = column_right_margin(snapshot)
 
     bottom_top_initial, cluster_height, response_y = _cluster_metrics(snapshot)
     response_x, _oy, _ow, _oh = snapshot["response"]
@@ -122,10 +149,141 @@ def compute_chat_panel_layout(
         layouts[name] = ControlRect(ox, new_y, new_w, oh)
 
     layouts["response"] = ControlRect(response_x, response_y, response_w, response_h)
-    # The Ask label stays at its XDL X. Only the TTS checkbox is recentered;
-    # a fixed X would stay on the left when the sidebar is wider than the dialog.
-    _center_voice_checkbox(layouts, snapshot, width, right_margin)
+    _share_button_row(layouts, snapshot, width, right_margin)
+    _fit_base_size_row(layouts, snapshot, width, right_margin, (preferred or {}).get("base_size_input"))
+    label_pref = (preferred or {}).get("query_label")
+    if label_pref and label_pref[0] > 0:
+        _place_voice_checkbox_after_label(layouts, snapshot, width, right_margin, label_pref[0])
+    else:
+        # No measured label width: the Ask label stays at its XDL X and the TTS
+        # checkbox is centered.
+        _center_voice_checkbox(layouts, snapshot, width, right_margin)
     return layouts
+
+
+def _share_button_row(
+    layouts: dict[str, ControlRect],
+    snapshot: dict[str, tuple[int, int, int, int]],
+    width: int,
+    right_margin: int,
+) -> None:
+    """Split the row from Send's left edge to the column edge between the buttons.
+
+    What was wrong: Send/Stop/Clear kept their XDL widths (AppFont). At 2x
+    they need ~500px; in a ~300px column Stop was shrunk and Clear was clamped
+    to a 20px sliver under Stop (Clear missing). At 1x the row did not line up
+    with the boxes above and below it.
+    Why: equal shares with the XDL gap fill the column at any DPI, so every
+    button stays visible and its right edge matches the stretch controls.
+    """
+    names = [n for n in _BUTTON_ROW if n in layouts and n in snapshot]
+    if len(names) < 2:
+        return
+    x0 = snapshot[names[0]][0]
+    gaps = [
+        snapshot[b][0] - (snapshot[a][0] + snapshot[a][2])
+        for a, b in zip(names, names[1:])
+    ]
+    gap = max(1, min(gaps))
+    avail = width - right_margin - x0
+    each = (avail - gap * (len(names) - 1)) // len(names)
+    if each < 20:
+        return
+    x = x0
+    for i, name in enumerate(names):
+        rect = layouts[name]
+        w = each if i < len(names) - 1 else (width - right_margin) - x
+        layouts[name] = ControlRect(x, rect.y, w, rect.height)
+        x += w + gap
+
+
+def _fit_base_size_row(
+    layouts: dict[str, ControlRect],
+    snapshot: dict[str, tuple[int, int, int, int]],
+    width: int,
+    right_margin: int,
+    base_pref: tuple[int, int] | None,
+) -> None:
+    """Image mode: size box at its measured width, aspect box takes the rest.
+
+    What was wrong: the size box kept 40 AppFont (131px at 2x) for "1024",
+    so in a ~300px column at 2x the aspect box got ~60px and read "Squa".
+    Why: the peer's preferred width covers the text and the dropdown button
+    at any DPI; the XDL width stays the upper bound and the XDL gap is kept.
+    """
+    if not base_pref or base_pref[0] <= 0:
+        return
+    base = layouts.get("base_size_input")
+    aspect = layouts.get("aspect_ratio_selector")
+    if base is None or aspect is None or "base_size_input" not in snapshot or "aspect_ratio_selector" not in snapshot:
+        return
+    bx, _by, bw, _bh = snapshot["base_size_input"]
+    gap = max(1, snapshot["aspect_ratio_selector"][0] - (bx + bw))
+    new_bw = min(bw, base_pref[0])
+    layouts["base_size_input"] = ControlRect(base.x, base.y, new_bw, base.height)
+    ax = base.x + new_bw + gap
+    aw = (width - right_margin) - ax
+    if aw >= 20:
+        layouts["aspect_ratio_selector"] = ControlRect(ax, aspect.y, aw, aspect.height)
+
+
+def _place_voice_checkbox_after_label(
+    layouts: dict[str, ControlRect],
+    snapshot: dict[str, tuple[int, int, int, int]],
+    width: int,
+    right_margin: int,
+    label_text_w: int,
+) -> None:
+    """Put the TTS checkbox right after the Ask label's measured text.
+
+    What was wrong: the checkbox was centered and the label cut to the space
+    before it, so at 2x the label read "Ask / ins" in the default column, and
+    in a wide column the checkbox sat ~120px away from its label.
+    Why: the label keeps its text width (measured from the peer, so DPI and
+    translations are covered) and the checkbox follows it. Only when the column
+    is too narrow for both does the label give up width.
+    """
+    voice = layouts.get("chk_voice")
+    label = layouts.get("query_label")
+    if voice is None or label is None or "chk_voice" not in snapshot:
+        _center_voice_checkbox(layouts, snapshot, width, right_margin)
+        return
+    max_right = width - right_margin
+    voice_w = min(snapshot["chk_voice"][2], max(1, max_right))
+    gap = max(2, voice.height // 4)
+    x = label.x + label_text_w + gap
+    x = max(0, min(x, max_right - voice_w))
+    room = max(1, x - gap - label.x)
+    layouts["query_label"] = ControlRect(label.x, label.y, room, label.height)
+    layouts["chk_voice"] = ControlRect(x, voice.y, voice_w, voice.height)
+
+
+def fit_snapshot_min_heights(
+    snapshot: dict[str, tuple[int, int, int, int]],
+    min_heights: dict[str, int],
+) -> dict[str, tuple[int, int, int, int]]:
+    """Grow controls to their measured minimum height; push the band below down.
+
+    What was wrong: the status box is 10 AppFont tall (16px at 1x). An edit
+    field needs the font height plus its frame (21px at 1x, 33px at 2x), so
+    at 1x "Ready" touched the top border. AppFont scales the box with the
+    font, the frame does not, so 2x looked fine.
+    Why: take the peer's minimum height and move the rows under it down by
+    the same amount; the transcript gives up the space.
+    """
+    out = dict(snapshot)
+    for name, min_h in min_heights.items():
+        rect = out.get(name)
+        if rect is None or min_h <= rect[3]:
+            continue
+        x, y, w, h = rect
+        dh = min_h - h
+        bottom = y + h
+        for other, (ox, oy, ow, oh) in list(out.items()):
+            if other != name and other in _BOTTOM_CLUSTER and oy >= bottom:
+                out[other] = (ox, oy + dh, ow, oh)
+        out[name] = (x, y, w, min_h)
+    return out
 
 
 def _center_voice_checkbox(
@@ -182,6 +340,21 @@ def _clamp_to_column(x: int, w: int, width: int, right_margin: int) -> tuple[int
     return x, w
 
 
+def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
+    """(width, height) from XLayoutConstrains on a control, or None."""
+    fn = getattr(ctrl, method, None) if ctrl is not None else None
+    if not callable(fn):
+        return None
+    try:
+        size: Any = fn()
+        w, h = size.Width, size.Height
+    except Exception:
+        return None
+    if not isinstance(w, int) or not isinstance(h, int) or w <= 0 or h <= 0:
+        return None
+    return w, h
+
+
 class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedClass]  # constructed from panel_wiring; covered by tests
     """Repositions sidebar controls when the panel root is resized.
 
@@ -203,6 +376,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         self._on_dispose = on_dispose
         self._restore_focus = restore_focus
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
+        self._preferred: dict[str, tuple[int, int]] = {}
         self._in_relayout = False
         self._root_window = None
         self._parent_window = None
@@ -271,7 +445,16 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
 
         if "response" not in snapshot:
             return
-        self._snapshot = snapshot
+        min_heights: dict[str, int] = {}
+        status = self._c.get("status")
+        min_size = _measure(status, "getMinimumSize")
+        if min_size is not None:
+            min_heights["status"] = min_size[1]
+        for name in ("query_label", "base_size_input"):
+            size = _measure(self._c.get(name), "getPreferredSize")
+            if size is not None:
+                self._preferred[name] = size
+        self._snapshot = fit_snapshot_min_heights(snapshot, min_heights)
         bottom_top, cluster_h, _response_y = _cluster_metrics(snapshot)
         _resize_debug(
             "_capture_snapshot: bottom_top=%d cluster_h=%d controls=%d",
@@ -330,7 +513,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             log.warning("_relayout: no snapshot, skip")
             return
 
-        layouts = compute_chat_panel_layout(w, h, snapshot)
+        layouts = compute_chat_panel_layout(w, h, snapshot, preferred=self._preferred)
         if not layouts:
             return
 
