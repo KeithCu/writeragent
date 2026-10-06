@@ -427,7 +427,6 @@ class AudioRecorder:
                     )
 
         elif isinstance(effect, StartRecordingEffect):
-            self._delete_wav()
             if self.stream is not None:
                 try:
                     self.stream.start()
