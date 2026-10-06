@@ -1418,6 +1418,11 @@ def _post_audio_speech(
         return None, "", code, message
 
 
+def _default_endpoint_format() -> str:
+    """First response_format to ask for. Windows plays WAV with SoundPlayer."""
+    return "wav" if sys.platform == "win32" else "mp3"
+
+
 def _download_endpoint_speech(
     text: str,
     endpoint_url: str,
@@ -1463,10 +1468,8 @@ def _download_endpoint_speech(
 
     eff_voice = _resolve_tts_voice(model, voice)
     response_format = cached_tts_response_format(model)
-    if not response_format:
-        response_format = "wav" if sys.platform == "win32" else "mp3"
     if response_format not in ("mp3", "pcm", "wav"):
-        response_format = "wav" if sys.platform == "win32" else "mp3"
+        response_format = _default_endpoint_format()
 
     headers = {
         "Content-Type": "application/json",

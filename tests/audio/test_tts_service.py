@@ -106,6 +106,7 @@ def _speech_meta(body: bytes, content_type: str, status: int = 200):
     return HttpResult(status=status, body=body, content_type=content_type)
 
 
+@patch("plugin.audio.tts_service._default_endpoint_format", new=lambda: "mp3")
 def test_speak_endpoint_payload():
     from plugin.audio.tts_service import _speak_endpoint
     from plugin.framework.client import model_fetcher as cfg
@@ -161,6 +162,7 @@ def _speech_http_error(code: int, body: str):
     return NetworkError(body, code="HTTP_ERROR", details={"status": code, "url": "https://openrouter.ai/api/v1/audio/speech"})
 
 
+@patch("plugin.audio.tts_service._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_pcm_failure_is_remembered_and_wrapped():
     """Gemini-like 400 on mp3 then pcm: cache pcm, wrap s16le as WAV, next call asks pcm."""
     import json
@@ -245,6 +247,7 @@ def test_pcm_wrap_defaults_to_24khz():
     assert struct.unpack_from("<H", wav, 34)[0] == 16
 
 
+@patch("plugin.audio.tts_service._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_wav_error_retries_wav():
     import json
 
@@ -285,6 +288,7 @@ def test_endpoint_wav_error_retries_wav():
         cfg._tts_response_format.clear()
 
 
+@patch("plugin.audio.tts_service._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_mp3_success_does_not_cache_format():
     import json
 
@@ -1959,3 +1963,12 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     assert path not in " ".join(cmd)
     assert "$env:WA_AUDIO_PATH" in cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == path
+
+
+def test_default_endpoint_format_is_wav_on_windows_only():
+    from plugin.audio.tts_service import _default_endpoint_format
+
+    with patch("sys.platform", "win32"):
+        assert _default_endpoint_format() == "wav"
+    with patch("sys.platform", "linux"):
+        assert _default_endpoint_format() == "mp3"
