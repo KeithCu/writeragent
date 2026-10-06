@@ -413,9 +413,9 @@ class MCPProtocolHandler:
 
     # ── Raw handlers (receive GenericRequestHandler) ─────────────────
 
-    def handle_mcp_post(self, handler: Any) -> None:
+    def handle_mcp_post(self, handler: Any, transport: str = "mcp") -> None:
         """POST /mcp — MCP streamable-http (JSON-RPC 2.0)."""
-        log_mcp_transport_entry(handler, "mcp")
+        log_mcp_transport_entry(handler, transport)
         version_error = _validate_http_protocol_version(handler)
         if version_error is not None:
             status, response = version_error
@@ -536,8 +536,9 @@ class MCPProtocolHandler:
 
     def handle_sse_post(self, handler: Any) -> None:
         """POST /sse or /messages — streamable HTTP (same as /mcp)."""
-        # Shares the same body as handle_mcp_post to include keepalive logic
-        self.handle_mcp_post(handler)
+        # Shares the same body as handle_mcp_post to include keepalive logic.
+        # The transport label keeps /sse and /messages distinct in [MCP-HTTP] logs.
+        self.handle_mcp_post(handler, transport="sse")
 
     def _is_tunneled(self, handler: Any) -> bool:
         """Check if the request arrived via a public tunnel."""
@@ -659,7 +660,10 @@ class MCPProtocolHandler:
     # ── MCP method handlers ──────────────────────────────────────────
 
     def _mcp_initialize(self, params: Any) -> Any:
-        # Bugfix: older clients get locked out when we echo their unsupported version and then block them in _validate_http_protocol_version
+        # We echo the client's version only when it is in
+        # _SUPPORTED_HTTP_PROTOCOL_VERSIONS, not any string it sends, because
+        # the client then sends that value as Mcp-Protocol-Version and
+        # _validate_http_protocol_version answers 400 to every later request.
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
         if client_version not in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
             client_version = MCP_PROTOCOL_VERSION

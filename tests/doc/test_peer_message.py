@@ -868,17 +868,26 @@ def test_annotate_outer_peer_delivery_pending():
 
 
 def test_summarize_peer_tool_on_wire():
-    from plugin.doc.peer_message import log_peer_tool_on_wire, summarize_peer_tool_on_wire
+    from plugin.doc.peer_message import _WORK_DESCRIPTION, format_peer_catalog, log_peer_tool_on_wire, summarize_peer_tool_on_wire
 
     assert summarize_peer_tool_on_wire([{"function": {"name": "undo"}}]) == (False, 0)
     schemas = [
         {
             "function": {
                 "name": PEER_WORK_TOOL_NAME,
-                "description": "base uid=u1 Open peers: Budget.ods (uid=u2, url=, type=calc). uid=u3 Open peers: Memo.odt (uid=u4, url=, type=text).",
+                "description": _WORK_DESCRIPTION
+                + " "
+                + format_peer_catalog(
+                    [
+                        {"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"},
+                        {"name": "Memo.odt", "uid": "u4", "url": "", "type": "text"},
+                    ]
+                ),
             }
         }
     ]
+    # _WORK_DESCRIPTION itself contains a literal "uid=…"; only catalog rows count.
+    assert "uid=" in _WORK_DESCRIPTION
     assert summarize_peer_tool_on_wire(schemas) == (True, 2)
     log_peer_tool_on_wire(schemas)
 

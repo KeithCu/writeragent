@@ -3251,9 +3251,22 @@ def test_stream_error_too_many_tokens_is_not_overload(client, _fast_retry_waits)
     assert mock_https.call_count == 1
     _fast_retry_waits["transport"].assert_not_called()
 
+def test_stream_error_too_many_requests_phrase_is_overload(client, _fast_retry_waits):
+    """The full 429 reason phrase with no structured code still retries once."""
+    import json
+
+    payload = json.dumps({"error": {"message": "Too Many Requests"}}).encode()
+    bad = create_mock_http_response(sse_lines=[b"data: " + payload])
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert result["content"] == "Recovered"
+    assert mock_https.call_count == 2
+
+
 def test_stream_without_done_no_emit_retries(client, _fast_retry_waits):
     """A stream that closes without [DONE] and without emitting anything is retried."""
-    import json
     bad = create_mock_http_response(sse_lines=[])
     ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
     with patch("http.client.HTTPSConnection") as mock_https:

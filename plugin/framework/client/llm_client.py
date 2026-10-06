@@ -83,7 +83,7 @@ from plugin.framework.constants import USER_AGENT
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers, reject_control_chars_in_api_key
-from plugin.framework.errors import NetworkError
+from plugin.framework.errors import NetworkError, WriterAgentException, is_disposed_exception
 from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
@@ -126,10 +126,11 @@ def _stream_error_message(chunk: dict[str, Any]) -> str | None:
     return None
 
 
-# Why-not: do not use broad substrings like "too many" or "unavailable".
-# They match fatal errors like "too many tokens" (context overflow) or
-# "model unavailable" and retry them until timeout. Structured codes win.
-_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit")
+# We match structured codes first and only narrow phrases here, not bare
+# "too many" / "unavailable", because those also match fatal errors such as
+# "too many tokens" (context overflow) or "model unavailable", which a retry
+# cannot fix. The full HTTP reason phrases for 429 and 503 stay.
+_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requests", "service unavailable")
 # 429/503 must be a whole token. "4290 tokens" is a context size, not HTTP 429.
 _OVERLOAD_STATUS_RE = re.compile(r"\b(?:429|503)\b")
 
@@ -1147,7 +1148,6 @@ class LlmClient:
                     return "stop"
                 raise
             except Exception as e:
-                from plugin.framework.errors import WriterAgentException, is_disposed_exception
                 if isinstance(e, WriterAgentException) or is_disposed_exception(e):
                     raise
                 err_msg = format_error_message(e)
@@ -1235,7 +1235,6 @@ class LlmClient:
             except NetworkError:
                 raise
             except Exception as e:
-                from plugin.framework.errors import WriterAgentException, is_disposed_exception
                 if isinstance(e, WriterAgentException) or is_disposed_exception(e):
                     raise
                 err_msg = format_error_message(e)
