@@ -37,6 +37,22 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
 log = logging.getLogger(__name__)
 
+
+def _debug_paint_counters_on() -> bool:
+    """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``).
+
+    Release OXTs stub ``thread_guard`` (no ``_designated_main_thread``), so the
+    paint/stream counters read by the mock-sidebar SNAPSHOT hook stay off there.
+    """
+    try:
+        from plugin.framework import thread_guard as tg
+
+        if hasattr(tg, "_designated_main_thread"):
+            return True
+    except Exception:
+        pass
+    return os.environ.get("WRITERAGENT_TESTING") == "1"
+
 _CONTROL_INIT_STARTED: set[int] = set()
 _IN_SCROLL_TO_TAIL = False
 _ENV_SNAPSHOT_LOGGED = False
@@ -151,8 +167,11 @@ class RichTextChatWidget:
         # restore whichever Ask field was pinned for the process.
         self.restore_focus = restore_focus
         self.model = control.getModel() if control else None
-        self._debug_paint_session_count = 0
-        self._debug_stream_session_count = 0
+        # Debug-only: Packet M (mock sidebar) reads these through the SNAPSHOT
+        # hook to prove streaming appends instead of repainting.
+        self._debug_counts: bool = _debug_paint_counters_on()
+        self._debug_paint_session_count: int = 0
+        self._debug_stream_session_count: int = 0
         # What the control shows, so a stream update can append only the new
         # text instead of wiping and refilling the transcript. Rows
         # [0, _formatted_rows) are a formatted paint that ends at control
@@ -226,7 +245,8 @@ class RichTextChatWidget:
         Full repaint: load/switch, Stop, Clear, and an unknown control state.
         Streaming goes through ``stream_session`` instead.
         """
-        self._debug_paint_session_count += 1
+        if self._debug_counts:
+            self._debug_paint_session_count += 1
         from plugin.chatbot.rich_text_paste import session_history_items
 
         if greeting is not None:
@@ -305,7 +325,8 @@ class RichTextChatWidget:
         text. Only a change inside the prefix, or an unknown control, repaints
         everything. ``rerender_last_assistant_if_html`` formats the tail at Ready.
         """
-        self._debug_stream_session_count += 1
+        if self._debug_counts:
+            self._debug_stream_session_count += 1
         from plugin.chatbot.rich_text_paste import (
             _plain_append_messages,
             _rollback_rich_insert,

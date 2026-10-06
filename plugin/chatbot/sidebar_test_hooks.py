@@ -211,7 +211,8 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
     send = sl.sidebar_state.send if sl is not None else None
     audio = sl.sidebar_state.audio if sl is not None else None
     rec = getattr(sl, "audio_recorder", None) if sl is not None else None
-    response_control = getattr(sl, "response_control", None) if sl is not None else None
+    # The paint counters live on RichTextChatWidget, not on the raw response control.
+    rich_widget = getattr(sl, "rich_text_widget", None) if sl is not None else None
     data: dict[str, Any] = {
         "is_busy": bool(getattr(send, "is_busy", False)),
         "is_recording": bool(getattr(send, "is_recording", False)),
@@ -229,8 +230,8 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
         **_session_snapshot_fields(sl),
         **_tts_snapshot_fields(),
         "slash_lru": _slash_lru_names(),
-        "paint_session_count": int(getattr(response_control, "_debug_paint_session_count", 0)),
-        "stream_session_count": int(getattr(response_control, "_debug_stream_session_count", 0)),
+        "paint_session_count": int(getattr(rich_widget, "_debug_paint_session_count", 0) or 0),
+        "stream_session_count": int(getattr(rich_widget, "_debug_stream_session_count", 0) or 0),
     }
     with open(debug_sidebar_snapshot_path(), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
