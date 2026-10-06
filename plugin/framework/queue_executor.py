@@ -1034,26 +1034,17 @@ class QueueExecutor:
 default_executor = QueueExecutor()
 
 
-def _is_unittest_mock(obj: Any) -> bool:
-    """True for ``MagicMock`` / ``Mock``. Those must not arm the event-driven drain.
-
-    A unit test that sets a component context leaves ``createInstance`` returning
-    a mock ``AsyncCallback``. Treating that as real makes ``run_stream_drain_loop``
-    return before it reads the queue, and every later test in the process fails.
-    """
-    return obj is not None and type(obj).__module__ == "unittest.mock"
-
-
 def async_callback_for_drain_rearm() -> Any | None:
     """Live ``AsyncCallback`` service for the stream drain, or None.
 
-    None means the drain must keep its blocking loop (unit tests, the eval
-    harness, force-marshal). ``WRITERAGENT_TESTING`` is not a reason to return
-    None: that flag makes :meth:`QueueExecutor.post` run inline, and an inline
-    re-arm would sit on this stack again. The drain calls ``addCallback``
-    directly so the mock-sidebar soffice (which sets the flag) still returns
-    to the VCL loop between batches. A ``unittest.mock`` context or service
-    is not a live callback.
+    None means the drain must keep its blocking loop (eval harness,
+    force-marshal, test poke). Headless pytest forces the blocking path via
+    :func:`~plugin.framework.async_stream.set_drain_scheduler_override` instead
+    of sniffing ``unittest.mock`` here. ``WRITERAGENT_TESTING`` is not a reason
+    to return None: that flag makes :meth:`QueueExecutor.post` run inline, and
+    an inline re-arm would sit on this stack again. The drain calls
+    ``addCallback`` directly so the mock-sidebar soffice (which sets the flag)
+    still returns to the VCL loop between batches.
     """
     import os
 
@@ -1062,17 +1053,12 @@ def async_callback_for_drain_rearm() -> Any | None:
     if _force_marshal_mode or _test_poke_handler is not None:
         return None
     service = default_executor._async_callback_service
-    if _is_unittest_mock(service):
-        return None
     if service is not None:
         return service
     ctx = default_executor._ctx
-    if ctx is None or _is_unittest_mock(ctx):
+    if ctx is None:
         return None
-    created = default_executor._get_async_callback()
-    if _is_unittest_mock(created):
-        return None
-    return created
+    return default_executor._get_async_callback()
 
 
 def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> Any:

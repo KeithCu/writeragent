@@ -909,10 +909,11 @@ class ToolCallingMixin:
         log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
     def _start_tool_calling_async(self: ToolLoopHost, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None:
-        """Tool-calling event loop: single queue, single main-thread loop.
+        """Tool-calling event loop: single queue, main-thread drain.
 
-        Background threads push messages onto q. The main thread dispatches
-        on message type, keeping the UI responsive via processEventsToIdle().
+        Background threads push messages onto q. The main thread drains via
+        ``run_stream_drain_loop``: event-driven slices return to VCL between
+        batches; the blocking fallback still pumps with ``pump_ui_idle``.
         """
         if max_tool_rounds is None:
             max_tool_rounds = get_config_int("chatbot.max_tool_rounds")
