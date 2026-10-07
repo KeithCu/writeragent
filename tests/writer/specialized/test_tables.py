@@ -1125,3 +1125,12 @@ def test_empty_replacement_keeps_a_table_whose_cell_holds_a_pending_deletion():
          patch.object(tables, "_range_in_cell", return_value=True), \
          patch.object(tables, "get_string_without_tracked_deletions", return_value="celula nova"):
         assert tables._empty_replacement_clears_table(table, [found]) is False
+
+
+def test_table_insert_rejects_non_integer_dims_and_non_list_data():
+    doc = FakeWriterDoc({})
+    tool = TableInsert()
+    bad_dims = tool.execute(SimpleNamespace(doc=doc), rows=[1], columns=2)
+    assert bad_dims["status"] == "error" and "integers" in bad_dims["message"]
+    bad_data = tool.execute(SimpleNamespace(doc=doc), rows=2, columns=2, data="ab")
+    assert bad_data["status"] == "error" and "list of rows" in bad_data["message"]

@@ -1045,12 +1045,14 @@ class TableInsert(ToolWriterTableBase):
         try:
             rows = int(rows)
             columns = int(columns)
-        except ValueError:
+        except (TypeError, ValueError):
             return self._tool_error("rows and columns must be integers.")
         if rows < 1 or columns < 1:
             return self._tool_error("rows and columns must be at least 1.")
 
         data = kwargs.get("data")
+        if data is not None and not isinstance(data, (list, tuple)):
+            return self._tool_error("data must be a list of rows.")
         if data:
             if len(data) > rows:
                 return self._tool_error("data has %d rows but table only has %d." % (len(data), rows))
@@ -1100,19 +1102,9 @@ class TableInsert(ToolWriterTableBase):
                         raise
 
                 if data:
-                    for r_idx, r_data in enumerate(data):
-                        if not isinstance(r_data, (list, tuple)):
-                            continue
-                        for c_idx, val in enumerate(r_data):
-                            if val is None or str(val) == "":
-                                continue
-                            c_name = _cell_name(c_idx, r_idx)
-                            try:
-                                cell = table.getCellByName(c_name)
-                                cell.setString(str(val))
-                                written[0] += 1
-                            except Exception:
-                                log.debug("Failed to set cell %s during insert", c_name, exc_info=True)
+                    from plugin.draw.tables import fill_table_cells
+
+                    written[0] = fill_table_cells(table, data)
 
                 try:
                     name[0] = str(table.getName() if hasattr(table, "getName") else getattr(table, "Name", "") or "")
