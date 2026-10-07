@@ -142,6 +142,23 @@ def test_auto_imports_inject_st_dt_plt_aliases():
         assert callable(executor.state["plt"].plot)
 
 
+def test_inject_auto_imports_skips_bound_names():
+    from plugin.scripting.config_limits import python_exec_timeout_default
+    from plugin.scripting.venv.venv_sandbox import _new_executor, inject_auto_imports
+
+    executor = _new_executor(python_exec_timeout_default())
+    inject_auto_imports(executor, "dt = 123\nresult = dt")
+    assert "dt" not in executor.state
+
+    executor2 = _new_executor(python_exec_timeout_default())
+    inject_auto_imports(executor2, "def dt(): pass\nresult = 1")
+    assert "dt" not in executor2.state
+
+    executor3 = _new_executor(python_exec_timeout_default())
+    inject_auto_imports(executor3, "import datetime as dt\nresult = 1")
+    assert "dt" not in executor3.state
+
+
 def test_helper_names_complete():
     from plugin.scripting.calc_functions_common import HELPER_NAMES
 

@@ -260,6 +260,29 @@ def test_reset_clears_init_session():
     assert vs._SESSION_EXECUTORS[init_sid].state.get("INIT_RUNS") == 1
 
 
+def test_reset_clears_from_init_session_id():
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    init_sid = "calc:wb-reset-init:init"
+    cell_sid = "calc:wb-reset-init"
+    init_code = "INIT_RUNS = 1\nMAGIC = 7"
+    h = init_script_hash(init_code)
+    run_sandboxed_code(
+        "result = MAGIC",
+        session_id=cell_sid,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=h,
+    )
+    assert init_sid in vs._SESSION_EXECUTORS
+    assert cell_sid in vs._SESSION_EXECUTORS
+    assert reset_sandbox_session(init_sid)["status"] == "ok"
+    assert init_sid not in vs._SESSION_EXECUTORS
+    assert cell_sid not in vs._SESSION_EXECUTORS
+    assert init_sid not in vs._INIT_SCRIPT_HASH
+    assert cell_sid not in vs._CELL_SESSION_INIT_DIGEST
+
+
 def test_build_python_eval_init_kwargs():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)

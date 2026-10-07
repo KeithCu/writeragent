@@ -257,14 +257,45 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
     return "\n".join(prepended_lines) + "\n" + code, len(prepended_lines)
 
 
+def _parse_bound_names(code_str: str) -> set[str]:
+    """Return names bound (assigned, defined, or imported) in *code_str*.
+
+    Known edge case: ast.walk also sees names bound inside function bodies,
+    lambdas and comprehensions, so ``def f(): dt = 1`` skips the ``dt``
+    auto-import even when top-level code uses ``dt``. Conservative on purpose
+    (never shadows user names); a scope-aware visitor could fix it later.
+    """
+    try:
+        tree = ast.parse(code_str)
+    except SyntaxError:
+        return set()
+
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name)
+    return bound
+
+
 def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
-    """Inject auto imports into executor state if referenced but not imported in code."""
+    """Inject auto imports into executor state if not already bound or imported in code."""
+    bound_names = _parse_bound_names(code)
     bindings = {}
     for module_name, import_stmt in AUTO_IMPORTS.items():
+        alias = import_stmt.split(" as ")[-1].strip() if " as " in import_stmt else module_name
+        if alias in bound_names or alias in executor.state:
+            continue
         if not is_module_imported(code, module_name):
             mod = optional_module(module_name)
             if mod is not None:
-                alias = import_stmt.split(" as ")[-1].strip() if " as " in import_stmt else module_name
                 bindings[alias] = mod
     if bindings:
         executor.send_variables(bindings)
@@ -323,8 +354,12 @@ def _coerce_host_pickle_tree(obj: Any, pd_mod: Any) -> Any:
         return [_coerce_host_pickle_tree(v, pd_mod) for v in obj]
     if isinstance(obj, tuple):
         return tuple(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
+    if isinstance(obj, set):
+        return {_coerce_host_pickle_tree(v, pd_mod) for v in obj}
+    if isinstance(obj, frozenset):
+        return frozenset(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
     scalar = _coerce_host_pickle_scalar(obj, pd_mod)
-    if scalar is not obj and isinstance(scalar, (list, tuple, dict)):
+    if scalar is not obj and isinstance(scalar, (list, tuple, dict, set, frozenset)):
         return _coerce_host_pickle_tree(scalar, pd_mod)
     return scalar
 
@@ -436,6 +471,7 @@ def _custom_serialize_types() -> tuple[type, ...]:
     mpl_fig = optional_module("matplotlib.figure")
     pd_mod = optional_module("pandas")
     pil_mod = optional_module("PIL.Image")
+    np_mod = optional_module("numpy")
     custom_types: list[type] = []
     if mpl_fig is not None:
         custom_types.append(mpl_fig.Figure)
@@ -443,6 +479,8 @@ def _custom_serialize_types() -> tuple[type, ...]:
         custom_types.extend([pd_mod.DataFrame, pd_mod.Series])
     if pil_mod is not None:
         custom_types.append(pil_mod.Image)
+    if np_mod is not None:
+        custom_types.append(np_mod.ndarray)
     return tuple(custom_types)
 
 
@@ -451,7 +489,7 @@ def _contains_custom_serialize(obj: Any, custom_tuple: tuple[type, ...], depth: 
         return True
     if depth >= _CUSTOM_SERIALIZE_MAX_DEPTH:
         return False
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, (list, tuple, set, frozenset)):
         return any(_contains_custom_serialize(item, custom_tuple, depth + 1) for item in obj)
     if isinstance(obj, dict):
         return any(_contains_custom_serialize(value, custom_tuple, depth + 1) for value in obj.values())
@@ -655,12 +693,19 @@ def _serialize_result_impl(obj: Any) -> Any:
                     "data": packed,
                 }
             return packed
-    if isinstance(obj, (dict, list, tuple)):
+    if isinstance(obj, (dict, list, tuple, set, frozenset)):
         if _has_custom_serialize_objects(obj):
             if isinstance(obj, dict):
                 return {str(k): serialize_result(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [serialize_result(v) for v in obj]
+            elif isinstance(obj, set):
+                # Known edge case: a hashable custom object (e.g. a matplotlib
+                # Figure) serializes to a dict payload, which is unhashable, so
+                # this raises TypeError. Could fall back to a list if it matters.
+                return {serialize_result(v) for v in obj}
+            elif isinstance(obj, frozenset):
+                return frozenset(serialize_result(v) for v in obj)
             else:
                 return tuple(serialize_result(v) for v in obj)
         # Short lists skip split_grid and are pickled as Python objects. A date
@@ -716,6 +761,9 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
     cell_sid = _cell_session_for_init(init_session_id)
     _SESSION_EXECUTORS.pop(init_session_id, None)
     _INIT_SCRIPT_HASH.pop(init_session_id, None)
+    if init_session_id.startswith("isolated:"):
+        _ISOLATED_INIT_LRU.pop(init_session_id, None)
+    _reset_session_duckdb(init_session_id)
     if cell_sid:
         _SESSION_EXECUTORS.pop(cell_sid, None)
         _CELL_SESSION_INIT_DIGEST.pop(cell_sid, None)
@@ -724,21 +772,22 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
-    """Drop the persistent executor for *session_id* (idempotent).
+    """Drop any cached executor for *session_id* and reset DuckDB tables.
 
-    Also clears the ``{id}:init`` companion when *session_id* is a cell id.
+    Also clears the ``{id}:init`` companion when *session_id* is a cell id,
+    and clears the cell session companion when *session_id* is an init id.
     """
     if not (session_id or "").strip():
         return {"status": "error", "message": "No session_id provided."}
     with _SESSION_LOCK:
-        _SESSION_EXECUTORS.pop(session_id, None)
-        init_sid = _related_init_session_id(session_id)
-        if init_sid:
-            _SESSION_EXECUTORS.pop(init_sid, None)
-            _INIT_SCRIPT_HASH.pop(init_sid, None)
         if session_id.endswith(":init"):
-            _INIT_SCRIPT_HASH.pop(session_id, None)
-        _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
+            _clear_init_session_unlocked(session_id)
+        else:
+            _SESSION_EXECUTORS.pop(session_id, None)
+            _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
+            init_sid = _related_init_session_id(session_id)
+            if init_sid:
+                _clear_init_session_unlocked(init_sid)
     _reset_session_duckdb(session_id)
     return {"status": "ok"}
 
@@ -776,12 +825,15 @@ def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
 
 
 def _copy_isolated_seed_value(value: Any) -> Any:
-    """Copy one init binding so an isolated cell cannot edit the snapshot.
+    """Duplicate an init binding so isolated cells cannot mutate the workbook seed.
 
-    Seeding used to pass the init executor's objects through. ``items.append``
+    Cell 1 wrote ``items.append(...)`` without reassigning ``items``; that
     in one isolated cell changed what every later isolated cell on that worker
     saw. Functions and modules stay shared; deepcopy rejects them. Shared-kernel
     seeding does not use this — that workbook is one namespace.
+
+    A lazy copy-on-demand or size guard would be too complex and prone to edge
+    cases, so a simple deepcopy is used here on every cell execution for safety.
     """
     if callable(value) or isinstance(value, types.ModuleType):
         return value
@@ -885,10 +937,7 @@ def _ensure_init_executed(
     result = _run_on_executor(init_executor, script)
     if result.get("status") != "ok":
         with _SESSION_LOCK:
-            _SESSION_EXECUTORS.pop(init_session_id, None)
-            _INIT_SCRIPT_HASH.pop(init_session_id, None)
-            if init_session_id.startswith("isolated:"):
-                _ISOLATED_INIT_LRU.pop(init_session_id, None)
+            _clear_init_session_unlocked(init_session_id)
         return result
 
     with _SESSION_LOCK:
@@ -955,11 +1004,12 @@ _RESULT_MISSING = object()
 # add a threading.Lock here unless the worker becomes multi-threaded; then this
 # flag needs a lock (or to move under ``_SESSION_LOCK``).
 _MPL_AGG_SET = False
+_MPL_AGG_FAILED = False
 
 
 def _ensure_mpl_agg() -> None:
-    global _MPL_AGG_SET
-    if _MPL_AGG_SET:
+    global _MPL_AGG_SET, _MPL_AGG_FAILED
+    if _MPL_AGG_SET or _MPL_AGG_FAILED:
         return
     mpl = optional_module("matplotlib")
     if mpl is not None and hasattr(mpl, "use"):
@@ -967,7 +1017,8 @@ def _ensure_mpl_agg() -> None:
             mpl.use("Agg")
             _MPL_AGG_SET = True
         except Exception:
-            pass
+            # Remember the failed switch; retrying it on every execution hung.
+            _MPL_AGG_FAILED = True
 
 
 def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
