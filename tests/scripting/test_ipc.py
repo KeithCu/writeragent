@@ -571,6 +571,11 @@ def test_roundtrip_ndarray_complex_containers():
     assert isinstance(res2, np.ndarray)
     assert np.array_equal(res2, obj2)
 
+    obj4 = np.arange(12.).reshape(3, 4)[:, ::2]
+    res4 = unpack_pickle_frame(pickle.dumps(obj4, protocol=5))
+    assert isinstance(res4, np.ndarray)
+    assert np.array_equal(res4, obj4)
+
     assert unpack_pickle_frame(pickle.dumps(obj3, protocol=5)) == obj3
 
 def test_numpy_arbitrary_submodule_import_fails():
@@ -585,3 +590,26 @@ def test_numpy_arbitrary_submodule_import_fails():
     payload = pickle.dumps(BadNumpy(), protocol=5)
     with pytest.raises(ValueError, match="is not allowed"):
         unpack_pickle_frame(payload)
+
+def test_read_pickle_frame_with_timeout_win32_is_alive_honored(monkeypatch):
+    import sys
+    from plugin.scripting import ipc
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    stream = MagicMock()
+    stream.fileno.return_value = 3
+    # Return valid frame size (e.g. 4 bytes length) to prevent IpcFrameError
+    stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 4)
+    monkeypatch.setattr(ipc, "_decode_pickle_payload", lambda *args, **kwargs: {"ok": 1})
+
+    # is_alive returning True should NOT cause TimeoutExpired
+    res = ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: True)
+    assert res == {"ok": 1}
+
+    # is_alive returning False SHOULD cause TimeoutExpired
+    stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
+    with pytest.raises(subprocess.TimeoutExpired):
+        ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: False)

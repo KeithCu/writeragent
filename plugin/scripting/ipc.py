@@ -62,6 +62,7 @@ _NUMPY_RECONSTRUCT_PAIRS = frozenset({
     ("numpy._core.multiarray", "scalar"),
     ("numpy.core.multiarray", "scalar"),
     ("numpy", "dtype"),
+    ("numpy", "ndarray"),
 })
 
 
@@ -492,7 +493,7 @@ def read_pickle_frame_with_timeout(
 
         def _read_exact_win32(n: int) -> bytes:
             return _read_bytes_with_timeout_win32(
-                stream, n, deadline, timeout_sec, cmd=frame_label, stop_checker=is_alive
+                stream, n, deadline, timeout_sec, cmd=frame_label, stop_checker=(lambda: not is_alive()) if is_alive is not None else None
             )
 
         payload = read_frame_payload(
