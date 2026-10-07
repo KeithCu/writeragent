@@ -20,7 +20,7 @@ class TestPythonRunnerFormatting:
         # Seconds and hundreds
         assert (format_elapsed_time(1.0)) == ("1.00s")
         assert (format_elapsed_time(3.45)) == ("3.45s")
-        assert (format_elapsed_time(59.999)) == ("60.00s") # boundary case (or minutes)
+        assert (format_elapsed_time(59.999)) == ("1m 0s") # rounded boundary case (1m 0s)
 
         # Milliseconds (1-999 ms)
         assert (format_elapsed_time(0.999)) == ("999 ms")

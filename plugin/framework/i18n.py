@@ -193,3 +193,9 @@ def _(message: str) -> str:
     if translation is None:
         return message
     return translation.gettext(message)
+
+
+def N_(message: str) -> str:
+    """No-op gettext marker for extractable strings translated dynamically at runtime."""
+    return message
+

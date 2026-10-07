@@ -196,3 +196,51 @@ def test_picker_supports_logs_when_the_check_raises(caplog):
     with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
         assert fn(object()) is False
     assert "supports check failed" in caplog.text
+
+
+def test_sql_is_result_handles_missing_duckdb_sql(caplog):
+    # What was wrong: LibrePy bundle excludes duckdb_sql.py, causing is_result check
+    # to raise ImportError and break Calc result insertions for non-sql scripts.
+    # Why this change: Catch ImportError, log at debug, and treat as not this domain (return False).
+    import logging
+    from plugin.scripting.domain_registry import build_rps_spec, WIRING_TABLE
+
+    sql_wiring = next(w for w in WIRING_TABLE if w.id == "sql")
+    spec = build_rps_spec(sql_wiring)
+
+    with patch("plugin.scripting.domain_registry._resolve_fn", side_effect=ImportError("No module named 'plugin.scripting.duckdb_sql'")):
+        with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
+            assert spec.is_result({"some": "result"}) is False
+        assert "Domain sql is_result module unavailable" in caplog.text
+
+
+def test_is_reserved_script_name():
+    from plugin.scripting.domain_registry import is_reserved_script_name, RESERVED_SCRIPT_PREFIXES
+
+    assert is_reserved_script_name("[Doc] MyScript") is True
+    assert is_reserved_script_name("[Vision] extract_text") is True
+    assert is_reserved_script_name("[Analysis] describe_data") is True
+    assert is_reserved_script_name("MyScript") is False
+    assert is_reserved_script_name("DocScript") is False
+    for prefix in RESERVED_SCRIPT_PREFIXES:
+        assert is_reserved_script_name(f"{prefix} test") is True
+
+
+def test_rps_spec_insert_returns_int_only_when_int():
+    # What was wrong: bool is an instance of int in Python, so returning True could
+    # leak as cell count 1 or mask an integer return check.
+    # Why this change: Explicitly check isinstance(ret, int) and not isinstance(ret, bool).
+    from plugin.scripting.domain_registry import build_rps_spec, WIRING_TABLE
+
+    wiring = next(w for w in WIRING_TABLE if w.id == "viz")
+    spec = build_rps_spec(wiring)
+
+    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=lambda *a, **kw: 42):
+        assert spec.insert(object(), object(), {}) == 42
+
+    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=lambda *a, **kw: True):
+        assert spec.insert(object(), object(), {}) is None
+
+    with patch("plugin.scripting.domain_registry._resolve_fn", return_value=lambda *a, **kw: None):
+        assert spec.insert(object(), object(), {}) is None
+

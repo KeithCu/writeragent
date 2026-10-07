@@ -631,7 +631,7 @@ nuke-cache-force:
 extract-strings:
 	@if command -v xgettext >/dev/null 2>&1; then \
 		"$(PYTHON)" scripts/extract_xdl_strings.py; \
-		xgettext --add-location=file -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py"); \
+		xgettext --add-location=file --keyword=N_ -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py"); \
 		"$(PYTHON)" scripts/merge_module_yaml_into_pot.py locales/writeragent.pot; \
 		rm -f plugin/xdl_strings.py; \
 		$(MAKE) merge-translations; \

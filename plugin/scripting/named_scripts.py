@@ -26,8 +26,10 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-ORIGIN_USER = "user"
-ORIGIN_DOCUMENT = "document"
+from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
+
+ORIGIN_USER = SCRIPT_ORIGIN_USER
+ORIGIN_DOCUMENT = SCRIPT_ORIGIN_DOCUMENT
 
 _NAMED_SCRIPT_MAX_BYTES = 200_000
 _IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z_]+")
@@ -92,14 +94,15 @@ def _expr_has_namedexpr(node: ast.AST) -> bool:
     return _import_time_has(node, (ast.NamedExpr,))
 
 
-def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
-    """Lines ``evaluate_class_def`` would execute while the library loads.
+def _function_import_time_call_lines(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[int]:
+    """Lines evaluated when a function definition is reached.
 
-    Class statements used to be kept verbatim. Bases, keywords, and class-body
-    assignments are evaluated immediately (``local_python_executor``
-    ``evaluate_class_def``), so ``x = wa.writer...()`` inside the class ran
-    even though the same call at module level was rejected. Method bodies are
-    not scanned: those calls run when the method is called.
+    What was wrong: FunctionDef/AsyncFunctionDef were kept without scanning decorators,
+    defaults, or annotations.
+    How it happened: Function bodies are deferred until called, but decorators,
+    default argument values, and annotations evaluate at definition/import time.
+    Why this change: Reject calls in decorator_list, args.defaults, args.kw_defaults,
+    and argument/return annotations.
     """
     lines: list[int] = []
 
@@ -110,16 +113,78 @@ def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
         if lineno not in lines:
             lines.append(lineno)
 
+    for dec in node.decorator_list:
+        _note(dec)
+    for default in node.args.defaults:
+        _note(default)
+    for kw_default in node.args.kw_defaults:
+        if kw_default is not None:
+            _note(kw_default)
+    if node.returns is not None:
+        _note(node.returns)
+    all_args = (
+        node.args.posonlyargs
+        + node.args.args
+        + node.args.kwonlyargs
+        + ([node.args.vararg] if node.args.vararg else [])
+        + ([node.args.kwarg] if node.args.kwarg else [])
+    )
+    for arg in all_args:
+        if arg.annotation is not None:
+            _note(arg.annotation)
+    return lines
+
+
+def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
+    """Lines ``evaluate_class_def`` would execute while the library loads.
+
+    What was wrong: Class decorators and non-assign class-body statements were not scanned.
+    How it happened: Class statements previously only checked bases, keywords, and assignments.
+    Calls in decorators or non-assign class-body statements (like expressions or calls) ran at load time.
+    Why this change: Scan decorator_list, bases, keywords, method definitions, assignments,
+    and reject non-def/assign class-body statements that contain calls or unpermitted code.
+    """
+    lines: list[int] = []
+
+    def _note(expr: ast.AST | None) -> None:
+        if expr is None or not _expr_has_call(expr):
+            return
+        lineno = getattr(expr, "lineno", getattr(node, "lineno", 0))
+        if lineno not in lines:
+            lines.append(lineno)
+
+    for dec in node.decorator_list:
+        _note(dec)
     for base in node.bases:
         _note(base)
     for kw in node.keywords:
         _note(kw.value)
     for stmt in node.body:
-        if isinstance(stmt, ast.Assign):
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for ln in _function_import_time_call_lines(stmt):
+                if ln not in lines:
+                    lines.append(ln)
+        elif isinstance(stmt, ast.ClassDef):
+            for ln in _class_import_time_call_lines(stmt):
+                if ln not in lines:
+                    lines.append(ln)
+        elif isinstance(stmt, ast.Assign):
             _note(stmt.value)
         elif isinstance(stmt, ast.AnnAssign):
             _note(stmt.value)
             _note(stmt.annotation)
+        elif isinstance(stmt, ast.Pass):
+            continue
+        elif isinstance(stmt, ast.Expr):
+            if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
+                continue
+            lineno = getattr(stmt, "lineno", getattr(node, "lineno", 0))
+            if lineno not in lines:
+                lines.append(lineno)
+        else:
+            lineno = getattr(stmt, "lineno", getattr(node, "lineno", 0))
+            if lineno not in lines:
+                lines.append(lineno)
     return lines
 
 
@@ -139,7 +204,13 @@ def extract_library_source(code: str) -> str:
                 dropped.extend(call_lines)
             else:
                 keep.append(node)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Import, ast.ImportFrom)):
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            call_lines = _function_import_time_call_lines(node)
+            if call_lines:
+                dropped.extend(call_lines)
+            else:
+                keep.append(node)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
             keep.append(node)
         elif isinstance(node, ast.Assign) and all(isinstance(t, ast.Name) for t in node.targets):
             # Name assignments stay, including ``SCALE = FACTOR * 2``. Only
@@ -167,7 +238,7 @@ def extract_library_source(code: str) -> str:
         else:
             dropped.append(getattr(node, "lineno", 0))
     if dropped:
-        lines = ", ".join(str(n) for n in dropped)
+        lines = ", ".join(str(n) for n in sorted(set(dropped)))
         raise ValueError(f"Named script has statements that are not library definitions (lines {lines})")
     if not keep:
         return ""
@@ -181,15 +252,19 @@ def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
     if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":
         raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
     if os.environ.get("WRITERAGENT_IS_WORKER") == "1":
+        # What was wrong: _rpc_call was invoked inside try: except ImportError:, so any
+        # internal ImportError raised during execution caused a fallback to exchange_tool_call,
+        # sending the RPC request twice.
+        # How it happened: The try block wrapped both the import and the function call.
+        # Why this change: Wrap only the import statement in try...except ImportError.
         try:
             from plugin.scripting.writeragent_api import _rpc_call
-
-            return _rpc_call(tool_name, **kwargs)
         except ImportError:
             # LibrePy omits writeragent_api. Same locked, id-checked pipe as _rpc_call.
             from plugin.scripting.ipc import exchange_tool_call
 
             return exchange_tool_call(tool_name, kwargs)
+        return _rpc_call(tool_name, **kwargs)
 
     from plugin.scripting.host_rpc import execute_tool
 
@@ -343,6 +418,14 @@ class ScriptLibrary:
     def __getitem__(self, name: str) -> Any:
         return load_named_script(self._origin, name, executor=self._resolve_executor())
 
+    def __dir__(self) -> list[str]:
+        return sorted(set(super().__dir__()) | set(self._ident_map_now().keys()) | set(self._names()))
+
+    def __contains__(self, item: object) -> bool:
+        if not isinstance(item, str):
+            return False
+        return item in self._names() or item in self._ident_map_now()
+
     def __repr__(self) -> str:
         return f"ScriptLibrary(origin={self._origin!r})"
 
@@ -399,12 +482,32 @@ def attach_named_script_libraries(executor: Any | None = None) -> None:
         mod.doc = doc
 
 
-def bind_named_scripts_executor(executor: Any) -> None:
-    """New execute: re-check hashes; keep module cache on the shared executor."""
+def bind_named_scripts_executor(executor: Any) -> Any:
+    """New execute: re-check hashes; keep module cache on the shared executor.
+
+    Returns the ContextVar token so callers can reset it on completion.
+    """
     executor._named_script_checked = set()
     executor._named_script_listing = None
-    _current_executor.set(executor)
+    token = _current_executor.set(executor)
     attach_named_script_libraries(executor)
+    return token
+
+
+def reset_named_scripts_executor(token: Any) -> None:
+    """Reset the ContextVar token from bind_named_scripts_executor.
+
+    What was wrong: _current_executor ContextVar was never reset after execution,
+    leaking stale executor references to later code on the same thread.
+    How it happened: bind_named_scripts_executor set the ContextVar without returning
+    the token or resetting it.
+    Why this change: Reset the ContextVar using the token returned by bind.
+    """
+    if token is not None:
+        try:
+            _current_executor.reset(token)
+        except Exception as e:
+            log.debug("Failed to reset named_scripts_executor ContextVar: %s", e)
 
 
 def host_list_named_python_scripts(*, user_scripts: dict[str, str], document_scripts: dict[str, str]) -> dict[str, list[str]]:

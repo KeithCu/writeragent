@@ -48,6 +48,11 @@ def show_new_script_dialog(
             name = show_text_input_dialog(ctx, _("Script name:"), dialog_title, default_name)
             if not name:
                 return None
+            from plugin.scripting.domain_registry import is_reserved_script_name
+
+            if is_reserved_script_name(name):
+                msgbox(ctx, _("Error"), _("Script name cannot start with a reserved prefix."))
+                return None
             return (name, False)
 
         dlg.getModel().Title = dialog_title
@@ -67,11 +72,11 @@ def show_new_script_dialog(
             chk.getModel().State = 1 if initial_attach else 0
             chk.getModel().Enabled = bool(can_attach)
 
-        _outcome: list[tuple[str, bool] | None] | None = None
+        outcome: tuple[str, bool] | None = None
 
         class _OkListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
-                nonlocal _outcome
+                nonlocal outcome
                 try:
                     ec = dlg.getControl("NameEdit")
                     t = (ec.getModel().Text or "").strip() if ec and ec.getModel() else ""
@@ -80,13 +85,18 @@ def show_new_script_dialog(
                 if not t:
                     msgbox(ctx, _("Error"), _("Script name cannot be empty."))
                     return
+                from plugin.scripting.domain_registry import is_reserved_script_name
+
+                if is_reserved_script_name(t):
+                    msgbox(ctx, _("Error"), _("Script name cannot start with a reserved prefix."))
+                    return
                 attach = False
                 try:
                     cc = dlg.getControl("ChkAttach")
                     attach = bool(cc.getModel().State == 1) if cc and cc.getModel() else False
                 except Exception:
                     pass
-                _outcome = [(t, attach)]
+                outcome = (t, attach)
                 dlg.endDialog(1)
 
             def disposing(self, Source: EventObject) -> None:
@@ -94,8 +104,8 @@ def show_new_script_dialog(
 
         class _CancelListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
-                nonlocal _outcome
-                _outcome = [None]
+                nonlocal outcome
+                outcome = None
                 dlg.endDialog(0)
 
             def disposing(self, Source: EventObject) -> None:
@@ -117,9 +127,7 @@ def show_new_script_dialog(
                 dlg.dispose()
             except Exception:
                 log.debug("show_new_script_dialog: dispose failed", exc_info=True)
-        if _outcome is None:
-            return None
-        return _outcome[0]
+        return outcome
     except Exception:
         log.exception("show_new_script_dialog failed")
         return None

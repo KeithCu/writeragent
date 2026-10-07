@@ -31,6 +31,15 @@ def supports_vision_manual(doc: Any) -> bool:
         return False
 
 
+def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
+    """Extract vision insertion kwargs (merged params) from script code."""
+    from plugin.scripting.helper_domain import parse_run_import_call_spec
+
+    call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
+    raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
+    return {"params": merge_vision_params(ctx, raw_params)}
+
+
 def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
     """Export the currently selected embedded graphic as raw PNG bytes."""
     b64 = get_selected_image_base64(doc, ctx)

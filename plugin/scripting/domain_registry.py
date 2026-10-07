@@ -12,6 +12,7 @@ Writer/Draw inserters are ``(ctx, doc, result)``. ``build_rps_spec`` keeps that 
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import time
@@ -20,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.doc.doc_type import is_calc
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
     format_elapsed_time,
@@ -58,6 +59,24 @@ OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
 FORECAST_SCRIPT_DISPLAY_PREFIX = "[Forecast] "
 SQL_SCRIPT_DISPLAY_PREFIX = "[SQL] "
 
+RESERVED_SCRIPT_PREFIXES = (
+    DOC_SCRIPT_DISPLAY_PREFIX,
+    ANALYSIS_SCRIPT_DISPLAY_PREFIX,
+    VISION_SCRIPT_DISPLAY_PREFIX,
+    VIZ_SCRIPT_DISPLAY_PREFIX,
+    MATH_SCRIPT_DISPLAY_PREFIX,
+    UNITS_SCRIPT_DISPLAY_PREFIX,
+    QUANT_SCRIPT_DISPLAY_PREFIX,
+    OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
+    FORECAST_SCRIPT_DISPLAY_PREFIX,
+    SQL_SCRIPT_DISPLAY_PREFIX,
+)
+
+
+def is_reserved_script_name(name: str) -> bool:
+    """True when *name* begins with any reserved UI prefix (e.g. '[Doc] ', '[Vision] ')."""
+    return any(name.startswith(p) for p in RESERVED_SCRIPT_PREFIXES)
+
 
 @dataclass(frozen=True)
 class PickerDomainSpec:
@@ -70,15 +89,16 @@ class PickerDomainSpec:
     templates: Callable[[], dict[str, str]]
 
 
-@dataclass
+@dataclass(frozen=True)
 class RpsDomainSpec:
     """Post-venv result routing for one trusted helper domain."""
 
     id: str
-    insert: Callable[..., Any] | None = None
-    format_ok: Callable[..., dict[str, Any]] | None = None
-    is_result: Callable[[Any], bool] | None = None
+    insert: Callable[..., Any]
+    format_ok: Callable[..., dict[str, Any]]
+    is_result: Callable[[Any], bool]
     post_venv_calc_only: bool = False
+    insert_kwargs_fn: Callable[[Any, str], dict[str, Any]] | None = None
 
 
 def try_rps_post_venv(
@@ -92,29 +112,13 @@ def try_rps_post_venv(
     code: str | None = None,
 ) -> dict[str, Any] | None:
     """Route a generic venv result through domain is_result + insert, or None."""
-    if spec.is_result is None or spec.insert is None or spec.format_ok is None:
-        return None
     if spec.post_venv_calc_only and not is_calc(doc):
         return None
     if not spec.is_result(result_data):
         return None
     insert_kwargs: dict[str, Any] = {}
-    if spec.id == "units" and code:
-        from plugin.scripting.helper_domain import parse_run_import_call_params
-        from plugin.scripting.units import split_helper_params
-
-        body_params = parse_run_import_call_params(code, run_name="run_units")
-        if body_params is not None:
-            _unused, output_style = split_helper_params(body_params)
-            if output_style is not None:
-                insert_kwargs["output_style"] = output_style
-    elif spec.id == "vision" and code:
-        from plugin.scripting.helper_domain import parse_run_import_call_spec
-        from plugin.vision.vision_common import merge_vision_params
-
-        call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
-        raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
-        insert_kwargs["params"] = merge_vision_params(ctx, raw_params)
+    if spec.insert_kwargs_fn is not None and code:
+        insert_kwargs = spec.insert_kwargs_fn(ctx, code)
     try:
         row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
     except Exception as e:
@@ -143,13 +147,20 @@ class DomainWiring:
     is_result: str  # module.path:attr
     format_ok_kind: str = "generic"  # generic | plot | symbolic | units | vision | rows
     post_venv_calc_only: bool = False
+    display_label: str = ""
+    insert_kwargs_from_code: str | None = None
+
+
+@functools.cache
+def _import_module(mod_name: str) -> Any:
+    import importlib
+
+    return importlib.import_module(mod_name)
 
 
 def _resolve_module_attr(target: str) -> Any:
-    import importlib
-
     mod_name, attr_name = target.rsplit(":", 1)
-    return getattr(importlib.import_module(mod_name), attr_name)
+    return getattr(_import_module(mod_name), attr_name)
 
 
 def _resolve_fn(path: str | None) -> Any:
@@ -170,30 +181,35 @@ def _vision_html_block_count(html: str) -> int:
 
 
 def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
+    insert_kwargs_fn = None
+    if w.insert_kwargs_from_code:
+        insert_kwargs_fn = _resolve_fn(w.insert_kwargs_from_code)
+
     def insert(ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
         fn = _resolve_fn(w.insert)
-        if w.id == "units":
-            ret = fn(ctx, doc, result, output_style=kwargs.get("output_style"))
-        elif w.id == "vision":
-            params = kwargs.get("params")
-            if params is not None:
-                ret = fn(ctx, doc, result, params=params)
-            else:
-                ret = fn(ctx, doc, result)
-        elif w.post_venv_calc_only:
+        if w.post_venv_calc_only:
             # Sheet egress is (doc, uno_ctx, result). Calling it as (ctx, doc, result)
             # passed the component context into calc_anchor_from_selection, which then
             # failed and the Run Python Script dialog reported an insert error.
             ret = fn(doc, ctx, result)
+        elif kwargs:
+            ret = fn(ctx, doc, result, **kwargs)
         else:
             ret = fn(ctx, doc, result)
-        if ret is not None:
-            return int(ret)
+        # What was wrong: int(ret) raised when an inserter returned a non-integer or unexpected type
+        # after a successful insert, displaying "Failed to insert result".
+        # How it happened: int(ret) was called unconditionally when ret was not None.
+        # Why this change: Return ret only when it is already an int (and not a bool), else None.
+        if isinstance(ret, int) and not isinstance(ret, bool):
+            return ret
         return None
 
     def format_ok(*, meta: Any, result: dict[str, Any], t0: float, row_count: Any = None, stdout: str | None = None) -> dict[str, Any]:
         helper = str(getattr(meta, "helper", "") or "") or str(result.get("helper") or w.id)
         formatted_time = format_elapsed_time(time.perf_counter() - t0)
+        domain_label = w.display_label or (
+            w.id.upper() if w.id == "sql" else (w.id.capitalize() if w.id != "text" else "Text analytics")
+        )
 
         if w.format_ok_kind == "plot":
             title = str(result.get("title") or helper or "Plot")
@@ -225,22 +241,31 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
         if w.format_ok_kind == "rows":
             return rps_ok_outcome(
                 _("{domain} '{helper}' completed. Wrote {rows} rows. (took {time})").format(
-                    domain=w.id.capitalize(), helper=helper, rows=row_count or 0, time=formatted_time
+                    domain=domain_label, helper=helper, rows=row_count or 0, time=formatted_time
                 ),
                 result=result,
                 stdout=stdout,
             )
         return rps_ok_outcome(
             _("{domain} '{helper}' completed. (took {time})").format(
-                domain=w.id.capitalize() if w.id != "text" else "Text analytics", helper=helper, time=formatted_time
+                domain=domain_label, helper=helper, time=formatted_time
             ),
             result=result,
             stdout=stdout,
         )
 
     def is_result(value: Any) -> bool:
-        fn = _resolve_fn(w.is_result)
-        return fn(value)
+        try:
+            fn = _resolve_fn(w.is_result)
+        except ImportError as exc:
+            # What was wrong: In bundles where optional domain modules are omitted (e.g. LibrePy excludes duckdb_sql),
+            # resolving is_result raises ModuleNotFoundError / ImportError.
+            # How it happened: is_result resolved module attributes without handling ImportError, causing plain Calc results
+            # to abort result routing in _finish_rps_execution with an insert failure.
+            # Why this change: Treat an unresolvable is_result module as 'not this domain' (return False) and log at debug level.
+            log.debug("Domain %s is_result module unavailable: %s", w.id, exc)
+            return False
+        return fn(value) if fn is not None else False
 
     return RpsDomainSpec(
         id=w.id,
@@ -248,6 +273,7 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
         format_ok=format_ok,
         is_result=is_result,
         post_venv_calc_only=w.post_venv_calc_only,
+        insert_kwargs_fn=insert_kwargs_fn,
     )
 
 
@@ -257,30 +283,37 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         insert="plugin.vision.vision_egress:insert_vision_result",
         is_result="plugin.vision.vision_egress:is_vision_result",
         format_ok_kind="vision",
+        display_label="Vision",
+        insert_kwargs_from_code="plugin.vision.vision_runner:extract_vision_insert_kwargs",
     ),
     DomainWiring(
         id="viz",
         insert="plugin.scripting.viz:insert_viz_result_into_doc",
         is_result="plugin.scripting.viz:is_viz_result",
         format_ok_kind="plot",
+        display_label="Viz",
     ),
     DomainWiring(
         id="math",
         insert="plugin.scripting.symbolic:insert_symbolic_result_into_doc",
         is_result="plugin.scripting.symbolic:is_symbolic_result",
         format_ok_kind="symbolic",
+        display_label="Math",
     ),
     DomainWiring(
         id="units",
         insert="plugin.scripting.units:insert_units_result_into_doc",
         is_result="plugin.scripting.units:is_units_result",
         format_ok_kind="units",
+        display_label="Units",
+        insert_kwargs_from_code="plugin.scripting.units:extract_units_insert_kwargs",
     ),
     DomainWiring(
         id="text",
         insert="plugin.scripting.text_analytics:insert_text_analytics_result_into_doc",
         is_result="plugin.scripting.text_analytics:is_text_analytics_result",
         format_ok_kind="generic",
+        display_label="Text analytics",
     ),
     DomainWiring(
         id="quant",
@@ -288,6 +321,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         is_result="plugin.calc.quant_egress:is_quant_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,
+        display_label="Quant",
     ),
     DomainWiring(
         id="optimize",
@@ -295,6 +329,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         is_result="plugin.scripting.optimize:is_optimize_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,
+        display_label="Optimize",
     ),
     DomainWiring(
         id="forecast",
@@ -302,6 +337,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         is_result="plugin.scripting.forecast:is_forecast_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,
+        display_label="Forecast",
     ),
     DomainWiring(
         id="analysis",
@@ -309,6 +345,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         is_result="plugin.calc.analysis_egress:is_analysis_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,
+        display_label="Analysis",
     ),
     DomainWiring(
         id="sql",
@@ -316,25 +353,20 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         is_result="plugin.scripting.duckdb_sql:is_sql_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,
+        display_label="SQL",
     ),
 )
 
-def _rps_builder_for(wiring: DomainWiring) -> Callable[[], RpsDomainSpec]:
-    return lambda: build_rps_spec(wiring)
-
-
-_RPS_BUILDERS: tuple[Callable[[], RpsDomainSpec], ...] = tuple(
-    _rps_builder_for(wiring) for wiring in WIRING_TABLE
-)
 
 _rps_cache: list[RpsDomainSpec] | None = None
+_rps_by_id: dict[str, RpsDomainSpec] | None = None
 
 
 def get_rps_domains() -> Sequence[RpsDomainSpec]:
     """Ordered RPS domain specs (cached after first call)."""
     global _rps_cache
     if _rps_cache is None:
-        _rps_cache = [builder() for builder in _RPS_BUILDERS]
+        _rps_cache = [build_rps_spec(wiring) for wiring in WIRING_TABLE]
     return _rps_cache
 
 
@@ -356,10 +388,10 @@ POST_VENV_DOMAIN_ORDER: tuple[str, ...] = (
 
 
 def get_rps_domain_by_id(domain_id: str) -> RpsDomainSpec | None:
-    for spec in get_rps_domains():
-        if spec.id == domain_id:
-            return spec
-    return None
+    global _rps_by_id
+    if _rps_by_id is None:
+        _rps_by_id = {spec.id: spec for spec in get_rps_domains()}
+    return _rps_by_id.get(domain_id)
 
 
 def get_post_venv_domains() -> list[RpsDomainSpec]:
@@ -367,7 +399,7 @@ def get_post_venv_domains() -> list[RpsDomainSpec]:
     out: list[RpsDomainSpec] = []
     for domain_id in POST_VENV_DOMAIN_ORDER:
         spec = get_rps_domain_by_id(domain_id)
-        if spec is not None and spec.is_result is not None:
+        if spec is not None:
             out.append(spec)
     return out
 
@@ -392,46 +424,75 @@ _IMPORT_DATA_BINDING: tuple[tuple[str, bool], ...] = (
 )
 
 
-def _imported_names_are_called(code: str, module: str) -> bool:
-    """True when *code* imports a name from *module* and calls that name."""
-    import ast
-
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
-        return False
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == module:
-            for alias in node.names:
-                bound = alias.asname or alias.name
-                if bound and bound != "*":
-                    names.add(bound)
-    if not names:
-        return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names:
-            return True
-    return False
-
-
 def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* uses a trusted helper that may bind Calc sheet data."""
+    """True when *code* uses a trusted helper that may bind Calc sheet data.
+
+    What was wrong: Re-parsed AST for every module in _IMPORT_DATA_BINDING (6 times),
+    and missed 'import ... as' and 'from writeragent.scripting import analysis'.
+    How it happened: _imported_names_are_called was called in a loop and only checked
+    ImportFrom with exact module match and direct Name calls.
+    Why this change: Parse AST once, tracking direct function imports and module aliases,
+    and check whether any imported helper is called.
+    """
     if not code:
         return False
+    calc = is_calc(doc)
     for run_name, cfg in _RUN_IMPORT_DATA_BINDING.items():
-        if not re.search(rf"\b{re.escape(run_name)}\s*\(", code):
-            continue
-        if cfg.get("calc_only") and not is_calc(doc):
-            continue
+        if re.search(rf"\b{re.escape(run_name)}\s*\(", code):
+            if not cfg.get("calc_only") or calc:
+                return True
+    if calc and re.search(r"\bquery_folder_sql\s*\(", code):
         return True
-    if re.search(r"\bquery_folder_sql\s*\(", code) and is_calc(doc):
-        return True
-    for module, calc_only in _IMPORT_DATA_BINDING:
-        if calc_only and not is_calc(doc):
+
+    try:
+        import ast
+
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        for module, calc_only in _IMPORT_DATA_BINDING:
+            if calc_only and not calc:
+                continue
+            if module in code:
+                return True
+        return False
+
+    imported_names: set[str] = set()
+    alias_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            for module, calc_only in _IMPORT_DATA_BINDING:
+                if calc_only and not calc:
+                    continue
+                if mod == module:
+                    for alias in node.names:
+                        bound = alias.asname or alias.name
+                        if bound and bound != "*":
+                            imported_names.add(bound)
+                elif mod == "writeragent.scripting":
+                    sub = module.split(".")[-1]
+                    for alias in node.names:
+                        if alias.name == sub:
+                            bound = alias.asname or alias.name
+                            alias_modules.add(bound)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                for module, calc_only in _IMPORT_DATA_BINDING:
+                    if calc_only and not calc:
+                        continue
+                    if alias.name == module:
+                        bound = alias.asname or alias.name
+                        alias_modules.add(bound)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
             continue
-        if _imported_names_are_called(code, module):
+        if isinstance(node.func, ast.Name) and node.func.id in imported_names:
             return True
+        if isinstance(node.func, ast.Attribute):
+            target = node.func.value
+            if isinstance(target, ast.Name) and target.id in alias_modules:
+                return True
     return False
 
 
@@ -479,82 +540,78 @@ def _picker_templates_fn(templates: str) -> Callable[[], dict[str, str]]:
     return _templates
 
 
-def _picker_builder_for(wiring: PickerWiring) -> Callable[[], PickerDomainSpec]:
+def build_picker_spec(wiring: PickerWiring) -> PickerDomainSpec:
     title = wiring.title
-
-    def _build() -> PickerDomainSpec:
-        return PickerDomainSpec(
-            origin=wiring.origin,
-            display_prefix=wiring.display_prefix,
-            title_fn=lambda: _(title),
-            supports=_picker_supports_fn(wiring.supports),
-            templates=_picker_templates_fn(wiring.templates),
-        )
-
-    return _build
+    return PickerDomainSpec(
+        origin=wiring.origin,
+        display_prefix=wiring.display_prefix,
+        title_fn=lambda: _(title),
+        supports=_picker_supports_fn(wiring.supports),
+        templates=_picker_templates_fn(wiring.templates),
+    )
 
 
 PICKER_WIRING: tuple[PickerWiring, ...] = (
     PickerWiring(
         origin=SCRIPT_ORIGIN_VISION,
         display_prefix=VISION_SCRIPT_DISPLAY_PREFIX,
-        title="Vision Helpers",
+        title=N_("Vision Helpers"),
         supports="plugin.vision.vision_runner:supports_vision_manual",
         templates="plugin.vision.vision_templates:get_vision_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_MATH,
         display_prefix=MATH_SCRIPT_DISPLAY_PREFIX,
-        title="Math Helpers",
+        title=N_("Math Helpers"),
         supports="plugin.scripting.symbolic:supports_symbolic_manual",
         templates="plugin.scripting.symbolic:get_math_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_UNITS,
         display_prefix=UNITS_SCRIPT_DISPLAY_PREFIX,
-        title="Units Helpers",
+        title=N_("Units Helpers"),
         supports="plugin.scripting.units:supports_units_manual",
         templates="plugin.scripting.units:get_units_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_ANALYSIS,
         display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
-        title="Analysis Helpers",
+        title=N_("Analysis Helpers"),
         supports="calc_only",
         templates="plugin.scripting.analysis:get_analysis_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_SQL,
         display_prefix=SQL_SCRIPT_DISPLAY_PREFIX,
-        title="SQL Helpers",
+        title=N_("SQL Helpers"),
         supports="calc_only",
         templates="plugin.scripting.duckdb_sql:get_sql_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_VIZ,
         display_prefix=VIZ_SCRIPT_DISPLAY_PREFIX,
-        title="Viz Helpers",
+        title=N_("Viz Helpers"),
         supports="plugin.scripting.viz:supports_viz_manual",
         templates="plugin.scripting.viz:get_viz_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_QUANT,
         display_prefix=QUANT_SCRIPT_DISPLAY_PREFIX,
-        title="Quant Helpers",
+        title=N_("Quant Helpers"),
         supports="plugin.scripting.quant:supports_quant_manual",
         templates="plugin.scripting.quant:get_quant_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_OPTIMIZE,
         display_prefix=OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
-        title="Optimize Helpers",
+        title=N_("Optimize Helpers"),
         supports="calc_only",
         templates="plugin.scripting.optimize:get_optimize_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_FORECAST,
         display_prefix=FORECAST_SCRIPT_DISPLAY_PREFIX,
-        title="Forecast Helpers",
+        title=N_("Forecast Helpers"),
         supports="calc_only",
         templates="plugin.scripting.forecast:get_forecast_script_templates",
     ),
@@ -572,7 +629,7 @@ def get_picker_domains() -> list[PickerDomainSpec]:
     """
     global _picker_cache
     if _picker_cache is None:
-        _picker_cache = [_picker_builder_for(wiring)() for wiring in PICKER_WIRING]
+        _picker_cache = [build_picker_spec(wiring) for wiring in PICKER_WIRING]
     return _picker_cache
 
 

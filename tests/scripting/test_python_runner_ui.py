@@ -371,3 +371,21 @@ def test_save_current_script_fallback_success():
 
     assert res == "Write failed. Saved to My Scripts instead."
     mock_save_user.assert_called_once_with("MyDocScript", "new code")
+
+
+def test_start_native_script_run_uses_dedicated_worker():
+    # What was wrong: Script execution ran on the shared background worker pool (dedicated=False).
+    # Long-running scripts blocked the pool from handling other tasks.
+    # Why this change: AGENTS.md requires long jobs to run with dedicated=True.
+    captured = {}
+
+    def _capture_run(func, *args, **kwargs):
+        captured["dedicated"] = kwargs.get("dedicated")
+        return MagicMock()
+
+    ctx = MagicMock()
+    with patch.object(ui, "run_in_background", side_effect=_capture_run):
+        ui.start_native_script_run(ctx, None, "print(1)", on_complete=lambda _o: None)
+
+    assert captured.get("dedicated") is True
+

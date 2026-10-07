@@ -1225,3 +1225,27 @@ def test_shared_save_selected_script_user_and_doc_and_builtin():
             assert err is not None
             assert "not in My Scripts or this document" in err
 
+
+def test_attach_and_save_user_script_reject_reserved_prefix():
+    # What was wrong: Scripts named with reserved display prefixes like "[Doc] foo"
+    # caused row collision and display confusion in the script picker.
+    # Why this change: attach_document_script returns RESERVED_NAME error and
+    # save_user_script raises ValueError.
+    import pytest
+
+    doc = MagicMock()
+    err = attach_document_script(doc, "[Doc] my_script", "code")
+    assert err is not None
+    assert err.code == DocumentScriptErrorCode.RESERVED_NAME
+
+    err = attach_document_script(doc, "[Vision] test", "code")
+    assert err is not None
+    assert err.code == DocumentScriptErrorCode.RESERVED_NAME
+
+    with pytest.raises(ValueError, match="reserved prefix"):
+        save_user_script("[Doc] my_script", "code")
+
+    with pytest.raises(ValueError, match="reserved prefix"):
+        save_user_script("[Analysis] describe", "code")
+
+

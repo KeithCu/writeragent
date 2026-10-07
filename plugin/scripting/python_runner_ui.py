@@ -22,13 +22,34 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent
     from com.sun.star.lang import EventObject
+
+
+class _ActionListener(unohelper.Base, XActionListener):
+    _action_fn: Callable[[], Any]
+
+    def __init__(self, action_fn: Callable[[], Any]) -> None:
+        self._action_fn = action_fn
+
+    def actionPerformed(self, rEvent: ActionEvent) -> None:
+        try:
+            self._action_fn()
+        except Exception:
+            log.exception("Action listener failed")
+
+    def disposing(self, Source: EventObject) -> None:
+        pass
+
+
+def _action(fn: Callable[[], Any], name: str = "") -> XActionListener:
+    cls = type(name, (_ActionListener,), {}) if name else _ActionListener
+    return cls(fn)
 
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
@@ -115,14 +136,10 @@ def start_native_script_run(
         post_to_main_thread(_apply)
 
     def _native_script_run_worker() -> None:
-        prepared: dict[str, Any] | None = None
         try:
             prepared = execute_on_main_thread(
                 _prepare_rps_execution, ctx, doc, code, data_range=data_range
             )
-            if not isinstance(prepared, dict):
-                _deliver({"ok": False, "message": _("Script execution failed.")})
-                return
             early = prepared.get("early_outcome")
             if early is not None:
                 _deliver(early)
@@ -134,11 +151,7 @@ def start_native_script_run(
 
                 release_script_document(prepared.get("script_session_id"))
                 log.exception("native script run failed")
-                t0 = prepared.get("t0") if isinstance(prepared, dict) else None
-                if isinstance(t0, (int, float)):
-                    _deliver(rps_error_outcome(str(exc), t0=float(t0), traceback=exception_traceback(exc)))
-                else:
-                    _deliver({"ok": False, "message": str(exc), "traceback": exception_traceback(exc)})
+                _deliver(rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc)))
                 return
             outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
             _deliver(outcome)
@@ -146,10 +159,13 @@ def start_native_script_run(
             log.exception("native script run failed")
             _deliver({"ok": False, "message": str(exc)})
 
-    run_in_background(_native_script_run_worker, name="native-run-python-script")
+    # What was wrong: A long script run in background occupied a slot in the shared pool.
+    # How: run_in_background called without dedicated=True, blocking one of the fixed pool workers.
+    # Why: Script runs can take minutes and block IPC; run on a dedicated thread per AGENTS.md.
+    run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
 
 
-def native_run_script_modeless_enabled(ctx: Any) -> bool:
+def native_run_script_modeless_enabled(ctx: Any = None) -> bool:
     """When True, the plain-text Run Python Script dialog floats (document stays editable)."""
     return bool(get_config("scripting.native_run_script_modeless"))
 
@@ -193,7 +209,8 @@ class NativePythonScriptDialog:
     _doc: Any | None
     _modeless: bool
     _closed: bool
-    _opened: bool
+    _open_failure_detail: str | None
+    _name_config_key: str
 
     def __init__(
         self,
@@ -211,8 +228,10 @@ class NativePythonScriptDialog:
         self._script_origin_map: dict[str, str] = {}
         self._closed = False
         self._top_listener: Any | None = None
-        self._open_failure_detail: str | None = None
-        self._opened = self._open()
+        self._open_failure_detail = None
+        from plugin.scripting.python_runner import resolve_run_script_name_config_key
+
+        self._name_config_key = resolve_run_script_name_config_key(initial_doc)
 
     @classmethod
     def show(
@@ -227,7 +246,7 @@ class NativePythonScriptDialog:
             initial_doc=doc,
             modeless=modeless,
         )
-        if inst._opened:
+        if inst._open():
             return True, None
         return False, inst._open_failure_detail
 
@@ -273,31 +292,43 @@ class NativePythonScriptDialog:
         select_ctrl.removeItems(0, select_ctrl.getItemCount())
         select_ctrl.addItems(tuple(names), 0)
 
+        config_key = getattr(self, "_name_config_key", None)
+        if not config_key:
+            from plugin.scripting.python_runner import resolve_run_script_name_config_key
+
+            config_key = resolve_run_script_name_config_key(self._doc)
+            self._name_config_key = config_key
+
         selected_name = ""
         if select_display and select_display in names:
             selected_name = select_display
         else:
-            from plugin.scripting.python_runner import resolve_run_script_name_config_key
-            name_config_key = resolve_run_script_name_config_key(self._doc)
-            last_name = get_config_str(name_config_key)
+            last_name = get_config_str(config_key)
             if last_name and last_name in names:
                 selected_name = last_name
         if not selected_name and names:
             selected_name = names[0]
 
+        dlg = getattr(self, "_dlg", None)
         if selected_name:
             _picker_select_name(select_ctrl, selected_name, names)
-            from plugin.scripting.python_runner import resolve_run_script_name_config_key
-            name_config_key = resolve_run_script_name_config_key(self._doc)
-            set_config(name_config_key, selected_name)
-            if self._dlg is not None:
+            set_config(config_key, selected_name)
+            if dlg is not None:
                 try:
-                    code_ctrl = self._dlg.getControl("CodeEdit")
+                    code_ctrl = dlg.getControl("CodeEdit")
                     if code_ctrl is not None:
                         code_ctrl.setText(merged.get(selected_name, ""))
-                except Exception:
-                    pass
-
+                except Exception as exc:
+                    log.debug("Failed to set code edit text on refresh: %s", exc)
+        else:
+            # Clear editor when no scripts remain
+            if dlg is not None:
+                try:
+                    code_ctrl = dlg.getControl("CodeEdit")
+                    if code_ctrl is not None:
+                        code_ctrl.setText("")
+                except Exception as exc:
+                    log.debug("Failed to clear code edit text on refresh: %s", exc)
 
     def _open(self) -> bool:
         ctx = self._ctx
@@ -319,12 +350,6 @@ class NativePythonScriptDialog:
 
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
-
-            doc = self._doc
-            _script_names, merged_scripts, origin_map = build_xdl_script_picker_state(doc, get_user_scripts())
-
-            self._current_scripts = dict(merged_scripts)
-            self._script_origin_map = dict(origin_map)
 
             # Re-initialize picker items and selection cleanly
             self._refresh_script_dropdown()
@@ -400,12 +425,65 @@ class NativePythonScriptDialog:
                     if real_name in get_user_scripts():
                         return _("Cannot save to My Scripts: a script named '%s' already exists.") % real_name
                     save_user_script(real_name, t)
+                    # What was wrong: After falling back to My Scripts, the dropdown still showed
+                    # the [Doc] entry, causing state mismatch.
+                    # How: save_user_script was called without refreshing or selecting the user script.
+                    # Why this change: Refresh dropdown and select the newly saved user script.
+                    self._refresh_script_dropdown(select_display=real_name)
                     return _("%s Saved to My Scripts instead.") % err
                 return _("Script '%s' saved to this document.") % real_name
             else:
                 save_user_script(real_name, t)
                 return _("Script '%s' saved successfully.") % real_name
         return None
+
+    def _store_script(
+        self,
+        name: str,
+        code: str,
+        *,
+        attach_to_document: bool,
+        dialog_title: str,
+        doc_success_msg: str,
+        user_success_msg: str,
+    ) -> bool:
+        """Shared storage and UI refresh helper for New and Save As."""
+        ctx = self._ctx
+        doc = self._doc
+        dlg = self._dlg
+        lbl = dlg.getControl("InstructionLbl") if dlg is not None else None
+
+        if attach_to_document and doc is not None:
+            from plugin.scripting.document_scripts import (
+                document_script_display_name,
+                get_document_scripts,
+            )
+
+            overwrite = name in get_document_scripts(doc)
+            if overwrite and not show_approval_dialog(
+                ctx,
+                _("A script named '{0}' already exists in this document. Overwrite?").format(name),
+                dialog_title,
+            ):
+                return False
+            err = attach_document_script(doc, name, code, overwrite=True)
+            if err:
+                set_control_text(lbl, err)
+                return False
+            self._refresh_script_dropdown(document_script_display_name(name))
+            set_control_text(lbl, doc_success_msg % name)
+            return True
+        else:
+            if name in get_user_scripts() and not show_approval_dialog(
+                ctx,
+                _("A script named '{0}' already exists in My Scripts. Overwrite?").format(name),
+                dialog_title,
+            ):
+                return False
+            save_user_script(name, code)
+            self._refresh_script_dropdown(name)
+            set_control_text(lbl, user_success_msg % name)
+            return True
 
     def _wire_listeners(self, dlg: Any, select_ctrl: Any) -> None:
         ctx = self._ctx
@@ -418,10 +496,7 @@ class NativePythonScriptDialog:
                     name = _picker_selected_name(select_ctrl)
                     if name:
                         code_ctrl = dlg.getControl("CodeEdit")
-                        # Save the selected name to config
-                        from plugin.scripting.python_runner import resolve_run_script_name_config_key
-                        name_config_key = resolve_run_script_name_config_key(owner._doc)
-                        set_config(name_config_key, name)
+                        set_config(owner._name_config_key, name)
                         t = owner._current_scripts.get(name, "")
                         code_ctrl.setText(t)
                 except Exception:
@@ -430,235 +505,163 @@ class NativePythonScriptDialog:
             def disposing(self, Source: EventObject) -> None:
                 pass
 
-        class _RunListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                btn_run = None
-                try:
-                    ec = dlg.getControl("CodeEdit")
-                    t = (ec.getModel().Text or "").strip()
-                    lbl = dlg.getControl("InstructionLbl")
-                    owner._save_current_script(t)
-                    btn_run = dlg.getControl("BtnRun")
-                    # Disable Run for the duration of the venv wait so a second
-                    # click does not start another script against the same dialog.
-                    set_control_enabled(btn_run, False)
-                    set_control_text(lbl, _("Running..."))
+        def _on_run() -> None:
+            btn_run = None
+            try:
+                ec = dlg.getControl("CodeEdit")
+                t = (ec.getModel().Text or "").rstrip()
+                lbl = dlg.getControl("InstructionLbl")
+                # What was wrong: Run called _save_current_script and discarded the returned message.
+                # How: The return value was unread, hiding save warnings or fallback to My Scripts.
+                # Why this change: Display the save message in the label text when starting the run.
+                save_msg = owner._save_current_script(t)
+                if save_msg:
+                    set_control_text(lbl, save_msg)
+                btn_run = dlg.getControl("BtnRun")
+                set_control_enabled(btn_run, False)
+                set_control_text(lbl, _("Running..."))
 
-                    def _on_complete(outcome: dict[str, Any]) -> None:
-                        try:
-                            _report_run_outcome(ctx, lbl, outcome)
-                            # Errors skip the status label inside _report_run_outcome
-                            # (message box only). Clear "Running..." or the button
-                            # looks idle while the label still says the script is running.
-                            if not outcome.get("ok"):
-                                set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
-                        finally:
-                            set_control_enabled(btn_run, True)
-
-                    start_native_script_run(ctx, doc, t, on_complete=_on_complete)
-                except Exception as e:
-                    if btn_run is not None:
+                def _on_complete(outcome: dict[str, Any]) -> None:
+                    try:
+                        _report_run_outcome(ctx, lbl, outcome)
+                        if not outcome.get("ok"):
+                            set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
+                    finally:
                         set_control_enabled(btn_run, True)
-                    log.exception("Run failed in dialog")
-                    msgbox(ctx, _("Error"), str(e))
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
+                start_native_script_run(ctx, doc, t, on_complete=_on_complete)
+            except Exception as e:
+                if btn_run is not None:
+                    set_control_enabled(btn_run, True)
+                log.exception("Run failed in dialog")
+                msgbox(ctx, _("Error"), str(e))
 
-        # WARNING: If you change Save logic, also update btn-save listener in:
-        # plugin/contrib/scripting/assets/editor/scripts_manager.js
-        class _SaveListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                try:
-                    ec = dlg.getControl("CodeEdit")
-                    t = (ec.getModel().Text or "").strip()
-                    lbl = dlg.getControl("InstructionLbl")
-                    res = owner._save_current_script(t)
-                    if res:
-                        set_control_text(lbl, res)
-                except Exception as exc:
-                    _report_script_dialog_error(ctx, dlg, exc, "Save")
+        def _on_save() -> None:
+            try:
+                ec = dlg.getControl("CodeEdit")
+                t = (ec.getModel().Text or "").rstrip()
+                lbl = dlg.getControl("InstructionLbl")
+                res = owner._save_current_script(t)
+                if res:
+                    set_control_text(lbl, res)
+            except Exception as exc:
+                _report_script_dialog_error(ctx, dlg, exc, "Save")
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
+        def _on_save_as() -> None:
+            try:
+                ec = dlg.getControl("CodeEdit")
+                t = (ec.getModel().Text or "").rstrip()
 
-        # WARNING: If you change Save As logic, also update onSaveAs in:
-        # plugin/contrib/scripting/assets/editor/scripts_manager.js
-        class _SaveAsListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                try:
-                    ec = dlg.getControl("CodeEdit")
-                    t = (ec.getModel().Text or "").strip()
+                curr_display = _picker_selected_name(select_ctrl)
+                real_curr, curr_origin = (
+                    resolve_script_picker_entry(curr_display, owner._script_origin_map)
+                    if curr_display
+                    else ("", SCRIPT_ORIGIN_USER)
+                )
 
-                    curr_display = _picker_selected_name(select_ctrl)
-                    real_curr, curr_origin = (
-                        resolve_script_picker_entry(curr_display, owner._script_origin_map)
-                        if curr_display
-                        else ("", SCRIPT_ORIGIN_USER)
+                res = show_new_script_dialog(
+                    ctx,
+                    doc=doc,
+                    default_name=real_curr,
+                    title=_("Save Script As"),
+                    default_attach=(curr_origin == SCRIPT_ORIGIN_DOCUMENT),
+                )
+                if not res:
+                    return
+                name, attach_to_document = res
+                name = name.strip()
+                if not name:
+                    return
+
+                owner._store_script(
+                    name,
+                    t,
+                    attach_to_document=attach_to_document,
+                    dialog_title=_("Save Script As"),
+                    doc_success_msg=_("Script '%s' saved to this document."),
+                    user_success_msg=_("Script '%s' saved to My Scripts."),
+                )
+            except Exception as exc:
+                _report_script_dialog_error(ctx, dlg, exc, "Save As")
+
+        def _on_delete() -> None:
+            try:
+                display_name = _picker_selected_name(select_ctrl)
+                if not display_name:
+                    return
+
+                lbl = dlg.getControl("InstructionLbl")
+                real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
+                if not script_origin_is_library(origin):
+                    set_control_text(
+                        lbl,
+                        _("Built-in helpers are read-only. Use Copy to My Scripts to customize."),
                     )
-
-                    res = show_new_script_dialog(
-                        ctx,
-                        doc=doc,
-                        default_name=real_curr,
-                        title=_("Save Script As"),
-                        default_attach=(curr_origin == SCRIPT_ORIGIN_DOCUMENT),
-                    )
-                    if not res:
-                        return
-                    name, attach_to_document = res
-                    name = name.strip()
-                    if not name:
-                        return
-
-                    lbl = dlg.getControl("InstructionLbl")
-                    if attach_to_document and doc is not None:
-                        from plugin.scripting.document_scripts import document_script_display_name, get_document_scripts
-
-                        overwrite = name in get_document_scripts(doc)
-                        if overwrite and not show_approval_dialog(
-                            ctx,
-                            _("A script named '{0}' already exists in this document. Overwrite?").format(name),
-                            _("Save Script As"),
-                        ):
+                    return
+                if show_approval_dialog(
+                    ctx,
+                    _("Are you sure you want to delete script '%s'?") % real_name,
+                    _("Delete Script"),
+                ):
+                    if origin == SCRIPT_ORIGIN_DOCUMENT:
+                        if doc is None:
+                            set_control_text(lbl, _("No document is open."))
                             return
-                        err = attach_document_script(doc, name, t, overwrite=True)
+                        err = delete_document_script(doc, real_name)
                         if err:
                             set_control_text(lbl, err)
                             return
-                        owner._refresh_script_dropdown(document_script_display_name(name))
-                        set_control_text(lbl, _("Script '%s' saved to this document.") % name)
                     else:
-                        if name in get_user_scripts() and not show_approval_dialog(
-                            ctx,
-                            _("A script named '{0}' already exists in My Scripts. Overwrite?").format(name),
-                            _("Save Script As"),
-                        ):
-                            return
-                        save_user_script(name, t)
-                        owner._refresh_script_dropdown(name)
-                        set_control_text(lbl, _("Script '%s' saved to My Scripts.") % name)
-                except Exception as exc:
-                    _report_script_dialog_error(ctx, dlg, exc, "Save As")
+                        delete_user_script(real_name)
+                    owner._refresh_script_dropdown()
+                    set_control_text(lbl, _("Script '%s' deleted.") % real_name)
+            except Exception as exc:
+                _report_script_dialog_error(ctx, dlg, exc, "Delete")
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
+        def _on_new() -> None:
+            try:
+                res = show_new_script_dialog(ctx, doc=doc)
+                if not res:
+                    return
+                name, attach_to_document = res
+                name = name.strip()
+                if not name:
+                    return
 
-        # WARNING: If you change Delete logic, also update onDeleteScript in:
-        # plugin/contrib/scripting/assets/editor/scripts_manager.js
-        class _DeleteListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                try:
-                    display_name = _picker_selected_name(select_ctrl)
-                    if not display_name:
-                        return
-
-                    lbl = dlg.getControl("InstructionLbl")
-
-                    real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
-                    if not script_origin_is_library(origin):
-                        set_control_text(
-                            lbl,
-                            _("Built-in helpers are read-only. Use Copy to My Scripts to customize."),
-                        )
-                        return
-                    if show_approval_dialog(
-                        ctx,
-                        _("Are you sure you want to delete script '%s'?") % real_name,
-                        _("Delete Script"),
-                    ):
-                        if origin == SCRIPT_ORIGIN_DOCUMENT:
-                            if doc is None:
-                                set_control_text(lbl, _("No document is open."))
-                                return
-                            err = delete_document_script(doc, real_name)
-                            if err:
-                                set_control_text(lbl, err)
-                                return
-                        else:
-                            delete_user_script(real_name)
-                        owner._refresh_script_dropdown()
-                        set_control_text(lbl, _("Script '%s' deleted.") % real_name)
-                except Exception as exc:
-                    _report_script_dialog_error(ctx, dlg, exc, "Delete")
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        # WARNING: If you change New script creation logic, also update onCreateNewScript in:
-        # plugin/contrib/scripting/assets/editor/scripts_manager.js
-        # and dialog layout in extension/Dialogs/NewScriptDialog.xdl
-        class _NewListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                try:
-                    res = show_new_script_dialog(ctx, doc=doc)
-                    if not res:
-                        return
-                    name, attach_to_document = res
-                    name = name.strip()
-                    if not name:
-                        return
-
-                    lbl = dlg.getControl("InstructionLbl")
+                starter_code = '# A simple script\nresult = "Hello from Python!"\n'
+                if owner._store_script(
+                    name,
+                    starter_code,
+                    attach_to_document=attach_to_document,
+                    dialog_title=_("New Script"),
+                    doc_success_msg=_("Script '%s' created in this document."),
+                    user_success_msg=_("Script '%s' created in My Scripts."),
+                ):
                     ec = dlg.getControl("CodeEdit")
-                    starter_code = '# A simple script\nresult = "Hello from Python!"\n'
+                    if ec is not None:
+                        set_control_text(ec, starter_code)
+            except Exception as exc:
+                _report_script_dialog_error(ctx, dlg, exc, "New script")
 
-                    if attach_to_document and doc is not None:
-                        from plugin.scripting.document_scripts import document_script_display_name, get_document_scripts
-
-                        overwrite = name in get_document_scripts(doc)
-                        if overwrite and not show_approval_dialog(
-                            ctx,
-                            _("A script named '{0}' already exists in this document. Overwrite?").format(name),
-                            _("New Script"),
-                        ):
-                            return
-                        err = attach_document_script(doc, name, starter_code, overwrite=True)
-                        if err:
-                            set_control_text(lbl, err)
-                            return
-                        if ec is not None:
-                            set_control_text(ec, starter_code)
-                        owner._refresh_script_dropdown(document_script_display_name(name))
-                        set_control_text(lbl, _("Script '%s' created in this document.") % name)
-                    else:
-                        if name in get_user_scripts() and not show_approval_dialog(
-                            ctx,
-                            _("A script named '{0}' already exists in My Scripts. Overwrite?").format(name),
-                            _("New Script"),
-                        ):
-                            return
-                        save_user_script(name, starter_code)
-                        if ec is not None:
-                            set_control_text(ec, starter_code)
-                        owner._refresh_script_dropdown(name)
-                        set_control_text(lbl, _("Script '%s' created in My Scripts.") % name)
-                except Exception as exc:
-                    _report_script_dialog_error(ctx, dlg, exc, "New script")
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                log.debug("native script dialog: BtnCancel")
-                if owner._modeless:
-                    owner.close()
-                else:
-                    dlg.endDialog(0)
-
-            def disposing(self, Source: EventObject) -> None:
-                pass
+        def _on_cancel() -> None:
+            log.debug("native script dialog: BtnCancel")
+            if owner._modeless:
+                owner.close()
+            else:
+                dlg.endDialog(0)
 
         select_ctrl.addItemListener(_ScriptSelectListener())
-        dlg.getControl("BtnRun").addActionListener(_RunListener())
-        dlg.getControl("BtnSave").addActionListener(_SaveListener())
-        btn_new = dlg.getControl("BtnNew")
-        if btn_new is not None:
-            btn_new.addActionListener(_NewListener())
-        dlg.getControl("BtnSaveAs").addActionListener(_SaveAsListener())
-        dlg.getControl("BtnDelete").addActionListener(_DeleteListener())
-        dlg.getControl("BtnCancel").addActionListener(_CancelListener())
+        for btn_name, handler in (
+            ("BtnRun", _on_run),
+            ("BtnSave", _on_save),
+            ("BtnNew", _on_new),
+            ("BtnSaveAs", _on_save_as),
+            ("BtnDelete", _on_delete),
+            ("BtnCancel", _on_cancel),
+        ):
+            btn = dlg.getControl(btn_name)
+            if btn is not None:
+                btn.addActionListener(_action(handler, f"_{btn_name[3:]}Listener"))
 
 
 def show_python_input_dialog(
@@ -690,9 +693,7 @@ def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> N
         msgbox(ctx, _("Execution Error"), outcome.get("message", _("Unknown error")))
         return
     status_text = outcome.get("status_ok_text", _("Script executed successfully."))
-    if status_text.startswith(_(
-        "Script executed successfully, but returned no result and produced no output."
-    )):
+    if outcome.get("no_output"):
         msgbox(ctx, _("Success"), status_text)
     elif outcome.get("stdout"):
         # What was wrong: stdout was shown only when result is None, so a
