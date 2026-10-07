@@ -146,7 +146,6 @@ def is_local_host(host: str) -> bool:
         return True
     try:
         ip = ipaddress.ip_address(host)
-
         return ip.is_loopback or ip.is_private or ip.is_link_local
     except ValueError:
         return False

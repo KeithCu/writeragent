@@ -114,10 +114,6 @@ def _map_anthropic_finish_reason(reason: Any) -> str | None:
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
-    def __init__(self, client: Any) -> None:
-        super().__init__(client)
-
-
     def _tool_delta(self, block_index: Any, function: dict[str, Any], tool_id: str | None = None, name: str | None = None, indexes: dict[int, int] | None = None) -> dict[str, Any] | None:
         if not isinstance(block_index, int):
             return None
@@ -227,8 +223,6 @@ class AnthropicShim(BaseProviderShim):
                     args_obj = _parse_tool_input(fn.get("arguments"))
                     if args_obj is _BAD_TOOL_INPUT:
                         dropped_tool_ids.add(tc.get("id"))
-                        continue
-                    if args_obj is None:
                         continue
                     anth_content.append({"type": "tool_use", "id": tc.get("id"), "name": fn.get("name"), "input": args_obj})
                 if anth_content:
