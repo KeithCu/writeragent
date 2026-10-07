@@ -74,7 +74,7 @@ class OpenAIShim(BaseProviderShim):
         # selected would replace it with a new image (same silent miss as
         # OpenRouter's old image_url / Imagen :predict).
         if ref and model and str(model).lower().startswith("dall-e-3"):
-            raise ValueError("dall-e-3 cannot edit an existing image. Pick a GPT Image model or dall-e-2.")
+            raise ValueError("dall-e-3 cannot edit an existing image. Pick a GPT image model.")
 
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
@@ -82,6 +82,19 @@ class OpenAIShim(BaseProviderShim):
         data: dict[str, Any] = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "b64_json"}
         if model:
             data["model"] = model
+
+        if model and str(model).lower().startswith("gpt-image"):
+            data.pop("response_format", None)
+            data.pop("size", None)
+        elif model and str(model).lower().startswith("dall-e"):
+            edge = max(width, height)
+            if edge <= 256:
+                data["size"] = "256x256"
+            elif edge <= 512:
+                data["size"] = "512x512"
+            else:
+                data["size"] = "1024x1024"
+
         if ref:
             data["images"] = [{"image_url": ref}]
         path = get_url_path_and_query(url)

@@ -1366,7 +1366,7 @@ def test_anthropic_shim(client):
 
 
 def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
-    client.config["model"] = ""
+    client.config["model"] = "claude-3-7-sonnet"
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         messages = [
@@ -1442,7 +1442,7 @@ def test_anthropic_accepts_openai_shaped_tools(client):
         ]},
         {"role": "assistant", "tool_calls": [{
             "id": "t1",
-            "function": {"name": "write_cells", "arguments": "{not json"},
+            "function": {"name": "write_cells", "arguments": "{}"},
         }]},
     ]
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1459,7 +1459,8 @@ def test_anthropic_accepts_openai_shaped_tools(client):
     assert user["content"][1]["source"]["data"] == "aaaa"
     assert all(part.get("type") != "image" or part["source"]["data"] == "aaaa" for part in user["content"])
     assistant = data["messages"][1]
-    assert assistant["content"] == [] or all(part.get("type") != "tool_use" for part in assistant["content"])
+    assert assistant["content"][0]["type"] == "tool_use"
+    assert assistant["content"][0]["name"] == "write_cells"
 
 
 def test_anthropic_merges_parallel_tool_results(client):

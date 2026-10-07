@@ -91,7 +91,7 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
     # Order matters for some overlaps (e.g. openrouter before generic openai-compatible)
     if _host_is("openrouter.ai"):
         return "openrouter"
-    if _host_is("together.xyz"):
+    if _host_is("together.ai", "together.xyz"):
         return "together"
     # LAN addresses (``::1``, RFC1918) on the Ollama port are the app.
     # A public host on 11434 stays custom. Hostname equality, not a substring.
@@ -146,6 +146,8 @@ def is_local_host(host: str) -> bool:
         return True
     try:
         ip = ipaddress.ip_address(host)
+        if ip in ipaddress.ip_network('100.64.0.0/10'):
+            return True
         return ip.is_loopback or ip.is_private or ip.is_link_local
     except ValueError:
         return False

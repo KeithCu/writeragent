@@ -1,0 +1,30 @@
+import pytest
+import json
+from plugin.framework.client.openai_shim import OpenAIShim
+
+def test_openai_shim_build_image_request():
+    class DummyClient:
+        def _get_provider(self): return "openai"
+        def _endpoint(self): return "http://test"
+        def _api_path(self): return "/v1"
+        def _headers(self): return {}
+    shim = OpenAIShim(DummyClient())
+
+    # test gpt-image drops response_format and size
+    method, path, body, headers = shim.build_image_request("prompt", "gpt-image-alpha", 1024, 768)
+    data = json.loads(body)
+    assert "response_format" not in data
+    assert "size" not in data
+
+    # test dall-e snapping
+    method, path, body, headers = shim.build_image_request("prompt", "dall-e-2", 400, 300)
+    data = json.loads(body)
+    assert data["size"] == "512x512"
+
+    method, path, body, headers = shim.build_image_request("prompt", "dall-e-3", 200, 200)
+    data = json.loads(body)
+    assert data["size"] == "256x256"
+
+    # test ValueError
+    with pytest.raises(ValueError, match="dall-e-3 cannot edit an existing image. Pick a GPT image model."):
+        shim.build_image_request("prompt", "dall-e-3", 1024, 1024, source_image="data:image/png;base64,123")
