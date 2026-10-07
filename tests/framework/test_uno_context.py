@@ -1020,8 +1020,15 @@ def test_resolve_document_by_url_reraises_disposed_on_nextelement():
     # Actually, _reraise_document_disposed in errors.py looks for "disposed" or DisposedException type.
     enum.nextElement.side_effect = exc
 
-    # We need to bypass the desktop creation guard for the test
-    saved_ctx = set_fallback_ctx(ctx)
+    # What was wrong: saved_ctx = set_fallback_ctx(ctx) assigned None because
+    # set_fallback_ctx previously returned None, which caused the finally block
+    # to clobber the global fallback ctx with None for subsequent tests.
+    # Why this change: save uc._fallback_ctx before setting the test context
+    # and restore the saved value in finally.
+    import plugin.framework.uno_context as uc
+
+    saved_ctx = uc._fallback_ctx
+    set_fallback_ctx(ctx)
     reset_desktop_create_is_unsafe_for_tests()
     try:
         with pytest.raises(DocumentDisposedError):
@@ -1167,3 +1174,134 @@ def test_new_blank_writer_returns_none_if_load_fails():
     desktop.loadComponentFromURL.return_value = None
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         assert new_blank_writer() is None
+
+
+def test_set_fallback_ctx_returns_previous():
+    from plugin.framework import uno_context as uc
+
+    saved = uc._fallback_ctx
+    sentinel1 = object()
+    sentinel2 = object()
+    try:
+        prev1 = uc.set_fallback_ctx(sentinel1)
+        assert prev1 is saved
+        assert uc._fallback_ctx is sentinel1
+        prev2 = uc.set_fallback_ctx(sentinel2)
+        assert prev2 is sentinel1
+        assert uc._fallback_ctx is sentinel2
+    finally:
+        uc.set_fallback_ctx(saved)
+
+
+def test_menu_icon_filesystem_paths_removes_leading_assets_prefix_only():
+    import os
+
+    from plugin.framework.uno_context import menu_icon_filesystem_paths
+
+    paths1 = menu_icon_filesystem_paths("assets/icon.png")
+    assert all(p.endswith(os.path.join("assets", "icon.png")) for p in paths1)
+
+    paths2 = menu_icon_filesystem_paths("/assets/icon.png")
+    assert all(p.endswith(os.path.join("assets", "icon.png")) for p in paths2)
+
+    # Substring in directory name must not be stripped
+    paths3 = menu_icon_filesystem_paths("my_assets/icon.png")
+    assert all(p.endswith(os.path.join("assets", "my_assets", "icon.png")) for p in paths3)
+
+
+def test_get_extension_url_returns_empty_on_all_failures():
+    from plugin.framework.uno_context import get_extension_url
+
+    # 1. No PIP
+    with patch("plugin.framework.uno_context.get_package_info", return_value=None):
+        assert get_extension_url(extension_id="test.id") == ""
+
+    # 2. Empty location returned by PIP
+    mock_pip = MagicMock()
+    mock_pip.getPackageLocation.return_value = ""
+    with patch("plugin.framework.uno_context.get_package_info", return_value=mock_pip):
+        assert get_extension_url(extension_id="test.id") == ""
+
+    # 3. Exception raised by PIP
+    mock_pip.getPackageLocation.side_effect = RuntimeError("Package lookup failed")
+    with patch("plugin.framework.uno_context.get_package_info", return_value=mock_pip):
+        assert get_extension_url(extension_id="test.id") == ""
+
+    # 4. Success path
+    mock_pip.getPackageLocation.side_effect = None
+    mock_pip.getPackageLocation.return_value = "file:///path/to/ext"
+    with patch("plugin.framework.uno_context.get_package_info", return_value=mock_pip):
+        assert get_extension_url(extension_id="test.id") == "file:///path/to/ext"
+
+
+def test_iter_open_models_unwraps_models_and_frames():
+    from plugin.framework.uno_context import iter_open_models
+
+    desktop = MagicMock()
+    comps = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    # Direct model with getURL
+    model1 = MagicMock()
+    model1.getURL.return_value = "file:///tmp/doc1.odt"
+
+    # Frame with getController().getModel()
+    frame = MagicMock()
+    del frame.getURL  # Ensure it doesn't look like a model
+    controller = MagicMock()
+    model2 = MagicMock()
+    model2.getURL.return_value = "file:///tmp/doc2.odt"
+    controller.getModel.return_value = model2
+    frame.getController.return_value = controller
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [model1, frame]
+    comps.createEnumeration.return_value = enum
+
+    models = list(iter_open_models(desktop))
+    assert models == [model1, model2]
+
+
+def test_iter_open_models_stops_on_next_element_error():
+    from plugin.framework.uno_context import iter_open_models
+
+    desktop = MagicMock()
+    comps = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = True
+    enum.nextElement.side_effect = RuntimeError("Broken enumeration element")
+    comps.createEnumeration.return_value = enum
+
+    models = list(iter_open_models(desktop))
+    assert models == []
+
+
+def test_focus_preserved_with_restore_focus():
+    from plugin.framework.vcl_pumping import focus_preserved
+
+    callback = MagicMock()
+    with focus_preserved(MagicMock(), restore_focus=callback):
+        pass
+    callback.assert_called_once()
+
+
+def test_focus_preserved_with_restore_object():
+    from plugin.framework.vcl_pumping import focus_preserved
+
+    field = MagicMock()
+    with focus_preserved(MagicMock(), restore=field):
+        pass
+    field.setFocus.assert_called_once()
+
+
+def test_focus_preserved_swallows_restore_exceptions():
+    from plugin.framework.vcl_pumping import focus_preserved
+
+    failing_callback = MagicMock(side_effect=RuntimeError("Focus restore failed"))
+    with focus_preserved(MagicMock(), restore_focus=failing_callback):
+        pass  # must not raise
+    failing_callback.assert_called_once()
+
