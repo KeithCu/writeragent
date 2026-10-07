@@ -24,7 +24,6 @@ from plugin.calc.python.formula_edit import (
     py_formula_has_unquoted_code_ref,
     rebuild_python_formula,
     rebuild_python_formula_with_data,
-    replace_python_code,
     sanitize_inline_py_code,
 )
 
@@ -66,8 +65,9 @@ def test_parse_multiline():
 
 def test_replace_preserves_data():
     old = '=PYTHON("result = 1"; Sheet1.A1:B2)'
-    new = replace_python_code(old, "result = 2")
-    assert new is not None
+    parts = parse_python_formula(old)
+    assert parts is not None
+    new = rebuild_python_formula(parts, "result = 2")
     assert 'result = 2' in new
     assert "Sheet1.A1:B2" in new
     reparsed = parse_python_formula(new)
@@ -77,15 +77,15 @@ def test_replace_preserves_data():
 
 def test_replace_escapes_quotes():
     old = '=PYTHON("x = 1")'
-    new = replace_python_code(old, 'x = "a"')
-    assert new is not None
+    parts = parse_python_formula(old)
+    assert parts is not None
+    new = rebuild_python_formula(parts, 'x = "a"')
     assert '""a""' in new or '""' in new
     assert parse_python_formula(new).code == 'x = "a"'
 
 
 def test_non_python_returns_none():
     assert parse_python_formula("=SUM(A1)") is None
-    assert replace_python_code("=SUM(A1)", "x") is None
 
 
 def test_parse_sp_prime_quoted():

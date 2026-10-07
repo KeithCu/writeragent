@@ -14,7 +14,23 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal, inverse_ensure, str_bounded
+from plugin.calc.python.formula_edit_contracts import (
+    _DEAL_SHEET_TOKEN,
+    _DEAL_UNQUOTED_CODE,
+    _deal_data_args_ok,
+    _deal_range_addr_ok,
+    _parts_result_ok,
+    _quoted_parse_result_ok,
+)
+from plugin.framework.deal_shim import (
+    DEAL_MAX_CELL_REF,
+    DEAL_MAX_SOURCE,
+    DEAL_MAX_TOKEN,
+    ascii_bounded,
+    deal,
+    inverse_ensure,
+    str_bounded,
+)
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
@@ -26,8 +42,6 @@ _CALC_PYTHON_FN_ALIASES_BY_LEN = ("ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTH
 _MAX_PYTHON_ALIAS_LEN = max(len(a) for a in _CALC_PYTHON_FN_ALIASES_BY_LEN)
 # Curly/smart quotes Calc sometimes stores in localized formulas.
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
-# Sheet/A1 range tokens. Space and ``"`` are product (``My Sheet.A1``, quoted sheets).
-_RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
 
 
 def py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
@@ -76,42 +90,6 @@ class PythonFormulaParts:
     data_suffix: str  # remainder after code arg, e.g. ";A1:B10)" or ")"
 
 
-def _quoted_parse_result_ok(s: str, start: int, result: tuple[str, int] | None) -> bool:
-    # crosshair: off
-    # cover-all 35526755391 ensure helper as cover entry. Doable later: rename _deal_ + skip.
-    if result is None:
-        return True
-    code, end = result
-    return isinstance(code, str) and isinstance(end, int) and 0 <= start < end <= len(s)
-
-
-def _deal_range_addr_ok(s: object) -> bool:
-    """Closed A1 / sheet-range domain for formatters and ``_deal_data_args_ok``.
-
-    Product chars are ``A–Z a–z 0–9 . ! : ' $ _`` plus space / ``"`` so
-    ``My Sheet.A1`` still quotes. Length is ``DEAL_MAX_TOKEN`` (16 CrossHair /
-    64 pytest): ``Sheet!A1`` fits, ``DEAL_MAX_CELL_REF=4`` under CrossHair does
-    not, and ``DEAL_MAX_SOURCE`` (8192 pytest / 16 CrossHair printable ASCII)
-    was the 15:05 / 6:44 sink (check-all 32877875221).
-    """
-    return isinstance(s, str) and len(s) <= DEAL_MAX_TOKEN and all(c in _RANGE_ADDR_CHARS for c in s)
-
-
-def _deal_data_args_ok(data_args: object) -> bool:
-    """CrossHair domain for =PY() data-arg lists (pytest still allows DEAL_MAX_SHAPE_DIM).
-
-    Items are A1 / range tokens (same alphabet as the formatters), not formula source.
-    """
-    return isinstance(data_args, list) and len(data_args) <= DEAL_MAX_SHAPE_DIM and all(_deal_range_addr_ok(x) for x in data_args)
-
-
-def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
-    # crosshair: off
-    # cover-all 35526755391 (~7.5m / 103 examples). Nested ensure predicate as cover entry. Doable later: rename _deal_ + skip.
-    if result is None:
-        return True
-    return isinstance(result, PythonFormulaParts) and isinstance(result.prefix, str) and bool(result.prefix) and py_call_open_end(result.prefix, require_equals=True) == len(result.prefix) and isinstance(result.code, str) and isinstance(result.data_suffix, str) and result.data_suffix.endswith(")")
-
 
 # Cap start to len(s): `start >= 0` alone lets CrossHair feed a giant int.
 # Nested end-bounds ensure (~2m deep) is skipped under CrossHair; cheap post stays.
@@ -136,12 +114,6 @@ def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
         chars.append(ch)
         i += 1
     return None
-
-
-# cover-all 35526755391: ~13m / 68 examples under str_bounded Unicode. CrossHair ASCII-only; pytest keeps Unicode source.
-_DEAL_UNQUOTED_CODE = ascii_bounded if UNDER_CROSSHAIR else str_bounded
-# cover-all 35526755391: char-class helpers — ASCII under CrossHair; pytest keeps Unicode sheet names.
-_DEAL_SHEET_TOKEN = ascii_bounded if UNDER_CROSSHAIR else str_bounded
 
 
 @deal.pre(lambda inner_body: _DEAL_UNQUOTED_CODE(inner_body, DEAL_MAX_SOURCE))
@@ -310,7 +282,7 @@ def _find_matching_paren(s: str, open_idx: int) -> int:
 # Callers pass hardcoded float/int/str; ``re.escape`` so a metacharacter token cannot
 # PatternError. Body is separate so sanitize can call it after ``dtype=float`` grows
 # past DEAL_MAX_SOURCE (CrossHair 16) without a nested PreconditionFailed.
-def _rewrite_token_calls_body(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
+def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
     """Replace ``token(inner)`` calls. *token* is escaped before compile."""
     # crosshair: off
     pattern = re.compile(rf"\b{re.escape(token)}\s*\(")
@@ -333,33 +305,24 @@ def _rewrite_token_calls_body(code: str, token: str, rewrite_inner: Callable[[st
     return "".join(out)
 
 
-@deal.pre(lambda code, token, rewrite_inner: str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(token, 32, min_len=1) and token.isalpha() and callable(rewrite_inner))
-@deal.post(lambda result: isinstance(result, str))
-def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:  # pyright: ignore[reportUnusedFunction]
-    """Deal-wrapped rewrite for pytest; sanitize/escape call ``_rewrite_token_calls_body``."""
-    # crosshair: off
-    return _rewrite_token_calls_body(code, token, rewrite_inner)
+_rewrite_token_calls_body = _rewrite_token_calls
 
 
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
 def sanitize_inline_py_code(code: str) -> str:
     """Defensive rewrite of tokens for machine-generated Python from spreadsheet import."""
-    # Regex rewrite hang even at DEAL_MAX_SOURCE=16 (~3h13m on cheap str post).
     # crosshair: off
-    if not code or UNDER_CROSSHAIR:
+    if not code:
         return code
     sanitized = code.replace("dtype=float", "dtype=np.float64")
     # Bugfix: .text( regex previously matched any attribute like ax.text(...) or
     # plt.text(...), rewriting it to .fmt(...). Narrowed to calc.text( only so
     # user methods like matplotlib's ax.text are preserved.
     sanitized = _LEXER_COLLISION_XL_TEXT_RE.sub("calc.fmt(", sanitized)
-    # Body, not the deal-wrapped helper: ``dtype=float`` → ``dtype=np.float64``
-    # grows +5, so a DEAL_MAX_SOURCE=16 input like ``dtype=float\\x00`` is still
-    # a legal caller string but fails the nested ``str_bounded`` pre.
-    sanitized = _rewrite_token_calls_body(sanitized, "float", lambda inner: f"({inner})+0.0")
-    sanitized = _rewrite_token_calls_body(sanitized, "int", lambda inner: f"(({inner})//1)")
-    sanitized = _rewrite_token_calls_body(sanitized, "str", lambda inner: f"calc.py_str({inner})")
+    sanitized = _rewrite_token_calls(sanitized, "float", lambda inner: f"({inner})+0.0")
+    sanitized = _rewrite_token_calls(sanitized, "int", lambda inner: f"(({inner})//1)")
+    sanitized = _rewrite_token_calls(sanitized, "str", lambda inner: f"calc.py_str({inner})")
     return sanitized
 
 
@@ -524,34 +487,31 @@ def _sheet_needs_excel_quotes(s: str) -> bool:
     return any(not (c == "_" or "0" <= c <= "9" or _is_ascii_letter(c)) for c in s)
 
 
-@deal.pre(lambda sheet, rest: _DEAL_SHEET_TOKEN(sheet, DEAL_MAX_TOKEN) and _DEAL_SHEET_TOKEN(rest, DEAL_MAX_TOKEN))
-def _quote_py_sheet(sheet: str, rest: str) -> str:
-    clean = sheet.replace("$", "")
-    if _has_whitespace(clean) or not _is_sheet_identifier(clean):
-        quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
-        return f"{quoted}.{rest}"
-    return f"{sheet}.{rest}"
+def _split_sheet_range(range_addr: str) -> tuple[str, str] | None:
+    """Split a sheet-qualified range into (unquoted_sheet, rest), or None if not qualified.
 
-
-def _format_py_data_range_body(range_addr: str) -> str:
-    # crosshair: off
-    # cover-all 35526755391 (~8m body as entry; wrapper format_py_data_range stay-on). Combinatoric sheet-quote paths. Doable later: closed A1 alphabet only.
-    # Bugfix: replace("$", "") previously stripped absolute ref markers from data
-    # arguments, turning e.g. $A$1:$B$5 into relative refs on Monaco save. $ is now
-    # preserved in emitted tokens and only ignored during sheet quoting / A1 detection.
-    """Calc-style range quoting. No regex — relib TypeError on NUL in ``re.match``."""
+    Handles both Excel 'Sheet!A1' and Calc 'Sheet.A1' styles, ignoring leading/trailing
+    quotes on the sheet name and skipping cell prefixes like 'A1.B5'.
+    """
     addr = str(range_addr).strip()
     if "!" in addr:
         sheet, _unused, rest = addr.partition("!")
-        sheet = sheet.strip("'\"")
-        return _quote_py_sheet(sheet, rest)
-    if "." not in addr:
-        return addr
-    sheet, _unused, rest = addr.partition(".")
-    if not sheet or not rest:
-        return addr
-    if _is_a1_cell_prefix(sheet.replace("$", "")):
-        return addr
+        return sheet.strip("'\""), rest
+    if "." in addr:
+        sheet, _unused, rest = addr.partition(".")
+        if sheet and rest and not _is_a1_cell_prefix(sheet.replace("$", "")):
+            return sheet.strip("'\""), rest
+    return None
+
+
+@deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))
+@deal.post(lambda result: isinstance(result, str))
+def format_py_data_range(range_addr: str) -> str:
+    """Format a range for ``=PY()`` data args (quote sheet names with spaces/special chars)."""
+    split = _split_sheet_range(range_addr)
+    if split is None:
+        return str(range_addr).strip()
+    sheet, rest = split
     clean_sheet = sheet.replace("$", "")
     if _has_whitespace(clean_sheet) or not _is_sheet_identifier(clean_sheet):
         quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
@@ -559,44 +519,23 @@ def _format_py_data_range_body(range_addr: str) -> str:
     return f"{sheet}.{rest}"
 
 
-def _format_excel_data_range_body(range_addr: str) -> str:
-    # crosshair: off
-    # cover-all 35526755391 (~8m body as entry; wrapper format_excel_data_range stay-on). Combinatoric sheet-quote paths. Doable later: closed A1 alphabet only.
-    # Bugfix: replace("$", "") previously stripped absolute ref markers from data
-    # arguments, turning e.g. $A$1:$B$5 into relative refs on Monaco save. $ is now
-    # preserved in emitted tokens and only ignored during sheet quoting / A1 detection.
-    """Excel ``Sheet!A1`` quoting. No regex — same relib TypeError class as PY format."""
-    addr = str(range_addr).strip()
-    # Calc-style Sheet.A1 → Sheet!A1
-    if "!" not in addr and "." in addr:
-        sheet, _unused, rest = addr.partition(".")
-        if sheet and rest and not _is_a1_cell_prefix(sheet.replace("$", "")):
-            addr = f"{sheet}!{rest}"
-    if "!" in addr:
-        sheet, _unused, rest = addr.partition("!")
-        sheet = sheet.strip("'\"")
-        clean_sheet = sheet.replace("$", "")
-        if _sheet_needs_excel_quotes(clean_sheet):
-            quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
-            return f"{quoted}!{rest}"
-        return f"{sheet}!{rest}"
-    return addr
-
-
-# Closed range alphabet (not printable-ascii SOURCE): control-free junk through
-# the sheet-quote parser was 15:05 / 6:44 after the NUL/ord fix (32877875221).
-@deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))
-@deal.post(lambda result: isinstance(result, str))
-def format_py_data_range(range_addr: str) -> str:
-    """Format a range for ``=PY()`` data args (quote sheet names with spaces/special chars)."""
-    return _format_py_data_range_body(range_addr)
-
-
 @deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))
 @deal.post(lambda result: isinstance(result, str))
 def format_excel_data_range(range_addr: str) -> str:
     """Format a range for Excel OOXML ``=PY()`` data args (``Sheet!A1`` style)."""
-    return _format_excel_data_range_body(range_addr)
+    split = _split_sheet_range(range_addr)
+    if split is None:
+        return str(range_addr).strip()
+    sheet, rest = split
+    clean_sheet = sheet.replace("$", "")
+    if _sheet_needs_excel_quotes(clean_sheet):
+        quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
+        return f"{quoted}!{rest}"
+    return f"{sheet}!{rest}"
+
+
+_format_py_data_range_body = format_py_data_range
+_format_excel_data_range_body = format_excel_data_range
 
 
 # Defaulted kwargs: deal only forwards provided args + result= (see framework/formal-verification.md §8.1 A).
@@ -609,11 +548,8 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
     *separator* is ``;`` for Calc formulas and ``,`` for Excel OOXML formulas.
     """
     # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 192 examples). Combinatoric list+formatter. Doable later with tiny data_args alphabet.
-    # Call unwrapped bodies so a nested formatter pre cannot PreconditionFailed
-    # if quoting grows the string (same class as #449 dtype=float growth).
     sep = separator if separator in (";", ",") else ";"
-    fmt = _format_excel_data_range_body if excel_ranges or sep == "," else _format_py_data_range_body
+    fmt = format_excel_data_range if excel_ranges or sep == "," else format_py_data_range
     args = [fmt(a.strip()) for a in data_args if a.strip()]
     if not args:
         return ")"
@@ -711,13 +647,3 @@ def cell_looks_python_like(formula: str) -> bool:
     # crosshair: off
     # cover-all 33797534946 (~4.4h formula_edit module, 201 examples). Thin parse/loose wrapper. Doable later with tiny PY alphabet.
     return extract_python_code_loose(formula) is not None
-
-
-def replace_python_code(formula: str, new_code: str) -> str | None:
-    """Return a new formula with the first ``code`` string argument replaced."""
-    # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 136 examples). Thin parse+rebuild wrapper. Doable later with DEAL_MAX_SOURCE alphabet.
-    parts = parse_python_formula(formula)
-    if parts is None:
-        return None
-    return rebuild_python_formula(parts, new_code)

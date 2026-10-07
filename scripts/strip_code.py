@@ -456,6 +456,8 @@ def _unwrap_uno(obj: Any) -> Any:
         return obj._target
     return obj
 
+unwrap_uno = _unwrap_uno
+
 def guard_uno(obj: Any) -> Any:
     return obj
 
@@ -473,6 +475,7 @@ __all__ = [
     "on_main_thread",
     "_wrap_uno",
     "_unwrap_uno",
+    "unwrap_uno",
     "GUARD_ON",
 ]
 '''

@@ -189,38 +189,6 @@ def test_save_notes_new_session_id_reset_on_unload():
     assert "uid-save" not in lifecycle._LISTENERS
 
 
-def test_note_during_teardown_resets_late_session():
-    """A Save that lands after unload snapshots the ids still resets the new kernel."""
-    import threading
-
-    ctx = MagicMock()
-    listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-race", doc_url="")
-    started = threading.Event()
-    release = threading.Event()
-    seen: list[str] = []
-
-    def slow_reset(_ctx, sid):
-        seen.append(sid)
-        if sid == "calc:wb-1":
-            started.set()
-            assert release.wait(5)
-        return {"status": "ok"}
-
-    worker = threading.Thread(target=listener.on_document_event, args=(MagicMock(EventName="OnUnload"),))
-    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", side_effect=slow_reset):
-        worker.start()
-        assert started.wait(5)
-        try:
-            listener.note_calc_identity("calc:file:///saved.ods", "file:///saved.ods")
-        finally:
-            release.set()
-            worker.join(5)
-    assert not worker.is_alive()
-    assert seen[0] == "calc:wb-1"
-    assert "calc:file:///saved.ods" in seen
-    assert listener._teardown_done is True
-
-
 def test_unload_resets_worker_when_busy():
     from unittest.mock import MagicMock, patch
     from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener

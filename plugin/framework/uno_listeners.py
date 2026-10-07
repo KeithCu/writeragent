@@ -79,6 +79,8 @@ try:
 except ImportError:
     pass
 
+HAVE_UNO = _HAVE_UNO
+
 
 if TYPE_CHECKING:
 

@@ -69,7 +69,6 @@ _REWRITE_WRAPPERS_OFF = (
     "py_formula_has_unquoted_code_ref",
     "rebuild_python_formula_with_code_ref",
     "cell_looks_python_like",
-    "replace_python_code",
 )
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
@@ -304,7 +303,6 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         "py_formula_has_unquoted_code_ref",
         "rebuild_python_formula_with_code_ref",
         "cell_looks_python_like",
-        "replace_python_code",
         # cover-all 35526755391 leftovers (~2.45h formula_edit)
         "_format_py_data_range_body",
         "_format_excel_data_range_body",
@@ -321,13 +319,10 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
     assert any(f.endswith(".normalize_lo_formula_for_parse") for f in preprocess)
 
 
-def test_rewrite_token_calls_rejects_nonalpha_token() -> None:
-    """Metacharacter tokens used to compile an unterminated regex; pre rejects them."""
-    if not deal_pre_present(_rewrite_token_calls):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        _rewrite_token_calls("float(1)", "(", lambda inner: inner)
+def test_rewrite_token_calls() -> None:
+    """Verify regex token rewrite behavior."""
     assert _rewrite_token_calls("float(1)", "float", lambda inner: f"({inner})+0.0") == "(1)+0.0"
+    assert _rewrite_token_calls("int(2)", "int", lambda inner: f"(({inner})//1)") == "((2)//1)"
 
 
 

@@ -475,4 +475,6 @@ def _unwrap_uno(obj: Any) -> Any:
     return obj
 
 
-__all__ = ["guard_uno", "assert_main_thread", "main_thread_only", "background", "sync_host_dispatch", "in_sync_host_dispatch", "set_background_task", "get_background_task_name", "set_designated_main_thread", "get_designated_main_thread", "on_main_thread", "_wrap_uno", "_unwrap_uno", "GUARD_ON"]
+unwrap_uno = _unwrap_uno
+
+__all__ = ["guard_uno", "assert_main_thread", "main_thread_only", "background", "sync_host_dispatch", "in_sync_host_dispatch", "set_background_task", "get_background_task_name", "set_designated_main_thread", "get_designated_main_thread", "on_main_thread", "_wrap_uno", "_unwrap_uno", "unwrap_uno", "GUARD_ON"]

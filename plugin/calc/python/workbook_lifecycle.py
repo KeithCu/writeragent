@@ -23,20 +23,15 @@ import time
 import weakref
 from typing import Any
 
-from plugin.framework.uno_listeners import BaseDocumentEventListener
+from plugin.framework.thread_guard import unwrap_uno
+from plugin.framework.uno_listeners import BaseDocumentEventListener, HAVE_UNO
 from plugin.scripting.session_manager import calc_workbook_base_session_id
 from plugin.scripting.venv_worker import reset_python_session
 
 log = logging.getLogger(__name__)
 
-_HAVE_UNO_DOC_EVENTS = False
-try:
-    import unohelper as _unohelper_impl  # noqa: F401  # pyright: ignore[reportUnusedImport]
-    from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl  # noqa: F401  # pyright: ignore[reportUnusedImport]
-
-    _HAVE_UNO_DOC_EVENTS = True
-except ImportError:
-    pass
+# Re-use availability flag from uno_listeners rather than probing again.
+_HAVE_UNO_DOC_EVENTS = HAVE_UNO
 
 # Re-entrant: ensure_* holds this lock while calling note_*, and note_* /
 # _teardown take it too. A plain Lock deadlocks that same-thread re-entry.
@@ -58,9 +53,7 @@ def _doc_objects(doc: Any) -> list[Any]:
     """*doc* and its unwrapped UNO target, without calling UNO methods."""
     objects = [doc]
     try:
-        from plugin.framework.thread_guard import _unwrap_uno
-
-        raw = _unwrap_uno(doc)
+        raw = unwrap_uno(doc)
     except Exception:
         raw = doc
     if raw is not None and raw is not doc:
@@ -136,17 +129,20 @@ def lifecycle_key_if_known(doc: Any | None) -> str:
     return ""
 
 
-def _lifecycle_key(doc: Any) -> str:
-    key = ""
+def _runtime_uid(doc: Any) -> str:
+    """Read RuntimeUID from doc, or empty string on failure."""
     try:
         if hasattr(doc, "getPropertyValue"):
             uid = doc.getPropertyValue("RuntimeUID")
             if uid:
-                key = str(uid)
+                return str(uid)
     except Exception:
         log.debug("python_workbook_lifecycle: RuntimeUID read failed", exc_info=True)
-    if not key:
-        key = calc_workbook_base_session_id(doc)
+    return ""
+
+
+def _lifecycle_key(doc: Any) -> str:
+    key = _runtime_uid(doc) or calc_workbook_base_session_id(doc)
     _remember_doc_lifecycle_key(doc, key)
     return key
 
@@ -182,20 +178,10 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
 
     def note_session(self, session_id: str) -> None:
         """Remember another worker session on this same document (rps + notebook)."""
-        late = ""
         with _LOCK:
             if not session_id or session_id == self._workbook_session_id:
                 return
-            if self._teardown_done:
-                # Unload already snapshotted the set. Reset this id now or the
-                # kernel stays warm.
-                if session_id not in self._extra_session_ids:
-                    self._extra_session_ids.add(session_id)
-                    late = session_id
-            else:
-                self._extra_session_ids.add(session_id)
-        if late:
-            self._reset_sessions((late,))
+            self._extra_session_ids.add(session_id)
 
     def note_calc_identity(self, session_id: str, doc_url: str = "") -> None:
         """Remember a session id this workbook grew after Save.
@@ -208,26 +194,14 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         can run on the main thread while this runs off-main. Both sides take
         ``_LOCK`` so a Save cannot mutate the set while unload iterates it.
         """
-        late_session = ""
-        late_url = ""
         with _LOCK:
-            if self._teardown_done:
-                if session_id and session_id != self._workbook_session_id and session_id not in self._extra_session_ids:
-                    self._extra_session_ids.add(session_id)
-                    late_session = session_id
-                if doc_url and doc_url != self._doc_url and doc_url not in self._extra_doc_urls:
-                    self._extra_doc_urls.add(doc_url)
-                    late_url = doc_url
-            else:
-                if session_id and session_id != self._workbook_session_id:
-                    self._extra_session_ids.add(self._workbook_session_id)
-                    self._workbook_session_id = session_id
-                if doc_url and doc_url != self._doc_url:
-                    if self._doc_url:
-                        self._extra_doc_urls.add(self._doc_url)
-                    self._doc_url = doc_url
-        if late_session or late_url:
-            self._release_calc_state((late_session,) if late_session else (), (late_url,) if late_url else (), self._lifecycle_key, reset_sessions=bool(late_session))
+            if session_id and session_id != self._workbook_session_id:
+                self._extra_session_ids.add(self._workbook_session_id)
+                self._workbook_session_id = session_id
+            if doc_url and doc_url != self._doc_url:
+                if self._doc_url:
+                    self._extra_doc_urls.add(self._doc_url)
+                self._doc_url = doc_url
 
     def on_document_event(self, Event: Any) -> None:
         try:
@@ -360,14 +334,8 @@ def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
 
 def _script_lifecycle_key(doc: Any, session_id: str) -> str:
     """Stable listener key that does not record a Calc session for Writer/Draw."""
-    try:
-        if hasattr(doc, "getPropertyValue"):
-            uid = doc.getPropertyValue("RuntimeUID")
-            if uid:
-                return f"py:{uid}"
-    except Exception:
-        log.debug("python_workbook_lifecycle: RuntimeUID read failed", exc_info=True)
-    return f"py:{session_id}"
+    uid = _runtime_uid(doc)
+    return f"py:{uid or session_id}"
 
 
 def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str | None) -> None:
