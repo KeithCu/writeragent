@@ -389,8 +389,6 @@ class SendHandlersMixin:
                 self._in_writing_plan_mode = payload["in_writing_plan_mode"]
             if "in_ppt_master_mode" in payload:
                 self._in_ppt_master_mode = payload["in_ppt_master_mode"]
-            if payload.get("record_assistant_start"):
-                self._record_assistant_start = True
 
         def on_stream_done(item: Any) -> None:
             # Stop or a new send already aborted this turn. The worker
@@ -1001,10 +999,10 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True, "assistant_content": answer}))
                     else:
                         msg = data.get("message", _("Unknown librarian error."))
-                        q.put((StreamQueueKind.STREAM_DONE, {"in_librarian_mode": False}))
                         note = "\n" + _("[Librarian error: {0}]").format(msg) + "\n"
                         q.put((StreamQueueKind.CHUNK, note))
-                        q.put((StreamQueueKind.STREAM_DONE, _specialized_tool_error_payload(note)))
+                        # Mode flag rides the one STREAM_DONE so the UI thread applies it.
+                        q.put((StreamQueueKind.STREAM_DONE, {**_specialized_tool_error_payload(note), "in_librarian_mode": False}))
                 elif is_brainstorming:
                     topic = getattr(self, "_brainstorming_topic", "") or ""
                     res = get_tools().execute(
