@@ -18,7 +18,7 @@ pytest.importorskip("pandas")
 from plugin.scripting.venv.duckdb_sql import (
     MAX_TABLE_ROWS,
     GuardedDuckDBConnection,
-    ReadonlyViolation,
+    SqlError,
     invalidate_session_tables,
     persistable_duckdb_session_id,
     query_folder_sql,
@@ -910,9 +910,9 @@ def test_session_duckdb_reuses_catalog_across_statements():
     assert res["truncated"] is False
     assert res["total_rows"] == 1
     assert res["rows"][0][0] == 42
-    with pytest.raises(ReadonlyViolation):
+    with pytest.raises(SqlError):
         con.execute("COPY (SELECT 1) TO 'out.csv'")
-    with pytest.raises(ReadonlyViolation):
+    with pytest.raises(SqlError):
         con.sql("SELECT * FROM '/tmp/x.csv'")
     with pytest.raises(AttributeError):
         con.read_csv
@@ -974,4 +974,127 @@ def test_insert_sql_result_into_calc() -> None:
         res = insert_sql_result_into_calc(doc, ctx, result)
         assert res == 1
         mock_insert.assert_called_once()
+
+
+def test_scanner_single_pass_tokenizer_regression():
+    """Verify single-pass tokenizer correctly parses comments, strings, and statements."""
+    # Embedded comments inside strings must not swallow later statements
+    assert _looks_like_write_or_escape("SELECT '--'; COPY t TO 'x'") is True
+    assert _looks_like_write_or_escape("SELECT '/*', 1; COPY t TO 'x' --*/") is True
+
+    # Dollar-quoted strings must be recognized and inspected for path escapes
+    assert _looks_like_write_or_escape("SELECT * FROM read_csv($$/etc/passwd$$)") is True
+    assert _looks_like_write_or_escape("SELECT * FROM read_csv($tag$/etc/passwd$tag$)") is True
+
+    # Slash delimiters and division must not be flagged
+    assert _looks_like_write_or_escape("SELECT split_part(x, '/', 1) FROM t") is False
+    assert _looks_like_write_or_escape("SELECT price /100 FROM t") is False
+    assert _looks_like_write_or_escape("SELECT price / 100 FROM t") is False
+
+    # Bare column identifiers must not trigger statement block
+    assert _looks_like_write_or_escape("SELECT load, copy FROM t") is False
+    assert _looks_like_write_or_escape("SELECT call_center, pragma_info FROM t") is False
+
+    # Blocked statement keywords
+    assert _looks_like_write_or_escape("SET enable_external_access=true") is True
+    assert _looks_like_write_or_escape("SELECT 1; SET enable_external_access=true") is True
+    assert _looks_like_write_or_escape("PRAGMA version") is True
+    assert _looks_like_write_or_escape("CALL some_proc()") is True
+    assert _looks_like_write_or_escape("DETACH other_db") is True
+    assert _looks_like_write_or_escape("CREATE SECRET sec (TYPE S3)") is True
+    assert _looks_like_write_or_escape("CREATE OR REPLACE SECRET sec (TYPE S3)") is True
+    assert _looks_like_write_or_escape("CREATE TEMPORARY SECRET sec (TYPE S3)") is True
+
+
+def test_defense_in_depth_external_access_lock(tmp_path: Path):
+    """Non-persistent connections materialize tables and lock engine configuration."""
+    f = tmp_path / "data.csv"
+    _write_csv(f, "a,b\n1,10\n2,20\n")
+    res = query_folder_sql(str(tmp_path), "SELECT SUM(b) AS total FROM 'data.csv'", files=["data.csv"])
+    assert res["status"] == "ok", res
+    assert res["rows"][0][0] == 30
+
+
+def test_run_sql_folder_join_uncapped_dataframe(tmp_path: Path):
+    """run_sql folder join returns full DataFrame without capping at MAX_TABLE_ROWS."""
+    n = MAX_TABLE_ROWS + 25
+    rows = [["id", "val"]] + [[i, i * 10] for i in range(n)]
+    df = run_sql(
+        "SELECT * FROM big_table ORDER BY id",
+        preloaded={"big_table": {"grid": rows, "headers": True}},
+        scoped_dir=str(tmp_path),
+    )
+    import pandas as pd
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == n
+
+
+def test_run_sql_folder_join_raises_sql_error_with_code():
+    """run_sql folder join raises SqlError preserving error code."""
+    with pytest.raises(SqlError) as exc_info:
+        run_sql("SELECT * FROM missing_table", preloaded={"t": [["x"], [1]]})
+    assert exc_info.value.code == "DUCKDB_ERROR"
+    assert isinstance(exc_info.value, RuntimeError)
+
+
+def test_query_folder_sql_normalizes_string_and_tuple_files(tmp_path: Path):
+    """String and tuple files= specs are normalized and checked for escapes."""
+    f = tmp_path / "item.csv"
+    _write_csv(f, "name,qty\nWidget,5\n")
+
+    # String input
+    res_str = query_folder_sql(str(tmp_path), "SELECT name, qty FROM 'item.csv'", files="item.csv")
+    assert res_str["status"] == "ok", res_str
+    assert res_str["rows"][0] == ["Widget", 5]
+
+    # Tuple input
+    res_tup = query_folder_sql(str(tmp_path), "SELECT name, qty FROM 'item.csv'", files=("item.csv",))
+    assert res_tup["status"] == "ok", res_tup
+    assert res_tup["rows"][0] == ["Widget", 5]
+
+    # Tuple escape
+    res_esc = query_folder_sql(str(tmp_path), "SELECT 1", files=("../secret.csv",))
+    assert res_esc["status"] == "error"
+    assert res_esc["code"] == "READONLY_VIOLATION"
+
+    # String escape
+    res_esc_str = query_folder_sql(str(tmp_path), "SELECT 1", files="../secret.csv")
+    assert res_esc_str["status"] == "error"
+    assert res_esc_str["code"] == "READONLY_VIOLATION"
+
+
+def test_register_preloaded_skips_colliding_stem_alias(caplog):
+    """Colliding stem aliases are skipped with a warning log."""
+    import logging
+    grid1 = [["x"], [1]]
+    grid2 = [["x"], [2]]
+    with caplog.at_level(logging.WARNING):
+        # a.csv and a.xlsx both have stem "a"
+        res = query_folder_sql(
+            None,
+            "SELECT * FROM 'a.csv'",
+            preloaded={"a.csv": grid1, "a.xlsx": grid2},
+        )
+    assert res["status"] == "ok", res
+    assert any("Skipping stem alias 'a'" in r.message for r in caplog.records)
+
+
+def test_sql_error_logging_uses_warning_for_duckdb_error(caplog):
+    """duckdb.Error logs via warning, not exception."""
+    import logging
+    with caplog.at_level(logging.WARNING):
+        res = query_folder_sql(None, "SELECT * FROM nonexistent_table_xyz")
+    assert res["status"] == "error"
+    assert any(r.levelno == logging.WARNING and "failed" in r.message for r in caplog.records)
+    assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+
+
+def test_host_duckdb_sql_exports_and_constants():
+    """Verify host duckdb_sql constants and exports."""
+    from plugin.scripting import duckdb_sql as host_duckdb
+
+    assert host_duckdb.MAX_TABLE_ROWS == MAX_TABLE_ROWS
+    assert str(MAX_TABLE_ROWS) in host_duckdb._SQL_ROW_CAP_NOTE
+    assert "SqlError" in host_duckdb._SQL_VENV_EXPORTS
+
 
