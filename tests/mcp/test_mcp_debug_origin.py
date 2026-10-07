@@ -14,9 +14,9 @@ def test_debug_post_rejects_origin():
 
     mock_handler = MagicMock()
     mock_handler.client_address = ["127.0.0.1"]
-    mock_handler.headers = {"Origin": "http://evil.com", "Content-Type": "text/plain"}
+    mock_handler.headers = {"Origin": "http://evil.com", "Content-Type": "application/json"}
 
     handler._send_json = MagicMock()
     handler.handle_debug_post(mock_handler)
 
-    handler._send_json.assert_called_with(mock_handler, 403, {"error": "Forbidden: Cross-origin simple requests not allowed"})
+    handler._send_json.assert_called_with(mock_handler, 403, {"error": "Forbidden: Cross-origin requests not allowed on /debug"})

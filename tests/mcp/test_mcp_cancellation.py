@@ -66,7 +66,9 @@ def test_mcp_protocol_reused_cancel_id_not_stopped():
 
     # A new call arrives with reused id "req-1"
     with patch.object(protocol, "_execute_with_backpressure", return_value={"status": "ok"}):
-        res = protocol._mcp_tools_call({"name": "some_tool", "arguments": {}}, req_id="req-1")
+        # Tools/call via _process_jsonrpc will now clear _cancelled_requests if in-flight was 0
+        res = protocol._process_jsonrpc({"jsonrpc": "2.0", "id": "req-1", "method": "tools/call", "params": {"name": "some_tool", "arguments": {}}})
+        res = res[1]["result"]
         assert not res.get("isError")
         assert "req-1" not in protocol._cancelled_requests
         assert "req-1" not in protocol._in_flight_requests

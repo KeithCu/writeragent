@@ -579,7 +579,7 @@ class MCPProtocolHandler:
         if self._is_tunneled(_DummyHandler()):
             return (403, {"error": "Forbidden: Debug actions restricted to localhost (tunneled access blocked)"})
 
-        # Reject Origin to block simple cross-origin requests
+        # Reject Origin to block any cross-origin requests on /debug.
         origin = headers.get("Origin") or headers.get("origin")
         if origin:
             return (403, {"error": "Forbidden: Origin header not allowed on /debug"})
@@ -609,13 +609,11 @@ class MCPProtocolHandler:
             self._send_json(handler, 403, {"error": "Forbidden: Debug actions restricted to localhost"})
             return
 
-        # Reject Origin to block simple cross-origin requests, or require application/json.
-        # application/json triggers preflight, which we don't grant for /debug, effectively blocking it.
-        content_type = handler.headers.get("Content-Type", "")
-        origin = handler.headers.get("Origin")
-        if origin and "application/json" not in content_type:
-            log.warning("Blocked cross-origin simple request to /debug")
-            self._send_json(handler, 403, {"error": "Forbidden: Cross-origin simple requests not allowed"})
+        # Reject Origin to block any cross-origin requests on /debug.
+        origin = handler.headers.get("Origin") or handler.headers.get("origin")
+        if origin:
+            log.warning("Blocked cross-origin request to /debug")
+            self._send_json(handler, 403, {"error": "Forbidden: Cross-origin requests not allowed on /debug"})
             return
 
         body = self._read_body(handler)
@@ -932,14 +930,7 @@ class MCPProtocolHandler:
                     elif isinstance(effect, SendErrorEffect):
                         raise ValueError(effect.message)
         finally:
-            if req_id is not None:
-                with self._requests_lock:
-                    count = self._in_flight_requests.get(req_id, 0) - 1
-                    if count <= 0:
-                        self._in_flight_requests.pop(req_id, None)
-                        self._cancelled_requests.discard(req_id)
-                    else:
-                        self._in_flight_requests[req_id] = count
+            pass
 
         return final_result
 
@@ -957,7 +948,7 @@ class MCPProtocolHandler:
         if msg.get("method") == "notifications/cancelled":
             params = msg.get("params")
             req_id_to_cancel = params.get("requestId") if isinstance(params, dict) else None
-            if isinstance(req_id_to_cancel, (str, int)):
+            if isinstance(req_id_to_cancel, (str, int)) and not isinstance(req_id_to_cancel, bool):
                 with self._requests_lock:
                     if req_id_to_cancel in self._in_flight_requests:
                         self._cancelled_requests.add(req_id_to_cancel)
@@ -976,13 +967,6 @@ class MCPProtocolHandler:
 
         log.debug(f"*** MCP INCOMING METHOD: {method} (id={req_id}) ***")
 
-        if method == "tools/call" and req_id is not None:
-            with self._requests_lock:
-                count = self._in_flight_requests.get(req_id, 0)
-                if count == 0:
-                    self._cancelled_requests.discard(req_id)
-                self._in_flight_requests[req_id] = count + 1
-
         # tools/list and tools/call take document_url. A mixed dict is an
         # unknown callable to mypy, so only the one-argument methods live here.
         one_arg: dict[str, Callable[[Any], Any]] = {"initialize": self._mcp_initialize, "ping": self._mcp_ping, "resources/list": self._mcp_resources_list, "prompts/list": self._mcp_prompts_list}
@@ -993,7 +977,23 @@ class MCPProtocolHandler:
             if method == "tools/list":
                 result = self._mcp_tools_list(params, document_url=document_url)
             elif method == "tools/call":
-                result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id)
+                if req_id is not None:
+                    with self._requests_lock:
+                        count = self._in_flight_requests.get(req_id, 0)
+                        if count == 0:
+                            self._cancelled_requests.discard(req_id)
+                        self._in_flight_requests[req_id] = count + 1
+                try:
+                    result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id)
+                finally:
+                    if req_id is not None:
+                        with self._requests_lock:
+                            count = self._in_flight_requests.get(req_id, 0) - 1
+                            if count <= 0:
+                                self._in_flight_requests.pop(req_id, None)
+                                self._cancelled_requests.discard(req_id)
+                            else:
+                                self._in_flight_requests[req_id] = count
             else:
                 result = one_arg[method](params)
             if log.isEnabledFor(logging.DEBUG):
