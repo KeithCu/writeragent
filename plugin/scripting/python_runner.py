@@ -538,9 +538,9 @@ def _monaco_editor_run_payload(outcome: dict[str, Any], run_ok_text: str) -> dic
 
 def _picker_template_name(name: str) -> bool:
     """True for a read-only built-in picker label such as ``[Vision] …``."""
-    from plugin.scripting.domain_registry import get_picker_domains, parse_picker_display_name
+    from plugin.scripting.document_scripts import is_picker_template_name
 
-    return any(parse_picker_display_name(domain.display_prefix, name) for domain in get_picker_domains())
+    return is_picker_template_name(name)
 
 
 def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script_name: str, exe: str) -> bool:
@@ -570,29 +570,17 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         name_config_key = resolve_run_script_name_config_key(doc)
         last_name = get_config_str(name_config_key)
         if last_name:
-            from plugin.scripting.document_scripts import get_document_scripts, get_user_scripts, parse_document_script_display_name, save_document_script, save_user_script
+            from plugin.scripting.document_scripts import save_selected_script
 
-            if last_name in get_user_scripts():
-                save_user_script(last_name, code)
-            else:
-                doc_scripts = get_document_scripts(doc)
-                real_doc_name = parse_document_script_display_name(last_name) or last_name
-                if real_doc_name in doc_scripts:
-                    err = save_document_script(doc, real_doc_name, code)
-                    if err:
-                        return {"type": "error", "message": err}
-                elif not _picker_template_name(last_name):
-                    # What was wrong: Save reported success after the script
-                    # was deleted from both libraries while the editor stayed
-                    # open, and the buffer was discarded.
-                    # How: the name missed both membership checks and fell
-                    # through to the generic saved response.
-                    # Why this works: a missing library script returns an error.
-                    # Built-in templates are not in either library; they still
-                    # fall through so Run executes the buffer.
-                    return {"type": "error", "message": _("Script '{0}' is not in My Scripts or this document, so it was not saved.").format(last_name)}
-                elif action == "save":
-                    return {"type": "error", "message": _("Built-in helpers are read-only. Use Copy to My Scripts to customize.")}
+            err = save_selected_script(
+                doc,
+                last_name,
+                code,
+                allow_builtin_skip=(action != "save"),
+                is_builtin_fn=_picker_template_name,
+            )
+            if err:
+                return {"type": "error", "message": err}
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
         # What was wrong: Run called execute_and_insert_result on the UI

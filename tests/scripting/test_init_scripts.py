@@ -38,13 +38,14 @@ def test_get_set_calc_init_script_roundtrip():
     assert json.loads(stored)["scripts"]["INIT"] == "import numpy as np"
     assert get_calc_init_script(doc) == "import numpy as np"
 
-    # Test "Init" fallback case
+    # Test "Init" fallback case: getter reads "Init" when "INIT" is absent
     set_document_scripts(doc, {"Init": "import pandas as pd"})
     assert get_calc_init_script(doc) == "import pandas as pd"
+    # Normalizes on write: removes both keys and stores single "INIT"
     assert set_calc_init_script(doc, "import os") is None
     stored = props.getPropertyValue(DOCUMENT_SCRIPTS_UDPROP)
-    assert json.loads(stored)["scripts"]["Init"] == "import os"
-    assert "INIT" not in json.loads(stored)["scripts"]
+    assert json.loads(stored)["scripts"]["INIT"] == "import os"
+    assert "Init" not in json.loads(stored)["scripts"]
 
 
 def test_init_script_runs_once_in_isolated_mode():

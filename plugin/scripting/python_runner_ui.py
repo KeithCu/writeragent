@@ -267,7 +267,7 @@ class NativePythonScriptDialog:
         select_ctrl = self._select_ctrl
         if select_ctrl is None:
             return
-        names, merged, origin_map = build_xdl_script_picker_state(self._ctx, self._doc, get_user_scripts())
+        names, merged, origin_map = build_xdl_script_picker_state(self._doc, get_user_scripts())
         self._current_scripts = merged
         self._script_origin_map = origin_map
         select_ctrl.removeItems(0, select_ctrl.getItemCount())
@@ -321,7 +321,7 @@ class NativePythonScriptDialog:
             self._select_ctrl = select_ctrl
 
             doc = self._doc
-            _script_names, merged_scripts, origin_map = build_xdl_script_picker_state(ctx, doc, get_user_scripts())
+            _script_names, merged_scripts, origin_map = build_xdl_script_picker_state(doc, get_user_scripts())
 
             self._current_scripts = dict(merged_scripts)
             self._script_origin_map = dict(origin_map)
