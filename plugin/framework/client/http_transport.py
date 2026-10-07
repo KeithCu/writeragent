@@ -46,7 +46,12 @@ log = logging.getLogger(__name__)
 CONNECTION_ERRORS = (http.client.HTTPException, socket.error, OSError)
 RetryAction = Literal["retry", "stop"]
 # Header names whose values are credentials. Matched case-insensitively.
-_SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-goog-api-key"})
+# What was wrong: "cookie" and "proxy-authorization" headers were retained across
+# cross-origin redirects, potentially leaking sensitive credentials.
+# How it happened: _SECRET_HEADER_NAMES only included authorization and API key variants.
+# Why this change fixes it: adding "cookie" and "proxy-authorization" ensures they are
+# stripped on cross-origin redirect hops and redacted from logs.
+_SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie", "proxy-authorization"})
 # Query keys that carry credentials. ``output_modalities`` is not one of these.
 _SECRET_QUERY_KEYS = frozenset({"api_key", "apikey", "api-key", "key", "token", "access_token"})
 # A one-character key would punch holes through ordinary error text ("k", "1").
@@ -426,6 +431,14 @@ class LlmHttpTransport:
         else:
             self._persistent_conn = http.client.HTTPConnection(host, port, timeout=connect_timeout)
 
+        # What was wrong: http.client connections default auto_open=1, so if Stop called
+        # conn.close() after the last stop check but before conn.request(), http.client
+        # would silently reconnect and send the request anyway.
+        # How it happened: auto_open is 1 by default on HTTPConnection.
+        # Why this change fixes it: setting auto_open = 0 causes a closed connection
+        # to raise http.client.NotConnected instead of reconnecting.
+        self._persistent_conn.auto_open = 0
+
         return self._persistent_conn
 
     def close(self) -> None:
@@ -473,6 +486,7 @@ class LlmHttpTransport:
         if not wait_host_gap(key, stop_checker, status_callback):
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         conn = connection_getter() if connection_getter is not None else self.get_connection()
+        conn.auto_open = 0
         # What was wrong: timeout was stored only when the socket was opened.
         # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
         # later change never reached a keep-alive connection. Connect still

@@ -442,7 +442,11 @@ class LlmClient:
         api_key = str(self.config.get("api_key") or "").strip()
         # Keep the existing response-body ERROR line, but never echo the key if
         # a provider (or proxy) reflected it in the error text.
-        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, _redact_secret_from_log_text(err_body, api_key), self._get_provider(), path, request_model)
+        # What was wrong: logging raw path in Provider API Error printed query parameters, potentially exposing ?key=... API keys in the log.
+        # How it happened: path was passed directly to log.error without stripping query parameters.
+        # Why this change fixes it: strip the query string with _path_without_query(path) and redact any secret from the logged path.
+        safe_path = _redact_secret_from_log_text(_path_without_query(path), api_key)
+        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, _redact_secret_from_log_text(err_body, api_key), self._get_provider(), safe_path, request_model)
         n_ctx = _peek_live_ollama_num_ctx(self) if response.status == 500 else None
         if response.status == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
@@ -746,7 +750,12 @@ class LlmClient:
                 from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
                 new_body = adjust_image_body_for_rejection(body, str(e))
                 if new_body and (stop_checker is None or not stop_checker()):
-                    log.warning("Image API rejected params, retrying with adjusted body: %s", new_body.decode("utf-8"))
+                    # What was wrong: logging the full adjusted request body at WARNING dumped multi-MB base64 image data into writeragent_debug.log.
+                    # How it happened: new_body.decode("utf-8") was passed directly to log.warning without truncation.
+                    # Why this change fixes it: truncate the body preview to 500 characters and include the total character count.
+                    body_text = new_body.decode("utf-8", errors="replace")
+                    body_preview = f"{body_text[:500]}... [total {len(body_text)} chars]" if len(body_text) > 500 else body_text
+                    log.warning("Image API rejected params, retrying with adjusted body: %s", body_preview)
                     res = self._request_json(method, path, new_body, headers, stop_checker=stop_checker, status_callback=status_callback)
                 else:
                     raise
@@ -1299,7 +1308,19 @@ class LlmClient:
             log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
 
             # Use unified extraction for shims/native providers
-            raw_parsed_content, last_finish_reason, tool_calls, usage, images, message = self._get_shim().parse_sync_response(result)
+            try:
+                raw_parsed_content, last_finish_reason, tool_calls, usage, images, message = self._get_shim().parse_sync_response(result)
+            except NetworkError:
+                raise
+            except Exception as e:
+                # What was wrong: malformed response envelopes (e.g. missing keys or wrong shape) raised raw KeyError/TypeError/AttributeError from the shim, bypassing caller NetworkError handling.
+                # How it happened: parse_sync_response(result) was called outside any try-except block on the sync path.
+                # Why this change fixes it: wrap extraction exceptions in NetworkError(code="BAD_RESPONSE") chained with `from e`.
+                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+                    raise
+                err_msg = format_error_message(e)
+                log.exception("parse_sync_response failed")
+                raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": path}) from e
             content, extracted_thinking = strip_think_tags(raw_parsed_content)
             if extracted_thinking and "reasoning" not in message:
                 message["reasoning"] = extracted_thinking
