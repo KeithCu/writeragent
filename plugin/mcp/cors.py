@@ -340,6 +340,17 @@ def get_configured_tunnel_host() -> str | None:
     return urlparse(pub_url if "://" in pub_url else f"https://{pub_url}").hostname
 
 
+def _is_specific_bind_host(bind_host: str | None) -> bool:
+    """True when *bind_host* names one host (not empty and not a wildcard address)."""
+    name = (bind_host or "").strip().strip("[]")
+    if not name:
+        return False
+    try:
+        return not ipaddress.ip_address(name).is_unspecified
+    except ValueError:
+        return True
+
+
 def is_safe_host(host_header: str | None, tunnel_host: str | None = None, bind_host: str | None = None) -> bool:
     """DNS-rebinding protection: True when Host is localhost / 127.0.0.1 / [::1] (optional port) or tunnel host."""
     if not host_header:
@@ -365,18 +376,14 @@ def is_safe_host(host_header: str | None, tunnel_host: str | None = None, bind_h
 
     if host in _SAFE_LOOPBACK_HOSTS or (host.startswith("[") and host[1:-1] in _SAFE_LOOPBACK_HOSTS):
         return True
-    if bind_host and bind_host.strip().lower() not in ("", "0.0.0.0", "::") and host.strip("[]") == bind_host.strip().strip("[]").lower():
+    if _is_specific_bind_host(bind_host) and host.strip("[]") == str(bind_host).strip().strip("[]").lower():
         return True
 
     active_tunnel = tunnel_host or get_configured_tunnel_host()
     if active_tunnel:
         th = active_tunnel.strip()
         if "://" in th:
-            try:
-                p = urlparse(th)
-                th = p.hostname or th
-            except Exception:
-                pass
+            th = urlparse(th).hostname or th
         elif ":" in th and not th.startswith("["):
             th = th.split(":", 1)[0]
         if host == th.lower():
