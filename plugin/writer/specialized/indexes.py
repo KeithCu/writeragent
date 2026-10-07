@@ -23,10 +23,13 @@ a TOC and drops customized formatting. Outline ``HyperLinkURL`` on refresh goes 
 write already set it. Insert sets ``#…|outline`` on the new row only.
 """
 
+import logging
 from typing import Any, Callable, cast
 
 from ..specialized_base import ToolWriterIndexBase
 from ..target_resolver import resolve_target_cursor
+
+log = logging.getLogger("writeragent.writer.specialized.indexes")
 
 # Creation service → indexes_create kind. Prefer XDocumentIndex.getServiceName()
 # when listing: bibliography tables implement SwXDocumentIndex (same as
@@ -110,6 +113,8 @@ _BIB_FIELD_ALIASES = {
 }
 
 # BibliographyDataType constants (book=1 matches Insert → Bibliographic Entry).
+_BIB_TYPE_MAX = 21
+
 _BIB_TYPE_NAMES = {
     "article": 0,
     "book": 1,
@@ -128,6 +133,11 @@ _BIB_TYPE_NAMES = {
     "unpublished": 14,
     "email": 15,
     "www": 16,
+    "custom1": 17,
+    "custom2": 18,
+    "custom3": 19,
+    "custom4": 20,
+    "custom5": 21,
 }
 
 _BIB_CITE_SERVICE = "com.sun.star.text.textfield.Bibliography"
@@ -173,7 +183,7 @@ def resolve_bibliographic_type(value: Any) -> int | None:
         return None
     if text.isascii() and (text.isdigit() or (text.startswith("-") and text[1:].isdigit())):
         val = int(text)
-        if 0 <= val <= 16:
+        if 0 <= val <= _BIB_TYPE_MAX:
             return val
         return None
     return _BIB_TYPE_NAMES.get(text.lower().replace(" ", "").replace("-", ""))
@@ -522,8 +532,7 @@ def _commit_toc_mutation(
                 if titles and titles[0] == undo_title:
                     mgr.undo()
             except Exception:
-                import logging
-                logging.getLogger(__name__).exception("TOC edit rollback failed")
+                log.exception("TOC edit rollback failed")
                 if error is not None:
                     error = tool._tool_error(fallback_message)
     if error is not None or not applied:
@@ -1541,7 +1550,7 @@ class IndexesCreate(ToolWriterIndexBase):
             }
             if index_kind not in service_map:
                 return self._tool_error(f"Unknown index kind: {index_kind}", code="INVALID_PARAM")
-            service_name = service_map.get(index_kind, "com.sun.star.text.ContentIndex")
+            service_name = service_map[index_kind]
 
             index = doc.createInstance(service_name)
             if title is not None and hasattr(index, "Title"):
@@ -1646,7 +1655,7 @@ class IndexesAddMark(ToolWriterIndexBase):
             try:
                 mark.setPropertyValue("AlternativeText", mark_text)
             except Exception:
-                pass
+                log.debug("Failed to set AlternativeText on index mark", exc_info=True)
 
             if index_kind == "alphabetical":
                 if hasattr(mark, "PrimaryKey") and primary_key is not None:

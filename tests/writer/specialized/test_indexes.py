@@ -7,6 +7,7 @@ from plugin.writer.specialized.indexes import (
     IndexesAddMark,
     IndexesDeleteTocEntry,
     IndexesInsertTocEntry,
+    IndexesRefreshTocEntry,
     IndexesListCites,
     IndexesListTocEntries,
     _compose_toc_line,
@@ -697,3 +698,42 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
     assert unreadable["status"] == "error"
     assert unreadable["code"] == "TOOL_EXECUTION_ERROR"
     toc.update.assert_not_called()
+
+def test_resolve_bibliographic_type_numeric_range():
+    assert resolve_bibliographic_type(17) == 17
+    assert resolve_bibliographic_type("21") == 21
+    assert resolve_bibliographic_type("-1") is None
+    assert resolve_bibliographic_type("22") is None
+    assert resolve_bibliographic_type("custom5") == 21
+
+def test_indexes_refresh_toc_entry_collapses_newlines():
+    tool = IndexesRefreshTocEntry()
+    ctx = MagicMock()
+    doc = ctx.doc
+    doc.getDocumentIndexes.return_value.getCount.return_value = 1
+    idx = MagicMock()
+    idx.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    doc.getDocumentIndexes.return_value.getByIndex.return_value = idx
+
+    with patch("plugin.writer.specialized.indexes.toc_match", return_value=(MagicMock(), None)), \
+         patch("plugin.writer.specialized.indexes.IndexesRefreshTocEntry._preview", return_value=({"status": "ok"}, None)):
+        res = tool.execute(ctx, old_content="term", content="with\nnewlines\r", hyperlink_url="http://\nurl\r", dry_run=True)
+        assert res["status"] == "ok"
+
+
+def test_insert_toc_entry_collapses_newlines():
+    tool = IndexesInsertTocEntry()
+    ctx = MagicMock()
+    doc = ctx.doc
+    doc.getDocumentIndexes.return_value.getCount.return_value = 1
+    idx = MagicMock()
+    idx.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    doc.getDocumentIndexes.return_value.getByIndex.return_value = idx
+
+    sibling = MagicMock()
+    sibling.getString.return_value = "Title\t3"
+    with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
+        res = tool.execute(ctx, content="new\nline\r", page="1\n2\r", hyperlink_url="#target\n|outline", dry_run=True)
+        assert res["status"] == "ok"
+        assert res.get("text_after") == "new line\t1 2"
+        assert res.get("hyperlink_url") == "#target|outline"
