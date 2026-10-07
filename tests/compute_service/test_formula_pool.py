@@ -1421,6 +1421,10 @@ class TestFormulaHttpEndpoint:
 
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
         try:
+            # Warm up worker subprocess so initial module imports don't burn the subsecond budget under CI load
+            warm = pool.execute(code="result = 1", req_id="warmup")
+            assert warm.get("status") == "ok"
+
             worker = pool.workers[0]
             real_execute = worker.execute
             timeouts_passed: list[float] = []
@@ -1429,7 +1433,7 @@ class TestFormulaHttpEndpoint:
                 timeouts_passed.append(timeout_sec)
                 return real_execute(payload, timeout_sec)
 
-            worker.execute = spy_execute  # type: ignore[method-assign]
+            setattr(worker, "execute", spy_execute)
 
             # Sub-second deadline: child_budget ~ 0.5s (< 1.0s) -> child_alarm = 1s.
             # Host must wait at least child_alarm (1s) + grace (2s) = 3s,
