@@ -1194,8 +1194,8 @@ def test_harper_try_lint_eof_returns_none(mock_bg: MagicMock) -> None:
     harper_module._set_state(HarperRuntimeState.READY)
     with patch.object(client, "_write", lambda _payload: None):
         assert harper_try_lint("Hello.", "/tmp") is None
-    assert mock_bg.call_count == 1
-    assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+    assert mock_bg.call_count == 0
+    assert harper_module._HARPER_STATE is HarperRuntimeState.FAILED
 
 
 def test_ensure_replaces_dead_cached_client() -> None:
@@ -1424,7 +1424,8 @@ def test_harper_try_lint_logs_error_on_lint_exception(mock_bg: MagicMock, caplog
     caplog.set_level(logging.ERROR, logger="writeragent.grammar")
     assert harper_try_lint("He go to the store.", "/tmp") is None
     assert any("lint failed on ready client" in r.message for r in caplog.records)
-    assert mock_bg.call_count == 1
+    assert mock_bg.call_count == 0
+    assert harper_module._HARPER_STATE is HarperRuntimeState.FAILED
 
 
 def _ready_harper_client(lint_side_effect: object) -> MagicMock:
@@ -1832,3 +1833,8 @@ def test_lint_restart_drops_lock_during_client_construction() -> None:
     assert out == {"errors": []}
     assert held_during == [False]
     assert isinstance(harper_module._HARPER_CLIENT_CACHE[dead.binary_path], FakeClient)
+
+def test_lsp_range_to_offset_unicode_line_separator() -> None:
+    text = "a\u2028b teh"
+    assert lsp_range_to_offset(text, 0, 0) == 0
+    assert lsp_range_to_offset(text, 0, 2) == 2

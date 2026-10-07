@@ -577,7 +577,8 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
     except Exception:
         log.exception("[harper] Background ensure failed")
         with _HARPER_LOCK:
-            _set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
+            if _HARPER_STATE is not HarperRuntimeState.RESOLVING:
+                _set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
 
 
 def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> bool:
@@ -699,7 +700,7 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         # walk returns empty; background ensure restarts harper-ls.
         log.exception("[harper] lint failed on ready client; empty aErrors this walk")
         with _HARPER_LOCK:
-            _set_state(HarperRuntimeState.IDLE)
+            _set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
         harper_ensure_ready_async(user_config_dir, bcp47)
         return None
     finally:
