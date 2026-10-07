@@ -187,11 +187,9 @@ class FrameSession:
         self._close_hooks.append(hook)
 
     def remove_close_hook(self, hook: Callable[[], None]) -> None:
-        """Drop *hook* from close callbacks."""
-        try:
+        """Drop *hook* from close callbacks (no-op if absent)."""
+        if hook in self._close_hooks:
             self._close_hooks.remove(hook)
-        except ValueError:
-            pass
 
     def bind_panel(self, panel: Any) -> None:
         """This sidebar is the one the session owns."""
@@ -438,13 +436,10 @@ class FrameSession:
         # How: each time a sidebar was built, a new on_frame_close closure was
         # appended to self._close_hooks, keeping the old panel and send_listener alive.
         # Why: drop the registered hook for this panel on release.
-        hook = panel.__dict__.get("_frame_close_hook") if hasattr(panel, "__dict__") else getattr(panel, "_frame_close_hook", None)
+        hook = getattr(panel, "_frame_close_hook", None)
         if hook is not None:
             self.remove_close_hook(hook)
-            try:
-                panel._frame_close_hook = None
-            except Exception:
-                pass
+            panel._frame_close_hook = None
         if self.panel is not panel:
             return
         self.panel = None

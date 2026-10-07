@@ -119,13 +119,12 @@ def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control
                 turn.closed_by_document = True
             release_live_sidebar(panel, query_control)
 
-    old_hook = panel.__dict__.get("_frame_close_hook") if hasattr(panel, "__dict__") else getattr(panel, "_frame_close_hook", None)
+    # Kept on the panel so FrameSession.release_panel can drop it (no leaked
+    # closures holding old panels across sidebar rebuilds).
+    old_hook = getattr(panel, "_frame_close_hook", None)
     if old_hook is not None and hasattr(session, "remove_close_hook"):
         session.remove_close_hook(old_hook)
-    try:
-        panel._frame_close_hook = on_frame_close
-    except Exception:
-        pass
+    panel._frame_close_hook = on_frame_close
     if hasattr(session, "add_close_hook"):
         session.add_close_hook(on_frame_close)
 
@@ -166,19 +165,6 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
     with suppress_disposed("frame session release on dispose", logger=log):
         session = getattr(panel, "frame_session", None)
         if session is not None:
-            # What was wrong: _bind_close_hook added a close hook to the frame session
-            # on every panel attach, but release never dropped it.
-            # How: frame session lives with the frame, so rebuilding or closing
-            # the panel leaked close hooks holding references to old panels and listeners.
-            # Why: drop the registered close hook before releasing the panel.
-            hook = panel.__dict__.get("_frame_close_hook") if hasattr(panel, "__dict__") else getattr(panel, "_frame_close_hook", None)
-            if hook is not None:
-                if hasattr(session, "remove_close_hook"):
-                    session.remove_close_hook(hook)
-                try:
-                    panel._frame_close_hook = None
-                except Exception:
-                    pass
             session.release_panel(panel, query_control)
 
 
