@@ -628,7 +628,7 @@ class SendHandlersMixin:
         if turn_session is None:
             return
 
-        def _handle_early_error(err_msg: str, exception_instance: Exception) -> None:
+        def _handle_early_error(exception_instance: Exception) -> None:
             self._terminal_status = "Error"
             self._set_status(_("Error"))
 
@@ -651,7 +651,7 @@ class SendHandlersMixin:
                 log.debug("Failed to build document context for agent backend (likely disposed): %s", e)
             else:
                 log.exception("Failed to build document context for agent backend")
-            _handle_early_error(_("[Document context error: {0}]").format(str(e)), e)
+            _handle_early_error(Exception(_("[Document context error: {0}]").format(str(e))))
             return
 
 
@@ -661,12 +661,12 @@ class SendHandlersMixin:
         if not adapter:
 
 
-            _handle_early_error(_("[Agent backend '{0}' not found.]").format(backend_id), ValueError(_("Agent backend '{0}' not found.").format(backend_id)))
+            _handle_early_error(ValueError(_("[Agent backend '{0}' not found.]").format(backend_id)))
             return
         if not adapter.is_available(self.ctx):
 
 
-            _handle_early_error(_("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id)), ValueError(_("Agent backend '{0}' is not available. Check Settings (path, install).").format(_agent_backend_label(adapter, backend_id))))
+            _handle_early_error(ValueError(_("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id))))
             return
 
         turn_session.add_user_message(query_text)
@@ -1000,9 +1000,8 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True, "assistant_content": answer}))
                     else:
-                        self._in_librarian_mode = False
-
                         msg = data.get("message", _("Unknown librarian error."))
+                        q.put((StreamQueueKind.STREAM_DONE, {"in_librarian_mode": False}))
                         note = "\n" + _("[Librarian error: {0}]").format(msg) + "\n"
                         q.put((StreamQueueKind.CHUNK, note))
                         q.put((StreamQueueKind.STREAM_DONE, _specialized_tool_error_payload(note)))
@@ -1027,7 +1026,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1035,7 +1034,7 @@ class SendHandlersMixin:
                         answer = data.get("result", _("Brainstorming complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1067,7 +1066,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1075,7 +1074,7 @@ class SendHandlersMixin:
                         answer = data.get("result", _("Writing plan complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1107,7 +1106,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1115,7 +1114,7 @@ class SendHandlersMixin:
                         answer = data.get("result", _("PPT-Master session complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1146,7 +1145,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1174,7 +1173,7 @@ class SendHandlersMixin:
                         if not isinstance(answer, str):
                             answer = str(answer)
                         cache_block = format_research_cache_result_chat(data)
-                        done_payload["record_assistant_start"] = True
+                        self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, cache_block + answer + "\n"))
                         done_payload["assistant_content"] = cache_block + answer
                     else:

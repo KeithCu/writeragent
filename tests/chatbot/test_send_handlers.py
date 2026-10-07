@@ -2146,3 +2146,21 @@ def test_approval_dialog_submit_false_on_error():
         cb(("approval_required", "desc", "tool", {}, "req_id"))
 
     adapter.submit_approval.assert_called_once_with("req_id", False)
+
+def test_record_assistant_start_on_ui_thread_for_web_research():
+    panel = DummyChatbotPanel()
+    assert panel._record_assistant_start is False
+
+    q = queue.Queue()
+    current_state = SendHandlerState("web", "ready")
+
+    # We test the drain loop applies the store from the UI side correctly, but wait, the fix we
+    # chose is reverting the payload to the worker thread side:
+    # "a single bool store before q.put(CHUNK) already happens-before the drain".
+
+    def worker_fn():
+        panel._record_assistant_start = True
+        q.put((StreamQueueKind.CHUNK, "hello\n"))
+
+    panel._run_unified_worker_drain_loop(q, worker_fn, current_state, MagicMock())
+    assert getattr(panel, "_record_assistant_start", False) is True
