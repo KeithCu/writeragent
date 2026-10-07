@@ -1008,9 +1008,8 @@ def _ensure_mpl_agg() -> None:
             mpl.use("Agg")
             _MPL_AGG_SET = True
         except Exception:
+            # Remember the failed switch; retrying it on every execution hung.
             _MPL_AGG_FAILED = True
-    else:
-        _MPL_AGG_FAILED = True
 
 
 def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
