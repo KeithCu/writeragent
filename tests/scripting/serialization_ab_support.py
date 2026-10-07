@@ -84,7 +84,7 @@ def assert_cython_vs_python_parity(
 
     assert_semantically_equal(result_cython, result_python, label=f"{label} (Cython vs Python)")
 from plugin.scripting.venv_worker import PythonWorkerManager
-from plugin.scripting.venv.worker_harness import _execute_request
+from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 from tests.calc.serialization_cases import SerializationCase, all_serialization_cases
 from tests.scripting.payload_codec_test_support import (
     MIXED_LABEL_GRID,
@@ -488,7 +488,7 @@ def run_venv_roundtrip(
         if response.get("status") != "ok":
             raise AssertionError(f"Worker error: {response.get('message')}")
         return response.get("result")
-    response = _execute_request(code, wire)
+    response = run_sandboxed_code(code, wire)
     if response.get("status") != "ok":
         raise AssertionError(f"Sandbox error: {response.get('message')}")
     result = response.get("result")
@@ -892,7 +892,7 @@ def run_multi_venv_echo(
         if response.get("status") != "ok":
             raise AssertionError(f"Worker error: {response.get('message')}")
         return response.get("result")
-    response = _execute_request(code, wire)
+    response = run_sandboxed_code(code, wire)
     if response.get("status") != "ok":
         raise AssertionError(f"Sandbox error: {response.get('message')}")
     result = response.get("result")

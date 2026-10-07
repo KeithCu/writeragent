@@ -82,6 +82,14 @@ class IpcFrameError(ValueError):
     """Raised when a framed IPC message has an invalid length or payload."""
 
 
+class IpcPayloadSizeError(IpcFrameError):
+    """Raised when an outgoing IPC frame payload exceeds the maximum allowed bytes."""
+
+
+class IpcFrameReadError(IpcFrameError):
+    """Raised when reading a framed IPC message fails due to invalid size or stream desync."""
+
+
 class UserStopped(BaseException):
     """Host refused a tool call because the user pressed Stop.
 
@@ -110,7 +118,7 @@ _PICKLE_LOAD_ERRORS = (
 def _validate_frame_size(size: int, *, max_payload_bytes: int | None, frame_label: str) -> None:
     if size <= 0 or (max_payload_bytes is not None and size > max_payload_bytes):
         header = struct.pack("!I", size & 0xFFFFFFFF)
-        raise IpcFrameError(
+        raise IpcFrameReadError(
             f"Invalid {frame_label} size: {size} (header={header!r})"
         )
 
@@ -126,7 +134,7 @@ def pack_pickle_frame(
     """
     payload = pickle.dumps(message, protocol=PICKLE_PROTOCOL)
     if max_payload_bytes is not None and len(payload) > max_payload_bytes:
-        raise IpcFrameError(f"Pickle frame exceeds maximum payload size: {len(payload)}")
+        raise IpcPayloadSizeError(f"Pickle frame exceeds maximum payload size: {len(payload)}")
     return struct.pack("!I", len(payload)) + payload
 
 
@@ -204,7 +212,7 @@ def read_frame_payload(
         # (empty when the POSIX peek is skipped on win32).
         msg = f"{exc} stdout_rest={rest!r}"
         log.error("%s", msg)
-        raise IpcFrameError(msg) from None
+        raise IpcFrameReadError(msg) from None
     payload = reader(size)
     if len(payload) < size:
         return None

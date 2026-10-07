@@ -616,10 +616,10 @@ def test_cross_session_duckdb_isolation(_clean_duckdb_sessions):
 
 
 def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_sessions):
-    from plugin.scripting.venv.worker_harness import _execute_request
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     sid = "calc:duckdb-injected"
-    first = _execute_request(
+    first = run_sandboxed_code(
         "import pandas as pd\n"
         "con = session_duckdb()\n"
         "con.register('sales', pd.DataFrame({'x': [8]}))\n"
@@ -629,7 +629,7 @@ def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_session
     )
     assert first["status"] == "ok", first
     assert first["result"] is True
-    second = _execute_request(
+    second = run_sandboxed_code(
         "con = session_duckdb()\n"
         "result = int(con.execute('SELECT x FROM sales').fetchone()[0])",
         None,
@@ -640,9 +640,9 @@ def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_session
 
 
 def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
-    from plugin.scripting.venv.worker_harness import _execute_request
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
-    first = _execute_request(
+    first = run_sandboxed_code(
         "import pandas as pd\n"
         "con = session_duckdb()\n"
         "con.register('sales', pd.DataFrame({'x': [1]}))\n"
@@ -650,7 +650,7 @@ def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
         None,
     )
     assert first["status"] == "ok", first
-    second = _execute_request(
+    second = run_sandboxed_code(
         "result = session_duckdb().execute('SELECT x FROM sales').fetchone()[0]",
         None,
     )
@@ -659,11 +659,11 @@ def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
 
 def test_injected_run_sql_joins_preloaded_to_sibling_csv(_clean_duckdb_sessions, tmp_path: Path):
     """=PY() injects run_sql + scoped_dir; the join payload must not NameError."""
-    from plugin.scripting.venv.worker_harness import _execute_request
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     income = tmp_path / "zip_income.csv"
     _write_csv(income, "zip,median_household_income\n02116,99000\n")
-    res = _execute_request(
+    res = run_sandboxed_code(
         "df = run_sql("
         "'SELECT z.median_household_income AS inc FROM sales s JOIN zip_income z ON s.zip = z.zip',"
         "{'sales': [['zip'], ['02116']]},"
@@ -702,10 +702,10 @@ def test_injected_run_sql_ignores_caller_scoped_dir(tmp_path, monkeypatch):
 def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions):
     """A cell must not open another workbook's catalog by passing its session id."""
     from plugin.scripting.venv.duckdb_sql import session_duckdb
-    from plugin.scripting.venv.worker_harness import _execute_request
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     other = "calc:file:///other-workbook"
-    seed = _execute_request(
+    seed = run_sandboxed_code(
         "import pandas as pd\n"
         "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
         "result = 1",
@@ -713,14 +713,14 @@ def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions)
         session_id=other,
     )
     assert seed["status"] == "ok", seed
-    stolen = _execute_request(
+    stolen = run_sandboxed_code(
         "result = session_duckdb('calc:file:///other-workbook').execute("
         "'SELECT x FROM secret').fetchone()[0]",
         None,
         session_id="calc:file:///this-workbook",
     )
     assert stolen["status"] == "error", stolen
-    direct = _execute_request(
+    direct = run_sandboxed_code(
         "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
         "result = raw('calc:file:///other-workbook').execute('SELECT x FROM secret').fetchone()[0]",
         None,
@@ -736,10 +736,10 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_se
     """SIGALRM fallback thread must not open another workbook's catalog."""
     import signal
 
-    from plugin.scripting.venv.worker_harness import _execute_request
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     other = "calc:file:///other-workbook-timeout"
-    seed = _execute_request(
+    seed = run_sandboxed_code(
         "import pandas as pd\n"
         "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
         "result = 1",
@@ -756,7 +756,7 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_se
         return real_signal(signum, handler)
 
     monkeypatch.setattr(signal, "signal", _refuse_alarm)
-    stolen = _execute_request(
+    stolen = run_sandboxed_code(
         "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
         "result = raw('calc:file:///other-workbook-timeout').execute("
         "'SELECT x FROM secret').fetchone()[0]",
@@ -770,10 +770,10 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_se
 
 
 def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
-    from plugin.scripting.venv.worker_harness import _execute_request
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     sid = "calc:duckdb-sandbox-current"
-    first = _execute_request(
+    first = run_sandboxed_code(
         "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
         "result = query_folder_sql(None, 'SELECT x FROM sales', preloaded={'sales': [['x'], [13]]})['status']",
         None,
@@ -781,7 +781,7 @@ def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
     )
     assert first["status"] == "ok", first
     assert first["result"] == "ok"
-    second = _execute_request(
+    second = run_sandboxed_code(
         "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
         "result = query_folder_sql(None, 'SELECT x FROM sales')['rows'][0][0]",
         None,

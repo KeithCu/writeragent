@@ -34,7 +34,7 @@ from plugin.scripting.venv_worker import (
     scrub_subprocess_env,
     warm_venv_worker,
 )
-from plugin.scripting.venv.worker_harness import _execute_request, _serialize
+from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -55,38 +55,38 @@ def test_worker_error_message_strips_command_path():
 
 def test_serialize_numpy_scalar():
     np = pytest.importorskip("numpy")
-    assert _serialize(np.int64(7)) == 7
+    assert serialize_result(np.int64(7)) == 7
 
 
 def test_execute_request_fresh_namespace():
     # Without session_id each call gets a new namespace (isolated / default mode).
-    r1 = _execute_request("x = 41\nresult = x + 1", None)
+    r1 = run_sandboxed_code("x = 41\nresult = x + 1", None)
     assert r1["status"] == "ok"
     assert r1["result"] == 42
-    r2 = _execute_request("result = x + 1", None)
+    r2 = run_sandboxed_code("result = x + 1", None)
     assert r2["status"] == "error"
 
 
 def test_execute_request_injects_data():
-    r = _execute_request("result = float(np.sum(data))", [[1, 2, 3, 4]])
+    r = run_sandboxed_code("result = float(np.sum(data))", [[1, 2, 3, 4]])
     assert r["status"] == "ok"
     assert r["result"] == 10.0
 
 
 def test_execute_request_1x1_data_arithmetic_dag():
     # Issue #412: 1x1 data in consumer formula participates directly in arithmetic
-    r1 = _execute_request("result = data + 3", [[2]])
+    r1 = run_sandboxed_code("result = data + 3", [[2]])
     assert r1["status"] == "ok"
     assert r1["result"] == 5
 
-    r2 = _execute_request("result = data * 4", [[5.0]])
+    r2 = run_sandboxed_code("result = data * 4", [[5.0]])
     assert r2["status"] == "ok"
     assert r2["result"] == 20.0
 
 
 def test_execute_request_1x1_data_serialize_unwraps_to_scalar():
     # Issue #412: result = data on a 1x1 range serializes as a scalar, not [[2]]
-    r = _execute_request("result = data", [[2]])
+    r = run_sandboxed_code("result = data", [[2]])
     assert r["status"] == "ok"
     assert r["result"] == 2
     assert not isinstance(r["result"], list)
@@ -94,14 +94,14 @@ def test_execute_request_1x1_data_serialize_unwraps_to_scalar():
 
 def test_execute_request_fan_out_dag_returns_scalars():
     # Fan-out DAG (C2.4.3): multiple cells reading the same producer
-    r1 = _execute_request("result = data", [[2]])
-    r2 = _execute_request("result = data", [[2]])
+    r1 = run_sandboxed_code("result = data", [[2]])
+    r2 = run_sandboxed_code("result = data", [[2]])
     assert r1["status"] == "ok" and r1["result"] == 2
     assert r2["status"] == "ok" and r2["result"] == 2
 
 
 def test_execute_request_injects_ranges_single_range():
-    r = _execute_request(
+    r = run_sandboxed_code(
         "result = (len(ranges), data is ranges[0], hasattr(data, 'to_pandas'))",
         [[1, 2, 3]],
     )
@@ -113,7 +113,7 @@ def test_execute_request_injects_ranges_multi_polymorphic_data():
     from plugin.calc.calc_addin_data import pack_calc_multi_data_for_wire
 
     wire = pack_calc_multi_data_for_wire([[[1.0, 2.0, 3.0]], [[4.0, 5.0]]], force="never")
-    r = _execute_request(
+    r = run_sandboxed_code(
         "result = (len(ranges), data is ranges, data[1].values[0][0])",
         wire,
     )
@@ -123,7 +123,7 @@ def test_execute_request_injects_ranges_multi_polymorphic_data():
 
 def test_execute_request_does_not_inject_inputs():
     # LocalPythonExecutor raises InterpreterError (not NameError) for missing names.
-    r = _execute_request("result = inputs", [[1]])
+    r = run_sandboxed_code("result = inputs", [[1]])
     assert r["status"] == "error"
     assert "inputs" in r.get("message", "").lower() and "not defined" in r.get("message", "").lower()
 
@@ -148,14 +148,14 @@ def test_run_code_in_user_venv_passes_stop_checker():
 
 
 def test_blocked_import_os():
-    r = _execute_request("import os\nresult = 1", None)
+    r = run_sandboxed_code("import os\nresult = 1", None)
     assert r["status"] == "error"
     assert "not allowed" in r.get("message", "").lower() or "Import" in r.get("message", "")
 
 
 def test_blocked_import_not_on_allowlist():
     pytest.importorskip("requests")
-    r = _execute_request("import requests\nresult = 1", None)
+    r = run_sandboxed_code("import requests\nresult = 1", None)
     assert r["status"] == "error"
     assert "not allowed" in r.get("message", "").lower() or "Import" in r.get("message", "")
 
@@ -166,7 +166,7 @@ def test_sentence_transformers_import_not_deep_wrapped():
     from plugin.contrib.smolagents.local_python_executor import get_safe_module
 
     assert get_safe_module(st, []) is st
-    r = _execute_request(
+    r = run_sandboxed_code(
         "from sentence_transformers import SentenceTransformer\nresult = str(SentenceTransformer)",
         None,
     )
@@ -181,7 +181,7 @@ def test_duckdb_import_not_deep_wrapped():
 
     assert get_safe_module(duck, []) is duck
     # Simple execution test to ensure import + basic use works inside the sandbox
-    r = _execute_request(
+    r = run_sandboxed_code(
         "import duckdb\ncon = duckdb.connect()\nresult = con.execute('SELECT 42 AS x').df().to_dict()",
         None,
     )
@@ -731,7 +731,7 @@ def test_split_grid_data_round_trip_execute_request():
     wire = pack_calc_data_for_wire(grid)
     assert is_calc_range_payload(wire)
     assert is_split_grid(wire["data"])
-    r = _execute_request("result = float(np.sum(data))", wire)
+    r = run_sandboxed_code("result = float(np.sum(data))", wire)
     assert r["status"] == "ok"
     assert r["result"] == pytest.approx(sequential_grid_sum(BINARY_MIN_CELLS))
 
@@ -752,33 +752,33 @@ def test_normalize_response_unpacks_split_grid():
 
 
 def test_automatic_imports_math():
-    r = _execute_request("result = math.sqrt(16)", None)
+    r = run_sandboxed_code("result = math.sqrt(16)", None)
     assert r["status"] == "ok"
     assert r["result"] == 4.0
 
 
 def test_automatic_imports_numpy():
     pytest.importorskip("numpy")
-    r = _execute_request("result = float(np.sum([1, 2, 3]))", None)
+    r = run_sandboxed_code("result = float(np.sum([1, 2, 3]))", None)
     assert r["status"] == "ok"
     assert r["result"] == 6.0
 
 
 def test_automatic_imports_sympy():
     pytest.importorskip("sympy")
-    r = _execute_request("result = str(sp.Symbol('x'))", None)
+    r = run_sandboxed_code("result = str(sp.Symbol('x'))", None)
     assert r["status"] == "ok"
     assert r["result"] == "x"
 
 
 def test_automatic_imports_already_imported():
-    r = _execute_request("import math as my_math\nresult = my_math.sqrt(16)", None)
+    r = run_sandboxed_code("import math as my_math\nresult = my_math.sqrt(16)", None)
     assert r["status"] == "ok"
     assert r["result"] == 4.0
 
 
 def test_automatic_imports_explicit():
-    r = _execute_request("import math\nresult = math.sqrt(25)", None)
+    r = run_sandboxed_code("import math\nresult = math.sqrt(25)", None)
     assert r["status"] == "ok"
     assert r["result"] == 5.0
 
@@ -943,9 +943,17 @@ def test_worker_harness_dies_with_parent(monkeypatch):
     assert calls == [(1, 9, 0, 0, 0)]
 
     killed: list[int] = []
-    monkeypatch.setattr(harness.os, "getppid", lambda: 1)
+    ppids = [50, 1]
+    monkeypatch.setattr(harness.os, "getppid", lambda: ppids.pop(0))
     monkeypatch.setattr(harness.os, "getpid", lambda: 123)
     monkeypatch.setattr(harness.os, "kill", lambda pid, sig: killed.append(sig))
+    harness._die_with_parent()
+    assert killed == [9]
+
+    # Under subreaper: ppid changes from 50 to 999 (not 1)
+    killed.clear()
+    subreaper_ppids = [50, 999]
+    monkeypatch.setattr(harness.os, "getppid", lambda: subreaper_ppids.pop(0))
     harness._die_with_parent()
     assert killed == [9]
 
@@ -2362,3 +2370,180 @@ def test_kill_process_tree_host_pgid_protection(monkeypatch):
 
     killpg.assert_not_called()
     proc.kill.assert_called_once()
+
+
+class _FakeStdStream:
+    def __init__(self, buf):
+        self.buffer = buf
+
+
+def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatch):
+    import io
+    from plugin.scripting.ipc import read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    req_data = pack_pickle_frame({"id": "req-ve", "action": "execute", "code": "result = 1"})
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    def _raise_ve(*args, **kwargs):
+        raise ValueError("custom value error")
+
+    monkeypatch.setattr(harness, "_handle_request", _raise_ve)
+
+    harness.main()
+
+    stdout.seek(0)
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started == {"type": "exec_started", "id": "req-ve"}
+    res = read_pickle_frame(stdout, require_dict=True)
+    assert res is not None
+    assert res["id"] == "req-ve"
+    assert res["status"] == "error"
+    assert "custom value error" in res["message"]
+    assert "Invalid pickle request" not in res["message"]
+    assert "traceback" in res and "ValueError: custom value error" in res["traceback"]
+
+
+def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(monkeypatch):
+    import io
+    import struct
+    from plugin.scripting.ipc import read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    # Pickle of a list ([1, 2, 3]), which violates require_dict=True in read_pickle_frame
+    payload = pickle.dumps([1, 2, 3], protocol=5)
+    bad_frame = struct.pack("!I", len(payload)) + payload
+    stdin = io.BytesIO(bad_frame)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    harness.main()
+
+    stdout.seek(0)
+    res = read_pickle_frame(stdout, require_dict=True)
+    assert res is not None
+    assert res["status"] == "error"
+    assert "Invalid pickle request" in res["message"]
+    assert "must contain a dict" in res["message"]
+
+
+def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monkeypatch):
+    import io
+    import struct
+    import plugin.scripting.venv.worker_harness as harness
+
+    # Invalid frame size prefix (> DEFAULT_MAX_PAYLOAD_BYTES)
+    bad_header = struct.pack("!I", DEFAULT_MAX_PAYLOAD_BYTES + 100) + b"extra"
+    stdin = io.BytesIO(bad_header)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    harness.main()
+
+    assert stdout.getvalue() == b""
+
+
+def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
+    import io
+    from plugin.scripting.ipc import IpcFrameReadError, read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    req_data = pack_pickle_frame({"id": "req-desync", "action": "execute", "code": "result = 1"})
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    def _raise_read_desync(*args, **kwargs):
+        raise IpcFrameReadError("tool_call response stream desynchronized")
+
+    monkeypatch.setattr(harness, "_handle_request", _raise_read_desync)
+
+    harness.main()
+
+    stdout.seek(0)
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started == {"type": "exec_started", "id": "req-desync"}
+    # Worker must break without writing a corrupted frame
+    assert stdout.read() == b""
+
+
+def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(monkeypatch):
+    import io
+    from plugin.scripting.ipc import IpcPayloadSizeError, read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    req_data = pack_pickle_frame({"id": "req-pack-err", "action": "execute", "code": "result = 1"})
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    def _raise_pack_err(*args, **kwargs):
+        raise IpcPayloadSizeError("Pickle frame exceeds maximum payload size: 20000000")
+
+    monkeypatch.setattr(harness, "_handle_request", _raise_pack_err)
+
+    harness.main()
+
+    stdout.seek(0)
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started == {"type": "exec_started", "id": "req-pack-err"}
+    res = read_pickle_frame(stdout, require_dict=True)
+    assert res is not None
+    assert res["id"] == "req-pack-err"
+    assert res["status"] == "error"
+    assert "maximum payload size" in res["message"]
+    assert "traceback" in res
+
+
+def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
+    import io
+    from plugin.scripting.ipc import UserStopped, read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    req_data = pack_pickle_frame({"id": "req-stop", "action": "execute", "code": "result = 1"})
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    def _raise_user_stopped(*args, **kwargs):
+        raise UserStopped("Interrupted by user.")
+
+    monkeypatch.setattr(harness, "_handle_request", _raise_user_stopped)
+
+    harness.main()
+
+    stdout.seek(0)
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started == {"type": "exec_started", "id": "req-stop"}
+    res = read_pickle_frame(stdout, require_dict=True)
+    assert res is not None
+    assert res["id"] == "req-stop"
+    assert res["status"] == "error"
+    assert res["code"] == "USER_STOPPED"
+    assert "Interrupted by user" in res["message"]

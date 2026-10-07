@@ -120,6 +120,19 @@ def test_pack_pickle_frame_defaults_to_max_payload():
     assert frame
 
 
+def test_ipc_error_subclasses():
+    from plugin.scripting.ipc import IpcFrameError, IpcFrameReadError, IpcPayloadSizeError
+
+    assert issubclass(IpcPayloadSizeError, IpcFrameError)
+    assert issubclass(IpcFrameReadError, IpcFrameError)
+
+    with pytest.raises(IpcPayloadSizeError):
+        pack_pickle_frame({"x": "a" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)})
+
+    with pytest.raises(IpcFrameReadError):
+        read_frame_payload(io.BytesIO(b"\x00\x00\x00\x00"), frame_label="zero frame")
+
+
 def test_text_error_prefix_is_invalid_frame_with_header_repr(caplog, capsys):
     """Garbage length prefix keeps stdout_rest= and logs at error, not stderr."""
     with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):

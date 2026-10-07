@@ -14,7 +14,7 @@ import pytest
 from plugin.contrib.smolagents.local_python_executor import BASE_BUILTIN_MODULES
 from plugin.scripting import sandbox_cache as hot_cache
 from plugin.scripting.sandbox_cache import clear_python_code_hot_cache, get_hot_entry, validate_sandbox_ast
-from plugin.scripting.venv.worker_harness import _execute_request
+from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 
 @pytest.fixture(autouse=True)
@@ -90,9 +90,9 @@ def test_ast_parse_skipped_on_cache_hit() -> None:
 
 
 def test_fresh_namespace_after_hot_cache_hit() -> None:
-    r1 = _execute_request("x = 41\nresult = x + 1", None)
+    r1 = run_sandboxed_code("x = 41\nresult = x + 1", None)
     assert r1["status"] == "ok"
-    r2 = _execute_request("result = x + 1", None)
+    r2 = run_sandboxed_code("result = x + 1", None)
     assert r2["status"] == "error"
 
 

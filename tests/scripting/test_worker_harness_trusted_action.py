@@ -71,3 +71,73 @@ def test_handle_request_maintain_heartbeat_without_stub_code(mock_dispatch) -> N
     assert mock_dispatch.call_args.kwargs.get("heartbeat_fn") is not None
     out = stdout.getvalue()
     assert len(out) > 0
+
+
+@patch(
+    "plugin.embeddings.venv.embeddings_index_dispatch.dispatch_trusted",
+    return_value={"large": "x" * 17_000_000},
+)
+def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_frame(mock_dispatch) -> None:
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES
+    from plugin.scripting.venv.worker_heartbeat import parse_frame
+    from plugin.scripting.ipc import read_frame_payload
+
+    stdout = BytesIO()
+    res = _handle_request(
+        {
+            "id": "hb-oversize",
+            "action": "run_trusted_action",
+            "allow_heartbeat": True,
+            "data": {
+                "domain": "embeddings_index",
+                "helper": "maintain_folder_index",
+                "params": {},
+            },
+        },
+        stdout=stdout,
+    )
+    assert res is None
+    mock_dispatch.assert_called_once()
+    stdout.seek(0)
+    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    assert raw is not None
+    frame = parse_frame(raw)
+    assert frame["id"] == "hb-oversize"
+    assert frame["frame_type"] == "result"
+    assert frame["status"] == "error"
+    assert "maximum payload size" in frame["message"]
+
+
+@patch(
+    "plugin.embeddings.venv.embeddings_index_dispatch.dispatch_trusted",
+    side_effect=RuntimeError("Index corrupt"),
+)
+def test_handle_request_trusted_action_heartbeat_exception_writes_error_frame(mock_dispatch) -> None:
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES
+    from plugin.scripting.venv.worker_heartbeat import parse_frame
+    from plugin.scripting.ipc import read_frame_payload
+
+    stdout = BytesIO()
+    res = _handle_request(
+        {
+            "id": "hb-err",
+            "action": "run_trusted_action",
+            "allow_heartbeat": True,
+            "data": {
+                "domain": "embeddings_index",
+                "helper": "maintain_folder_index",
+                "params": {},
+            },
+        },
+        stdout=stdout,
+    )
+    assert res is None
+    stdout.seek(0)
+    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    assert raw is not None
+    frame = parse_frame(raw)
+    assert frame["id"] == "hb-err"
+    assert frame["frame_type"] == "result"
+    assert frame["status"] == "error"
+    assert "Index corrupt" in frame["message"]
+    assert "traceback" in frame
