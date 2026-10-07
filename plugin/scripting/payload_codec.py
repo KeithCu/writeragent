@@ -34,6 +34,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_COL_INDEX,
     DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
+    DEAL_MAX_SHAPE_RANK,
     DEAL_MAX_SOURCE,
     UNDER_CROSSHAIR,
     ascii_bounded,
@@ -44,6 +45,7 @@ from plugin.framework.deal_shim import (
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
 # Naming a positional parameter ``result`` then raises TypeError (multiple values). Keep ``result`` keyword-only.
 _DEAL_RETURN = object()
+_MAX_UNPACK_DEPTH = 1000
 
 
 def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
@@ -52,6 +54,24 @@ def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
     return args[-1] if args else None
 
 
+def _to_py(v: Any) -> Any:
+    """Recursively convert numpy scalars and nested sequences to native Python types.
+
+    This is only reached for mixed-type (strings-present) child materialization paths.
+    The import is local so the module can be imported on the host (LibreOffice's Python,
+    which ships without NumPy).
+    """
+    # crosshair: off  # recursive list/tuple Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    try:
+        import numpy as np  # local: safe on host; present in child for mixed grids
+        if isinstance(v, np.generic):
+            return v.item()
+    except Exception:
+        # numpy not present or v not a numpy scalar; fall through
+        pass
+    if isinstance(v, (list, tuple)):
+        return [_to_py(x) for x in v]
+    return v
 
 
 def _optional_numpy() -> Any:
@@ -101,7 +121,7 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
         buf2, strings2, _unused, has_none2, non_num2 = fn2d(test_2d, 2)
 
         if not (
-            buf2.tobytes() and len(buf2) == 4
+            len(buf2) == 4
             and buf2[0] == 1.0
             and math.isnan(buf2[1])
             and math.isnan(buf2[2])
@@ -171,8 +191,10 @@ def load_cython_accelerator() -> None:
         fn1d = getattr(_vp, "fast_flatten_grid_1d", None)
         if fn2d is not None and fn1d is not None:
             loc = "contrib.vec_pack"
-    except Exception as e:
-        log.debug("load_cython_accelerator exception: %s", e)
+    except ImportError:
+        pass
+    except Exception as exc:
+        log.warning("load_cython_accelerator exception: %s", exc)
 
     # 2. writeragent_vec (installed under user_config_dir/audio_binaries or standalone package)
     if fn2d is None or fn1d is None:
@@ -728,12 +750,8 @@ def _apply_column_kinds_to_ndarray(
     if uniform == "int":
         return arr.astype(np.int64)
     if uniform == "bool":
-        # Match host unpack: any non-zero float becomes True, but preserve NaNs
-        # (arr != 0.0 evaluates to True for NaN, so we must be careful).
-        res = arr != 0.0
-        res = res.astype(object)
-        res[np.isnan(arr)] = float("nan")
-        return res
+        # Host unpack treats only 1.0 as True. astype(bool) made every non-zero True.
+        return arr == 1.0
     if uniform == "float":
         return arr
     if is_1d:
@@ -799,7 +817,12 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
 
 def _deal_shape_ok_pytest(shape: object) -> bool:
     """Wide Calc-sized shape domain for pytest / production deal checks."""
-    return True
+    max_dim = DEAL_MAX_ROW_INDEX + 1
+    return (
+        isinstance(shape, tuple)
+        and len(shape) <= DEAL_MAX_SHAPE_RANK
+        and all(isinstance(d, int) and 0 <= d <= max_dim for d in shape)
+    )
 
 
 def _deal_shape_ok_crosshair(shape: object) -> bool:
@@ -968,10 +991,20 @@ def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list
     if len(grid) == 0:
         return []
     if type(grid[0]) in (list, tuple) and all(isinstance(r, (list, tuple)) for r in grid):
-        return grid
-    return grid
+        return [[_cell_for_json(c) for c in row] for row in grid]
+    return [_cell_for_json(x) for x in grid]
 
 
+def _cell_for_json(value: Any) -> Any:
+    """Normalize a single egress cell for list paths.
+
+    Python None (from mixed/text results or explicit) becomes None (later mapped to empty cell in Calc).
+    float('nan') / np.nan is preserved so it surfaces as a Calc error (cascades) rather than a silent blank.
+    This applies to small grids (< BINARY_MIN_CELLS) and list results that do not use the split_grid envelope.
+    """
+    if value is None:
+        return None
+    return value
 
 
 def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> None:
@@ -1278,7 +1311,7 @@ def _flatten_grid_to_components(
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result).get("shape"), list))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and (len(r["buffer"]) == 0 if not grid else len(r["buffer"]) % 8 == 0))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and len(r.get("column_kinds", [])) == (0 if not grid else (r["shape"][1] if len(r["shape"]) == 2 else 1)))
-@deal.raises(ValueError, TypeError, AttributeError, OverflowError, RecursionError, IndexError, KeyError)
+@deal.raises(ValueError)
 def host_pack_split_grid(
     grid: list[Any] | list[list[Any]],
 ) -> dict[str, Any]:
@@ -1407,14 +1440,21 @@ def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) 
     raw_strings = envelope.get("strings", {})
     if not isinstance(raw_strings, dict):
         raise ValueError("split_grid strings must be a dict")
-    strings = {}
+    strings: dict[int, Any] = {}
     for k, v in raw_strings.items():
-        ik = int(k)
+        try:
+            ik = int(k)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"split_grid string key {k!r} is not an integer") from exc
         if not (0 <= ik < expected_cells):
             raise ValueError(f"split_grid string key {ik} out of bounds for {expected_cells} cells")
         strings[ik] = v
     return strings
 
+
+@deal.pre(lambda envelope, *_unused, **__: _is_split_grid_envelope(envelope))
+@deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), list))
+@deal.raises(ValueError)
 def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
     """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists.
 
@@ -1454,7 +1494,7 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
             # Only coerce non-NaN values to int.
             flat_list = [int(v) if not math.isnan(v) else float("nan") for v in buf]
         elif uniform == "bool":
-            flat_list = [(v != 0.0) if not math.isnan(v) else float("nan") for v in buf]
+            flat_list = [(v == 1.0) if not math.isnan(v) else float("nan") for v in buf]
         else:
             # Float column: pass NaN through as float('nan') (becomes Calc error on egress).
             # Python None only comes from the strings map for genuine text/None cells.
@@ -1464,8 +1504,9 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
         col_kind = [column_kinds[0 if is_1d else i % ncols] for i in range(len(buf))]
         flat_list = [
             strings[i] if i in strings else 
-            (None if math.isnan(val) else (
-                (val != 0.0) if col_kind[i] == "bool" else
+            (val if math.isnan(val) else (
+                True if col_kind[i] == "bool" and val == 1.0 else
+                False if col_kind[i] == "bool" and val == 0.0 else
                 int(val) if col_kind[i] == "int" else val
             ))
             for i, val in enumerate(buf)
@@ -1510,13 +1551,13 @@ _deal_host_unpack_wire_ok = (
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, dataframe, calc_range)."""
     # crosshair: off
-    if _depth > 1000:
-        raise RecursionError("payload_codec: host_unpack_data maximum recursion depth exceeded")
+    if _depth > _MAX_UNPACK_DEPTH:
+        raise ValueError("payload_codec: host_unpack_data maximum recursion depth exceeded")
     if is_image_payload(wire):
         return wire
     if is_calc_range_payload(wire):
         # Host egress consumers need the inner grid; preserve envelope metadata when present.
-        inner = host_unpack_data(wire.get("data"), as_nested_list=as_nested_list)
+        inner = host_unpack_data(wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1)
         return {
             "__wa_payload__": PAYLOAD_CALC_RANGE,
             "shape": list(wire.get("shape") or [0, 0]),
@@ -1567,7 +1608,7 @@ def is_split_grid(obj: Any) -> bool:
 @deal.pre(lambda envelope: _is_split_grid_envelope(envelope))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
 @deal.ensure(lambda envelope, *a, result=_DEAL_RETURN, **k: not envelope.get("strings") or isinstance(_deal_return(*a, result=result), list))
-@deal.raises(ValueError, TypeError, AttributeError, OverflowError, RecursionError, IndexError, KeyError)
+@deal.raises(ValueError, TypeError, AttributeError)
 def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
     """Decode split_grid envelope in child. Returns ndarray if purely numeric, else nested lists/lists."""
     # crosshair: off
@@ -1659,9 +1700,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
                     # Vectorized astype(int) casts valid float objects to Python ints in C
                     col_slice[valid_mask] = col_slice[valid_mask].astype(int)
                 elif is_bool:
-                    # Match host unpack: any non-zero float becomes True.
+                    # Host unpack: True only for 1.0. astype(bool) treated 2.0 as True.
                     numeric = np.asarray(col_slice[valid_mask], dtype=np.float64)
-                    col_slice[valid_mask] = numeric != 0.0
+                    col_slice[valid_mask] = numeric == 1.0
 
         # 3. Sparse Strings Overlay
         # The 'strings' dictionary is sparse and indexes values row-major (flat 1D).
@@ -1676,7 +1717,7 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # Convert object array to nested Python lists with native scalars
         list_result = obj_arr.tolist()
         # _to_py moved to module level
-        return list_result
+        return _to_py(list_result)
     except Exception:
         log.exception("payload_codec child_unpack split_grid failed for envelope %s", describe_wire_value(envelope))
         raise
@@ -1794,7 +1835,7 @@ def child_unpack_data(wire: Any) -> Any:
 @deal.ensure(lambda arr, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result).get("dtype") == SPLIT_GRID_WIRE_DTYPE)
 @deal.ensure(lambda arr, *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result).get("buffer"), bytes))
 @deal.ensure(lambda arr, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result).get("strings") == {})
-@deal.raises(ValueError, TypeError, AttributeError, OverflowError, RecursionError, IndexError, KeyError)
+@deal.raises(ValueError, TypeError, AttributeError)
 def child_pack_split_grid(arr: Any) -> dict[str, Any]:
     """Pack ndarray as split_grid for JSON wire (venv). Numeric lane is always float64 bytes.
 
@@ -1842,9 +1883,10 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
 
 
 def _container_has_packable_nested(obj: Any, _depth: int = 0) -> bool:
-    if _depth > 1000: raise RecursionError('payload_codec: max depth')
     """True when *obj* contains ndarray/dict containers that need per-element packing."""
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    if _depth > _MAX_UNPACK_DEPTH:
+        raise ValueError("payload_codec: maximum recursion depth exceeded")
     np = _optional_numpy()
     containers = (dict, np.ndarray) if np is not None else (dict,)
 
@@ -1854,15 +1896,16 @@ def _container_has_packable_nested(obj: Any, _depth: int = 0) -> bool:
         for item in obj:
             if isinstance(item, containers):
                 return True
-            if isinstance(item, (list, tuple)) and _container_has_packable_nested(item, _depth=_depth+1):
+            if isinstance(item, (list, tuple)) and _container_has_packable_nested(item, _depth=_depth + 1):
                 return True
     return False
 
 
 def _needs_elementwise_pack(obj: Any, _depth: int = 0) -> bool:
-    if _depth > 1000: raise RecursionError('payload_codec: max depth')
     """True when a list/tuple should be packed element-wise instead of as one grid."""
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    if _depth > _MAX_UNPACK_DEPTH:
+        raise ValueError("payload_codec: maximum recursion depth exceeded")
     np = _optional_numpy()
     containers = (dict, np.ndarray) if np is not None else (dict,)
 
@@ -1873,14 +1916,14 @@ def _needs_elementwise_pack(obj: Any, _depth: int = 0) -> bool:
     for item in obj:
         if isinstance(item, containers):
             return True
-        if isinstance(item, (list, tuple)) and _container_has_packable_nested(item, _depth=_depth+1):
+        if isinstance(item, (list, tuple)) and _container_has_packable_nested(item, _depth=_depth + 1):
             return True
     return False
 
 
 @deal.pre(lambda result, *_unused, **__: True)
 @deal.post(lambda _unused: True)
-@deal.raises(ValueError, TypeError, AttributeError, OverflowError, RecursionError, IndexError, KeyError)
+@deal.raises(ValueError, TypeError, AttributeError)
 def child_pack_result(
     result: Any,
     *,
@@ -1890,8 +1933,8 @@ def child_pack_result(
 ) -> Any:
     """JSON-safe worker result: scalar/list as-is, ndarray as list or split_grid."""
     # crosshair: off
-    if _depth > 1000:
-        raise RecursionError("payload_codec: child_pack_result maximum recursion depth exceeded")
+    if _depth > _MAX_UNPACK_DEPTH:
+        raise ValueError("payload_codec: child_pack_result maximum recursion depth exceeded")
     np = _optional_numpy()
 
     try:
@@ -1905,7 +1948,7 @@ def child_pack_result(
                 # already go through host_pack_split_grid's strings map. Numeric
                 # kinds (and datetime64, which must not be rewritten here) stay
                 # on the float64 path.
-                if result.ndim in (1, 2) and kind in ("b", "i", "u", "f") and should_use_binary_envelope(
+                if kind not in ("U", "S", "O") and should_use_binary_envelope(
                     shape, min_cells=min_cells, force=force
                 ):
                     return child_pack_split_grid(result)
