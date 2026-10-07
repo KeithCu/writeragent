@@ -473,9 +473,8 @@ def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int | N
     set_config(scoped_key, new_lru)
 
 
-def sync_sidebar_image_model(ctx: Any, ctrl: Any) -> str | None:
-    """Persist sidebar image model combobox text to image_model and image_model_lru."""
-    del ctx
+def sync_sidebar_image_model(ctrl: Any, update_lru: bool = True) -> str | None:
+    """Persist sidebar image model combobox text to image_model and optionally image_model_lru."""
     if not ctrl or not hasattr(ctrl, "getText"):
         return None
     txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
@@ -486,10 +485,13 @@ def sync_sidebar_image_model(ctx: Any, ctrl: Any) -> str | None:
     patch: dict[str, Any] = {}
     if txt != get_image_model():
         patch["image_model"] = txt
-    lru_key = lru_config_key("image_model_lru", get_current_endpoint())
-    updated = next_lru_list(get_config(lru_key), txt, LRU_MAX_ITEMS)
-    if updated is not None:
-        patch[lru_key] = updated
+
+    if update_lru:
+        lru_key = lru_config_key("image_model_lru", get_current_endpoint())
+        updated = next_lru_list(get_config(lru_key), txt, LRU_MAX_ITEMS)
+        if updated is not None:
+            patch[lru_key] = updated
+
     if patch:
         set_configs(patch)
     return txt

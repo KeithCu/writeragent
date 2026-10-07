@@ -498,6 +498,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # getControl failure left the half-built panel latched, so the
                 # next getRealInterface returned it and never retried.
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
+                with suppress_disposed("frame session release on getRealInterface fail", logger=log):
+                    release_live_sidebar(self)
+                    root = getattr(self, "m_panelRootWindow", None)
+                    rl = getattr(self.toolpanel, "resize_listener", None) if self.toolpanel else None
+                    if rl and root and hasattr(root, "removeWindowListener"):
+                        root.removeWindowListener(rl)
                 self.toolpanel = None
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
@@ -846,12 +852,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 def on_item_state_changed(self, rEvent: Any) -> None:
                     if getattr(self.panel, "_in_refresh_controls", False):
                         return
-                    txt = image_model_selector.getText()
-                    if not txt:
-                        return
-                    if txt == str(get_config("image_model") or "").strip():
-                        return
-                    set_image_model(txt, update_lru=False)
+                    from plugin.chatbot.config_ui_helpers import sync_sidebar_image_model
+
+                    sync_sidebar_image_model(image_model_selector, update_lru=True)
 
             class ImageModelTextSyncListener(BaseTextListener):
                 panel: Any
@@ -866,7 +869,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         return
                     from plugin.chatbot.config_ui_helpers import sync_sidebar_image_model
 
-                    sync_sidebar_image_model(self.ctx, image_model_selector)
+                    sync_sidebar_image_model(image_model_selector, update_lru=False)
 
             if hasattr(image_model_selector, "addItemListener"):
                 image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))

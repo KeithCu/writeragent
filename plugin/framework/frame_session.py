@@ -178,12 +178,10 @@ class FrameSession:
         self._trackers: list[Any] = []
         self._frame_listener: Any = None
         self._closed = False
-        self._close_hooks: dict[Any, Callable[[], None]] = {}
+        self._close_hooks: list[Callable[[], None]] = []
 
-    def add_close_hook(self, hook: Callable[[], None], *, key: Any = None) -> None:
-        if key is None:
-            key = hook
-        self._close_hooks[key] = hook
+    def add_close_hook(self, hook: Callable[[], None]) -> None:
+        self._close_hooks.append(hook)
 
     def bind_panel(self, panel: Any) -> None:
         """This sidebar is the one the session owns."""
@@ -425,7 +423,7 @@ class FrameSession:
         if self._closed:
             return
         self._closed = True
-        for hook in list(self._close_hooks.values()):
+        for hook in self._close_hooks:
             try:
                 hook()
             except Exception:

@@ -172,6 +172,8 @@ def test_typed_image_model_is_saved_unless_refreshing():
         assert mock_set_configs.call_count == 1
         assert "image_model" in mock_set_configs.call_args[0][0]
         assert mock_set_configs.call_args[0][0]["image_model"] == "vendor/typed-image"
+        # SincesetText simulates typing, update_lru is False, lru shouldn't be touched.
+        assert "image_model_lru" not in mock_set_configs.call_args[0][0]
 
         mock_set_configs.reset_mock()
         panel._in_refresh_controls = True
