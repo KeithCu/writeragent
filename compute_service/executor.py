@@ -20,6 +20,7 @@ from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
 from compute_service.json_egress import normalize_execute_response
+from compute_service.json_forward import validate_session_id
 
 
 def execute_code(
@@ -48,10 +49,7 @@ def execute_code(
     # Shared kernel only when explicitly requested *and* a session id is provided.
     use_session: str | None = None
     if mode == "shared" and isinstance(session_id, str) and session_id.strip():
-        sid = session_id.strip()
-        if sid.endswith(":init") or sid.startswith("isolated:"):
-            raise ValueError("Invalid session_id: cannot end with ':init' or start with 'isolated:'")
-        use_session = sid
+        use_session = validate_session_id(session_id)
 
     # Stable init_session_id so run_sandboxed_code runs init once per worker and
     # seeds later cells from that namespace (hash change replaces the snapshot).

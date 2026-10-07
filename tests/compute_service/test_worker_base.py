@@ -333,3 +333,58 @@ def test_run_worker_stdio_loop_catches_base_exception(monkeypatch: pytest.Monkey
     assert res2["id"] == "req-normal"
 
 
+def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Worker timeouts increment tasks_executed so workers recycle at max_tasks."""
+    import subprocess
+    from unittest.mock import MagicMock
+    from compute_service.worker_base import BaseProcessWorker
+
+    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True)
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+    assert worker.tasks_executed == 0
+
+    monkeypatch.setattr(
+        "compute_service.worker_base.read_pickle_frame_with_timeout",
+        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=1.0)),
+    )
+    monkeypatch.setattr(worker, "_start_late_drain", MagicMock())
+
+    res = worker.execute({"code": "time.sleep(10)"}, timeout_sec=1.0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert worker.tasks_executed == 1
+
+
+def test_execute_late_drain_timeout_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Late-drain receives its own timeout budget rather than small leftover (Bug 3)."""
+    import subprocess
+    from unittest.mock import MagicMock
+    from compute_service.worker_base import BaseProcessWorker
+
+    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True, default_timeout_sec=30.0)
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+
+    drain_calls: list[float] = []
+    monkeypatch.setattr(worker, "_start_late_drain", lambda t: drain_calls.append(t))
+    monkeypatch.setattr(
+        "compute_service.worker_base.read_pickle_frame_with_timeout",
+        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=0.01)),
+    )
+
+    # 1. With explicit drain_timeout_sec:
+    worker.execute({"code": "ocr"}, timeout_sec=0.01, drain_timeout_sec=60.0)
+    assert len(drain_calls) == 1
+    assert drain_calls[0] == 60.0
+
+    # 2. Without drain_timeout_sec: falls back to timeout_sec
+    worker.execute({"code": "ocr"}, timeout_sec=0.01)
+    assert len(drain_calls) == 2
+    assert drain_calls[1] == 0.01
+
+
+

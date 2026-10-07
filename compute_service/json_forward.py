@@ -108,6 +108,23 @@ def canonical_execute_mode(mode: Any) -> str:
     return require_execute_mode(mode)
 
 
+def validate_session_id(session_id: Any) -> str:
+    """Validate that *session_id* is a valid identifier and not in a reserved namespace.
+
+    Names ending in ':init' or starting with 'isolated:' are reserved for
+    internal init-script snapshotting and cannot be claimed by callers.
+    """
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ExecuteRequestError("session_id must be a non-empty string.", code="INVALID_SESSION_ID")
+    sid = session_id.strip()
+    if sid.endswith(":init") or sid.startswith("isolated:"):
+        raise ExecuteRequestError(
+            f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.",
+            code="INVALID_SESSION_ID",
+        )
+    return sid
+
+
 def require_execute_wire(wire: Any) -> str:
     """Return the one stdio payload wire. Unknown values are not rewritten."""
     if isinstance(wire, str) and wire in VALID_WIRES:

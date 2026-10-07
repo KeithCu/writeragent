@@ -87,17 +87,20 @@ class VisionProcessPool(BaseProcessPool):
         # at the moment the request arrived.
         if deadline is None:
             deadline = time.monotonic() + eff_timeout
-        worker = self.lease_any(timeout_sec=remaining_sec(deadline))
-        if worker is None:
-            return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
 
-        try:
-            res = worker.execute(payload, timeout_sec=remaining_sec(deadline))
+        with self.leased(timeout_sec=remaining_sec(deadline)) as worker:
+            if worker is None:
+                return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+
+            # Bugfix: Give the late-drain step its own timeout budget (Bug 3).
+            # What was wrong: leftover request budget (e.g. 0.01s after queue wait) was passed
+            # to worker.execute, which drained for only 0.01s and SIGKILLed a healthy OCR worker.
+            # Why this change: give drain a full default_timeout_sec budget to save the worker.
+            drain_timeout = max(remaining_sec(deadline), float(self.default_timeout_sec))
+            res = worker.execute(payload, timeout_sec=remaining_sec(deadline), drain_timeout_sec=drain_timeout)
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             return res
-        finally:
-            self.release_worker(worker)
 
 
 # Global singleton per server process

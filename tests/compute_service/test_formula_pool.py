@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -1577,6 +1578,122 @@ class TestFormulaHttpEndpoint:
                 assert "lost-1199" in pool._lost_sessions
         finally:
             pool.shutdown()
+
+    def test_failed_lease_specific_drops_new_session(self) -> None:
+        """When lease_specific fails, the newly reserved session is dropped (Bug 2)."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "new-phantom-test"
+            with patch.object(pool, "lease_specific", return_value=None):
+                res = pool.execute(code="result = 1", session_id=sid, mode="shared")
+                assert res.get("status") == "error"
+                assert res.get("code") == "WORKER_POOL_BUSY"
+
+            # The newly reserved session must NOT remain as a phantom in _sessions
+            with pool._cond:
+                assert sid not in pool._sessions
+                assert not pool._worker_has_sessions(pool.workers[0])
+        finally:
+            pool.shutdown()
+
+    def test_readded_session_pops_lost_session(self) -> None:
+        """_finalize_session pops _lost_sessions when session is re-added or alive (Bug 4)."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "lost-race-test"
+            # Simulate session being marked lost in _lost_sessions concurrently
+            with pool._cond:
+                pool._lost_sessions[sid] = time.monotonic()
+                assert sid in pool._lost_sessions
+
+            # Execute code in shared mode; finally block re-adds/confirms alive
+            res = pool.execute(code="result = 123", session_id=sid, mode="shared")
+            assert res.get("status") == "ok"
+            assert res.get("result") == 123
+
+            with pool._cond:
+                # Must be popped from _lost_sessions
+                assert sid not in pool._lost_sessions
+                assert sid in pool._sessions
+        finally:
+            pool.shutdown()
+
+    def test_worker_session_index(self) -> None:
+        """_worker_sessions stays in sync with _sessions for O(1) worker session lookup."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            w1 = pool.workers[0]
+            w2 = pool.workers[1]
+            from compute_service.formula_pool import _Session
+
+            assert pool._worker_session_count(w1) == 0
+            assert not pool._worker_has_sessions(w1)
+            assert pool._worker_sessions_for(w1) == []
+
+            with pool._cond:
+                pool._sessions["s1"] = _Session(worker=w1, pid=111, last_active=time.monotonic())
+                pool._sessions["s2"] = _Session(worker=w1, pid=111, last_active=time.monotonic())
+                pool._sessions["s3"] = _Session(worker=w2, pid=222, last_active=time.monotonic())
+
+            assert pool._worker_session_count(w1) == 2
+            assert pool._worker_has_sessions(w1)
+            assert set(pool._worker_sessions_for(w1)) == {"s1", "s2"}
+            assert pool._worker_session_count(w2) == 1
+            assert pool._worker_sessions_for(w2) == ["s3"]
+
+            # Dropping one session updates index
+            with pool._cond:
+                pool._drop_one_unlocked("s1")
+
+            assert pool._worker_session_count(w1) == 1
+            assert pool._worker_sessions_for(w1) == ["s2"]
+
+            # Reassigning session to different worker updates both sets
+            with pool._cond:
+                pool._sessions["s2"] = _Session(worker=w2, pid=222, last_active=time.monotonic())
+
+            assert pool._worker_session_count(w1) == 0
+            assert not pool._worker_has_sessions(w1)
+            assert pool._worker_session_count(w2) == 2
+            assert set(pool._worker_sessions_for(w2)) == {"s2", "s3"}
+        finally:
+            pool.shutdown()
+
+    def test_forget_session_helper(self) -> None:
+        """_forget_session drops session and optionally records it as lost."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            w = pool.workers[0]
+            from compute_service.formula_pool import _Session
+            with pool._cond:
+                pool._sessions["drop-lost"] = _Session(worker=w, pid=100, last_active=time.monotonic())
+                pool._sessions["drop-clean"] = _Session(worker=w, pid=100, last_active=time.monotonic())
+
+            pool._forget_session("drop-lost", lost=True)
+            with pool._cond:
+                assert "drop-lost" not in pool._sessions
+                assert "drop-lost" in pool._lost_sessions
+
+            pool._forget_session("drop-clean", lost=False)
+            with pool._cond:
+                assert "drop-clean" not in pool._sessions
+                assert "drop-clean" not in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
+    def test_pool_leased_context_manager(self) -> None:
+        """BaseProcessPool.leased context manager leases and releases workers."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            with pool.leased(timeout_sec=5.0) as worker:
+                assert worker is not None
+                assert worker in pool._leased
+            # Released upon exiting context
+            assert worker not in pool._leased
+            assert worker in pool._idle
+        finally:
+            pool.shutdown()
+
 
 
 
