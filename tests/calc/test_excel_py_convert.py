@@ -20,7 +20,13 @@ from plugin.calc.excel_py_convert.parse_excel_ooxml import (
 )
 from plugin.calc.excel_py_convert.resolve_refs import resolve_dep
 from plugin.calc.excel_py_convert.script_bank import iter_a1_span
-from plugin.calc.excel_py_convert.to_dag import convert_model_to_dag, rewrite_excel_code
+from plugin.calc.excel_py_convert.to_dag import (
+    _prefer_excel_dep_token,
+    _skip_string,
+    convert_model_to_dag,
+    rewrite_excel_code,
+)
+from plugin.doc.text_helpers import ast_source_offset
 from plugin.calc.excel_py_convert.to_excel import (
     assign_script_bank,
     convert_dag_formula_to_excel,
@@ -1689,4 +1695,167 @@ def test_inline_string_bank_reading(tmp_path: Path):
     assert sheet == "Data"
     assert a1 == "A1"
     assert 'df = xl(""A1:B10"")' in formula
+
+
+def test_convert_cell_no_deps_with_xl_reference_fails_closed():
+    """Bug 1: Cell with no deps and xl(%P2%) in script must fail closed as fatal error."""
+    model = ExcelWorkbookModel(
+        scripts=["df = xl(%P2%, headers=True)"],
+        cells=[_cell("Sheet1", "A1", 0, deps=[], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert not cell.converted
+    assert cell.dag_formula == ""
+    assert any("%P2% has no matching formula dep" in i for i in cell.issues)
+
+
+def test_convert_cell_invalid_placeholder_indices_fail_closed():
+    """Bug 2: Invalid placeholders %P0%, %P1%, %P99% must fail closed without raising exceptions."""
+    for bad_tok, bad_p in [("%P0%", 0), ("%P1%", 1), ("%P99%", 99)]:
+        model = ExcelWorkbookModel(
+            scripts=[f"df = xl({bad_tok})"],
+            cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+            sheets=[_sheet("Sheet1")],
+        )
+        report = convert_model_to_dag(model)
+        cell = report.cells[0]
+        assert not cell.converted
+        assert cell.dag_formula == ""
+        assert any(f"invalid placeholder {bad_tok}" in i for i in cell.issues)
+
+
+def test_convert_cell_extra_args_and_bad_headers_fail_closed():
+    """Bug 3: Extra positional args, non-constant headers, extra kwargs, and **kw must fail closed."""
+    cases = [
+        ("xl(%P2%, True)", "does not accept positional arguments beyond the first"),
+        ("xl(%P2%, headers=flag)", "headers argument must be a True or False constant"),
+        ("xl(%P2%, extra='val')", "unsupported keyword argument 'extra'"),
+        ("xl(%P2%, **kw)", "unsupported **kwargs"),
+    ]
+    for script, expected_issue in cases:
+        model = ExcelWorkbookModel(
+            scripts=[f"df = {script}"],
+            cells=[_cell("Sheet1", "A1", 0, deps=["B1"], row=1, col=1)],
+            sheets=[_sheet("Sheet1")],
+        )
+        report = convert_model_to_dag(model)
+        cell = report.cells[0]
+        assert not cell.converted
+        assert cell.dag_formula == ""
+        assert any(expected_issue in i for i in cell.issues)
+
+
+def test_convert_cell_nested_overlapping_xl_calls_fail_closed():
+    """Bug 4: Overlapping / nested xl() calls must fail closed."""
+    model = ExcelWorkbookModel(
+        scripts=["df = xl(%P2%, headers=xl(%P3%))"],
+        cells=[_cell("Sheet1", "A1", 0, deps=["B1", "C1"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert not cell.converted
+    assert cell.dag_formula == ""
+    assert any("nested or overlapping xl() calls are not supported" in i for i in cell.issues)
+
+
+def test_ast_source_offset_with_form_feed_and_u2028():
+    """Bug 5: ast_source_offset must split lines only on \\r\\n, \\r, \\n, not \\x0c or \\u2028."""
+    # Test 1: \x0c inside string literal
+    src_ff = 's = "hello\x0cworld"\ny = xl(%P2%)\n'
+    res_ff = rewrite_excel_code(src_ff, num_deps=1)
+    assert not res_ff.fatal
+    assert 'y = xl("%P2%")' in res_ff.code
+    assert 's = "hello\x0cworld"' in res_ff.code
+
+    # Test 2: \u2028 inside string literal
+    src_u2028 = 's = "hello\u2028world"\ny = xl(%P2%)\n'
+    res_u2028 = rewrite_excel_code(src_u2028, num_deps=1)
+    assert not res_u2028.fatal
+    assert 'y = xl("%P2%")' in res_u2028.code
+    assert 's = "hello\u2028world"' in res_u2028.code
+
+    # Test 3: \x0c and \u2028 inside comments
+    src_comm_ff = '# note \x0c here\ny = xl(%P2%)\n'
+    res_comm_ff = rewrite_excel_code(src_comm_ff, num_deps=1)
+    assert not res_comm_ff.fatal
+    assert 'y = xl("%P2%")' in res_comm_ff.code
+
+    src_comm_u2028 = '# note \u2028 here\ny = xl(%P2%)\n'
+    res_comm_u2028 = rewrite_excel_code(src_comm_u2028, num_deps=1)
+    assert not res_comm_u2028.fatal
+    assert 'y = xl("%P2%")' in res_comm_u2028.code
+
+    # Test 4: direct ast_source_offset indexing
+    assert ast_source_offset(src_ff, 2, 4) == len('s = "hello\x0cworld"\n') + 4
+    assert ast_source_offset(src_u2028, 2, 4) == len('s = "hello\u2028world"\n') + 4
+
+
+def test_convert_cell_best_effort_message_accurately_reports_skip():
+    """Bug 6: best_effort=True must state that placeholder remapping was skipped."""
+    model = ExcelWorkbookModel(
+        scripts=["df = xl(%P2%)"],
+        cells=[_cell("Sheet1", "A1", 0, deps=["UnknownRef"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    # In best_effort mode, placeholder remapping is skipped
+    report_be = convert_model_to_dag(model, best_effort=True)
+    cell_be = report_be.cells[0]
+    assert any("skipped placeholder remapping in best-effort mode" in i for i in cell_be.issues)
+    assert not any("refusing to emit shifted data indices" in i for i in cell_be.issues)
+
+    # In strict mode, shifted data indices are refused
+    report_strict = convert_model_to_dag(model, best_effort=False)
+    cell_strict = report_strict.cells[0]
+    assert any("refusing to emit shifted data indices" in i for i in cell_strict.issues)
+    assert not any("skipped placeholder remapping in best-effort mode" in i for i in cell_strict.issues)
+
+
+def test_convert_cell_unresolved_deps_and_syntax_error_both_reported():
+    """Bug 6: Unresolved deps plus a syntax error must report both issues."""
+    model = ExcelWorkbookModel(
+        scripts=["df = xl(%P2%, headers=True"],
+        cells=[_cell("Sheet1", "A1", 0, deps=["UnknownRef"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert not cell.converted
+    assert any("syntax error" in i for i in cell.issues)
+    assert any("unresolved" in i for i in cell.issues)
+
+
+def test_dedup_merge_rules_header_mode_true_wins():
+    """Dedup merge: when two deps snap to the same A1, headers=True wins over False/omit."""
+    model = ExcelWorkbookModel(
+        scripts=["a = xl(%P2%, headers=False)\nb = xl(%P3%, headers=True)"],
+        cells=[_cell("Sheet1", "A1", 0, deps=["B2", "B2"], row=1, col=1)],
+        sheets=[_sheet("Sheet1")],
+    )
+    report = convert_model_to_dag(model)
+    cell = report.cells[0]
+    assert cell.converted
+    assert len(cell.bindings) == 1
+    assert cell.bindings[0].header_mode == "true"
+
+
+def test_dedup_merge_rules_prefer_excel_dep_token():
+    """Dedup merge: _prefer_excel_dep_token retains [#All] or ANCHORARRAY tokens."""
+    assert _prefer_excel_dep_token("A1:B10", "Table1[#All]") == "Table1[#All]"
+    assert _prefer_excel_dep_token("Table1[#All]", "A1:B10") == "Table1[#All]"
+    assert _prefer_excel_dep_token("A1:B10", "_xlfn.ANCHORARRAY(A1)") == "_xlfn.ANCHORARRAY(A1)"
+    assert _prefer_excel_dep_token("_xlfn.ANCHORARRAY(A1)", "A1:B10") == "_xlfn.ANCHORARRAY(A1)"
+
+
+def test_skip_string_escaped_quote_in_triple_quotes():
+    """_skip_string must handle backslash escapes inside triple-quoted strings."""
+    src = '"""a\\"b"""'
+    assert _skip_string(src, 0) == len(src)
+    code = 's = """a\\"b"""\nx = xl(%P2%)\n'
+    res = rewrite_excel_code(code, num_deps=1)
+    assert not res.fatal
+    assert 'x = xl("%P2%")' in res.code
+
 

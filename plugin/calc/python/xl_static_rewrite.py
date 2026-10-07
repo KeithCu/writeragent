@@ -13,7 +13,7 @@ import ast
 import re
 from dataclasses import dataclass
 
-from plugin.calc.excel_py_convert.to_dag import ast_source_offset
+from plugin.doc.text_helpers import ast_source_offset
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
 
 # Cell / range with optional $; optional sheet via Calc ``Sheet.`` or Excel ``Sheet!``.

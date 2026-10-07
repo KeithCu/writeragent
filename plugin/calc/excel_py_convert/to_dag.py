@@ -44,65 +44,39 @@ from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, ExcelPyCell, ExcelWorkbookModel, HeaderMode
+from plugin.calc.excel_py_convert.models import (
+    BindingInfo,
+    ConvertedCell,
+    ConversionReport,
+    ExcelPyCell,
+    ExcelWorkbookModel,
+    HeaderMode,
+)
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
-from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR, UNDER_CROSSHAIR, ascii_bounded, inverse_ensure, str_bounded, deal
-
-# Identifier / placeholder / xl() alphabet. Pytest keeps Unicode ``str_bounded``
-# so real Excel scripts stay legal; CrossHair's unrestricted Unicode of length 16
-# is how regular cover synthesized ~193 junk examples of ``_normalize_excel_placeholders``.
-_EXCEL_PLACEHOLDER_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789%_#'\" \t\n\\()=,.:+-[]{}")
-# Tiny rewrite walk + convert lists. Defined before _deal_excel_src_ok so the
-# CrossHair src pre cannot exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC).
-_DEAL_CONVERT_LIST = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-# CrossHair convert deps must be real A1 (letter+digit). Len-1 junk like ``M`` /
-# ``_`` resolves unresolved with a long note, then nested-fails ``_normalize_bindings``
-# (``_DEAL_NOTE_LEN=1``; check-all 33954468213). Pytest keeps DEAL_MAX_SOURCE.
-_DEAL_CONVERT_STR = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_DEAL_REWRITE_SRC = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-
-
-def _deal_excel_src_ok_pytest(src: object) -> bool:
-    return str_bounded(src, DEAL_MAX_SOURCE)
-
-
-def _deal_excel_src_ok_crosshair(src: object) -> bool:
-    # Must not exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC): CrossHair
-    # used to pass len-2 src such as '\t"' into _find_xl_calls, then
-    # _normalize_excel_placeholders called _skip_string and PreconditionFailed.
-    return isinstance(src, str) and str_bounded(src, _DEAL_REWRITE_SRC) and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
-
-
-# Import-time only — do not branch inside ``@deal.pre`` lambdas.
-_deal_excel_src_ok = _deal_excel_src_ok_crosshair if UNDER_CROSSHAIR else _deal_excel_src_ok_pytest
-# ast_source_offset lineno: CrossHair uses 4 so SMT stays tiny. Pytest must
-# accept real multiline ``xl(`` (AST ``end_lineno`` can exceed 4). Cap at
-# DEAL_MAX_SOURCE — a ``str_bounded`` script cannot have more lines than chars.
-_AST_OFFSET_MAX_LINENO = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_AST_OFFSET_MAX_SRC = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_AST_OFFSET_MAX_COL = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-# Tiny alphabet: 33127995861 1.05M lines at SOURCE=16; 33180040863 still ~44m at len=4.
-_AST_OFFSET_CHARS = frozenset("AB \n")
-_DEAL_BINDING_A1_LEN = DEAL_MAX_CELL_REF if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_DEAL_RESOLVED_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-# Note/convert still multi-10m at len 4 (33211730747); floor to 1.
-_DEAL_NOTE_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-# Pytest notes include Unicode (e.g. ``ANCHORARRAY(A6) → A6:B254``); CrossHair is ascii-only.
-_deal_note_ok = ascii_bounded if UNDER_CROSSHAIR else str_bounded
-_RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
-
-
-def _deal_ast_offset_src_ok_pytest(src: object) -> bool:
-    return str_bounded(src, DEAL_MAX_SOURCE)
-
-
-def _deal_ast_offset_src_ok_crosshair(src: object) -> bool:
-    return isinstance(src, str) and len(src) <= _AST_OFFSET_MAX_SRC and all(c in _AST_OFFSET_CHARS for c in src)
-
-
-_deal_ast_offset_src_ok = _deal_ast_offset_src_ok_crosshair if UNDER_CROSSHAIR else _deal_ast_offset_src_ok_pytest
+from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
+from plugin.calc.excel_py_convert.to_dag_contracts import (
+    _DEAL_BINDING_A1_LEN,
+    _DEAL_CONVERT_LIST,
+    _DEAL_NOTE_LEN,
+    _DEAL_RESOLVED_LEN,
+    _DEAL_REWRITE_SRC,
+    _RESOLVED_KINDS,
+    _deal_convert_cell_ok,
+    _deal_convert_scripts_ok,
+    _deal_excel_src_ok,
+    _deal_note_ok,
+)
+from plugin.doc.text_helpers import ast_source_offset, line_starts_exact
+from plugin.framework.deal_shim import (
+    DEAL_MAX_PLACEHOLDER_INDEX,
+    DEAL_MAX_XL_EXPR,
+    ascii_bounded,
+    deal,
+    inverse_ensure,
+    str_bounded,
+)
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 # Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
@@ -125,6 +99,32 @@ class _XlCall:
     raw: str = ""
 
 
+@dataclass
+class RewriteResult:
+    """Outcome of rewriting Excel xl() bindings for DAG."""
+
+    code: str
+    issues: list[str]
+    header_modes: dict[int, str]
+    fatal: bool = False
+    used: list[str] = field(default_factory=list)
+
+    def __iter__(self):
+        """Enable tuple unpacking (code, issues, used, header_modes) for backward compatibility."""
+        return iter((self.code, self.issues, self.used, self.header_modes))
+
+
+@dataclass
+class _XlAnalysis:
+    """AST analysis of all xl() call sites in a script."""
+
+    calls: list[_XlCall]
+    issues: list[str]
+    header_modes: dict[int, str]
+    used: set[int]
+    fatal: bool
+
+
 @deal.pre(lambda p_num, *_unused, **__: isinstance(p_num, int) and 2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX)
 @deal.post(lambda result: isinstance(result, int) and 0 <= result <= DEAL_MAX_PLACEHOLDER_INDEX)
 def _placeholder_to_data_index(p_num: int) -> int:
@@ -145,16 +145,21 @@ def _xl_binding_expr(index: int, header_mode: str) -> str:
     return f"xl({tok})"
 
 
-def _header_mode_from_keywords(node: ast.Call) -> HeaderMode:
+def _header_mode_from_keywords(node: ast.Call) -> tuple[HeaderMode, str | None]:
+    """Extract HeaderMode from call keywords or return an error issue if invalid."""
+    # Bugfix: what was wrong: non-constant headers (headers=flag, headers=1) and extra keywords were ignored, returning "omit".
+    # How it happened: loop looked only for headers and ignored other keywords, silently stripping them from rewritten calls.
+    # Why this change fixes it: reject non-constant boolean headers and any extra keywords as fatal conversion errors.
+    header_mode: HeaderMode = "omit"
     for kw in node.keywords:
-        if kw.arg and kw.arg.lower() == "headers":
-            if isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                return "true"
-            if isinstance(kw.value, ast.Constant) and kw.value.value is False:
-                return "false"
-            if isinstance(kw.value, ast.Name) and kw.value.id in ("True", "False"):
-                return "true" if kw.value.id == "True" else "false"
-    return "omit"
+        if kw.arg is None:
+            return "omit", "unsupported **kwargs in xl() call"
+        if kw.arg != "headers":
+            return "omit", f"unsupported keyword argument '{kw.arg}' in xl() call"
+        if not (isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, bool)):
+            return "omit", "xl() headers argument must be a True or False constant"
+        header_mode = "true" if kw.value.value is True else "false"
+    return header_mode, None
 
 
 @deal.pre(lambda src, i, *_unused, **__: str_bounded(src, _DEAL_REWRITE_SRC) and type(i) is int and 0 <= i < len(src))
@@ -166,7 +171,13 @@ def _skip_string(src: str, i: int) -> int:
     # Triple quotes
     if i + 1 < n and src[i] == quote and src[i + 1] == quote:
         i += 2
+        # Bugfix: what was wrong: triple-quoted strings ignored backslash escapes (\"), prematurely ending the string on an escaped quote.
+        # How it happened: loop only checked for three consecutive quotes without checking for preceding escape backslash.
+        # Why this change fixes it: skip escaped characters inside triple-quoted strings before checking for closing quotes.
         while i + 2 < n:
+            if src[i] == "\\":
+                i += 2
+                continue
             if src[i] == quote and src[i + 1] == quote and src[i + 2] == quote:
                 return i + 3
             i += 1
@@ -263,6 +274,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         issues.append(f"Python syntax error at {loc}: {msg}")
         return [], issues
 
+    line_starts = line_starts_exact(src)
     calls: list[_XlCall] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -274,12 +286,22 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         if getattr(node, "lineno", None) is None:
             continue
         # Offsets are valid on *src*: placeholder rewrites keep the same length.
-        start = ast_source_offset(src, node.lineno, node.col_offset)
-        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
+        start = ast_source_offset(src, node.lineno, node.col_offset, line_starts=line_starts)
+        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset, line_starts=line_starts)
         if start < 0 or end < 0 or end <= start:
             issues.append("xl() call without reliable source positions")
             continue
-        header_mode = _header_mode_from_keywords(node)
+
+        header_mode, kw_err = _header_mode_from_keywords(node)
+        if kw_err:
+            issues.append(kw_err)
+
+        # Bugfix: what was wrong: extra positional arguments beyond the first (e.g. xl(%P2%, True)) were silently dropped.
+        # How it happened: code only inspected node.args[0] and ignored len(node.args) > 1.
+        # Why this change fixes it: fail closed when more than one positional argument is passed to xl().
+        if len(node.args) > 1:
+            issues.append("xl() does not accept positional arguments beyond the first")
+
         p_num: int | None = None
         literal: str | None = None
         dynamic = False
@@ -288,34 +310,80 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         else:
             p_num, literal, dynamic = _p_num_from_arg(node.args[0])
         calls.append(_XlCall(start=start, end=end, p_num=p_num, header_mode=header_mode, literal=literal, dynamic=dynamic, raw=src[start:end]))
-    calls.sort(key=lambda c: c.start)
+
+    # Bugfix: what was wrong: nested xl() calls (e.g. xl(%P2%, headers=xl(%P3%))) caused reverse-start string rewrites to corrupt code.
+    # How it happened: inner replacement changed source text length, making the outer replacement's end offset stale.
+    # Why this change fixes it: detect overlapping call spans [start, end) and fail closed with a fatal conversion error.
+    calls.sort(key=lambda c: (c.start, -c.end))
+    for idx in range(len(calls) - 1):
+        if calls[idx + 1].start < calls[idx].end:
+            issues.append("nested or overlapping xl() calls are not supported")
+            break
+
     return calls, issues
 
 
-@deal.pre(lambda src, lineno, col: _deal_ast_offset_src_ok(src) and type(lineno) is int and type(col) is int and 0 <= lineno <= _AST_OFFSET_MAX_LINENO and 0 <= col <= _AST_OFFSET_MAX_COL)
-def ast_source_offset(src: str, lineno: int, col: int) -> int:
-    """Map AST ``(lineno, col_offset)`` to an absolute character index in *src*.
+def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
+    """Perform AST analysis and validation of xl() calls, extracting header modes and fatal issues."""
+    calls, find_issues = _find_xl_calls(code)
+    issues = list(find_issues)
+    fatal = bool(find_issues)
 
-    On Python 3.8+, ``col_offset`` / ``end_col_offset`` are UTF-8 *byte* offsets
-    within the line — not Unicode character indices. Convert before slicing *src*
-    so a non-ASCII prefix cannot shift the rewrite window. Shared with ``to_excel``.
-    """
-    # crosshair: off
-    # Symbolic UTF-8 mid-codepoint walk; cannot shrink _AST_OFFSET_* further.
-    if lineno < 1 or col < 0:
-        return -1
-    lines = src.splitlines(keepends=True)
-    if lineno > len(lines):
-        return -1
-    line_start = sum(len(lines[i]) for i in range(lineno - 1))
-    line = lines[lineno - 1]
-    raw = line.encode("utf-8")
-    if col > len(raw):
-        return -1
-    # If *col* landed mid-codepoint, back up to a valid UTF-8 boundary.
-    while col > 0 and col < len(raw) and (raw[col] & 0xC0) == 0x80:
-        col -= 1
-    return line_start + len(raw[:col].decode("utf-8"))
+    used: set[int] = set()
+    header_modes: dict[int, str] = {}
+
+    for call in calls:
+        if call.dynamic and call.p_num is None:
+            issues.append("dynamic xl() reference (not a %Pn% placeholder)")
+            fatal = True
+            continue
+        if call.p_num is None:
+            continue
+        # Bugfix: what was wrong: placeholders %P0%, %P1%, and %P67+% raised PreconditionFailed under deal,
+        # or left invalid bare %Pn% in output without deal.
+        # How it happened: _placeholder_to_data_index has a @deal.pre(2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX)
+        # and code called it without checking bounds first.
+        # Why this change fixes it: validate p_num range before calling _placeholder_to_data_index, recording a fatal error.
+        if call.p_num < 2 or call.p_num > 2 + DEAL_MAX_PLACEHOLDER_INDEX:
+            issues.append(f"invalid placeholder %P{call.p_num}% (must be %P2%..%P{2 + DEAL_MAX_PLACEHOLDER_INDEX}%)")
+            fatal = True
+            continue
+        idx = _placeholder_to_data_index(call.p_num)
+        # Bugfix: what was wrong: missing formula deps for %Pn% was treated as a warning, and skipped when num_deps == 0.
+        # How it happened: condition 'if num_deps and idx >= num_deps' evaluated to False when num_deps == 0,
+        # and convert_cell_to_dag never marked this issue fatal.
+        # Why this change fixes it: check idx >= num_deps unconditionally and mark missing formula deps as a fatal conversion error.
+        if idx >= num_deps:
+            issues.append(f"%P{call.p_num}% has no matching formula dep (need {idx + 1} deps, have {num_deps})")
+            fatal = True
+            continue
+        used.add(idx)
+        # First seen header mode wins for a given original index; conflict → warn.
+        prev = header_modes.get(idx)
+        if prev is None:
+            header_modes[idx] = call.header_mode
+        elif prev != call.header_mode and call.header_mode != "omit":
+            issues.append(f"conflicting headers mode for %P{call.p_num}%: {prev} vs {call.header_mode}")
+
+    return _XlAnalysis(calls=calls, issues=issues, header_modes=header_modes, used=used, fatal=fatal)
+
+
+def apply_rewrite(src: str, calls: list[_XlCall], *, index_map: dict[int, int] | None = None) -> str:
+    """Rewrite binding call sites in *src* to quoted xl("%Pn%", ...) with remapped indices."""
+    imap = index_map or {}
+    new_code = src
+    for call in sorted(calls, key=lambda c: c.start, reverse=True):
+        if call.dynamic and call.p_num is None:
+            continue
+        if call.p_num is None:
+            continue
+        if call.p_num < 2 or call.p_num > 2 + DEAL_MAX_PLACEHOLDER_INDEX:
+            continue
+        orig_idx = _placeholder_to_data_index(call.p_num)
+        norm_idx = imap.get(orig_idx, orig_idx)
+        repl = _xl_binding_expr(norm_idx, call.header_mode)
+        new_code = new_code[: call.start] + repl + new_code[call.end :]
+    return new_code
 
 
 @deal.pre(
@@ -326,61 +394,36 @@ def ast_source_offset(src: str, lineno: int, col: int) -> int:
         and (index_map is None or (isinstance(index_map, dict) and len(index_map) <= _DEAL_CONVERT_LIST and all(type(k) is int and type(v) is int and 0 <= k <= _DEAL_CONVERT_LIST and 0 <= v <= _DEAL_CONVERT_LIST for k, v in index_map.items())))
     )
 )
-def rewrite_excel_code(code: str, *, num_deps: int, index_map: dict[int, int] | None = None) -> tuple[str, list[str], list[str], dict[int, str]]:
+def rewrite_excel_code(code: str, *, num_deps: int, index_map: dict[int, int] | None = None) -> RewriteResult:
     """Normalize ``xl(...)`` bindings to runnable ``xl("%Pn%", …)``; leave other code intact.
 
     *index_map* maps original 0-based dep index → normalized binding index after dedup.
-    Returns ``(new_code, issues, used_original_indices, header_modes_by_original_index)``.
+    Returns a ``RewriteResult`` dataclass that also unpacks as
+    ``(new_code, issues, used_original_indices, header_modes_by_original_index)``
+    for backward compatibility.
 
     Statement-form ``xl`` (e.g. under ``if``) is kept and quoted like any other
     binding site. Literal / dynamic ``xl(...)`` is reported and fail-closed by
     the converter — not silently deleted.
     """
-    issues: list[str] = []
     src = code or ""
-
-    calls, find_issues = _find_xl_calls(src)
-    issues.extend(find_issues)
-
-    used: set[int] = set()
-    header_modes: dict[int, str] = {}
-    imap = index_map or {}
-
-    for call in calls:
-        if call.dynamic and call.p_num is None:
-            issues.append("dynamic xl() reference (not a %Pn% placeholder)")
-            continue
-        if call.p_num is None:
-            continue
-        idx = _placeholder_to_data_index(call.p_num)
-        if idx < 0:
-            issues.append(f"invalid placeholder %P{call.p_num}%")
-            continue
-        if num_deps and idx >= num_deps:
-            issues.append(f"%P{call.p_num}% has no matching formula dep (need {idx + 1} deps, have {num_deps})")
-        used.add(idx)
-        # First seen header mode wins for a given original index; conflict → warn.
-        prev = header_modes.get(idx)
-        if prev is None:
-            header_modes[idx] = call.header_mode
-        elif prev != call.header_mode and call.header_mode != "omit":
-            issues.append(f"conflicting headers mode for %P{call.p_num}%: {prev} vs {call.header_mode}")
-
-    # Rewrite binding call sites to quoted ``%Pn%`` (valid Python) with remapped indices.
-    new_code = src
-    for call in sorted(calls, key=lambda c: c.start, reverse=True):
-        if call.dynamic and call.p_num is None:
-            continue
-        if call.p_num is None:
-            continue
-        orig_idx = _placeholder_to_data_index(call.p_num)
-        if orig_idx < 0:
-            continue
-        norm_idx = imap.get(orig_idx, orig_idx)
-        repl = _xl_binding_expr(norm_idx, call.header_mode)
-        new_code = new_code[: call.start] + repl + new_code[call.end :]
-
-    return new_code, issues, [str(i) for i in sorted(used)], header_modes
+    analysis = analyze_xl_calls(src, num_deps=num_deps)
+    if analysis.fatal:
+        return RewriteResult(
+            code=src,
+            issues=analysis.issues,
+            header_modes=analysis.header_modes,
+            fatal=True,
+            used=[str(i) for i in sorted(analysis.used)],
+        )
+    new_code = apply_rewrite(src, analysis.calls, index_map=index_map)
+    return RewriteResult(
+        code=new_code,
+        issues=analysis.issues,
+        header_modes=analysis.header_modes,
+        fatal=False,
+        used=[str(i) for i in sorted(analysis.used)],
+    )
 
 
 def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
@@ -422,7 +465,7 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     lambda resolved, header_modes: (
         type(resolved) is list
         and len(resolved) <= _DEAL_RESOLVED_LEN
-        and all(isinstance(r, ResolvedDep) and r.kind in _RESOLVED_KINDS and _deal_note_ok(r.note or "", _DEAL_NOTE_LEN) and (r.a1 is None or ascii_bounded(r.a1, _DEAL_BINDING_A1_LEN)) and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN)) for r in resolved)
+        and all(isinstance(r, ResolvedDep) and r.kind in _RESOLVED_KINDS and _deal_note_ok(r.note or "", _DEAL_NOTE_LEN) and ascii_bounded(r.a1, _DEAL_BINDING_A1_LEN) and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN)) for r in resolved)
         and type(header_modes) is dict
         and len(header_modes) <= _DEAL_RESOLVED_LEN
         and all(type(k) is int and 0 <= k <= _DEAL_RESOLVED_LEN and isinstance(v, str) and v in ("omit", "true", "false") for k, v in header_modes.items())
@@ -469,80 +512,57 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
     return bindings, index_map, data_args, excel_deps, issues
 
 
-def _deal_convert_scripts_ok(model: object) -> bool:
-    # Match rewrite_excel_code / convert_cell_to_dag nested pre: str_bounded alone
-    # let CrossHair build scripts=['\x00'] then PreconditionFailed inside
-    # (check-all 33935176527). Pytest _deal_excel_src_ok is still str_bounded.
-    scripts = getattr(model, "scripts", None)
-    return isinstance(scripts, list) and len(scripts) <= _DEAL_CONVERT_LIST and all(_deal_excel_src_ok(s) for s in scripts)
-
-
-# CrossHair convert deps are exact two-char A1 (``A1``…``Z9``). Broader
-# ``ascii_bounded`` / A1-ish alphabets allowed ``deps=['_']`` (relib PatternError,
-# check-all 33940151004) and ``deps=['M']`` (unresolved long note → nested
-# ``_normalize_bindings`` PreconditionFailed on ``_DEAL_NOTE_LEN=1``, check-all
-# 33954468213). Pytest keeps ascii_bounded so ``_xlfn.ANCHORARRAY`` /
-# ``Table[#All]`` stay legal. Different hole from #599 (NUL *scripts*).
-_CONVERT_DEP_A1_LETTER = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-_CONVERT_DEP_A1_DIGIT = frozenset("0123456789")
-
-
-def _deal_convert_dep_ok_pytest(dep: object) -> bool:
-    return isinstance(dep, str) and ascii_bounded(dep, _DEAL_CONVERT_STR)
-
-
-def _deal_convert_dep_ok_crosshair(dep: object) -> bool:
-    # Exact A1 so resolve_dep returns kind=range with empty note (passes the
-    # off'd ``_normalize_bindings`` note bound without widening that pre).
-    return isinstance(dep, str) and len(dep) == _DEAL_CONVERT_STR and dep[0] in _CONVERT_DEP_A1_LETTER and dep[1] in _CONVERT_DEP_A1_DIGIT
-
-
-_deal_convert_dep_ok = _deal_convert_dep_ok_crosshair if UNDER_CROSSHAIR else _deal_convert_dep_ok_pytest
-
-
-def _deal_convert_cell_ok(cell: object) -> bool:
-    """Cell fields ``convert_cell_to_dag`` requires; script_index range is body-checked."""
-    script_index = getattr(cell, "script_index", None)
-    deps = getattr(cell, "deps", None)
-    return type(script_index) is int and isinstance(deps, list) and len(deps) <= _DEAL_CONVERT_LIST and all(_deal_convert_dep_ok(d) for d in deps)
-
-
 @deal.pre(lambda model, cell, *_unused, **__: _deal_convert_scripts_ok(model) and _deal_convert_cell_ok(cell))
 def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_in_order: list[ExcelPyCell] | None = None, best_effort: bool = False) -> ConvertedCell:
     # crosshair: off
     # ExcelWorkbookModel + resolve_deps/rewrite stack (cover-all 33569420452: ~1195s est / 2217 ex despite tiny list deals). Doable later.
     """Convert one Excel PY cell: rewrite ``xl`` in code + attach ranges on ``=PY``."""
-    base = ConvertedCell(sheet=cell.sheet, cell=cell.cell, direction="dag", original_code="", converted_code="", return_type=cell.return_type, array_ref=cell.array_ref, script_index=cell.script_index, converted=False)
     if cell.script_index < 0 or cell.script_index >= len(model.scripts):
-        base.issues = [f"script_index {cell.script_index} out of range ({len(model.scripts)} scripts)"]
-        return base
+        return ConvertedCell(
+            sheet=cell.sheet,
+            cell=cell.cell,
+            direction="dag",
+            original_code="",
+            converted_code="",
+            return_type=cell.return_type,
+            array_ref=cell.array_ref,
+            script_index=cell.script_index,
+            converted=False,
+            issues=[f"script_index {cell.script_index} out of range ({len(model.scripts)} scripts)"],
+        )
 
     original = model.scripts[cell.script_index]
-    base.original_code = original
-
     resolved = resolve_deps(cell.deps, model, sheet_hint=cell.sheet)
-    # Discover header modes from xl() calls against original arity (no index remap yet).
-    _code0, rewrite_issues0, _used0, header_modes = rewrite_excel_code(original, num_deps=len(cell.deps))
-    bindings, index_map, data_args, excel_deps, bind_issues = _normalize_bindings(resolved, header_modes)
+
+    # Parse once: analyze xl() calls, placeholders, header modes, and fatal errors in one pass.
+    analysis = analyze_xl_calls(original, num_deps=len(cell.deps))
+    bindings, index_map, data_args, excel_deps, bind_issues = _normalize_bindings(resolved, analysis.header_modes)
+
     issues: list[str] = list(bind_issues)
+    for issue in analysis.issues:
+        if issue not in issues:
+            issues.append(issue)
 
     snapshot_notes = [r.note for r in resolved if r.kind in ("table_snapshot", "anchor_snapshot") and r.note]
 
     unresolved = len(index_map) != len(cell.deps)
-    dynamic = any("dynamic xl()" in i for i in rewrite_issues0)
-    # Syntax errors are always fatal now that placeholders are normalized for AST
-    # (previously ``%P`` scripts skipped AST and used a regex scanner).
-    syntax_fatal = any("syntax error" in i for i in rewrite_issues0)
+    fatal = analysis.fatal or unresolved
 
-    # Second rewrite with dedup index map when every original dep resolved.
+    # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
+    # Bugfix: what was wrong: when deps were unresolved, issues from rewrite_excel_code (syntax errors,
+    # invalid placeholders) were dropped, and best_effort mode emitted bare %Pn% claiming "refusing to emit shifted data indices".
+    # How it happened: rewrite_issues0 was never merged when unresolved=True, and the warning message was hardcoded for both modes.
+    # Why this change fixes it: merge all analysis issues, and in best_effort mode accurately state that placeholder remapping was skipped.
     if unresolved:
-        issues.append("unresolved or dropped dependency; refusing to emit shifted data indices")
+        if best_effort:
+            issues.append("unresolved or dropped dependency; skipped placeholder remapping in best-effort mode")
+        else:
+            issues.append("unresolved or dropped dependency; refusing to emit shifted data indices")
         new_code = original
-        rewrite_issues = list(rewrite_issues0)
+    elif fatal:
+        new_code = original
     else:
-        new_code, rewrite_issues, _used, _hm2 = rewrite_excel_code(original, num_deps=len(cell.deps), index_map=index_map if index_map else None)
-        issues.extend(i for i in rewrite_issues if i not in issues)
-        dynamic = dynamic or any("dynamic xl()" in i for i in rewrite_issues)
+        new_code = apply_rewrite(original, analysis.calls, index_map=index_map if index_map else None)
 
     # Advisory only: multi-cell Excel workbooks often need shared-kernel mode.
     # We do not inject prior-PY formula args for Calc ordering.
@@ -552,45 +572,53 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
         issues.append("shared-kernel workbook: enable shared session; converter does not add order edges")
 
     if cell.return_type == 1:
-        new_code = (new_code or "") + _OBJECT_SUPPRESS
+        new_code = new_code + _OBJECT_SUPPRESS
         issues.append("returnType=1 (Object): suppressed cell value egress (shared object kept in script)")
 
-    fatal = unresolved or dynamic or syntax_fatal
-
     if fatal and not best_effort:
-        base.converted_code = original
-        base.data_args = data_args
-        base.excel_deps = excel_deps
-        base.ordering_args = []
-        base.bindings = bindings
-        base.issues = list(dict.fromkeys(issues + (["dynamic xl()"] if dynamic else []) + (["unresolved dependency"] if unresolved else [])))
-        base.shared_kernel = shared_kernel
-        base.snapshot_deps = snapshot_notes
-        base.dag_formula = ""
-        base.converted = False
-        return base
+        # What was wrong: unconverted cells could produce partial formulas or fail open.
+        # How it happened: fatal flag was missing invalid placeholders, extra args, or dep mismatches.
+        # Why this change fixes it: fails closed cleanly, keeping converted=False and original code.
+        return ConvertedCell(
+            sheet=cell.sheet,
+            cell=cell.cell,
+            direction="dag",
+            original_code=original,
+            converted_code=original,
+            return_type=cell.return_type,
+            array_ref=cell.array_ref,
+            script_index=cell.script_index,
+            converted=False,
+            data_args=data_args,
+            excel_deps=excel_deps,
+            ordering_args=[],  # TODO: ordering_args is legacy; converter relies on shared-kernel session
+            bindings=bindings,
+            issues=list(dict.fromkeys(issues)),
+            shared_kernel=shared_kernel,
+            snapshot_deps=snapshot_notes,
+            dag_formula="",
+        )
 
-    dag_formula = ""
-    if new_code is not None:
-        from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
-
-        # Placeholder ConvertedCell for formula builder (fields already on base below).
-        base.converted_code = new_code
-        base.data_args = data_args
-        base.excel_deps = excel_deps
-        base.ordering_args = []
-        dag_formula = formula_for_converted_cell(base, separator=";", use_script_bank=True)
-
-    base.converted_code = new_code if isinstance(new_code, str) else original
-    base.data_args = data_args
-    base.excel_deps = excel_deps
-    base.ordering_args = []
-    base.bindings = bindings
-    base.dag_formula = dag_formula
-    base.issues = list(dict.fromkeys(issues))
-    base.shared_kernel = shared_kernel
-    base.snapshot_deps = snapshot_notes
-    base.converted = True
+    base = ConvertedCell(
+        sheet=cell.sheet,
+        cell=cell.cell,
+        direction="dag",
+        original_code=original,
+        converted_code=new_code,
+        return_type=cell.return_type,
+        array_ref=cell.array_ref,
+        script_index=cell.script_index,
+        converted=True,
+        data_args=data_args,
+        excel_deps=excel_deps,
+        ordering_args=[],  # TODO: ordering_args is legacy; converter relies on shared-kernel session
+        bindings=bindings,
+        issues=list(dict.fromkeys(issues)),
+        shared_kernel=shared_kernel,
+        snapshot_deps=snapshot_notes,
+        dag_formula="",
+    )
+    base.dag_formula = formula_for_converted_cell(base, separator=";", use_script_bank=True)
     return base
 
 
