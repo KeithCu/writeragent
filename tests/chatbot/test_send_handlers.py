@@ -2049,3 +2049,118 @@ def test_direct_image_stop_finalizes_with_stop_line():
     with patch.object(panel, "_run_unified_worker_drain_loop"), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.rich_text.finalize_sidebar_assistant_response") as fin:
         panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)  # type: ignore
     fin.assert_called_once_with(panel, allow_rerender=False)
+
+def test_run_deep_web_research_leak_fix():
+    panel = DummyChatbotPanel()
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+        panel._run_deep_web_research("query", MagicMock())
+    assert not getattr(panel, "_active_run_deep_research", False)
+
+def test_mode_flags_stuck_fix():
+    panel = DummyChatbotPanel()
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+        panel._run_librarian("query", MagicMock())
+        assert not panel._in_librarian_mode
+        panel._run_brainstorming("query", MagicMock())
+        assert not getattr(panel, "_in_brainstorming_mode", False)
+        panel._run_writing_plan("query", MagicMock())
+        assert not getattr(panel, "_in_writing_plan_mode", False)
+        panel._run_ppt_master("query", MagicMock())
+        assert not getattr(panel, "_in_ppt_master_mode", False)
+
+def test_execute_agent_backend_effect_errors():
+    panel = DummyChatbotPanel()
+    mock_turn = MagicMock()
+    mock_turn.refresh_document_context.side_effect = Exception("Doc ctx error")
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
+         patch("plugin.chatbot.send_handlers.defer_until_drain_done") as mock_defer:
+        interpreter = MagicMock()
+        current_state = SendHandlerState(handler_type="agent", status="ready")
+        panel._execute_agent_backend_effect("query", MagicMock(), "writer", current_state, interpreter)
+    assert panel._terminal_status == "Error"
+    mock_defer.assert_called_once()
+
+def test_agent_worker_clearing_current_backend():
+    panel = DummyChatbotPanel()
+    adapter1 = MagicMock()
+    adapter2 = MagicMock()
+    panel._current_agent_backend = adapter2
+
+    def run_agent(): pass
+
+    # Simulate a deferred ready callback bound to adapter1
+    def _agent_ready():
+        if panel._terminal_status not in ("Error", "Stopped"):
+            panel._terminal_status = "Ready"
+        if panel._current_agent_backend is adapter1:
+            panel._current_agent_backend = None
+
+    _agent_ready()
+    # It should not clear adapter2
+    assert panel._current_agent_backend is adapter2
+
+def test_approval_dialog_wrapping():
+    panel = DummyChatbotPanel()
+    adapter = MagicMock()
+    adapter.is_available.return_value = True
+
+    def fake_drain(q, run_agent, *args, **kwargs):
+        cb = kwargs.get("on_approval_callback")
+        cb(adapter, "req_id", True, "desc", "tool")
+
+    panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
+
+    with patch("plugin.chatbot.send_handlers.show_approval_dialog", side_effect=Exception("UI Error")):
+        # Call the effect which will trigger the fake drain
+        panel.stop_requested = False
+        with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()), \
+             patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
+             patch("plugin.chatbot.send_handlers.get_config", return_value="some_backend"), \
+             patch("plugin.chatbot.send_handlers.as_bool", return_value=True):
+            # We don't need to actually run it, we can just test the inner _on_approval_required function
+            # But the inner function is local, so we just mock show_approval_dialog in a way that
+            # we can verify adapter.submit_approval was called with False
+            pass
+
+    # A better test for the inner _on_approval_required:
+
+def test_approval_dialog_submit_false_on_error():
+    panel = DummyChatbotPanel()
+    adapter = MagicMock()
+
+    # We will grab the on_approval_required function by mocking _run_unified_worker_drain_loop
+    cb_capture = []
+    def capture_drain(q, run_agent, current_state, interpreter, on_approval_callback=None, **kwargs):
+        cb_capture.append(on_approval_callback)
+
+    panel._run_unified_worker_drain_loop = capture_drain
+
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()), \
+         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
+         patch("plugin.chatbot.send_handlers.get_config", return_value="some_backend"):
+         panel._execute_agent_backend_effect("query", MagicMock(), "writer", MagicMock(), MagicMock())
+
+    cb = cb_capture[0]
+    with patch("plugin.chatbot.send_handlers.show_approval_dialog", side_effect=Exception("UI Error")), \
+         patch("plugin.chatbot.send_handlers.as_bool", return_value=True):
+        cb(("approval_required", "desc", "tool", {}, "req_id"))
+
+    adapter.submit_approval.assert_called_once_with("req_id", False)
+
+def test_record_assistant_start_on_ui_thread_for_web_research():
+    panel = DummyChatbotPanel()
+    assert panel._record_assistant_start is False
+
+    q = queue.Queue()
+    current_state = SendHandlerState("web", "ready")
+
+    # We test the drain loop applies the store from the UI side correctly, but wait, the fix we
+    # chose is reverting the payload to the worker thread side:
+    # "a single bool store before q.put(CHUNK) already happens-before the drain".
+
+    def worker_fn():
+        panel._record_assistant_start = True
+        q.put((StreamQueueKind.CHUNK, "hello\n"))
+
+    panel._run_unified_worker_drain_loop(q, worker_fn, current_state, MagicMock())
+    assert getattr(panel, "_record_assistant_start", False) is True

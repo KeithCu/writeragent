@@ -91,7 +91,7 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
     # Order matters for some overlaps (e.g. openrouter before generic openai-compatible)
     if _host_is("openrouter.ai"):
         return "openrouter"
-    if _host_is("together.xyz"):
+    if _host_is("together.ai", "together.xyz"):
         return "together"
     # LAN addresses (``::1``, RFC1918) on the Ollama port are the app.
     # A public host on 11434 stays custom. Hostname equality, not a substring.

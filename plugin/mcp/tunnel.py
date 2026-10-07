@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import threading
@@ -59,24 +60,29 @@ _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
 # 8443/10000; 443 omits the port).
 _TAILSCALE_URL_RE = re.compile(r"(https://[\w.-]+\.ts\.net(?::\d+)?)")
 
-_TAILSCALE_RESET_COMMANDS = (["tailscale", "funnel", "reset"], ["tailscale", "serve", "reset"])
+# What was wrong: "reset" wipes all user serve config, destroying any
+# background processes the user mapped before running MCP.
+# Why: "off" is the documented way to stop a specific port without
+# destroying the rest of the node's config.
+def _tailscale_off_commands(port: int) -> tuple[list[str], list[str]]:
+    return (["tailscale", "funnel", str(int(port)), "off"], ["tailscale", "serve", "--https=443", "off"])
 
 _REDACT_FLAGS = frozenset({"--authtoken", "--token", "--secret"})
 
 
 def build_cloudflare_command(port: int, provider_token: str = "") -> list[str]:
-    """Quick tunnel when config empty; ``run --token`` when Provider config set.
+    """Quick tunnel when config empty; ``run`` when Provider config set.
 
     Token tunnels use ingress configured in the Cloudflare dashboard (point that
     service at ``http://localhost:<mcp_port>``).
     """
     token = (provider_token or "").strip()
     if token:
-        return ["cloudflared", "tunnel", "--no-autoupdate", "run", "--token", token]
+        return ["cloudflared", "tunnel", "--no-autoupdate", "run"]
     return ["cloudflared", "tunnel", "--no-autoupdate", "--url", "http://localhost:%s" % int(port)]
 
 
-_CLOUDFLARE_IGNORED_HOSTS = frozenset({"cloudflare.com", "www.cloudflare.com", "developers.cloudflare.com", "blog.cloudflare.com", "pkg.cloudflare.com", "github.com"})
+_CLOUDFLARE_IGNORED_HOSTS = frozenset({"cloudflare.com", "www.cloudflare.com", "developers.cloudflare.com", "blog.cloudflare.com", "pkg.cloudflare.com", "github.com", "api.trycloudflare.com"})
 
 
 def parse_cloudflare_url(line: str) -> Optional[str]:
@@ -85,7 +91,10 @@ def parse_cloudflare_url(line: str) -> Optional[str]:
         return None
     m = _CLOUDFLARE_QUICK_URL_RE.search(line)
     if m:
-        return m.group(1)
+        url = m.group(1)
+        host = url.split("://", 1)[-1].split("/")[0].split(":")[0].lower()
+        if host not in _CLOUDFLARE_IGNORED_HOSTS:
+            return url
     # Token / named tunnels may log a custom hostname; ignore docs/marketing links.
     for match in _CLOUDFLARE_ANY_URL_RE.finditer(line):
         url = match.group(1)
@@ -134,11 +143,8 @@ def parse_bore_provider_config(value: str) -> tuple[str, str]:
 
 
 def build_bore_command(port: int, provider_token: str = "") -> list[str]:
-    server, secret = parse_bore_provider_config(provider_token)
-    cmd = ["bore", "local", str(int(port)), "--to", server]
-    if secret:
-        cmd.extend(["--secret", secret])
-    return cmd
+    server, _ = parse_bore_provider_config(provider_token)
+    return ["bore", "local", str(int(port)), "--to", server]
 
 
 def parse_bore_url(line: str) -> Optional[str]:
@@ -153,11 +159,7 @@ def parse_bore_url(line: str) -> Optional[str]:
 
 def build_ngrok_command(port: int, authtoken: str = "") -> list[str]:
     # Empty token → rely on ngrok CLI config / env (prior behavior).
-    cmd = ["ngrok", "http", "http://localhost:%s" % int(port), "--log", "stdout", "--log-format", "json"]
-    token = (authtoken or "").strip()
-    if token:
-        cmd.extend(["--authtoken", token])
-    return cmd
+    return ["ngrok", "http", "http://localhost:%s" % int(port), "--log", "stdout", "--log-format", "json"]
 
 
 def parse_ngrok_url(line: str) -> Optional[str]:
@@ -215,13 +217,13 @@ def parse_tailscale_url(line: str) -> Optional[str]:
     return m.group(1).rstrip("/")
 
 
-def _tailscale_reset() -> None:
-    for cmd in _TAILSCALE_RESET_COMMANDS:
+def _tailscale_reset(port: int) -> None:
+    for cmd in _tailscale_off_commands(port):
         try:
             subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
-            log.debug("Tailscale reset: %s", " ".join(cmd))
+            log.debug("Tailscale off: %s", " ".join(cmd))
         except Exception:
-            log.debug("Tailscale reset failed: %s", " ".join(cmd), exc_info=True)
+            log.debug("Tailscale off failed: %s", " ".join(cmd), exc_info=True)
 
 
 # Written next to writeragent.json when we spawn `tailscale funnel`. Survives
@@ -351,6 +353,24 @@ def _build_provider_command(provider: str, port: int, provider_token: str) -> li
         return build_bore_command(port, provider_token)
     info = PROVIDERS[provider]
     return info["build_command"](port)
+
+
+def _build_provider_env(provider: str, provider_token: str) -> dict[str, str]:
+    """Return environment variables for provider secrets."""
+    env: dict[str, str] = {}
+    token = (provider_token or "").strip()
+    if not token:
+        return env
+
+    if provider == "cloudflare":
+        env["TUNNEL_TOKEN"] = token
+    elif provider == "ngrok":
+        env["NGROK_AUTHTOKEN"] = token
+    elif provider == "bore":
+        _, secret = parse_bore_provider_config(token)
+        if secret:
+            env["BORE_SECRET"] = secret
+    return env
 
 
 import dataclasses
@@ -543,15 +563,16 @@ class TunnelManager:
         the same lock.
         """
         info = PROVIDERS.get(provider)
-        post_stop: Optional[Callable[[], None]] = info.get("post_stop") if info else None
+        post_stop: Optional[Callable[[int], None]] = info.get("post_stop") if info else None
         if not post_stop:
             return
         if provider == "tailscale":
             self._tailscale_reset_issued = True
         generation = self._tunnel_generation
         cfg_lock = self._provider_cfg_lock
+        port = self._state.port
 
-        def _safe_post_stop(expected: int = generation, fn: Callable[[], None] = post_stop, prov: str = provider) -> None:
+        def _safe_post_stop(expected: int = generation, fn: Callable[[int], None] = post_stop, prov: str = provider, p: int = port) -> None:
             with cfg_lock:
                 # A newer Tailscale session bumped the generation after this
                 # reset was scheduled. Running it now would clear the Funnel
@@ -561,7 +582,7 @@ class TunnelManager:
                     return
                 try:
                     assert fn is not None
-                    fn()
+                    fn(p)
                 except Exception:
                     log.exception("Tunnel post_stop failed for %s", prov)
                     return
@@ -664,22 +685,23 @@ class TunnelManager:
             from plugin.framework.worker_pool import AsyncProcess
 
             # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
-            proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS)
+            env = os.environ.copy()
+            env.update(_build_provider_env(provider, effect.provider_token))
+            proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS, env=env)
             spawned["proc"] = proc
             self._process = proc
             proc.start()
-        except FileNotFoundError:
-            log.exception("%s binary not found", info["version_args"][0])
+        except Exception as e:
+            from plugin.framework.errors import ToolExecutionError
             self._process = None
             if provider == "tailscale":
                 _clear_tailscale_arm()
-            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "%s binary not found on PATH" % info["version_args"][0]}))
-        except Exception:
-            log.exception("Failed to start MCP tunnel (%s)", provider)
-            self._process = None
-            if provider == "tailscale":
-                _clear_tailscale_arm()
-            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "failed to start %s tunnel" % provider}))
+            if isinstance(e, FileNotFoundError) or (isinstance(e, ToolExecutionError) and isinstance(e.__cause__, FileNotFoundError)):
+                log.exception("%s binary not found", info["version_args"][0])
+                self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "%s binary not found on PATH" % info["version_args"][0]}))
+            else:
+                log.exception("Failed to start MCP tunnel (%s)", provider)
+                self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "failed to start %s tunnel" % provider}))
 
     def _apply_effects_unlocked(self, effects: list[Any], previous_status: TunnelStatus) -> None:
         for effect in effects:
@@ -728,7 +750,7 @@ class TunnelManager:
                     self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
                     continue
 
-                pre_start: Optional[Callable[[], None]] = info.get("pre_start")
+                pre_start: Optional[Callable[[int], None]] = info.get("pre_start")
                 if pre_start:
                     # What was wrong: _tailscale_reset ran on this thread while
                     # _lock was held (two CLIs, 5s each). stop() and the UI
@@ -744,7 +766,14 @@ class TunnelManager:
                     # must still let a pending Tailscale reset run.
                     if info.get("post_stop"):
                         self._tunnel_generation += 1
-                    self._pending_launch = (effect, self._start_epoch, self._tunnel_generation, pre_start)
+                    # Bind the port so the lambda takes 0 args for the tuple.
+                    port = effect.port
+
+                    def bound_pre_start(p: int = port) -> None:
+                        assert pre_start is not None
+                        pre_start(p)
+
+                    self._pending_launch = (effect, self._start_epoch, self._tunnel_generation, bound_pre_start)
                     continue
 
                 self._spawn_process_unlocked(effect)
@@ -829,6 +858,7 @@ class TunnelManager:
                 self._start_epoch += 1
                 self._binary_probe_epoch = None
                 self._pending_start = None
+                self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
                 self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
             self._retire_snippet_provider(provider)
             return False
@@ -858,6 +888,8 @@ class TunnelManager:
             with self._lock:
                 if self._binary_probe_epoch == epoch:
                     self._binary_probe_epoch = None
+                    if self._state.status == TunnelStatus.RECONNECTING and self._reconnect_timer is None:
+                        self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
             raise
 
         with self._lock:
@@ -871,6 +903,7 @@ class TunnelManager:
                 return False
             if not available:
                 binary = info["version_args"][0]
+                self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
                 self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s binary not found on PATH" % binary, desired_running=False)
                 self._retire_snippet_provider(provider)
                 return False

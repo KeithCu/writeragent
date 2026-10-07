@@ -307,7 +307,7 @@ class TestEndpointImageProvider:
             assert ("image_url") not in (data)
             assert ("images") not in (data)
             assert ("steps") not in (data)
-            assert (data["response_format"]) == ("b64_json")
+            assert "response_format" not in data
 
             method, path, body, headers = client.make_image_request(
                 "make him a wizard", model="gpt-image-2", source_image="b64data"
@@ -316,7 +316,7 @@ class TestEndpointImageProvider:
         assert (path.endswith("/images/edits"))
         assert ("image_url") not in (data)
         assert (data["images"]) == ([{"image_url": "data:image/png;base64,b64data"}])
-        assert (data["response_format"]) == ("b64_json")
+        assert "response_format" not in data
         assert (data["model"]) == ("gpt-image-2")
 
     @patch('plugin.framework.client.llm_client.init_logging')

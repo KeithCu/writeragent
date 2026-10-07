@@ -301,6 +301,7 @@ def reject_forbidden_origin(handler: Any) -> bool:
 
     log_forbidden_origin(handler)
     # No Access-Control-* — a reflected ACAO would let the browser read the 403.
+    handler._response_started = True
     handler.send_response(403)
     handler.send_header("Content-Length", "0")
     handler.end_headers()

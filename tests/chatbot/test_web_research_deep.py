@@ -28,6 +28,19 @@ class TestDeepResearchParsers:
         out = parse_search_queries_response(raw, 3)
         assert out == [{"query": "foo bar", "researchGoal": "learn foo"}]
 
+    def test_parse_search_queries_bare_strings(self):
+        raw = '["foo bar", "climate policy"]'
+        out = parse_search_queries_response(raw, 3)
+        assert out == [
+            {"query": "foo bar", "researchGoal": "Research: foo bar"},
+            {"query": "climate policy", "researchGoal": "Research: climate policy"}
+        ]
+
+    def test_parse_search_queries_missing_goal(self):
+        raw = '[{"query": "foo bar"}]'
+        out = parse_search_queries_response(raw, 3)
+        assert out == [{"query": "foo bar", "researchGoal": "Research: foo bar"}]
+
     def test_parse_search_queries_line_fallback(self):
         raw = "Query: climate policy\nResearch Goal: survey regulations"
         out = parse_search_queries_response(raw, 3)
@@ -39,6 +52,17 @@ class TestDeepResearchParsers:
         assert len(out) == 2
         assert "2024" in out[0]
 
+    def test_parse_research_results_json_duplicate_learnings(self):
+        raw = (
+            '{"learnings": ['
+            '{"insight": "Alpha found", "sourceUrl": "https://example.com/1"}, '
+            '{"insight": "Alpha found", "sourceUrl": "https://example.com/2"}'
+            ']}'
+        )
+        out = parse_research_results_response(raw, 3)
+        assert out["learnings"] == ["Alpha found", "Alpha found"]
+        assert out["citations"]["Alpha found"] == ["https://example.com/1", "https://example.com/2"]
+
     def test_parse_research_results_json(self):
         raw = (
             '{"learnings": [{"insight": "Alpha found", "sourceUrl": "https://example.com"}], '
@@ -46,7 +70,7 @@ class TestDeepResearchParsers:
         )
         out = parse_research_results_response(raw, 3)
         assert out["learnings"] == ["Alpha found"]
-        assert out["citations"]["Alpha found"] == "https://example.com"
+        assert out["citations"]["Alpha found"] == ["https://example.com"]
         assert out["followUpQuestions"] == ["What about beta?"]
 
     def test_parse_research_results_string_follow_up_is_not_character_split(self):
@@ -128,7 +152,7 @@ class TestDeepResearchParsers:
         assert learning not in branch["sources"]
 
     def test_research_progress_status_text(self):
-        p = ResearchProgress(current_round=2, max_rounds=3, completed_queries=5, max_sub_queries=14, current_query="climate policy")
+        p = ResearchProgress(current_round=2, max_rounds=3, started_queries=5, max_sub_queries=14, current_query="climate policy")
         assert "round 2/3" in p.status_text()
         assert "5/14" in p.status_text()
 
@@ -340,6 +364,33 @@ class TestRunDeepResearch:
         assert "https://a.test" in text
         assert "synthesis failed" in text.lower() or "automatic synthesis" in text.lower()
 
+    def test_extraction_failure_keeps_sub_context_and_sources(self):
+        extract_calls = {"n": 0}
+
+        def llm_router(messages):
+            if "expert researcher analyzing search results" in messages[0]["content"]:
+                extract_calls["n"] += 1
+                raise Exception("JSON decode error from LLM")
+            return self._llm_router(messages)
+
+        result = run_deep_research(
+            "main topic",
+            None,
+            llm_chat=lambda msgs, _max: llm_router(msgs),
+            run_web_agent=lambda sub_query, _goal, _history: "Extracted failure context https://source.test for " + sub_query,
+            stop_checker=None,
+            status_callback=None,
+            breadth=1,
+            max_rounds=1,
+            max_sub_queries=1,
+            plain_text_format="Use plain text.",
+            initial_search_snippet="preview hit",
+        )
+        assert isinstance(result, dict)
+        assert result.get("status") == "error"
+        assert "no usable evidence" in result.get("message", "")
+        assert extract_calls["n"] == 1
+
     def test_user_stopped_during_extraction_is_not_partial_success(self):
         from plugin.framework.errors import ToolExecutionError
 
@@ -533,6 +584,33 @@ def test_assess_research_coverage_parses_score():
     out = assess_research_coverage(llm, "topic", ["finding"], {}, quality_threshold=7)
     assert out["score"] == 8.0
     assert out["stop"] is True
+
+def test_assess_research_coverage_most_recent_40():
+    def llm(msgs, _max):
+        # We need a proper JSON dump since replace fails on newlines
+        import json
+        return json.dumps({"score": 8, "knowledge_gaps": [], "suggested_queries": [], "stop": True, "reasoning": msgs[1]["content"]})
+
+    learnings = [f"Item {i}" for i in range(50)]
+    out = assess_research_coverage(llm, "topic", learnings, {}, quality_threshold=7)
+    reasoning = out.get("reasoning", "")
+    assert "Item 0" not in reasoning
+    assert "Item 9" not in reasoning
+    assert "Item 10" in reasoning
+    assert "Item 49" in reasoning
+
+def test_merge_branch_results_duplicate_learnings():
+    from plugin.chatbot.web_research_deep import _merge_branch_results, _ResearchAccumulator
+    acc = _ResearchAccumulator()
+
+    branch1 = {"learnings": ["Alpha"], "citations": {"Alpha": ["url1"]}}
+    branch2 = {"learnings": ["Alpha"], "citations": {"Alpha": ["url2"]}}
+
+    _merge_branch_results(acc, branch1)
+    _merge_branch_results(acc, branch2)
+
+    assert acc.learnings == ["Alpha", "Alpha"]
+    assert acc.citations["Alpha"] == ["url1", "url2"]
 
 
 def _frozen_clock_stamp():
@@ -877,10 +955,43 @@ def test_stop_cancels_sub_query_that_has_not_started():
     assert _alive_deep_threads() == []
 
 
+def test_stop_loop_returns_promptly_when_checker_flips(monkeypatch):
+    import time
+    monkeypatch.setattr("plugin.chatbot.web_research_deep._STOP_POOL_JOIN_SEC", 0.5)
+
+    started = threading.Event()
+    stop = {"on": False}
+
+    def slow_web_agent(query, _g, _h):
+        started.set()
+        time.sleep(1.0)
+        return "Slow"
+
+    def worker_thread():
+        return _run_parallel(
+            [{"query": "q1", "researchGoal": "g1"}],
+            slow_web_agent,
+            lambda: {"code": "USER_STOPPED", "status": "error"} if stop["on"] else None,
+            concurrency=1,
+        )
+
+    t = threading.Thread(target=worker_thread)
+    t.start()
+
+    started.wait(timeout=2.0)
+    stop["on"] = True
+
+    t0 = time.monotonic()
+    t.join(timeout=1.0)
+    elapsed = time.monotonic() - t0
+
+    assert not t.is_alive(), "Run loop did not exit promptly"
+    assert elapsed < 1.0, "Wait loop took too long to notice stop_checker"
+
 def test_stop_joins_the_running_pool_worker():
     """A sibling already inside run_web_agent must finish before Stop returns.
 
-    The parent leaves as_completed when the first future completes after
+    The parent leaves the wait loop when the first future completes after
     Stop. cancel_futures does not stop that sibling. It sleeps, then
     returns because it sees the same checker. The join waits for that.
     """
@@ -903,7 +1014,7 @@ def test_stop_joins_the_running_pool_worker():
     result = _run_parallel(
         [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
         run_web_agent,
-        lambda: stop["on"],
+            lambda: {"code": "USER_STOPPED", "status": "error"} if stop["on"] else None,
         concurrency=2,
     )
     assert result["code"] == "USER_STOPPED"

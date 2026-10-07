@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 import json
+
+import pytest
 from io import BytesIO
 
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
@@ -358,6 +360,67 @@ def test_handle_error_timeout_does_not_call_super():
         with patch("socketserver.BaseServer.handle_error") as super_handle:
             server.handle_error(None, ("127.0.0.1", 1))
     super_handle.assert_not_called()
+
+
+def test_use_ssl_without_certs_raises_and_closes_listener():
+    from plugin.mcp.server import HttpServer
+
+    srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=True)
+    with pytest.raises(ValueError, match="no certificates"):
+        srv.start()
+    assert srv._server is None
+    assert not srv.is_running()
+
+
+def test_route_registry_is_per_server_instance():
+    from plugin.mcp.server import GenericRequestHandler, _ThreadedHTTPServer
+
+    reg_a, reg_b = MagicMock(name="a"), MagicMock(name="b")
+    srv_a = _ThreadedHTTPServer(("127.0.0.1", 0), GenericRequestHandler)
+    srv_b = _ThreadedHTTPServer(("127.0.0.1", 0), GenericRequestHandler)
+    try:
+        srv_a.route_registry = reg_a
+        srv_b.route_registry = reg_b
+        assert srv_a.route_registry is reg_a
+        assert srv_b.route_registry is reg_b
+        assert not hasattr(GenericRequestHandler, "route_registry")
+    finally:
+        srv_a.server_close()
+        srv_b.server_close()
+
+
+def test_get_request_wraps_tls_per_connection():
+    from plugin.mcp.server import _ThreadedHTTPServer
+
+    server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
+    conn, wrapped = MagicMock(name="conn"), MagicMock(name="tls")
+    server.socket = MagicMock()
+    server.socket.accept.return_value = (conn, ("127.0.0.1", 5))
+    server.ssl_ctx = MagicMock()
+    server.ssl_ctx.wrap_socket.return_value = wrapped
+    got, addr = server.get_request()
+    assert got is wrapped
+    assert addr == ("127.0.0.1", 5)
+    server.ssl_ctx.wrap_socket.assert_called_once_with(conn, server_side=True, do_handshake_on_connect=False)
+
+
+def test_dispatch_does_not_write_second_response_after_start():
+    handler = _bare_generic_handler({})
+    handler.path = "/boom"
+    handler.command = "GET"
+    route = MagicMock(raw=True, main_thread=False)
+
+    def _half_written(h):
+        h._response_started = True
+        raise RuntimeError("after headers")
+
+    route.handler.side_effect = _half_written
+    handler.server = MagicMock()
+    handler.server.route_registry.match.return_value = route
+    with patch("plugin.mcp.server.reject_forbidden_origin", return_value=False), patch.object(handler, "_send_json") as send:
+        handler._dispatch("GET")
+    send.assert_not_called()
+
 
 def test_handle_mcp_post_truncated_json():
     """Test when Content-Length is larger than body (truncated JSON).

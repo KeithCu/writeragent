@@ -2595,3 +2595,17 @@ def test_session_id_reserved_namespace_rejected() -> None:
 
 
 
+
+
+
+
+def test_empty_multi_data_result() -> None:
+    payload = {
+        "status": "ok",
+        "result": {
+            "__wa_payload__": "multi_data",
+            "items": []
+        }
+    }
+    out = normalize_execute_response(payload)
+    assert out["result"] == []

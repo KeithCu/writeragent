@@ -15,6 +15,8 @@ from .base_provider_shim import BaseProviderShim, coerce_raw_b64, inline_image_m
 
 log = logging.getLogger(__name__)
 
+_BAD_TOOL_INPUT = object()
+
 
 def _anthropic_image_block(url_val: Any) -> dict[str, Any] | None:
     """Turn an OpenAI data-URL image part into an Anthropic base64 image block.
@@ -68,7 +70,7 @@ def _dict_parts(content: Any) -> list[dict[str, Any]]:
     return [part for part in content if isinstance(part, dict)]
 
 
-def _parse_tool_input(args: Any) -> dict[str, Any] | None:
+def _parse_tool_input(args: Any) -> dict[str, Any] | object:
     """Parse tool arguments into an object. Never substitute ``{}`` for bad JSON.
 
     An empty object would look like a successful call with no arguments.
@@ -77,15 +79,17 @@ def _parse_tool_input(args: Any) -> dict[str, Any] | None:
         return args
     if not isinstance(args, str):
         log.warning("Anthropic tool arguments were not JSON; omitting tool_use")
-        return None
+        return _BAD_TOOL_INPUT
+    if not args.strip():
+        return {}
     try:
         parsed = json.loads(args)
     except json.JSONDecodeError:
         log.warning("Anthropic tool arguments were not valid JSON; omitting tool_use")
-        return None
+        return _BAD_TOOL_INPUT
     if not isinstance(parsed, dict):
         log.warning("Anthropic tool arguments JSON was not an object; omitting tool_use")
-        return None
+        return _BAD_TOOL_INPUT
     return parsed
 
 
@@ -110,22 +114,15 @@ def _map_anthropic_finish_reason(reason: Any) -> str | None:
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
-    def __init__(self, client: Any) -> None:
-        super().__init__(client)
-        # Content-block index → OpenAI tool_calls index for the current stream.
-        # Cleared on each build_chat_request so a reused shim cannot leak indexes.
-        self._stream_tool_indexes: dict[int, int] = {}
-
-    def _reset_stream_tools(self) -> None:
-        self._stream_tool_indexes = {}
-
-    def _tool_delta(self, block_index: Any, function: dict[str, Any], tool_id: str | None = None, name: str | None = None) -> dict[str, Any] | None:
+    def _tool_delta(self, block_index: Any, function: dict[str, Any], tool_id: str | None = None, name: str | None = None, indexes: dict[int, int] | None = None) -> dict[str, Any] | None:
         if not isinstance(block_index, int):
             return None
-        tool_index = self._stream_tool_indexes.get(block_index)
+        if indexes is None:
+            indexes = {}
+        tool_index = indexes.get(block_index)
         if tool_index is None:
-            tool_index = len(self._stream_tool_indexes)
-            self._stream_tool_indexes[block_index] = tool_index
+            tool_index = len(indexes)
+            indexes[block_index] = tool_index
         call: dict[str, Any] = {"index": tool_index, "function": function}
         if tool_id is not None:
             call["id"] = tool_id
@@ -137,11 +134,11 @@ class AnthropicShim(BaseProviderShim):
     def build_chat_request(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        self._reset_stream_tools()
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
         system_parts: list[str] = []
         converted: list[dict[str, Any]] = []
+        dropped_tool_ids: set[str | None] = set()
 
         for m in messages:
             role = m.get("role")
@@ -164,11 +161,15 @@ class AnthropicShim(BaseProviderShim):
             # 1. Handle tool response messages (role == "tool")
             if role == "tool":
                 tool_use_id = m.get("tool_call_id") or m.get("name")
+                if tool_use_id in dropped_tool_ids:
+                    continue
                 result_blocks: list[dict[str, Any]] = []
                 if isinstance(content, list):
                     for part in _dict_parts(content):
                         if part.get("type") == "text":
-                            result_blocks.append({"type": "text", "text": part.get("text", "")})
+                            text = part.get("text", "")
+                            if text:
+                                result_blocks.append({"type": "text", "text": text})
                         elif part.get("type") == "image_url":
                             image_url = part.get("image_url")
                             url_val = image_url.get("url", "") if isinstance(image_url, dict) else ""
@@ -176,7 +177,9 @@ class AnthropicShim(BaseProviderShim):
                             if image_block is not None:
                                 result_blocks.append(image_block)
                 else:
-                    result_blocks.append({"type": "text", "text": str(content or "")})
+                    text = str(content or "")
+                    if text:
+                        result_blocks.append({"type": "text", "text": text})
 
                 block = {"type": "tool_result", "tool_use_id": tool_use_id, "content": result_blocks}
                 # The chat loop stores one message per tool call. Anthropic
@@ -196,12 +199,17 @@ class AnthropicShim(BaseProviderShim):
                 if isinstance(content, list):
                     for part in _dict_parts(content):
                         if part.get("type") == "text":
-                            anth_content.append({"type": "text", "text": part.get("text", "")})
+                            text = part.get("text", "")
+                            if text:
+                                anth_content.append({"type": "text", "text": text})
                 elif content:
-                    anth_content.append({"type": "text", "text": str(content)})
+                    text = str(content)
+                    if text:
+                        anth_content.append({"type": "text", "text": text})
 
                 if not isinstance(tool_calls, list):
-                    converted.append({"role": "assistant", "content": anth_content})
+                    if anth_content:
+                        converted.append({"role": "assistant", "content": anth_content})
                     continue
                 for tc in tool_calls:
                     if not isinstance(tc, dict):
@@ -213,30 +221,37 @@ class AnthropicShim(BaseProviderShim):
                     if "arguments" not in fn:
                         continue
                     args_obj = _parse_tool_input(fn.get("arguments"))
-                    if args_obj is None:
+                    if args_obj is _BAD_TOOL_INPUT:
+                        dropped_tool_ids.add(tc.get("id"))
                         continue
                     anth_content.append({"type": "tool_use", "id": tc.get("id"), "name": fn.get("name"), "input": args_obj})
-                converted.append({"role": "assistant", "content": anth_content})
+                if anth_content:
+                    converted.append({"role": "assistant", "content": anth_content})
                 continue
 
             # 3. Handle standard user/assistant messages with potential images
             if isinstance(content, list):
                 for part in _dict_parts(content):
                     if part.get("type") == "text":
-                        anth_content.append({"type": "text", "text": part.get("text", "")})
+                        text = part.get("text", "")
+                        if text:
+                            anth_content.append({"type": "text", "text": text})
                     elif part.get("type") == "image_url":
                         image_url = part.get("image_url")
                         url_val = image_url.get("url", "") if isinstance(image_url, dict) else ""
                         image_block = _anthropic_image_block(url_val)
                         if image_block is not None:
                             anth_content.append(image_block)
-                converted.append({"role": role or "user", "content": anth_content})
+                if anth_content or role != "assistant":
+                    converted.append({"role": role or "user", "content": anth_content})
             else:
-                converted.append({"role": role or "user", "content": str(content or "")})
+                text = str(content or "")
+                if text or role != "assistant":
+                    converted.append({"role": role or "user", "content": text})
 
         data: dict[str, Any] = {"model": model_name or "claude-3-5-sonnet-20241022", "messages": converted, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
-            data["temperature"] = temperature
+            data["temperature"] = max(0.0, min(1.0, temperature))
         system_msg = "\n\n".join(system_parts)
         # What was wrong: response_format was accepted and ignored, so a
         # json_object grammar call went out as free text. Anthropic has no
@@ -264,19 +279,20 @@ class AnthropicShim(BaseProviderShim):
         path = get_url_path_and_query(url)
         return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
 
-    def parse_response_chunk(self, chunk: dict[str, Any]) -> tuple[str, str | None, str | None, dict[str, Any]]:
+    def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
         msg_type = chunk.get("type", "")
         content = ""
         finish_reason = None
         thinking = None
         delta: dict[str, Any] = {}
+        indexes = stream_state.setdefault("_stream_tool_indexes", {}) if stream_state is not None else {}
 
         if msg_type == "message_start":
-            self._reset_stream_tools()
+            indexes.clear()
         elif msg_type == "content_block_start":
             block = chunk.get("content_block")
             if isinstance(block, dict) and block.get("type") == "tool_use":
-                tool_delta = self._tool_delta(chunk.get("index"), {"name": block.get("name") or "", "arguments": ""}, tool_id=block.get("id"), name=block.get("name") or "")
+                tool_delta = self._tool_delta(chunk.get("index"), {"name": block.get("name") or "", "arguments": ""}, tool_id=block.get("id"), name=block.get("name") or "", indexes=indexes)
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "content_block_delta":
@@ -296,7 +312,7 @@ class AnthropicShim(BaseProviderShim):
             elif d.get("type") == "input_json_delta":
                 # partial_json is a fragment. accumulate_delta concatenates
                 # function.arguments across chunks that share an index.
-                tool_delta = self._tool_delta(chunk.get("index"), {"arguments": d.get("partial_json") or ""})
+                tool_delta = self._tool_delta(chunk.get("index"), {"arguments": d.get("partial_json") or ""}, indexes=indexes)
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "message":
@@ -337,7 +353,7 @@ class AnthropicShim(BaseProviderShim):
         return content, finish_reason, thinking, delta
 
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
-        content, finish_reason, _unused, delta = self.parse_response_chunk(response_data)
+        content, finish_reason, _unused, delta = self.parse_response_chunk(response_data, {})
         tool_calls = delta.get("tool_calls")
         usage = response_data.get("usage") or {}
         if isinstance(usage, dict):

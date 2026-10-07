@@ -123,7 +123,7 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
     prefixes = _allow_prefixes(allow_prefixes)
     if not ocr_path_is_allowed(file_path, prefixes):
         return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(os.path.expanduser(file_path.strip()), flags)
     except FileNotFoundError:
@@ -214,8 +214,9 @@ class ComputeSettings:
     def validate(self) -> None:
         if not (1 <= self.port <= 65535):
             raise ConfigError(f"Invalid port: {self.port}")
-        if self.max_body_bytes < 1024:
-            raise ConfigError("max_body_bytes must be at least 1024")
+        from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+        if self.max_body_bytes < 1024 or self.max_body_bytes > COMPUTE_MAX_PAYLOAD_BYTES - 1024:
+            raise ConfigError(f"max_body_bytes must be between 1024 and {COMPUTE_MAX_PAYLOAD_BYTES - 1024}")
         if self.default_timeout_sec < 1 or self.max_timeout_sec < 1:
             raise ConfigError("timeout bounds must be >= 1")
         if self.default_timeout_sec > self.max_timeout_sec:

@@ -34,8 +34,6 @@ def test_build_cloudflare_quick_and_token():
         "tunnel",
         "--no-autoupdate",
         "run",
-        "--token",
-        "cf-jwt-token",
     ]
 
 
@@ -54,8 +52,6 @@ def test_build_bore_from_provider_config():
         "18765",
         "--to",
         "my.relay.example",
-        "--secret",
-        "s3cret",
     ]
     assert build_bore_command(18765, "my.relay.example:s3cret") == [
         "bore",
@@ -63,8 +59,6 @@ def test_build_bore_from_provider_config():
         "18765",
         "--to",
         "my.relay.example",
-        "--secret",
-        "s3cret",
     ]
     assert build_bore_command(18765, "onlysecret") == [
         "bore",
@@ -72,8 +66,6 @@ def test_build_bore_from_provider_config():
         "18765",
         "--to",
         "bore.pub",
-        "--secret",
-        "onlysecret",
     ]
 
 
@@ -106,8 +98,6 @@ def test_build_ngrok_and_tailscale():
         "stdout",
         "--log-format",
         "json",
-        "--authtoken",
-        "secret-token",
     ]
     assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
 
@@ -283,11 +273,13 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
     started_cmds = []
+    started_envs = []
 
     def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
         proc = MagicMock()
         proc.is_running = True
         started_cmds.append(list(cmd))
+        started_envs.append(kwargs.get("env", {}))
         proc.start = MagicMock()
         proc.terminate = MagicMock()
         return proc
@@ -297,20 +289,19 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         assert mgr.start(18765, "ngrok", provider_token="tok-a") is True
-        assert started_cmds[0][-2:] == ["--authtoken", "tok-a"]
+        assert started_envs[0].get("NGROK_AUTHTOKEN") == "tok-a"
 
         assert mgr.start(18765, "cloudflare", provider_token="cf-tok") is True
-        assert started_cmds[1][-2:] == ["--token", "cf-tok"]
+        assert started_envs[1].get("TUNNEL_TOKEN") == "cf-tok"
 
         assert mgr.start(18765, "bore", provider_token="relay.example sec") is True
+        assert started_envs[2].get("BORE_SECRET") == "sec"
         assert started_cmds[2] == [
             "bore",
             "local",
             "18765",
             "--to",
             "relay.example",
-            "--secret",
-            "sec",
         ]
 
         # Tailscale ignores Provider config.
@@ -320,12 +311,12 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
 
 
 def test_redact_cmd_for_log_masks_secrets():
-    assert "super-secret" not in _redact_cmd_for_log(build_ngrok_command(18765, "super-secret"))
-    assert "--authtoken ***" in _redact_cmd_for_log(build_ngrok_command(18765, "super-secret"))
-    assert "cf-jwt" not in _redact_cmd_for_log(build_cloudflare_command(1, "cf-jwt"))
-    assert "--token ***" in _redact_cmd_for_log(build_cloudflare_command(1, "cf-jwt"))
-    assert "s3cret" not in _redact_cmd_for_log(build_bore_command(1, "host.example s3cret"))
-    assert "--secret ***" in _redact_cmd_for_log(build_bore_command(1, "host.example s3cret"))
+    assert "super-secret" not in _redact_cmd_for_log(["ngrok", "http", "80", "--authtoken", "super-secret"])
+    assert "--authtoken ***" in _redact_cmd_for_log(["ngrok", "http", "80", "--authtoken", "super-secret"])
+    assert "cf-jwt" not in _redact_cmd_for_log(["cloudflared", "tunnel", "--token", "cf-jwt"])
+    assert "--token ***" in _redact_cmd_for_log(["cloudflared", "tunnel", "--token", "cf-jwt"])
+    assert "s3cret" not in _redact_cmd_for_log(["bore", "local", "1", "--secret", "s3cret"])
+    assert "--secret ***" in _redact_cmd_for_log(["bore", "local", "1", "--secret", "s3cret"])
     assert _redact_cmd_for_log(build_bore_command(1)) == "bore local 1 --to bore.pub"
 
 
@@ -688,10 +679,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
     ):
         assert mgr.start(18765, "tailscale") is True
         # pre_start resets before the funnel process is spawned.
-        assert reset_cmds == [
-            ["tailscale", "funnel", "reset"],
-            ["tailscale", "serve", "reset"],
-        ]
+        assert reset_cmds == _tailscale_reset_cmds(18765)
         assert mgr.provider == "tailscale"
 
         assert mgr.start(18765, "cloudflare") is True
@@ -703,12 +691,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         t0 = time.monotonic()
         while len(reset_cmds) < 4 and time.monotonic() - t0 < 2:
             time.sleep(0.01)
-        assert reset_cmds == [
-            ["tailscale", "funnel", "reset"],
-            ["tailscale", "serve", "reset"],
-            ["tailscale", "funnel", "reset"],
-            ["tailscale", "serve", "reset"],
-        ]
+        assert reset_cmds == _tailscale_reset_cmds(18765) * 2
         # Stale tailscale exit must not drop the cloudflared process.
         exits[0](0)
         assert mgr._process is procs[1]
@@ -739,10 +722,7 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         exits.append(on_exit_cb)
         return proc
 
-    tailscale_reset = [
-        ["tailscale", "funnel", "reset"],
-        ["tailscale", "serve", "reset"],
-    ]
+    tailscale_reset = _tailscale_reset_cmds(18765)
 
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=True),
@@ -814,10 +794,10 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         assert reset_cmds == tailscale_reset * 7
 
 
-def _tailscale_reset_cmds() -> list[list[str]]:
+def _tailscale_reset_cmds(port: int = 18765) -> list[list[str]]:
     return [
-        ["tailscale", "funnel", "reset"],
-        ["tailscale", "serve", "reset"],
+        ["tailscale", "funnel", str(int(port)), "off"],
+        ["tailscale", "serve", "--https=443", "off"],
     ]
 
 
@@ -854,7 +834,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
     reset_cmds: list[list[str]] = []
     scheduled: list = []
     spawned: list = []
-    tailscale_reset = _tailscale_reset_cmds()
+    tailscale_reset = _tailscale_reset_cmds(18765)
 
     def _run(cmd, **kwargs):
         del kwargs
@@ -870,7 +850,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
-        assert reset_cmds == tailscale_reset
+        assert reset_cmds == _tailscale_reset_cmds(18765)
         mgr.stop()
         assert len(scheduled) == 1
         assert reset_cmds == tailscale_reset
@@ -888,7 +868,7 @@ def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
     reset_cmds: list[list[str]] = []
     scheduled: list = []
     spawned: list = []
-    tailscale_reset = _tailscale_reset_cmds()
+    tailscale_reset = _tailscale_reset_cmds(18765)
 
     def _run(cmd, **kwargs):
         del kwargs
@@ -918,7 +898,7 @@ def test_tailscale_post_stop_still_runs_after_cloudflare_start(monkeypatch):
     reset_cmds: list[list[str]] = []
     scheduled: list = []
     spawned: list = []
-    tailscale_reset = _tailscale_reset_cmds()
+    tailscale_reset = _tailscale_reset_cmds(18765)
 
     def _run(cmd, **kwargs):
         del kwargs
@@ -967,7 +947,7 @@ def test_stopped_stop_resets_tailscale_when_crash_marker_exists(monkeypatch, tmp
         mgr.stop()
         assert len(scheduled) == 1
         scheduled[0]()
-        assert reset_cmds == _tailscale_reset_cmds()
+        assert reset_cmds == _tailscale_reset_cmds(18765)
         assert not marker.exists()
         mgr.stop()
         assert len(scheduled) == 1
@@ -1372,3 +1352,25 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     assert tunnel.status == TunnelStatus.FAILED
 
 
+
+def test_start_absent_token_in_env_and_args(monkeypatch):
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    started_envs = []
+    started_cmds = []
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        started_cmds.append(list(cmd))
+        started_envs.append(kwargs.get("env", {}))
+        proc.start = MagicMock()
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "cloudflare", provider_token="") is True
+        assert "TUNNEL_TOKEN" not in started_envs[-1]
+        assert "--token" not in started_cmds[-1]
