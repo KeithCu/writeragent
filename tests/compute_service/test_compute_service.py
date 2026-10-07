@@ -2655,3 +2655,21 @@ def test_empty_multi_data_result() -> None:
     }
     out = normalize_execute_response(payload)
     assert out["result"] == []
+
+
+def test_isolated_mode_with_session_id_rejected() -> None:
+    """An isolated execute request carrying ?session_id= must return HTTP 400."""
+    settings = ComputeSettings()
+    app = create_wsgi_app(settings, execute_fn=lambda **kwargs: {"status": "ok"})
+
+    for body in (b'{"code": "result = 1", "mode": "isolated"}', b'{"code": "result = 1"}'):
+        status, _headers, parsed = _wsgi_post(
+            app,
+            body,
+            path="/v1/execute",
+            query="session_id=valid_sid",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status == "400 Bad Request"
+        assert "session_id URL query parameter is only permitted with mode='shared'" in parsed.get("error", "")
+

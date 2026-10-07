@@ -25,6 +25,7 @@ from compute_service.json_forward import (
     parse_execute_request,
     parse_multipart_execute,
     peel_execute_request,
+    validate_session_id,
 )
 from compute_service.server import create_wsgi_app
 
@@ -956,3 +957,20 @@ class TestHttpLargeRoundTrip:
         assert parsed["id"] == "http-mp-big"
         assert parsed["result"][0][0] == 0.0
         assert parsed["result"][-1][-1] == float(rows * cols - 1)
+
+
+def test_validate_session_id() -> None:
+    """validate_session_id accepts valid session IDs and rejects non-strings, blanks, and reserved namespaces."""
+    assert validate_session_id("my_session") == "my_session"
+    assert validate_session_id("  session_123  ") == "session_123"
+
+    for invalid_val in (None, "", "   ", 123, [], {}):
+        with pytest.raises(ExecuteRequestError) as exc_info:
+            validate_session_id(invalid_val)
+        assert exc_info.value.code == "INVALID_SESSION_ID"
+
+    for reserved in ("sess:init", "isolated:abc", "foo:init", "isolated:"):
+        with pytest.raises(ExecuteRequestError) as exc_info:
+            validate_session_id(reserved)
+        assert exc_info.value.code == "INVALID_SESSION_ID"
+

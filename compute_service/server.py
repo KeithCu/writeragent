@@ -44,6 +44,7 @@ from compute_service.json_forward import (
     canonical_execute_mode,
     is_multipart_content_type,
     parse_execute_request,
+    validate_session_id,
 )
 
 log = logging.getLogger("compute_service")
@@ -301,15 +302,6 @@ def _validate_source_text(
     raise ExecuteRequestError(f"{label} must be text.")
 
 
-def _check_valid_session_id(session_id: str) -> None:
-    """Reject reserved session namespace patterns to prevent session collision."""
-    if session_id.endswith(":init") or session_id.startswith("isolated:"):
-        raise ExecuteRequestError(
-            f"Invalid session_id {session_id!r}: names ending in ':init' or starting with 'isolated:' are reserved.",
-            code="INVALID_SESSION_ID",
-        )
-
-
 def _read_request_body(
     environ: dict[str, Any],
     settings: ComputeSettings,
@@ -507,9 +499,7 @@ def _parse_session_id(environ: dict[str, Any]) -> str | None:
     query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
     session_ids = query_params.get("session_id")
     if session_ids and session_ids[0].strip():
-        sid = session_ids[0].strip()
-        _check_valid_session_id(sid)
-        return sid
+        return validate_session_id(session_ids[0])
     return None
 
 
@@ -614,6 +604,12 @@ def _handle_execute(
         mode = canonical_execute_mode(parts.mode)
         if mode == "shared" and not session_id:
             raise ExecuteRequestError("mode='shared' requires a 'session_id' URL query parameter (?session_id=...).")
+        # Bugfix: Return HTTP 400 when session_id is given with a non-shared mode (Bug 1).
+        # What was wrong: An isolated request carrying ?session_id= bypassed the concurrency semaphore
+        # at the WSGI router because has_session evaluated to True.
+        # Why this change: Rejecting non-shared requests that specify session_id prevents concurrency bypass.
+        if mode != "shared" and session_id:
+            raise ExecuteRequestError("session_id URL query parameter is only permitted with mode='shared'.")
 
         init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False)
     except ExecuteRequestError as exc:
