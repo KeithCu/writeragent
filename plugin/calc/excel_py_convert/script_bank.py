@@ -48,7 +48,12 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 
 
 def code_sheet_name_for(source_sheet: str) -> str:
-    """Bank sheet name for *source_sheet* (``Pivots`` → ``py_code_Pivots``)."""
+    """Bank sheet name for *source_sheet* (``Pivots`` → ``py_code_Pivots``).
+
+    Sanitizes non-word characters and truncates to 31 chars. Callers like
+    ``collect_script_bank`` detect collisions when distinct source sheets
+    map to the same bank sheet name.
+    """
     raw = (source_sheet or "Sheet1").strip() or "Sheet1"
     safe = _SAFE_SHEET.sub("_", raw).strip("_") or "Sheet"
     name = f"{CODE_SHEET_PREFIX}{safe}"
@@ -150,6 +155,7 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
     banks: dict[str, dict[str, str]] = {}
     owners: dict[tuple[str, str], str] = {}
     warnings: list[str] = []
+    code_sheet_sources: dict[str, str] = {}
     for cell in report.cells:
         if not cell.converted or not cell.converted_code or not cell.cell or not cell.sheet:
             continue
@@ -161,6 +167,17 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
             warnings.append(f"{cell.sheet}!{cell.cell}: {exc}")
             continue
         code_sheet = code_sheet_name_for(cell.sheet)
+        # Bugfix: what was wrong: two source sheets sanitizing/truncating to the same py_code_* bank
+        # name only logged a warning and kept the first script, silently corrupting or losing code.
+        # How it happened: collisions were only checked per cell coordinate and handled via warning.
+        # Why this change fixes it: track source sheet mappings per bank sheet and raise ValueError /
+        # record issue on collision so conversion fails closed.
+        existing_sheet = code_sheet_sources.setdefault(code_sheet, cell.sheet)
+        if existing_sheet != cell.sheet:
+            err = f"script-bank sheet name collision: {existing_sheet!r} and {cell.sheet!r} both map to {code_sheet!r}"
+            report.issues.append(err)
+            raise ValueError(err)
+
         bank = banks.setdefault(code_sheet, {})
         key = (code_sheet, a1)
         prev = bank.get(a1)
@@ -170,7 +187,9 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
             continue
         if prev == cell.converted_code:
             continue
-        warnings.append(f"script-bank collision at {code_sheet}!{a1}: {owners[key]} vs {cell.sheet}!{cell.cell} (keeping first)")
+        err = f"script-bank collision at {code_sheet}!{a1}: {owners[key]} vs {cell.sheet}!{cell.cell}"
+        report.issues.append(err)
+        raise ValueError(err)
     return banks, warnings
 
 

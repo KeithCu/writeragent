@@ -1065,3 +1065,462 @@ def test_cli_excel_write_xlsx(tmp_path: Path):
     rc = main([str(src), "--to", "excel", "--write-xlsx", str(out)])
     assert rc == 0
     assert has_excel_python_xlsx(out)
+
+
+def test_single_line_package_files_survive_strip(tmp_path: Path):
+    """Single-line [Content_Types].xml and .rels from Excel/LO must survive _strip_python_in_excel_parts."""
+    from xml.etree import ElementTree as ET
+    from plugin.calc.excel_py_convert.convert import _strip_python_in_excel_parts
+
+    ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+    rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+    # Minified single-line content types and rels as emitted by Excel / LibreOffice
+    single_line_ct = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<Types xmlns="{ct_ns}">'
+        f'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        f'<Default Extension="xml" ContentType="application/xml"/>'
+        f'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        f'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        f'<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
+        f'</Types>'
+    )
+    single_line_rels = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<Relationships xmlns="{rel_ns}">'
+        f'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        f'<Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>'
+        f'</Relationships>'
+    )
+
+    xlsx = tmp_path / "single_line_strip.xlsx"
+    with zipfile.ZipFile(xlsx, "w") as zf:
+        zf.writestr("[Content_Types].xml", single_line_ct)
+        zf.writestr("xl/_rels/workbook.xml.rels", single_line_rels)
+        zf.writestr("xl/pythonScripts.xml", "<pythonScripts/>")
+        zf.writestr("xl/worksheets/sheet1.xml", "<worksheet/>")
+        zf.writestr("xl/workbook.xml", "<workbook/>")
+
+    _strip_python_in_excel_parts(xlsx)
+
+    with zipfile.ZipFile(xlsx, "r") as zf:
+        assert "xl/pythonScripts.xml" not in zf.namelist()
+        ct_root = ET.fromstring(zf.read("[Content_Types].xml"))
+        ct_overrides = [
+            c.attrib.get("PartName")
+            for c in ct_root
+            if c.tag.endswith("Override")
+        ]
+        assert "/xl/workbook.xml" in ct_overrides
+        assert "/xl/worksheets/sheet1.xml" in ct_overrides
+        assert "/xl/pythonScripts.xml" not in ct_overrides
+        defaults = [
+            c.attrib.get("Extension")
+            for c in ct_root
+            if c.tag.endswith("Default")
+        ]
+        assert "rels" in defaults
+        assert "xml" in defaults
+
+        rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+        rel_targets = [
+            c.attrib.get("Target")
+            for c in rels_root
+            if c.tag.endswith("Relationship")
+        ]
+        assert "worksheets/sheet1.xml" in rel_targets
+        assert "pythonScripts.xml" not in rel_targets
+
+
+def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
+    """write_excel_python_xlsx must preserve entries in single-line [Content_Types].xml."""
+    from xml.etree import ElementTree as ET
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+
+    ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+    # Single line [Content_Types].xml with sheet1 and a py_code sheet to be dropped
+    single_line_ct = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<Types xmlns="{ct_ns}">'
+        f'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        f'<Default Extension="xml" ContentType="application/xml"/>'
+        f'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        f'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        f'<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        f'</Types>'
+    )
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>'
+        '<sheet name="Sheet1" sheetId="1" r:id="rId1"/>'
+        '<sheet name="py_code_Sheet1" sheetId="2" r:id="rId2"/>'
+        '</sheets>'
+        '</workbook>'
+    )
+    wb_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
+        '</Relationships>'
+    )
+    ws1 = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData><row r="1"><c r="A1"><f>PY("x = 1")</f></c></row></sheetData>'
+        '</worksheet>'
+    )
+    ws2 = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData><row r="1"><c r="A1"><is><t>x = 1</t></is></c></row></sheetData>'
+        '</worksheet>'
+    )
+
+    src = tmp_path / "single_line_in.xlsx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("[Content_Types].xml", single_line_ct)
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", ws1)
+        zf.writestr("xl/worksheets/sheet2.xml", ws2)
+
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="excel",
+        original_code="x = 1",
+        converted_code="x = 1",
+        data_args=[],
+        converted=True,
+        script_index=0,
+    )
+    report = ConversionReport(direction="excel", cells=[cell])
+    out = tmp_path / "single_line_out.xlsx"
+    write_excel_python_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        ct_raw = zf.read("[Content_Types].xml").decode("utf-8")
+        assert "ns0:" not in ct_raw
+        ct_root = ET.fromstring(ct_raw)
+        overrides = {
+            c.attrib.get("PartName"): c.attrib.get("ContentType")
+            for c in ct_root
+            if c.tag.endswith("Override")
+        }
+        assert "/xl/workbook.xml" in overrides
+        assert "/xl/worksheets/sheet1.xml" in overrides
+        assert "/xl/pythonScripts.xml" in overrides
+        assert "/xl/worksheets/sheet2.xml" not in overrides
+
+
+def test_cell_string_value_inlinestr():
+    """_cell_string_value must match both t='inlineStr' and t='inlinestr'."""
+    from xml.etree import ElementTree as ET
+    from plugin.calc.excel_py_convert.parse_dag_formulas import _cell_string_value
+
+    c1 = ET.fromstring('<c r="A1" t="inlineStr"><is><t>code string 1</t></is></c>')
+    assert _cell_string_value(c1, []) == "code string 1"
+
+    c2 = ET.fromstring('<c r="A2" t="inlinestr"><is><t>code string 2</t></is></c>')
+    assert _cell_string_value(c2, []) == "code string 2"
+
+    c3 = ET.fromstring('<c r="A3" t="inlineStr"><is><t>part A</t><t> and part B</t></is></c>')
+    assert _cell_string_value(c3, []) == "part A and part B"
+
+    c_empty = ET.fromstring('<c r="A4" t="inlineStr"/>')
+    assert _cell_string_value(c_empty, []) == ""
+
+
+def test_no_double_xml_unescape():
+    """Formulas containing literal &lt; or &amp; must not be double unescaped."""
+    from xml.etree import ElementTree as ET
+    from plugin.calc.excel_py_convert.parse_dag_formulas import _sheet_cell_map
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import _iter_py_cells
+
+    # An OOXML worksheet with a formula containing XML entities for '<' and '&'
+    # ET automatically unescapes &lt; to < and &amp; to &
+    # If code contained a string literal with '&lt;', in OOXML it is written as '&amp;lt;'
+    # which ET decodes to '&lt;'. Double unescape would corrupt '&lt;' to '<'.
+    ws_xml = (
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row r="1">'
+        '<c r="A1"><f>_xlfn._xlws.PY(0,0,&quot;&amp;lt;tag&amp;gt;&quot;)</f></c>'
+        '<c r="A2"><f>PY(&quot;x = 1 &lt; 2 and s == &apos;&amp;lt;&apos;&quot;)</f></c>'
+        '</row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+    ws_root = ET.fromstring(ws_xml)
+
+    cells = _iter_py_cells(ws_root, "Sheet1")
+    assert len(cells) == 1
+    # Literal &lt; must remain &lt;, not converted to <
+    assert "&lt;tag&gt;" in cells[0].formula_raw
+
+    cell_map = _sheet_cell_map(ws_root, [])
+    formula_a2, _ = cell_map["A2"]
+    # < was &lt; so decoded to < once, and &lt; was &amp;lt; so decoded to &lt;
+    assert "1 < 2" in formula_a2
+    assert "&lt;" in formula_a2
+
+
+def test_resolve_refs_lookup_anchor_sheet_qualified_priority():
+    """_lookup_anchor must prefer Sheet!A1 over bare A1 when sheet_hint is given."""
+    from plugin.calc.excel_py_convert.models import ExcelWorkbookModel
+    from plugin.calc.excel_py_convert.resolve_refs import _lookup_anchor
+
+    snaps = {
+        "A1": "Sheet1!A1:B10",
+        "Sheet1!A1": "Sheet1!A1:B10",
+        "Sheet2!A1": "Sheet2!A1:C20",
+    }
+    model = ExcelWorkbookModel(anchor_snapshots=snaps)
+
+    # Looking up bare A1 with Sheet2 hint must resolve Sheet2's anchor, not Sheet1's
+    assert _lookup_anchor(model, "A1", sheet_hint="Sheet2") == "Sheet2!A1:C20"
+    assert _lookup_anchor(model, "A1", sheet_hint="Sheet1") == "Sheet1!A1:B10"
+    # Without sheet hint, bare A1 resolves bare key
+    assert _lookup_anchor(model, "A1", sheet_hint="") == "Sheet1!A1:B10"
+
+
+def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
+    """parse_excel_xlsx must keep first-wins for bare keys across sheets."""
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import parse_excel_xlsx
+
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>'
+        '<sheet name="Sheet1" sheetId="1" r:id="rId1"/>'
+        '<sheet name="Sheet2" sheetId="2" r:id="rId2"/>'
+        '</sheets>'
+        '</workbook>'
+    )
+    wb_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
+        '</Relationships>'
+    )
+    # Sheet1 has A1 with array ref A1:B10
+    ws1 = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData><row r="1"><c r="A1"><f t="array" ref="A1:B10">_xlfn._xlws.PY(0,0)</f></c></row></sheetData>'
+        '</worksheet>'
+    )
+    # Sheet2 has A1 with array ref A1:C20
+    ws2 = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData><row r="1"><c r="A1"><f t="array" ref="A1:C20">_xlfn._xlws.PY(0,0)</f></c></row></sheetData>'
+        '</worksheet>'
+    )
+
+    xlsx = tmp_path / "multi_sheet_anchors.xlsx"
+    with zipfile.ZipFile(xlsx, "w") as zf:
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", ws1)
+        zf.writestr("xl/worksheets/sheet2.xml", ws2)
+
+    model = parse_excel_xlsx(xlsx)
+    # Both sheet-qualified anchors must be preserved
+    assert model.anchor_snapshots["Sheet1!A1"] == "Sheet1!A1:B10"
+    assert model.anchor_snapshots["Sheet2!A1"] == "Sheet2!A1:C20"
+    # Bare A1 must preserve Sheet1's anchor (first-wins), not overwritten by Sheet2
+    assert model.anchor_snapshots["A1"] == "A1:B10"
+
+
+def test_script_bank_name_collision_raises():
+    """Two source sheets mapping to the same py_code_* bank name must raise ValueError."""
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+    from plugin.calc.excel_py_convert.script_bank import collect_script_bank, code_sheet_name_for
+
+    # 'My Sheet' and 'My_Sheet' both sanitize to 'py_code_My_Sheet'
+    assert code_sheet_name_for("My Sheet") == code_sheet_name_for("My_Sheet")
+
+    long_code_1 = "x = 1\n" * 250  # >1000 chars
+    long_code_2 = "y = 2\n" * 250
+
+    cell1 = ConvertedCell(
+        sheet="My Sheet",
+        cell="A1",
+        direction="dag",
+        original_code="",
+        converted_code=long_code_1,
+        converted=True,
+    )
+    cell2 = ConvertedCell(
+        sheet="My_Sheet",
+        cell="A2",
+        direction="dag",
+        original_code="",
+        converted_code=long_code_2,
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell1, cell2])
+
+    with pytest.raises(ValueError, match="script-bank sheet name collision"):
+        collect_script_bank(report)
+
+    assert not report.ok
+    assert any("collision" in issue for issue in report.issues)
+
+
+def test_script_bank_truncation_collision_raises():
+    """Two long sheet names truncating to the same bank name must raise ValueError."""
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+    from plugin.calc.excel_py_convert.script_bank import collect_script_bank, code_sheet_name_for
+
+    name1 = "VeryLongSheetNameThatWillTruncate1"
+    name2 = "VeryLongSheetNameThatWillTruncate2"
+    assert code_sheet_name_for(name1) == code_sheet_name_for(name2)
+
+    cell1 = ConvertedCell(
+        sheet=name1,
+        cell="A1",
+        direction="dag",
+        original_code="",
+        converted_code="x = 1\n" * 250,
+        converted=True,
+    )
+    cell2 = ConvertedCell(
+        sheet=name2,
+        cell="A1",
+        direction="dag",
+        original_code="",
+        converted_code="x = 2\n" * 250,
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell1, cell2])
+
+    with pytest.raises(ValueError, match="script-bank sheet name collision"):
+        collect_script_bank(report)
+
+
+def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
+    """write_dag_formulas_xlsx must close the openpyxl workbook in try/finally on all errors."""
+    from plugin.calc.excel_py_convert.convert import write_dag_formulas_xlsx
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+
+    src = tmp_path / "dag_src.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+
+    # Create a cell with an unmapped sheet to trigger ValueError in write_dag_formulas_xlsx
+    cell = ConvertedCell(
+        sheet="NonExistentSheet",
+        cell="A1",
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+    out = tmp_path / "dag_out.xlsx"
+
+    with pytest.raises(ValueError, match="unmapped sheet"):
+        write_dag_formulas_xlsx(src, report, out)
+
+
+def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
+    """Temporary files (.tmpmeta, .tmpstrip, .tmpexcelpy) must be cleaned up on exception."""
+    from plugin.calc.excel_py_convert.convert import (
+        _strip_python_in_excel_parts,
+        write_package_meta,
+        write_excel_python_xlsx,
+    )
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+
+    src = tmp_path / "temp_clean_src.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+
+    # 1. Test .tmpstrip cleanup
+    def fail_writestr(*_args, **_kwargs):
+        raise RuntimeError("simulated write error")
+
+    monkeypatch.setattr(zipfile.ZipFile, "writestr", fail_writestr)
+
+    with pytest.raises(RuntimeError):
+        _strip_python_in_excel_parts(src)
+    assert not (src.with_suffix(src.suffix + ".tmpstrip")).exists()
+
+    # 2. Test .tmpmeta cleanup
+    report = ConversionReport(direction="dag", cells=[])
+    with pytest.raises(RuntimeError):
+        write_package_meta(src, report)
+    assert not (src.with_suffix(src.suffix + ".tmpmeta")).exists()
+
+    # 3. Test .tmpexcelpy cleanup
+    monkeypatch.undo()
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="excel",
+        original_code="x = 1",
+        converted_code="x = 1",
+        converted=True,
+        script_index=0,
+    )
+    rep = ConversionReport(direction="excel", cells=[cell])
+    out = tmp_path / "temp_clean_out.xlsx"
+
+    # Cause failure during writing inside ZipFile
+    monkeypatch.setattr(zipfile.ZipFile, "writestr", fail_writestr)
+    with pytest.raises(RuntimeError):
+        write_excel_python_xlsx(src, rep, out)
+    assert not (out.with_suffix(out.suffix + ".tmpexcelpy")).exists()
+
+
+def test_write_excel_python_xlsx_patched_empty_element(tmp_path: Path):
+    """write_excel_python_xlsx must not treat an Element with 0 children as falsy."""
+    from xml.etree import ElementTree as ET
+    from plugin.calc.excel_py_convert.convert import write_excel_python_xlsx
+    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+
+    # Minimal xlsx
+    src = tmp_path / "empty_el_src.xlsx"
+    src.write_bytes(_dag_xlsx_bytes())
+
+    # Two cells on the same sheet
+    cell1 = ConvertedCell(
+        sheet="Sheet1",
+        cell="A1",
+        direction="excel",
+        original_code="x = 1",
+        converted_code="x = 1",
+        converted=True,
+        script_index=0,
+    )
+    cell2 = ConvertedCell(
+        sheet="Sheet1",
+        cell="A2",
+        direction="excel",
+        original_code="y = 2",
+        converted_code="y = 2",
+        converted=True,
+        script_index=1,
+    )
+    report = ConversionReport(direction="excel", cells=[cell1, cell2])
+    out = tmp_path / "empty_el_out.xlsx"
+
+    write_excel_python_xlsx(src, report, out)
+
+    with zipfile.ZipFile(out, "r") as zf:
+        ws_xml = zf.read("xl/worksheets/sheet1.xml")
+        ws_root = ET.fromstring(ws_xml)
+        formulas = {
+            c.attrib.get("r"): "".join(c.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f").itertext())
+            for c in ws_root.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")
+            if c.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f") is not None
+        }
+        assert "_xlws.PY(0" in formulas.get("A1", "")
+        assert "_xlws.PY(1" in formulas.get("A2", "")
+

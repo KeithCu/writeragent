@@ -50,10 +50,6 @@ def _col_row(a1: str) -> tuple[int, int]:
     return int(row_s), col
 
 
-def _unescape_xml(text: str) -> str:
-    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'").replace("&amp;", "&")
-
-
 def split_top_level_args(tail: str) -> list[str]:
     """Split comma-separated formula args with quote/paren awareness."""
     s = (tail or "").strip()
@@ -315,7 +311,10 @@ def _shared_formula_map(ws_root: ET.Element) -> dict[str, str]:
         si = f.attrib.get("si")
         body = "".join(f.itertext()).strip()
         if si is not None and body:
-            masters[si] = _unescape_xml(body)
+            # Bugfix: what was wrong: double unescape corrupted literals like &lt; or &amp; in formulas.
+            # How it happened: redundant _unescape_xml call on ET text which is already decoded.
+            # Why this change fixes it: use body directly as decoded by ET.
+            masters[si] = body
     return masters
 
 
@@ -333,7 +332,10 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str) -> list[ExcelPyCell]:
             body = masters.get(si or "", "")
         if not body:
             continue
-        formula = _unescape_xml(body)
+        # Bugfix: what was wrong: double unescape corrupted literals like &lt; or &amp; in formulas.
+        # How it happened: redundant _unescape_xml call on ET text which is already decoded.
+        # Why this change fixes it: use body directly as decoded by ET.
+        formula = body
         if "_xlws.PY" not in formula and "_xlws.py" not in formula.lower():
             continue
         parsed = parse_xlws_py_formula(formula)
@@ -362,7 +364,16 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
             except KeyError:
                 continue
             cells.extend(_iter_py_cells(ws_root, sh.title))
-            anchors.update(_collect_array_refs(ws_root, sh.title))
+            # Bugfix: what was wrong: anchors.update() allowed later sheets to overwrite bare keys
+            # (e.g. "A1") established by earlier sheets, violating first-wins for bare keys.
+            # How it happened: dict.update unconditionally overwrote all existing keys.
+            # Why this change fixes it: update sheet-qualified keys ("!") directly, but keep
+            # first-wins for bare keys by using setdefault (only adding if absent).
+            for k, v in _collect_array_refs(ws_root, sh.title).items():
+                if "!" in k:
+                    anchors[k] = v
+                else:
+                    anchors.setdefault(k, v)
             for _rid, rtype, target in _parse_rels_with_types(zf, _sheet_rels_path(sh.part_name)):
                 if not _rel_type_is_table(rtype) and "tables/table" not in target:
                     continue

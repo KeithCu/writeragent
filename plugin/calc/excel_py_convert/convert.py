@@ -30,6 +30,8 @@ PACKAGE_META_PART = "xl/writeragentExcelPyMeta.json"
 USE_PACKAGE_META = False
 
 _SSML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _RE_A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 _CONTENT_TYPES_PY_OVERRIDE = '<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
 
@@ -107,13 +109,18 @@ def write_package_meta(out_path: Path, report: ConversionReport) -> None:
     payload = dag_report_to_meta_payload(report)
     blob = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     tmp = out_path.with_suffix(out_path.suffix + ".tmpmeta")
-    with zipfile.ZipFile(out_path, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-        for info in zin.infolist():
-            if info.filename == PACKAGE_META_PART:
-                continue
-            zout.writestr(info, zin.read(info.filename))
-        zout.writestr(PACKAGE_META_PART, blob)
-    tmp.replace(out_path)
+    try:
+        with zipfile.ZipFile(out_path, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                if info.filename == PACKAGE_META_PART:
+                    continue
+                zout.writestr(info, zin.read(info.filename))
+            zout.writestr(PACKAGE_META_PART, blob)
+        tmp.replace(out_path)
+    finally:
+        # Cleanup: remove temp file if an exception occurs before replace.
+        if tmp.exists():
+            tmp.unlink()
 
 
 def load_package_meta(path: str | Path) -> dict[str, Any]:
@@ -216,33 +223,78 @@ def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
             continue
 
 
+def _strip_content_types_python(data: bytes) -> bytes:
+    """Remove Python-in-Excel Override elements from [Content_Types].xml."""
+    # Bugfix: what was wrong: dropping lines containing python parts corrupted single-line
+    # [Content_Types].xml files from Excel/LibreOffice, deleting the entire file body.
+    # How it happened: string line splitting assumed one tag per line, whereas Excel/LO write
+    # minified single-line package XML.
+    # Why this change fixes it: parse with ET, remove only matching Override elements,
+    # and serialize with the registered package namespace and XML declaration.
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return data
+    changed = False
+    for child in list(root):
+        if _local(child.tag) == "Override":
+            part_name = child.attrib.get("PartName", "")
+            if "pythonScripts" in part_name or "pythonScript" in part_name or part_name.startswith("/xl/python"):
+                root.remove(child)
+                changed = True
+    if not changed:
+        return data
+    ET.register_namespace("", _CONTENT_TYPES_NS)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def _strip_rels_python(data: bytes) -> bytes:
+    """Remove Python-in-Excel Relationship elements from .rels files."""
+    # Bugfix: what was wrong: dropping lines referencing pythonScripts deleted the entire body of
+    # single-line .rels files from Excel/LibreOffice.
+    # How it happened: text.splitlines() deleted all content when relationships were on a single line.
+    # Why this change fixes it: parse with ET, remove only matching Relationship elements,
+    # and serialize with the registered package namespace and XML declaration.
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return data
+    changed = False
+    for child in list(root):
+        if _local(child.tag) == "Relationship":
+            target = child.attrib.get("Target", "")
+            if "pythonScripts" in target or "pythonScript" in target or target.startswith("python") or target.startswith("/xl/python"):
+                root.remove(child)
+                changed = True
+    if not changed:
+        return data
+    ET.register_namespace("", _PACKAGE_REL_NS)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
 def _strip_python_in_excel_parts(out_path: Path) -> None:
     """Remove obsolete Python-in-Excel package parts after formula rewrite."""
     drop_prefixes = ("xl/pythonScripts", "xl/python")
     drop_exact = {"xl/pythonScripts.xml"}
     tmp = out_path.with_suffix(out_path.suffix + ".tmpstrip")
-    with zipfile.ZipFile(out_path, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-        for info in zin.infolist():
-            name = info.filename
-            if name in drop_exact or any(name.startswith(p) for p in drop_prefixes):
-                continue
-            # Drop content-type / rel entries are left; orphan rels are harmless enough.
-            # Controlled: also strip workbook rel targeting pythonScripts.
-            data = zin.read(name)
-            if name.endswith(".rels") or name == "[Content_Types].xml":
-                text = data.decode("utf-8", errors="ignore")
-                if "pythonScripts" in text or ("python" in text.lower() and "Override" in text):
-                    # Remove lines referencing pythonScripts
-                    lines = []
-                    for line in text.splitlines(keepends=True):
-                        if "pythonScripts" in line or "pythonScript" in line:
-                            continue
-                        if 'PartName="/xl/python' in line:
-                            continue
-                        lines.append(line)
-                    data = "".join(lines).encode("utf-8")
-            zout.writestr(info, data)
-    tmp.replace(out_path)
+    try:
+        with zipfile.ZipFile(out_path, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                name = info.filename
+                if name in drop_exact or any(name.startswith(p) for p in drop_prefixes):
+                    continue
+                # Controlled: strip pythonScripts overrides and rels via XML parsing.
+                data = zin.read(name)
+                if name == "[Content_Types].xml":
+                    data = _strip_content_types_python(data)
+                elif name.endswith(".rels"):
+                    data = _strip_rels_python(data)
+                zout.writestr(info, data)
+        tmp.replace(out_path)
+    finally:
+        # Cleanup: remove temp file if an exception occurs before replace.
+        if tmp.exists():
+            tmp.unlink()
 
 
 def write_dag_formulas_xlsx(source_xlsx: str | Path, report: ConversionReport, out_path: str | Path, *, strip_python_parts: bool = True) -> None:
@@ -264,42 +316,44 @@ def write_dag_formulas_xlsx(source_xlsx: str | Path, report: ConversionReport, o
     source_xlsx = Path(source_xlsx)
     out_path = Path(out_path)
     wb = load_workbook(source_xlsx)
-    sheet_by_key = {ws.title: ws for ws in wb.worksheets}
-    errors: list[str] = []
+    try:
+        sheet_by_key = {ws.title: ws for ws in wb.worksheets}
+        errors: list[str] = []
 
-    bank, bank_warnings = collect_script_bank(report)
-    for w in bank_warnings:
-        log.warning("excel_py convert: %s", w)
-    for w in report_safety_warnings(report):
-        log.warning("excel_py convert: %s", w)
-    write_script_bank_openpyxl(wb, bank)
+        bank, bank_warnings = collect_script_bank(report)
+        for w in bank_warnings:
+            log.warning("excel_py convert: %s", w)
+        for w in report_safety_warnings(report):
+            log.warning("excel_py convert: %s", w)
+        write_script_bank_openpyxl(wb, bank)
 
-    for cell in report.cells:
-        if not cell.converted or not cell.converted_code:
-            continue
-        ws = sheet_by_key.get(cell.sheet)
-        if ws is None:
-            # Accept sheet1 → first sheet only when the report used fixture aliases
-            # AND there is exactly one worksheet — still prefer exact titles.
-            lower = {t.lower(): w for t, w in sheet_by_key.items()}
-            ws = lower.get(cell.sheet.lower())
-        if ws is None:
-            errors.append(f"unmapped sheet {cell.sheet!r} for cell {cell.cell}")
-            continue
-        if cell.array_ref:
-            _clear_spill_range(ws, cell.cell, cell.array_ref)
-        formula = _xlsx_formula_for_cell(cell)
-        try:
-            ws[cell.cell] = formula
-        except IllegalCharacterError as exc:
-            errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
+        for cell in report.cells:
+            if not cell.converted or not cell.converted_code:
+                continue
+            ws = sheet_by_key.get(cell.sheet)
+            if ws is None:
+                # Accept sheet1 → first sheet only when the report used fixture aliases
+                # AND there is exactly one worksheet — still prefer exact titles.
+                lower = {t.lower(): w for t, w in sheet_by_key.items()}
+                ws = lower.get(cell.sheet.lower())
+            if ws is None:
+                errors.append(f"unmapped sheet {cell.sheet!r} for cell {cell.cell}")
+                continue
+            if cell.array_ref:
+                _clear_spill_range(ws, cell.cell, cell.array_ref)
+            formula = _xlsx_formula_for_cell(cell)
+            try:
+                ws[cell.cell] = formula
+            except IllegalCharacterError as exc:
+                errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
 
-    if errors:
+        if errors:
+            raise ValueError("write_dag_formulas_xlsx failed:\n" + "\n".join(errors))
+
+        wb.save(out_path)
+    finally:
+        # Cleanup: close the openpyxl workbook in try/finally on all errors.
         wb.close()
-        raise ValueError("write_dag_formulas_xlsx failed:\n" + "\n".join(errors))
-
-    wb.save(out_path)
-    wb.close()
     if strip_python_parts:
         _strip_python_in_excel_parts(out_path)
     if USE_PACKAGE_META:
@@ -393,15 +447,36 @@ def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str) -> None:
                 del c.attrib["t"]
 
 
-def _patch_content_types(data: bytes) -> bytes:
-    text = data.decode("utf-8", errors="ignore")
-    if "pythonScripts.xml" in text:
+def _patch_content_types(data: bytes, drop_parts: set[str] | None = None) -> bytes:
+    """Ensure pythonScripts.xml Override is present and remove Overrides for drop_parts."""
+    # Bugfix: what was wrong: dropping lines containing drop_parts deleted entire single-line
+    # [Content_Types].xml files generated by Excel/LibreOffice.
+    # How it happened: text.splitlines() assumed line-delimited XML elements.
+    # Why this change fixes it: parse with ElementTree, prune only matching Overrides,
+    # add pythonScripts.xml Override if absent, and serialize with XML declaration.
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
         return data
-    # Insert Override before closing </Types>
-    if "</Types>" not in text:
-        return data
-    inject = "  " + _CONTENT_TYPES_PY_OVERRIDE + "\n"
-    return text.replace("</Types>", inject + "</Types>").encode("utf-8")
+    norm_drop = {p.lstrip("/") for p in drop_parts} if drop_parts else set()
+    for child in list(root):
+        if _local(child.tag) == "Override":
+            pn = (child.attrib.get("PartName") or "").lstrip("/")
+            if pn in norm_drop:
+                root.remove(child)
+    has_py = any(
+        _local(c.tag) == "Override" and c.attrib.get("PartName") == "/xl/pythonScripts.xml"
+        for c in root
+    )
+    if not has_py:
+        tag = f"{{{_CONTENT_TYPES_NS}}}Override" if root.tag.startswith("{") else "Override"
+        ET.SubElement(
+            root,
+            tag,
+            attrib={"PartName": "/xl/pythonScripts.xml", "ContentType": "application/xml"},
+        )
+    ET.register_namespace("", _CONTENT_TYPES_NS)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def _drop_py_code_sheets_from_workbook(wb_xml: bytes, rels_xml: bytes, drop_rids: set[str]) -> tuple[bytes, bytes]:
@@ -429,7 +504,12 @@ def _drop_py_code_sheets_from_workbook(wb_xml: bytes, rels_xml: bytes, drop_rids
             continue
         if (rel.attrib.get("Id") or "") in drop_rids:
             rels.remove(rel)
-    return ET.tostring(wb, encoding="utf-8", xml_declaration=True), ET.tostring(rels, encoding="utf-8", xml_declaration=True)
+    ET.register_namespace("", _SSML_NS)
+    ET.register_namespace("r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships")
+    wb_bytes = ET.tostring(wb, encoding="utf-8", xml_declaration=True)
+    ET.register_namespace("", _PACKAGE_REL_NS)
+    rels_bytes = ET.tostring(rels, encoding="utf-8", xml_declaration=True)
+    return wb_bytes, rels_bytes
 
 
 def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, out_path: str | Path) -> None:
@@ -455,114 +535,113 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
         by_sheet.setdefault(cell.sheet, []).append(cell)
 
     tmp = out_path.with_suffix(out_path.suffix + ".tmpexcelpy")
-    errors: list[str] = []
+    try:
+        errors: list[str] = []
 
-    with zipfile.ZipFile(source_xlsx, "r") as zin:
-        sheets = _workbook_sheets(zin)
-        title_to_part = {s.title: s.part_name for s in sheets if s.part_name}
-        title_to_part_l = {s.title.lower(): s.part_name for s in sheets if s.part_name}
-        # Map py_code sheet parts for drop
-        drop_parts: set[str] = set()
-        drop_rids: set[str] = set()
-        try:
-            wb_root = ET.fromstring(zin.read("xl/workbook.xml"))
-            for sheets_el in list(wb_root):
-                if _local(sheets_el.tag) != "sheets":
-                    continue
-                for sh in list(sheets_el):
-                    if _local(sh.tag) != "sheet":
-                        continue
-                    title = sh.attrib.get("name") or ""
-                    if not title.startswith(CODE_SHEET_PREFIX):
-                        continue
-                    rid = ""
-                    for k, v in sh.attrib.items():
-                        if k.endswith("}id") or k in ("r:id", "id"):
-                            rid = v
-                            break
-                    part = title_to_part.get(title) or title_to_part_l.get(title.lower(), "")
-                    if part:
-                        drop_parts.add(part)
-                    if rid:
-                        drop_rids.add(rid)
-        except Exception:
-            log.debug("excel_py write: py_code sheet discovery failed", exc_info=True)
-
-        # Pre-parse worksheet roots we will patch
-        patched: dict[str, ET.Element] = {}
-        for sheet_title, cells in by_sheet.items():
-            part = title_to_part.get(sheet_title) or title_to_part_l.get(sheet_title.lower(), "")
-            if not part:
-                errors.append(f"unmapped sheet {sheet_title!r}")
-                continue
+        with zipfile.ZipFile(source_xlsx, "r") as zin:
+            sheets = _workbook_sheets(zin)
+            title_to_part = {s.title: s.part_name for s in sheets if s.part_name}
+            title_to_part_l = {s.title.lower(): s.part_name for s in sheets if s.part_name}
+            # Map py_code sheet parts for drop
+            drop_parts: set[str] = set()
+            drop_rids: set[str] = set()
             try:
-                root = patched.get(part) or ET.fromstring(zin.read(part))
-            except KeyError:
-                errors.append(f"missing worksheet part {part!r} for {sheet_title!r}")
-                continue
-            for cell in cells:
-                try:
-                    if cell.array_ref:
-                        _clear_spill_xml(root, cell.cell, cell.array_ref)
-                    formula = xlws_py_formula(cell.script_index, cell.return_type, deps_for_xlws_export(cell))
-                    _set_cell_xlws_formula(root, cell.cell, formula, array_ref=cell.array_ref)
-                except Exception as exc:
-                    errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
-            patched[part] = root
-
-        if errors:
-            raise ValueError("write_excel_python_xlsx failed:\n" + "\n".join(errors))
-
-        scripts_bytes = python_scripts_xml(scripts)
-        wb_xml = zin.read("xl/workbook.xml")
-        rels_xml = zin.read("xl/_rels/workbook.xml.rels")
-        if drop_rids:
-            wb_xml, rels_xml = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, drop_rids)
-
-        with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-            written_scripts = False
-            for info in zin.infolist():
-                name = info.filename
-                if name in drop_parts or name == PACKAGE_META_PART:
-                    continue
-                if name.startswith("xl/worksheets/_rels/") and any(p.split("/")[-1] in name for p in drop_parts):
-                    # Drop sheet rels for removed py_code sheets when path matches.
-                    base = name.rsplit("/", 1)[-1].replace(".rels", "")
-                    if any(p.endswith(base) for p in drop_parts):
+                wb_root = ET.fromstring(zin.read("xl/workbook.xml"))
+                for sheets_el in list(wb_root):
+                    if _local(sheets_el.tag) != "sheets":
                         continue
-                if name == "xl/pythonScripts.xml":
-                    zout.writestr(info, scripts_bytes)
-                    written_scripts = True
-                    continue
-                if name == "[Content_Types].xml":
-                    data = _patch_content_types(zin.read(name))
-                    # Also drop Override lines for removed worksheet parts
-                    if drop_parts:
-                        text = data.decode("utf-8", errors="ignore")
-                        lines = []
-                        for line in text.splitlines(keepends=True):
-                            if any(f'PartName="/{p}"' in line or f'PartName="/{p.lstrip("/")}"' in line for p in drop_parts):
-                                continue
-                            lines.append(line)
-                        data = "".join(lines).encode("utf-8")
-                    zout.writestr(info, data)
-                    continue
-                if name == "xl/workbook.xml":
-                    zout.writestr(info, wb_xml)
-                    continue
-                if name == "xl/_rels/workbook.xml.rels":
-                    zout.writestr(info, rels_xml)
-                    continue
-                if name in patched:
-                    root = patched[name]
-                    data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-                    zout.writestr(info, data)
-                    continue
-                zout.writestr(info, zin.read(name))
-            if not written_scripts:
-                zout.writestr("xl/pythonScripts.xml", scripts_bytes)
+                    for sh in list(sheets_el):
+                        if _local(sh.tag) != "sheet":
+                            continue
+                        title = sh.attrib.get("name") or ""
+                        if not title.startswith(CODE_SHEET_PREFIX):
+                            continue
+                        rid = ""
+                        for k, v in sh.attrib.items():
+                            if k.endswith("}id") or k in ("r:id", "id"):
+                                rid = v
+                                break
+                        part = title_to_part.get(title) or title_to_part_l.get(title.lower(), "")
+                        if part:
+                            drop_parts.add(part)
+                        if rid:
+                            drop_rids.add(rid)
+            except Exception:
+                log.debug("excel_py write: py_code sheet discovery failed", exc_info=True)
 
-    tmp.replace(out_path)
+            # Pre-parse worksheet roots we will patch
+            patched: dict[str, ET.Element] = {}
+            for sheet_title, cells in by_sheet.items():
+                part = title_to_part.get(sheet_title) or title_to_part_l.get(sheet_title.lower(), "")
+                if not part:
+                    errors.append(f"unmapped sheet {sheet_title!r}")
+                    continue
+                # Cleanup: Element with no children is falsy in boolean context; check `is None` explicitly.
+                root = patched.get(part)
+                if root is None:
+                    try:
+                        root = ET.fromstring(zin.read(part))
+                    except KeyError:
+                        errors.append(f"missing worksheet part {part!r} for {sheet_title!r}")
+                        continue
+                for cell in cells:
+                    try:
+                        if cell.array_ref:
+                            _clear_spill_xml(root, cell.cell, cell.array_ref)
+                        formula = xlws_py_formula(cell.script_index, cell.return_type, deps_for_xlws_export(cell))
+                        _set_cell_xlws_formula(root, cell.cell, formula, array_ref=cell.array_ref)
+                    except Exception as exc:
+                        errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
+                patched[part] = root
+
+            if errors:
+                raise ValueError("write_excel_python_xlsx failed:\n" + "\n".join(errors))
+
+            scripts_bytes = python_scripts_xml(scripts)
+            wb_xml = zin.read("xl/workbook.xml")
+            rels_xml = zin.read("xl/_rels/workbook.xml.rels")
+            if drop_rids:
+                wb_xml, rels_xml = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, drop_rids)
+
+            with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+                written_scripts = False
+                for info in zin.infolist():
+                    name = info.filename
+                    if name in drop_parts or name == PACKAGE_META_PART:
+                        continue
+                    if name.startswith("xl/worksheets/_rels/") and any(p.split("/")[-1] in name for p in drop_parts):
+                        # Drop sheet rels for removed py_code sheets when path matches.
+                        base = name.rsplit("/", 1)[-1].replace(".rels", "")
+                        if any(p.endswith(base) for p in drop_parts):
+                            continue
+                    if name == "xl/pythonScripts.xml":
+                        zout.writestr(info, scripts_bytes)
+                        written_scripts = True
+                        continue
+                    if name == "[Content_Types].xml":
+                        data = _patch_content_types(zin.read(name), drop_parts=drop_parts)
+                        zout.writestr(info, data)
+                        continue
+                    if name == "xl/workbook.xml":
+                        zout.writestr(info, wb_xml)
+                        continue
+                    if name == "xl/_rels/workbook.xml.rels":
+                        zout.writestr(info, rels_xml)
+                        continue
+                    if name in patched:
+                        root = patched[name]
+                        data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+                        zout.writestr(info, data)
+                        continue
+                    zout.writestr(info, zin.read(name))
+                if not written_scripts:
+                    zout.writestr("xl/pythonScripts.xml", scripts_bytes)
+
+        tmp.replace(out_path)
+    finally:
+        # Cleanup: remove temp file if an exception occurs before replace.
+        if tmp.exists():
+            tmp.unlink()
 
 
 def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:

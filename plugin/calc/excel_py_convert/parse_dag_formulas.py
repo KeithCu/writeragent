@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 
-from plugin.calc.excel_py_convert.parse_excel_ooxml import _findall, _find_child, _local, _unescape_xml, _workbook_sheets
+from plugin.calc.excel_py_convert.parse_excel_ooxml import _findall, _find_child, _local, _workbook_sheets
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, normalize_bank_a1
 from plugin.calc.python.formula_edit import parse_python_formula
 
@@ -34,8 +34,11 @@ def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
 
 def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
     """Read a cell's display/string value (shared string, inlineStr, or ``v``)."""
+    # Bugfix: what was wrong: t is lowercased but was compared to "inlineStr", which never matched.
+    # How it happened: case mismatch between .lower() and CamelCase string literal.
+    # Why this change fixes it: compare to "inlinestr" so inline-string bank cells are read.
     t = (c.attrib.get("t") or "").lower()
-    if t == "inlineStr":
+    if t == "inlinestr":
         is_el = _find_child(c, "is")
         if is_el is None:
             return ""
@@ -64,7 +67,11 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
         if not a1:
             continue
         f = _find_child(c, "f")
-        formula = _unescape_xml("".join(f.itertext()).strip()) if f is not None else ""
+        # Bugfix: what was wrong: ET already decodes XML entities; calling _unescape_xml
+        # unescaped twice, corrupting Python code containing literal &lt; or &amp;.
+        # How it happened: redundant manual unescape on already-decoded ElementTree text.
+        # Why this change fixes it: use itertext() directly without second unescape.
+        formula = "".join(f.itertext()).strip() if f is not None else ""
         if formula and not formula.startswith("="):
             formula = "=" + formula
         out[a1] = (formula, _cell_string_value(c, shared))
