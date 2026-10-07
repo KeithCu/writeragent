@@ -16,7 +16,6 @@ from plugin.calc.python.formula_edit import (
 )
 from plugin.calc.python.geometric_recalc import (
     CONFIG_KEY,
-    GEOMETRIC_DISCOVERY_CAP,
     GEOMETRIC_REGISTRY_PROP,
     EvalIndexKey,
     GeometricCell,
@@ -26,9 +25,6 @@ from plugin.calc.python.geometric_recalc import (
     current_geometric_strip_safe,
     discovery_cap_hit,
     ensure_geometric_strip_index_for_eval,
-    eval_n_args_from_data,
-    formula_data_args,
-    formula_mentions_cell,
     geometric_cap_hit_user_message,
     geometric_workbook_key,
     load_geometric_registry_for_doc,
@@ -40,11 +36,17 @@ from plugin.calc.python.geometric_recalc import (
     replace_geometric_strip_safe,
     reset_geometric_runtime_for_tests,
     resolved_code_for_formula,
+    save_geometric_registry_for_doc,
+    should_strip_eval_args,
+)
+from plugin.calc.python.geometric_recalc_core import (
+    GEOMETRIC_DISCOVERY_CAP,
+    eval_n_args_from_data,
+    formula_data_args,
+    formula_mentions_cell,
     rebuild_formula_with_data_args,
     repair_n_args,
-    save_geometric_registry_for_doc,
     same_cell_ref,
-    should_strip_eval_args,
 )
 
 
@@ -871,12 +873,12 @@ def test_reentrancy_skips_nested_repair(monkeypatch):
     monkeypatch.setattr(geo, "geometric_flag_enabled", lambda: True)
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    geo._GEOMETRIC_REPAIRING = True
+    geo._RUNTIME.repairing = True
     try:
         geo.reconcile_geometric_document("ctx", doc)
         assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("b")'
     finally:
-        geo._GEOMETRIC_REPAIRING = False
+        geo._RUNTIME.repairing = False
 
 
 def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
@@ -1253,9 +1255,9 @@ def test_strip_helper_does_not_use_1x1_or_uniqueness():
     # Unique code + 1×1 last arg is still no-strip without a map mark.
     assert maybe_strip_geometric_eval_args("unique_snippet_xyz", [col, pred], doc=_wb_doc()) == [col, pred]
     # ≥1-hit would strip if any cell is ours; we require the triple in strip_safe.
-    from plugin.calc.python.geometric_recalc import GEOMETRIC_RECORDS
+    from plugin.calc.python.geometric_recalc import _RUNTIME
 
-    GEOMETRIC_RECORDS[(WB, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
+    _RUNTIME.records[(WB, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
     assert maybe_strip_geometric_eval_args("f", [col, pred], doc=_wb_doc()) == [col, pred]
 
 
@@ -1425,7 +1427,7 @@ def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
 
 def test_dispatcher_insert_retargets_successor(monkeypatch):
     from plugin.calc.python.formula_edit import parse_python_formula
-    from plugin.calc.python.geometric_recalc import formula_data_args, same_cell_ref
+    from plugin.calc.python.geometric_recalc_core import formula_data_args, same_cell_ref
     from plugin.calc.python.sheet_modify import (
         flush_sheet_modify_pass_for_tests,
         reset_sheet_modify_runtime_for_tests,
@@ -1461,7 +1463,7 @@ def test_dispatcher_insert_retargets_successor(monkeypatch):
 
 
 def test_dispatcher_delete_first_removes_field(monkeypatch):
-    from plugin.calc.python.geometric_recalc import formula_data_args
+    from plugin.calc.python.geometric_recalc_core import formula_data_args
     from plugin.calc.python.sheet_modify import (
         flush_sheet_modify_pass_for_tests,
         reset_sheet_modify_runtime_for_tests,
@@ -1506,7 +1508,7 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
     doc = CalcDocStub(url="file:///reenter-mod.ods")
     sheet = doc.getSheets().getByName("Sheet1")
     monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
-    geo._GEOMETRIC_REPAIRING = True
+    geo._RUNTIME.repairing = True
     try:
         dispatch_sheet_modified(
             "ctx", "file:///reenter-mod.ods", "Sheet1", SimpleNamespace(Source=sheet)
@@ -1514,7 +1516,7 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
         assert _PENDING_TIMERS == {}
         assert _DeferredTimer.instances == []
     finally:
-        geo._GEOMETRIC_REPAIRING = False
+        geo._RUNTIME.repairing = False
 
 
 def test_data_edit_rebuilds_strip_safe_index(monkeypatch):

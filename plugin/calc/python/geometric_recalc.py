@@ -69,21 +69,16 @@ class GeometricRuntime:
 
 
 _RUNTIME = GeometricRuntime()
-GEOMETRIC_RECORDS = _RUNTIME.records
-_GEOMETRIC_LOCK = _RUNTIME.lock
-_GEOMETRIC_REPAIRING = False
 
 
 def is_geometric_repairing() -> bool:
     """Re-entrancy: ``setFormula`` during repair must not schedule another pass."""
-    return _GEOMETRIC_REPAIRING or _RUNTIME.repairing
+    return _RUNTIME.repairing
 
 
 def reset_geometric_runtime_for_tests() -> None:
     """Drop in-memory maps. Tests only."""
-    global _GEOMETRIC_REPAIRING
     _RUNTIME.reset()
-    _GEOMETRIC_REPAIRING = False
     try:
         from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
 
@@ -514,14 +509,12 @@ def reconcile(
     already_loaded: bool = False,
 ) -> None:
     """Flag-on / doc-open / save-path attach: repair sheets in one locked undo unit."""
-    global _GEOMETRIC_REPAIRING
-    if doc is None or _GEOMETRIC_REPAIRING or _RUNTIME.repairing:
+    if doc is None or _RUNTIME.repairing:
         return
     target_sheets = [sheets] if sheets is not None and not isinstance(sheets, (list, tuple)) else sheets
     if target_sheets is not None and not target_sheets:
         return
     workbook_key = geometric_workbook_key(doc) if already_loaded else load_geometric_registry_for_doc(doc)
-    _GEOMETRIC_REPAIRING = True
     _RUNTIME.repairing = True
     repaired_sheets: dict[str, list[GeometricCell]] = {}
     try:
@@ -538,11 +531,8 @@ def reconcile(
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key, known_sheets=repaired_sheets)
     finally:
-        _GEOMETRIC_REPAIRING = False
         _RUNTIME.repairing = False
 
-
-reconcile_geometric = reconcile
 
 
 def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = False) -> None:
