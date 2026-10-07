@@ -25,14 +25,14 @@ import importlib
 import logging
 import math
 import sys
+import io
 import threading
 import time
+import contextvars
+import traceback
 import types
 from contextvars import ContextVar
 from typing import Any
-
-log = logging.getLogger(__name__)
-
 from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
 from plugin.scripting.payload_codec import (
     PAYLOAD_DATAFRAME,
@@ -46,10 +46,59 @@ from plugin.scripting.ipc import UserStopped
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
 
+log = logging.getLogger(__name__)
+
 # Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session,
 # document OnUnload (workbook_lifecycle), or worker process exit.
-_SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
-_SESSION_LOCK = threading.Lock()
+class _Sessions:
+    def __init__(self) -> None:
+        self.executors: dict[str, LocalPythonExecutor] = {}
+        self.init_script_hash: dict[str, str] = {}
+        self.cell_session_init_digest: dict[str, str] = {}
+        self.lock: threading.Lock = threading.Lock()
+
+    def get_or_create(self, session_id: str, timeout_sec: int) -> LocalPythonExecutor:
+        with self.lock:
+            executor = self.executors.get(session_id)
+            if executor is None:
+                executor = _new_executor(timeout_sec)
+                self.executors[session_id] = executor
+            else:
+                executor.timeout_seconds = timeout_sec
+            return executor
+
+    def clear_init_session_unlocked(self, init_session_id: str) -> None:
+        cell_sid = _cell_session_for_init(init_session_id)
+        self.executors.pop(init_session_id, None)
+        self.init_script_hash.pop(init_session_id, None)
+        if cell_sid:
+            self.executors.pop(cell_sid, None)
+            self.cell_session_init_digest.pop(cell_sid, None)
+            _reset_session_duckdb(cell_sid)
+
+    def reset_sandbox_session(self, session_id: str) -> dict[str, Any]:
+        if not (session_id or "").strip():
+            return {"status": "error", "message": "No session_id provided."}
+        with self.lock:
+            if session_id.endswith(":init"):
+                self.clear_init_session_unlocked(session_id)
+            else:
+                self.executors.pop(session_id, None)
+                self.cell_session_init_digest.pop(session_id, None)
+                init_sid = _related_init_session_id(session_id)
+                if init_sid:
+                    self.clear_init_session_unlocked(init_sid)
+        _reset_session_duckdb(session_id)
+        return {"status": "ok"}
+
+    def clear_all(self) -> None:
+        with self.lock:
+            self.executors.clear()
+            self.init_script_hash.clear()
+            self.cell_session_init_digest.clear()
+        _reset_session_duckdb(None)
+
+_sessions = _Sessions()
 
 # Cell / RPS session for the current execute. Isolated runs leave this None so
 # DuckDB and similar caches stay per-request. Init-only ids are not stored here
@@ -86,7 +135,6 @@ def _install_timeout_context_pool() -> None:
     so the worker sees the session ``run_sandboxed_code`` just set. The
     vendored file stays unchanged; it must keep using that module global.
     """
-    import contextvars
     from concurrent.futures import ThreadPoolExecutor
     from typing import TYPE_CHECKING
 
@@ -168,8 +216,6 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
 
 
 # Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
-_INIT_SCRIPT_HASH: dict[str, str] = {}
-_CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
 _INIT_STATE_SKIP_KEYS = frozenset(
     {
         "__name__",
@@ -187,73 +233,67 @@ _INIT_STATE_SKIP_KEYS = frozenset(
 )
 
 
-def is_module_imported(code_str: str, module_name: str) -> bool:
-    """Check if ``module_name`` is imported in any form in ``code_str``.
+_OPTIONAL_MODULE_FAILED: set[str] = set()
 
-    Skip reusing sandbox_cache's parsed AST: cache misses and mutated trees
-    make that easy to get wrong, and parse cost is noise compared with exec.
-    """
+
+def optional_module(name: str, *, load: bool = True) -> Any | None:
+    mod = sys.modules.get(name)
+    if mod is not None:
+        return mod
+
+    if not load or name in _OPTIONAL_MODULE_FAILED:
+        return None
+
+    try:
+        return importlib.import_module(name)
+    except Exception:
+        _OPTIONAL_MODULE_FAILED.add(name)
+        return None
+
+def parse_bound_names(code_str: str) -> set[str]:
+    bound: set[str] = set()
     try:
         tree = ast.parse(code_str)
     except SyntaxError:
-        # Fallback to simple substring match in case of syntax error.
-        return f"import {module_name}" in code_str or f"from {module_name}" in code_str
+        return bound
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == module_name or alias.name.startswith(module_name + "."):
-                    return True
+                bound.add(alias.asname or alias.name.split('.')[0])
         elif isinstance(node, ast.ImportFrom):
-            if node.module == module_name or (node.module and node.module.startswith(module_name + ".")):
-                return True
-    return False
-
-
-_OPTIONAL_MODULE_LOCK = threading.Lock()
-
-
-def optional_module(name: str) -> Any | None:
-    if name in sys.modules:
-        mod = sys.modules[name]
-        spec = getattr(mod, "__spec__", None)
-        if spec is None or not getattr(spec, "_initializing", False):
-            return mod
-    with _OPTIONAL_MODULE_LOCK:
-        if name in sys.modules:
-            mod = sys.modules[name]
-            spec = getattr(mod, "__spec__", None)
-            if spec is None or not getattr(spec, "_initializing", False):
-                return mod
-        try:
-            return importlib.import_module(name)
-        except Exception:
-            return None
-
-
-def apply_auto_imports(code: str) -> tuple[str, int]:
-    """Prepend imports from AUTO_IMPORTS if missing and available. Returns (new_code, lines_added)."""
-    prepended_lines = []
-    for module_name, import_stmt in AUTO_IMPORTS.items():
-        if not is_module_imported(code, module_name):
-            if optional_module(module_name) is not None:
-                prepended_lines.append(import_stmt)
-
-    if not prepended_lines:
-        return code, 0
-
-    return "\n".join(prepended_lines) + "\n" + code, len(prepended_lines)
+            for alias in node.names:
+                bound.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    bound.add(target.id)
+                elif isinstance(target, ast.Tuple) or isinstance(target, ast.List):
+                    for elt in target.elts:
+                        if isinstance(elt, ast.Name):
+                            bound.add(elt.id)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name):
+                bound.add(node.target.id)
+        elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+            bound.add(node.name)
+        elif isinstance(node, ast.ClassDef):
+            bound.add(node.name)
+    return bound
 
 
 def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
-    """Inject auto imports into executor state if referenced but not imported in code."""
+    """Inject auto imports into executor state if not already bound or imported."""
+    bound_names = parse_bound_names(code)
     bindings = {}
     for module_name, import_stmt in AUTO_IMPORTS.items():
-        if not is_module_imported(code, module_name):
-            mod = optional_module(module_name)
-            if mod is not None:
-                alias = import_stmt.split(" as ")[-1].strip() if " as " in import_stmt else module_name
-                bindings[alias] = mod
+        alias = import_stmt.split(" as ")[-1].strip() if " as " in import_stmt else module_name
+        # If the code already defines or imports this alias, or it's already in state, skip.
+        if alias in bound_names or alias in executor.state:
+            continue
+        mod = optional_module(module_name)
+        if mod is not None:
+            bindings[alias] = mod
     if bindings:
         executor.send_variables(bindings)
 
@@ -293,7 +333,7 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
     # What was wrong: child_pack turns a bare np.int64 into a Python int, but a
     # grid of those scalars took the list path and skipped that. The boundary
     # check then rejected the grid. .item() is the Python value the host can unpickle.
-    np_mod = optional_module("numpy")
+    np_mod = optional_module("numpy", load=False)
     if np_mod is not None and isinstance(obj, np_mod.generic):
         try:
             plain = obj.item()
@@ -311,8 +351,12 @@ def _coerce_host_pickle_tree(obj: Any, pd_mod: Any) -> Any:
         return [_coerce_host_pickle_tree(v, pd_mod) for v in obj]
     if isinstance(obj, tuple):
         return tuple(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
+    if isinstance(obj, set):
+        return set(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
+    if isinstance(obj, frozenset):
+        return frozenset(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
     scalar = _coerce_host_pickle_scalar(obj, pd_mod)
-    if scalar is not obj and isinstance(scalar, (list, tuple, dict)):
+    if scalar is not obj and isinstance(scalar, (list, tuple, dict, set, frozenset)):
         return _coerce_host_pickle_tree(scalar, pd_mod)
     return scalar
 
@@ -366,7 +410,7 @@ def serialize_result(obj: Any) -> Any:
 
 def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] | None, str]:
     """Return (image payload from open pyplot figures, optional stdout note)."""
-    plt_mod = optional_module("matplotlib.pyplot")
+    plt_mod = optional_module("matplotlib.pyplot", load=False)
     if plt_mod is None:
         return None, ""
     fignums = plt_mod.get_fignums()
@@ -395,8 +439,6 @@ def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
     render crisply at any zoom in LibreOffice Calc/Writer.  ``"png"`` produces a
     150 DPI raster, preferred when the consumer cannot handle SVG (e.g. chat HTML).
     """
-    import io
-
     buf = io.BytesIO()
     if fmt == "svg":
         fig.savefig(buf, format="svg", bbox_inches="tight")
@@ -408,7 +450,6 @@ def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
 
 def _pil_image_to_payload(img: Any) -> dict[str, Any]:
     """Convert a PIL Image to an image payload dict."""
-    import io
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return {"__wa_payload__": "image", "format": "png", "data": buf.getvalue()}
@@ -421,9 +462,10 @@ _CUSTOM_SERIALIZE_MAX_DEPTH = 8
 
 
 def _custom_serialize_types() -> tuple[type, ...]:
-    mpl_fig = optional_module("matplotlib.figure")
-    pd_mod = optional_module("pandas")
-    pil_mod = optional_module("PIL.Image")
+    mpl_fig = optional_module("matplotlib.figure", load=False)
+    pd_mod = optional_module("pandas", load=False)
+    pil_mod = optional_module("PIL.Image", load=False)
+    np_mod = optional_module("numpy", load=False)
     custom_types: list[type] = []
     if mpl_fig is not None:
         custom_types.append(mpl_fig.Figure)
@@ -431,6 +473,8 @@ def _custom_serialize_types() -> tuple[type, ...]:
         custom_types.extend([pd_mod.DataFrame, pd_mod.Series])
     if pil_mod is not None:
         custom_types.append(pil_mod.Image)
+    if np_mod is not None:
+        custom_types.append(np_mod.ndarray)
     return tuple(custom_types)
 
 
@@ -559,6 +603,51 @@ def _temporal_ndarray_to_python(arr: Any, pd_mod: Any) -> Any:
     return [flat[i * ncols : (i + 1) * ncols] for i in range(nrows)]
 
 
+
+def _pack_pandas_values(obj: Any, pd_mod: Any, is_series: bool) -> tuple[Any, Any]:
+    def _dataframe_cell(value: Any) -> Any:
+        return _temporal_cell_to_stdlib(value, pd_mod)
+
+    columns = []
+    if is_series:
+        name = getattr(obj, "name", None)
+        if name is not None:
+            columns = [_column_label(name)]
+
+        if len(obj) == 0:
+            return columns, []
+
+        try:
+            arr = obj.to_numpy(copy=False)
+            kind = _dtype_kind(arr)
+            if kind is not None and _is_numeric_wire_kind(kind):
+                packed = child_pack_result(arr)
+            else:
+                packed = child_pack_result([_dataframe_cell(v) for v in obj.tolist()])
+        except Exception:
+            packed = child_pack_result([_dataframe_cell(v) for v in obj.tolist()])
+
+        return columns, packed
+
+    else:
+        columns = [_column_label(c) for c in obj.columns]
+        if len(obj) == 0 or len(obj.columns) == 0:
+            return columns, []
+
+        try:
+            arr = obj.to_numpy(copy=False)
+            kind = _dtype_kind(arr)
+            if kind is not None and _is_numeric_wire_kind(kind):
+                data_part = child_pack_result(arr)
+            else:
+                grid = [[_dataframe_cell(cell) for cell in row] for row in obj.itertuples(index=False, name=None)]
+                data_part = child_pack_result(grid)
+        except Exception:
+            grid = [[_dataframe_cell(cell) for cell in row] for row in obj.itertuples(index=False, name=None)]
+            data_part = child_pack_result(grid)
+
+        return columns, data_part
+
 def _serialize_result_impl(obj: Any) -> Any:
     from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
 
@@ -571,14 +660,14 @@ def _serialize_result_impl(obj: Any) -> Any:
         return child_pack_result(obj.values)
     if is_calc_range_payload(obj):
         return obj
-    mpl_fig = optional_module("matplotlib.figure")
+    mpl_fig = optional_module("matplotlib.figure", load=False)
     if mpl_fig is not None and isinstance(obj, mpl_fig.Figure):
         return _figure_to_image_payload(obj)
-    pil_mod = optional_module("PIL.Image")
+    pil_mod = optional_module("PIL.Image", load=False)
     if pil_mod is not None and isinstance(obj, pil_mod.Image):
         return _pil_image_to_payload(obj)
-    np_mod = optional_module("numpy")
-    pd_mod = optional_module("pandas")
+    np_mod = optional_module("numpy", load=False)
+    pd_mod = optional_module("pandas", load=False)
     if np_mod is not None:
         if isinstance(obj, np_mod.ndarray):
             kind = _dtype_kind(obj)
@@ -593,53 +682,18 @@ def _serialize_result_impl(obj: Any) -> Any:
             return _temporal_cell_to_stdlib(obj, pd_mod)
     if pd_mod is not None:
         if isinstance(obj, pd_mod.DataFrame):
-            df: Any = obj
-            columns = [_column_label(c) for c in df.columns]
-            def _dataframe_cell(value: Any) -> Any:
-                return _temporal_cell_to_stdlib(value, pd_mod)
-
-            # Build rectangular data for packing: ndarray fast path for homogeneous numeric;
-            # list-of-lists for mixed so strings/None go through the split_grid strings map
-            # instead of the old per-row to_dict("records") which defeated binary envelopes.
-            # datetime64/timedelta64 skip the numeric path — astype(float64) is Unix epoch, not ISO.
-            if len(df) == 0 or len(df.columns) == 0:
-                data_part: Any = []
-            else:
-                try:
-                    arr = df.to_numpy(copy=False)
-                    kind = _dtype_kind(arr)
-                    if kind is not None and _is_numeric_wire_kind(kind):
-                        data_part = child_pack_result(arr)
-                    else:
-                        grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
-                        data_part = child_pack_result(grid)
-                except Exception:
-                    grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
-                    data_part = child_pack_result(grid)
+            columns, data_part = _pack_pandas_values(obj, pd_mod, is_series=False)
             return {
                 "__wa_payload__": PAYLOAD_DATAFRAME,
                 "columns": columns,
                 "data": data_part,
             }
         if isinstance(obj, pd_mod.Series):
-            s: Any = obj
-            name = getattr(s, "name", None)
-            if len(s) == 0:
-                packed: Any = []
-            else:
-                try:
-                    arr = s.to_numpy(copy=False)
-                    kind = _dtype_kind(arr)
-                    if kind is not None and _is_numeric_wire_kind(kind):
-                        packed = child_pack_result(arr)
-                    else:
-                        packed = child_pack_result([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
-                except Exception:
-                    packed = child_pack_result([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
-            if name is not None:
+            columns, packed = _pack_pandas_values(obj, pd_mod, is_series=True)
+            if columns:
                 return {
                     "__wa_payload__": PAYLOAD_DATAFRAME,
-                    "columns": [_column_label(name)],
+                    "columns": columns,
                     "data": packed,
                 }
             return packed
@@ -671,14 +725,7 @@ def _new_executor(timeout_sec: int) -> LocalPythonExecutor:
 
 
 def _get_or_create_session_executor(session_id: str, timeout_sec: int) -> LocalPythonExecutor:
-    with _SESSION_LOCK:
-        executor = _SESSION_EXECUTORS.get(session_id)
-        if executor is None:
-            executor = _new_executor(timeout_sec)
-            _SESSION_EXECUTORS[session_id] = executor
-        else:
-            executor.timeout_seconds = timeout_sec
-        return executor
+    return _sessions.get_or_create(session_id, timeout_sec)
 
 
 def _related_init_session_id(session_id: str) -> str | None:
@@ -700,15 +747,7 @@ def _cell_session_for_init(init_session_id: str) -> str | None:
     return None
 
 
-def _clear_init_session_unlocked(init_session_id: str) -> None:
-    cell_sid = _cell_session_for_init(init_session_id)
-    _SESSION_EXECUTORS.pop(init_session_id, None)
-    _INIT_SCRIPT_HASH.pop(init_session_id, None)
-    if cell_sid:
-        _SESSION_EXECUTORS.pop(cell_sid, None)
-        _CELL_SESSION_INIT_DIGEST.pop(cell_sid, None)
-        # Init-hash change drops the workbook kernel; DuckDB tables must go too.
-        _reset_session_duckdb(cell_sid)
+
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
@@ -716,34 +755,18 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
 
     Also clears the ``{id}:init`` companion when *session_id* is a cell id.
     """
-    if not (session_id or "").strip():
-        return {"status": "error", "message": "No session_id provided."}
-    with _SESSION_LOCK:
-        _SESSION_EXECUTORS.pop(session_id, None)
-        init_sid = _related_init_session_id(session_id)
-        if init_sid:
-            _SESSION_EXECUTORS.pop(init_sid, None)
-            _INIT_SCRIPT_HASH.pop(init_sid, None)
-        if session_id.endswith(":init"):
-            _INIT_SCRIPT_HASH.pop(session_id, None)
-        _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-    _reset_session_duckdb(session_id)
-    return {"status": "ok"}
+    return _sessions.reset_sandbox_session(session_id)
 
 
 def clear_all_sandbox_sessions() -> None:
     """Clear every cached session executor (tests)."""
-    with _SESSION_LOCK:
-        _SESSION_EXECUTORS.clear()
-        _INIT_SCRIPT_HASH.clear()
-        _CELL_SESSION_INIT_DIGEST.clear()
-    _reset_session_duckdb(None)
+    _sessions.clear_all()
 
 
 def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
     """Copy user-visible names from the init executor (references, not deep copies)."""
-    with _SESSION_LOCK:
-        executor = _SESSION_EXECUTORS.get(init_session_id)
+    with _sessions.lock:
+        executor = _sessions.executors.get(init_session_id)
     if executor is None:
         return {}
     return {
@@ -755,8 +778,8 @@ def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
 
 def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
     """Copy user-defined helper functions (custom tools) from the init executor."""
-    with _SESSION_LOCK:
-        executor = _SESSION_EXECUTORS.get(init_session_id)
+    with _sessions.lock:
+        executor = _sessions.executors.get(init_session_id)
     if executor is None:
         return {}
     return dict(executor.custom_tools)
@@ -769,6 +792,9 @@ def _copy_isolated_seed_value(value: Any) -> Any:
     in one isolated cell changed what every later isolated cell on that worker
     saw. Functions and modules stay shared; deepcopy rejects them. Shared-kernel
     seeding does not use this — that workbook is one namespace.
+
+    A lazy copy-on-demand or size guard would be too complex and prone to edge
+    cases, so a simple deepcopy is used here on every cell execution for safety.
     """
     if callable(value) or isinstance(value, types.ModuleType):
         return value
@@ -805,12 +831,12 @@ def _seed_shared_executor_once(
     Isolated cells have no ``session_id`` and still seed on every run.
     """
     digest = init_script_hash or ""
-    with _SESSION_LOCK:
-        if _CELL_SESSION_INIT_DIGEST.get(session_id) == digest:
+    with _sessions.lock:
+        if _sessions.cell_session_init_digest.get(session_id) == digest:
             return
     _seed_executor_from_init(executor, init_session_id)
-    with _SESSION_LOCK:
-        _CELL_SESSION_INIT_DIGEST[session_id] = digest
+    with _sessions.lock:
+        _sessions.cell_session_init_digest[session_id] = digest
 
 
 
@@ -851,11 +877,11 @@ def _ensure_init_executed(
         return None
 
     digest = init_script_hash or ""
-    with _SESSION_LOCK:
-        prior = _INIT_SCRIPT_HASH.get(init_session_id)
+    with _sessions.lock:
+        prior = _sessions.init_script_hash.get(init_session_id)
         if prior is not None and prior != digest:
-            _clear_init_session_unlocked(init_session_id)
-        elif prior == digest and init_session_id in _SESSION_EXECUTORS:
+            _sessions.clear_init_session_unlocked(init_session_id)
+        elif prior == digest and init_session_id in _sessions.executors:
             return None
 
     init_executor = _get_or_create_session_executor(init_session_id, timeout_sec)
@@ -869,14 +895,12 @@ def _ensure_init_executed(
     inject_auto_imports(init_executor, script)
     result = _run_on_executor(init_executor, script)
     if result.get("status") != "ok":
-        with _SESSION_LOCK:
-            _SESSION_EXECUTORS.pop(init_session_id, None)
-            _INIT_SCRIPT_HASH.pop(init_session_id, None)
+        with _sessions.lock:
+            _sessions.clear_init_session_unlocked(init_session_id)
         return result
 
-
-    with _SESSION_LOCK:
-        _INIT_SCRIPT_HASH[init_session_id] = digest
+    with _sessions.lock:
+        _sessions.init_script_hash[init_session_id] = digest
     return None
 
 
@@ -937,11 +961,12 @@ _RESULT_MISSING = object()
 # add a threading.Lock here unless the worker becomes multi-threaded; then this
 # flag needs a lock (or to move under ``_SESSION_LOCK``).
 _MPL_AGG_SET = False
+_MPL_AGG_FAILED = False
 
 
 def _ensure_mpl_agg() -> None:
-    global _MPL_AGG_SET
-    if _MPL_AGG_SET:
+    global _MPL_AGG_SET, _MPL_AGG_FAILED
+    if _MPL_AGG_SET or _MPL_AGG_FAILED:
         return
     mpl = optional_module("matplotlib")
     if mpl is not None and hasattr(mpl, "use"):
@@ -949,7 +974,9 @@ def _ensure_mpl_agg() -> None:
             mpl.use("Agg")
             _MPL_AGG_SET = True
         except Exception:
-            pass
+            _MPL_AGG_FAILED = True
+    else:
+        _MPL_AGG_FAILED = True
 
 
 def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
@@ -959,13 +986,13 @@ def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
             executor.custom_tools[k] = v
 
 
-def _is_defined_function(obj: Any) -> bool:
+def _is_callable_or_method(obj: Any) -> bool:
     return isinstance(obj, (types.FunctionType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType))
 
 
 def _is_mpl_artist_result(obj: Any) -> bool:
     """True for a pyplot artist or the list ``plt.plot`` returns."""
-    artist_mod = optional_module("matplotlib.artist")
+    artist_mod = optional_module("matplotlib.artist", load=False)
     if artist_mod is None:
         return False
     artist = artist_mod.Artist
@@ -975,7 +1002,7 @@ def _is_mpl_artist_result(obj: Any) -> bool:
 
 
 def _close_open_figures() -> None:
-    plt_mod = optional_module("matplotlib.pyplot")
+    plt_mod = optional_module("matplotlib.pyplot", load=False)
     if plt_mod is None:
         return
     try:
@@ -984,6 +1011,10 @@ def _close_open_figures() -> None:
     except Exception:
         log.debug("failed to close pyplot figures", exc_info=True)
 
+
+def _cleanup_execute(executor: LocalPythonExecutor, prior_result: Any) -> None:
+    _restore_prior_result(executor, prior_result)
+    _close_open_figures()
 
 def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
     # Bugfix (#388): shared-kernel leftover ``result`` was used as egress for later
@@ -1009,7 +1040,7 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         # and plt.plot() evaluates to Line2D artists. The pickle check rejected
         # both before open figures were captured, and those figures stayed open
         # so the next script returned that SVG instead of its own value.
-        if _is_defined_function(result):
+        if _is_callable_or_method(result):
             result = None
 
         extra_stdout = ""
@@ -1044,8 +1075,7 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         # running and issued more wa.* calls after Stop.
         # Why this works: UserStopped is BaseException, so that handler does
         # not run. End the turn with the code the host already sent.
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
+        _cleanup_execute(executor, prior_result)
         return {
             "status": "error",
             "code": "USER_STOPPED",
@@ -1053,18 +1083,14 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
             "stdout": "",
         }
     except InterpreterError as e:
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
+        _cleanup_execute(executor, prior_result)
         return {
             "status": "error",
             "message": str(e),
             "stdout": str(executor.state.get("_print_outputs", "")),
         }
     except Exception as e:
-        import traceback
-
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
+        _cleanup_execute(executor, prior_result)
         return {
             "status": "error",
             "message": str(e),

@@ -115,19 +115,12 @@ def test_auto_imports_inject_st_dt_plt_aliases():
     """Sandbox gets st/dt/plt aliases without explicit imports when packages exist."""
     from plugin.framework.constants import AUTO_IMPORTS
     from plugin.scripting.config_limits import python_exec_timeout_default
-    from plugin.scripting.venv.venv_sandbox import _new_executor, apply_auto_imports, inject_auto_imports, optional_module
+    from plugin.scripting.venv.venv_sandbox import _new_executor, inject_auto_imports, optional_module
 
     assert AUTO_IMPORTS["scipy.stats"] == "import scipy.stats as st"
     assert AUTO_IMPORTS["datetime"] == "import datetime as dt"
     assert AUTO_IMPORTS["matplotlib.pyplot"] == "import matplotlib.pyplot as plt"
     assert "seaborn" not in AUTO_IMPORTS
-
-    code, _lines = apply_auto_imports("result = 1")
-    assert "import datetime as dt" in code
-    if optional_module("scipy.stats") is not None:
-        assert "import scipy.stats as st" in code
-    if optional_module("matplotlib.pyplot") is not None:
-        assert "import matplotlib.pyplot as plt" in code
 
     executor = _new_executor(python_exec_timeout_default())
     inject_auto_imports(executor, "result = 1")

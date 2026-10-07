@@ -30,12 +30,14 @@ def test_ensure_mpl_agg_retries_after_use_failure(monkeypatch):
                 raise RuntimeError("backend busy")
 
     monkeypatch.setattr(vs, "_MPL_AGG_SET", False)
-    monkeypatch.setattr(vs, "optional_module", lambda name: _Mpl() if name == "matplotlib" else None)
+    monkeypatch.setattr(vs, "_MPL_AGG_FAILED", False)
+    monkeypatch.setattr(vs, "optional_module", lambda name, load=True: _Mpl() if name == "matplotlib" else None)
     vs._ensure_mpl_agg()
     assert vs._MPL_AGG_SET is False
     vs._ensure_mpl_agg()
-    assert vs._MPL_AGG_SET is True
-    assert calls["n"] == 2
+    assert vs._MPL_AGG_FAILED is True
+    vs._ensure_mpl_agg()
+    assert calls["n"] == 1
 
 
 # ---------------------------------------------------------------------------
