@@ -775,7 +775,6 @@ class TestSlashOverlayParked:
 
     def test_text_change_skips_overlay_and_still_dispatches(self, caplog) -> None:
         send_listener = MagicMock()
-        send_listener._approval_event = None
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), caplog.at_level(logging.DEBUG):
             listener.on_text_changed(_query_text_event("/he"))
@@ -789,7 +788,6 @@ class TestSlashOverlayParked:
 
     def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self, caplog) -> None:
         send_listener = MagicMock()
-        send_listener._approval_event = None
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True), \
              patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
@@ -801,7 +799,6 @@ class TestSlashOverlayParked:
 
     def test_enabled_plain_text_dispatches(self) -> None:
         send_listener = MagicMock()
-        send_listener._approval_event = None
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
             listener.on_text_changed(_query_text_event("hello"))
@@ -1702,13 +1699,7 @@ class TestPanelR3Fixes:
         send_model.Enabled = True
         listener.send_control.getModel.return_value = send_model
 
-        # 1. QueryTextListener skips dispatching TEXT_UPDATED during approval
-        text_listener = QueryTextListener(listener)
-        with patch.object(listener, "dispatch") as mock_dispatch:
-            text_listener.on_text_changed(_query_text_event("searching for something"))
-            mock_dispatch.assert_not_called()
-
-        # 2. UpdateUIEffect does not overwrite Accept or grey it out
+        # UpdateUIEffect does not overwrite Accept or grey it out
         from plugin.chatbot.send_state import UpdateUIEffect
         listener._interpret_effect(
             UpdateUIEffect(send_enabled=False, stop_enabled=True, send_label="Send", status_text="")

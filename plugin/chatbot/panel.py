@@ -283,11 +283,6 @@ class QueryTextListener(BaseTextListener):
         # Why: ``is True`` so a MagicMock host (tests) is not treated as dead.
         if getattr(self.send_listener, "_panel_teardown", False) is True:
             return
-        # What was wrong: typing during inline web-search approval emitted TEXT_UPDATED,
-        # which transitioned the FSM and relabeled/disabled the Accept button back to Send.
-        # Why this change: suppress TEXT_UPDATED dispatches while waiting for inline approval.
-        if _is_approval_pending(self.send_listener):
-            return
         model = getattr(rEvent.Source, "Model", None)
         if not model:
             model = rEvent.Source.getModel()
