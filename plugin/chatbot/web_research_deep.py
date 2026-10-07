@@ -160,7 +160,7 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
         learnings_payload = parsed.get("learnings", [])
         follow_up_payload = parsed.get("followUpQuestions") or parsed.get("questions") or []
         learnings: list[str] = []
-        citations: dict[str, str] = {}
+        citations: dict[str, list[str]] = {}
         if isinstance(learnings_payload, list):
             for item in learnings_payload:
                 if isinstance(item, dict):
@@ -170,13 +170,9 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
                     learning = str(item).strip()
                     citation = ""
                 if learning:
-                    if citation:
-                        key = learning
-                        while key in citations:
-                            key += " "
-                        citations[key] = citation
-                        learning = key
                     learnings.append(learning)
+                    if citation:
+                        citations.setdefault(learning, []).append(citation)
         # A bare string used to be iterated here. ``"What about beta?"`` became
         # one fake question per character (a dict became its keys). Sibling
         # parsers already require a list before they walk the payload.
@@ -194,7 +190,7 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
 
     line_learnings: list[str] = []
     line_questions: list[str] = []
-    line_citations: dict[str, str] = {}
+    line_citations: dict[str, list[str]] = {}
     for raw_line in response.replace("```json", "").replace("```", "").splitlines():
         line = raw_line.strip()
         if not line:
@@ -210,13 +206,9 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
                     citation = url_match.group(0)
                     learning = learning.replace(citation, "").strip(" -")
             if learning:
-                if citation:
-                    key = learning
-                    while key in line_citations:
-                        key += " "
-                    line_citations[key] = citation
-                    learning = key
                 line_learnings.append(learning)
+                if citation:
+                    line_citations.setdefault(learning, []).append(citation)
         elif question_match:
             line_questions.append(question_match.group("question").strip())
     return {
@@ -293,7 +285,7 @@ class ResearchProgress:
 @dataclass
 class _ResearchAccumulator:
     learnings: list[str] = field(default_factory=list)
-    citations: dict[str, str] = field(default_factory=dict)
+    citations: dict[str, list[str]] = field(default_factory=dict)
     context_chunks: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
     started_queries: int = 0
@@ -327,6 +319,7 @@ def parse_assessment_response(response: str) -> dict[str, Any]:
         gaps = [str(g).strip() for g in gaps_raw if str(g).strip()] if isinstance(gaps_raw, list) else []
         queries = [str(q).strip() for q in queries_raw if str(q).strip()] if isinstance(queries_raw, list) else []
         stop_flag = parsed.get("stop")
+        # ``bool("false")``, ``bool("0")``, and ``bool("no")`` are True, so a
         # stringified flag ended the research loop early. `as_bool` correctly
         # handles standard boolean token strings. Parse tokens the way score
         # is coerced above: only a real boolean counts, and bad input falls
@@ -346,15 +339,15 @@ def assess_research_coverage(
     llm_chat: LlmChatFn,
     original_query: str,
     learnings: list[str],
-    citations: dict[str, str],
+    citations: dict[str, list[str]],
     *,
     quality_threshold: int,
 ) -> dict[str, Any]:
     cited = []
     unique_learnings = list(dict.fromkeys(learnings))
     for learning in unique_learnings[-40:]:
-        citation = citations.get(learning, "")
-        cited.append(f"{learning} [Source: {citation}]" if citation else learning)
+        urls = citations.get(learning, [])
+        cited.append(f"{learning} [Sources: {', '.join(urls)}]" if urls else learning)
     evidence = "\n".join(cited) or "(No learnings yet.)"
     messages = [
         {
@@ -565,7 +558,8 @@ def _extract_urls_from_text(text: str) -> list[str]:
 
 def _merge_branch_results(acc: _ResearchAccumulator, branch: dict[str, Any]) -> None:
     acc.learnings.extend(branch.get("learnings") or [])
-    acc.citations.update(branch.get("citations") or {})
+    for learning, urls in (branch.get("citations") or {}).items():
+        acc.citations.setdefault(learning, []).extend(urls)
     ctx = branch.get("context")
     if ctx:
         acc.context_chunks.append(str(ctx))
@@ -628,10 +622,15 @@ def _process_one_sub_query(
         results = {}
 
     sources = _extract_urls_from_text(sub_context)
-    # parse_research_results_response stores {learning sentence: source url}.
-    # Iterating the dict yielded sentences, so follow-up sources never included the URL.
+    # parse_research_results_response stores {learning sentence: list[source url]}.
     citation_map = results.get("citations") or {}
-    citation_urls = citation_map.values() if isinstance(citation_map, dict) else citation_map
+    citation_urls = []
+    if isinstance(citation_map, dict):
+        for urls in citation_map.values():
+            citation_urls.extend(urls)
+    else:
+        citation_urls = citation_map
+
     for url in citation_urls:
         if url and url not in sources:
             sources.append(url)
@@ -993,9 +992,9 @@ def _run_deep_research_body(
 
     cited_learnings: list[str] = []
     for learning in learnings:
-        citation = citations.get(learning, "")
-        if citation:
-            cited_learnings.append(f"{learning} [Source: {citation}]")
+        urls = citations.get(learning, [])
+        if urls:
+            cited_learnings.append(f"{learning} [Sources: {', '.join(urls)}]")
         else:
             cited_learnings.append(learning)
 
