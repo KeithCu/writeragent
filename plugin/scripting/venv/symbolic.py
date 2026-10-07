@@ -6,60 +6,61 @@
 
 from __future__ import annotations
 
+import functools
 import logging
-from typing import Any
+import re
+from typing import Any, Callable
 
 from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
+from plugin.scripting.venv.coerce import (
+    error_result as _error_result,
+    missing_package_error as _missing_package_error,
+    ok_result as _ok_result,
+    parse_trusted_spec as _parse_trusted_spec,
+)
 
 log = logging.getLogger(__name__)
 
-_PARSE_TRANSFORMS: tuple[Any, ...] | None = None
+_MAX_SYMBOLIC_EXPR_CHARS = 10_000
 
 
-from plugin.scripting.venv.coerce import error_result as _error_result
+class _SymbolicError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
-def _ok_result(helper: str, *, latex: str, text: str = "", **extra: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {
-        "status": "ok",
-        "helper": helper,
-        "latex": latex,
-        "text": text or latex,
-        "writer_cleanup_hints": [],
-        **extra,
-    }
-    return out
-
-
-def _require_sympy(helper: str) -> Any | None:
+def _require_sympy() -> Any | None:
     try:
         import sympy as sp
+
         return sp
     except ImportError:
         return None
 
 
+@functools.cache
 def _parse_transformations() -> tuple[Any, ...]:
-    global _PARSE_TRANSFORMS
-    if _PARSE_TRANSFORMS is None:
-        from sympy.parsing.sympy_parser import (
-            implicit_multiplication_application,
-            standard_transformations,
-        )
-        _PARSE_TRANSFORMS = standard_transformations + (implicit_multiplication_application,)
-    assert _PARSE_TRANSFORMS is not None
-    return _PARSE_TRANSFORMS
+    # What was wrong: x^2 caused XOR evaluation error, and multi-letter variables were split into letters.
+    # How: convert_xor was missing from transformations, and implicit_multiplication_application included split_symbols.
+    # Why: Add convert_xor and drop split_symbols (using implicit_multiplication + implicit_application) so x^2 is power and multi-letter names remain intact.
+    from sympy.parsing.sympy_parser import (
+        convert_xor,
+        implicit_application,
+        implicit_multiplication,
+        standard_transformations,
+    )
 
-
-_MAX_SYMBOLIC_EXPR_CHARS = 10_000
+    return standard_transformations + (convert_xor, implicit_multiplication, implicit_application)
 
 
 def _sympy_name_dict(sp: Any) -> dict[str, Any]:
     """Names a formula may use. Not the process globals, so parse_expr cannot import."""
     names: dict[str, Any] = {}
-    # evaluate=False rewrites +/*/** into Add/Mul/Pow calls. Those constructors
-    # have to be in the dict or every formula fails with "name 'Add' is not defined".
-    # The dict is still a closed list: parse_expr cannot see process globals.
+    # What was wrong: 44939dd0 restricted _sympy_name_dict to a short whitelist lacking common functions (atan, ln, sinh, etc.).
+    # How: Any function not on the whitelist was split into single letters or failed to parse.
+    # Why: Widen the whitelist with standard math functions and map ln to sp.log.
     for name in (
         "Abs",
         "Add",
@@ -90,29 +91,57 @@ def _sympy_name_dict(sp: Any) -> dict[str, Any]:
         "sin",
         "sqrt",
         "tan",
+        "asin",
+        "acos",
+        "atan",
+        "atan2",
+        "sinh",
+        "cosh",
+        "tanh",
+        "asinh",
+        "acosh",
+        "atanh",
+        "sec",
+        "csc",
+        "cot",
+        "floor",
+        "ceiling",
+        "Min",
+        "Max",
+        "gamma",
+        "erf",
+        "Mod",
+        "sign",
+        "re",
+        "im",
+        "Piecewise",
+        "conjugate",
     ):
         obj = getattr(sp, name, None)
         if obj is not None:
             names[name] = obj
+    names["ln"] = getattr(sp, "log", None)
     return names
 
 
-def _parse_expression(expr: str, *, helper: str) -> Any:
+def _parse_expression(sp: Any, expr: str, *, variable: Any | None = None) -> Any:
     text = str(expr or "").strip()
     if not text:
         raise ValueError("empty expression")
     if len(text) > _MAX_SYMBOLIC_EXPR_CHARS:
         raise ValueError(f"expression longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
-    sp = _require_sympy(helper)
-    if sp is None:
-        raise ValueError("MISSING_PACKAGE")
+    from sympy.core.function import AppliedUndef
     from sympy.parsing.sympy_parser import parse_expr
+
+    local_dict: dict[str, Any] = {}
+    if variable is not None:
+        var_name = str(variable)
+        local_dict[var_name] = sp.Symbol(var_name)
+
     try:
-        # evaluate=False: the transformed text is not run as Python. simplify /
-        # diff / integrate still compute after a successful parse.
-        return parse_expr(
+        parsed = parse_expr(
             text,
-            local_dict={},
+            local_dict=local_dict,
             global_dict=_sympy_name_dict(sp),
             transformations=_parse_transformations(),
             evaluate=False,
@@ -120,11 +149,17 @@ def _parse_expression(expr: str, *, helper: str) -> Any:
     except Exception as exc:
         raise ValueError(f"Could not parse expression: {exc}") from exc
 
+    # What was wrong: Unknown functions parsed into unevaluated AppliedUndef expressions returning ok.
+    # How: parse_expr allows unknown function calls when auto_symbol creates Function instances.
+    # Why: Check parsed.atoms(AppliedUndef) and raise ValueError to surface as PARSE_ERROR.
+    if parsed.atoms(AppliedUndef):
+        undef = ", ".join(str(a.func) for a in parsed.atoms(AppliedUndef))
+        raise ValueError(f"Undefined function in expression: {undef}")
 
-def _parse_variable(name: str, *, helper: str) -> Any:
-    sp = _require_sympy(helper)
-    if sp is None:
-        raise ValueError("MISSING_PACKAGE")
+    return parsed
+
+
+def _parse_variable(sp: Any, name: str) -> Any:
     var = str(name or "x").strip() or "x"
     return sp.Symbol(var)
 
@@ -133,165 +168,159 @@ def _to_latex(sp: Any, value: Any) -> str:
     return str(sp.latex(value))
 
 
-def _missing_package(helper: str) -> dict[str, Any]:
-    return _error_result(
-        "MISSING_PACKAGE",
-        f"sympy is required for {helper}.",
-        helper=helper,
-    )
+def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """One exception-to-result wrapper for symbolic helpers."""
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        helper = func.__name__
+        sp = _require_sympy()
+        if sp is None:
+            return _missing_package_error(helper, "sympy")
+        try:
+            return func(sp, *args, **kwargs)
+        except _SymbolicError as exc:
+            return _error_result(exc.code, exc.message, helper=helper)
+        except ValueError as exc:
+            return _error_result("PARSE_ERROR", str(exc), helper=helper)
+        except Exception as exc:
+            return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
+
+    return wrapper
 
 
-def symbolic_simplify(*, expression: str) -> dict[str, Any]:
-    helper = "symbolic_simplify"
-    sp = _require_sympy(helper)
-    if sp is None:
-        return _missing_package(helper)
-    try:
-        expr = _parse_expression(expression, helper=helper)
-        simplified = sp.simplify(expr)
-    except ValueError as exc:
-        if str(exc) == "MISSING_PACKAGE":
-            return _missing_package(helper)
-        return _error_result("PARSE_ERROR", str(exc), helper=helper)
-    except Exception as exc:
-        return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
+@_symbolic_helper
+def symbolic_simplify(sp: Any, *, expression: str) -> dict[str, Any]:
+    expr = _parse_expression(sp, expression)
+    simplified = sp.simplify(expr)
     latex = _to_latex(sp, simplified)
-    return _ok_result(helper, latex=latex, text=str(simplified))
+    return _ok_result("symbolic_simplify", latex=latex, text=str(simplified), writer_cleanup_hints=[])
 
 
-def differentiate(*, expression: str, variable: str = "x") -> dict[str, Any]:
-    helper = "differentiate"
-    sp = _require_sympy(helper)
-    if sp is None:
-        return _missing_package(helper)
-    try:
-        expr = _parse_expression(expression, helper=helper)
-        sym = _parse_variable(variable, helper=helper)
-        result = sp.diff(expr, sym)
-    except ValueError as exc:
-        if str(exc) == "MISSING_PACKAGE":
-            return _missing_package(helper)
-        return _error_result("PARSE_ERROR", str(exc), helper=helper)
-    except Exception as exc:
-        return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
+@_symbolic_helper
+def differentiate(sp: Any, *, expression: str, variable: str = "x") -> dict[str, Any]:
+    sym = _parse_variable(sp, variable)
+    expr = _parse_expression(sp, expression, variable=sym)
+    result = sp.diff(expr, sym)
     latex = _to_latex(sp, result)
-    return _ok_result(helper, latex=latex, text=str(result), variable=variable)
+    # What was wrong: variable was returned unstripped (e.g. " x "), inconsistent with sym.
+    # How: Raw variable string parameter was echoed back directly.
+    # Why: Echo str(sym) so the canonical stripped variable name is returned.
+    return _ok_result("differentiate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
-def integrate_helper(*, expression: str, variable: str = "x", lower: str | None = None, upper: str | None = None) -> dict[str, Any]:
-    helper = "integrate"
-    sp = _require_sympy(helper)
-    if sp is None:
-        return _missing_package(helper)
-    try:
-        expr = _parse_expression(expression, helper=helper)
-        sym = _parse_variable(variable, helper=helper)
-        if lower is not None and upper is not None:
-            a = _parse_expression(lower, helper=helper)
-            b = _parse_expression(upper, helper=helper)
-            result = sp.integrate(expr, (sym, a, b))
-        else:
-            result = sp.integrate(expr, sym)
-    except ValueError as exc:
-        if str(exc) == "MISSING_PACKAGE":
-            return _missing_package(helper)
-        return _error_result("PARSE_ERROR", str(exc), helper=helper)
-    except Exception as exc:
-        return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
+@_symbolic_helper
+def integrate(
+    sp: Any,
+    *,
+    expression: str,
+    variable: str = "x",
+    lower: str | None = None,
+    upper: str | None = None,
+) -> dict[str, Any]:
+    sym = _parse_variable(sp, variable)
+    expr = _parse_expression(sp, expression, variable=sym)
+    has_lower = lower is not None and str(lower).strip() != ""
+    has_upper = upper is not None and str(upper).strip() != ""
+    if has_lower != has_upper:
+        # What was wrong: Providing only one integral bound silently computed an indefinite integral.
+        # How: Code checked 'if lower is not None and upper is not None' and fell through to indefinite.
+        # Why: Raise MISSING_PARAM when exactly one bound is given.
+        raise _SymbolicError("MISSING_PARAM", "Both lower and upper bounds must be provided for definite integration.")
+
+    if has_lower and has_upper:
+        a = _parse_expression(sp, str(lower), variable=sym)
+        b = _parse_expression(sp, str(upper), variable=sym)
+        result = sp.integrate(expr, (sym, a, b))
+    else:
+        result = sp.integrate(expr, sym)
+
     latex = _to_latex(sp, result)
-    return _ok_result(helper, latex=latex, text=str(result), variable=variable)
+    return _ok_result("integrate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
-# Templates import ``integrate``. The implementation name stays ``integrate_helper``
-# so it does not shadow sympy.integrate inside this module.
-integrate = integrate_helper
+integrate_helper = integrate
 
 
-def solve_equation(*, equation: str, variable: str = "x") -> dict[str, Any]:
-    helper = "solve_equation"
-    sp = _require_sympy(helper)
-    if sp is None:
-        return _missing_package(helper)
-    try:
-        sym = _parse_variable(variable, helper=helper)
-        text = str(equation or "").strip()
-        if not text:
-            return _error_result("MISSING_PARAM", "equation is required", helper=helper)
-        if "=" in text:
-            lhs_s, rhs_s = text.split("=", 1)
-            lhs = _parse_expression(lhs_s, helper=helper)
-            rhs = _parse_expression(rhs_s, helper=helper)
-            eq = sp.Eq(lhs, rhs)
-            solutions = sp.solve(eq, sym)
-        else:
-            expr = _parse_expression(text, helper=helper)
-            solutions = sp.solve(expr, sym)
-    except ValueError as exc:
-        if str(exc) == "MISSING_PACKAGE":
-            return _missing_package(helper)
-        return _error_result("PARSE_ERROR", str(exc), helper=helper)
-    except Exception as exc:
-        return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
+@_symbolic_helper
+def solve_equation(sp: Any, *, equation: str, variable: str = "x") -> dict[str, Any]:
+    sym = _parse_variable(sp, variable)
+    text = str(equation or "").strip()
+    if not text:
+        raise _SymbolicError("MISSING_PARAM", "equation is required")
+    # What was wrong: Inequalities (<=, >=, !=) or '==' caused loud parse or split errors.
+    # How: text.split("=", 1) split on the first '=' in '<=' or '==', passing invalid pieces to parse_expr.
+    # Why: Explicitly reject inequalities and '==' with INVALID_PARAMS, and split on a single '='.
+    if re.search(r"<=|>=|!=|==|<|>", text):
+        raise _SymbolicError("INVALID_PARAMS", "Inequalities and '==' are not supported in solve_equation; use '=' or expression equal to zero.")
+    if "=" in text:
+        parts = text.split("=")
+        if len(parts) > 2:
+            raise _SymbolicError("INVALID_PARAMS", "Equation cannot contain multiple '=' signs.")
+        lhs = _parse_expression(sp, parts[0], variable=sym)
+        rhs = _parse_expression(sp, parts[1], variable=sym)
+        eq = sp.Eq(lhs, rhs)
+        solutions = sp.solve(eq, sym)
+    else:
+        expr = _parse_expression(sp, text, variable=sym)
+        solutions = sp.solve(expr, sym)
 
     if not isinstance(solutions, list):
         solutions = [solutions]
     latex_parts = [_to_latex(sp, sol) for sol in solutions]
     latex = ", ".join(latex_parts) if latex_parts else ""
-    text = ", ".join(str(s) for s in solutions)
+    text_sol = ", ".join(str(s) for s in solutions)
     return _ok_result(
-        helper,
+        "solve_equation",
         latex=latex,
-        text=text,
+        text=text_sol,
         solutions=[str(s) for s in solutions],
-        variable=variable,
+        variable=str(sym),
+        writer_cleanup_hints=[],
     )
 
 
-def latex_to_math_object(*, latex: str) -> dict[str, Any]:
-    helper = "latex_to_math_object"
-    sp = _require_sympy(helper)
-    if sp is None:
-        return _missing_package(helper)
+@_symbolic_helper
+def latex_to_math_object(sp: Any, *, latex: str) -> dict[str, Any]:
     trimmed = str(latex or "").strip()
     if not trimmed:
-        return _error_result("MISSING_PARAM", "latex is required", helper=helper)
-    # Validate by attempting a lightweight parse when the input looks like plain SymPy syntax.
-    if "=" not in trimmed and "\\" not in trimmed:
-        try:
-            expr = _parse_expression(trimmed, helper=helper)
-            trimmed = _to_latex(sp, expr)
-        except ValueError as exc:
-            # A failed plain-text parse used to be inserted as ok LaTeX. Math is
-            # first in post-venv routing, so the garbage became a math object.
-            if str(exc) == "MISSING_PACKAGE":
-                return _missing_package(helper)
-            return _error_result("PARSE_ERROR", str(exc), helper=helper)
-    return _ok_result(helper, latex=trimmed, text=trimmed)
+        raise _SymbolicError("MISSING_PARAM", "latex is required")
+    # What was wrong: Valid LaTeX containing braces, powers, or subscripts (e.g. x^{2}, x_1) was parsed as SymPy syntax and mangled.
+    # How: Only '=' and '\\' were checked before routing to SymPy parse_expr.
+    # Why: Treat '{', '}', '^', '_' as LaTeX cues as well to preserve valid LaTeX syntax.
+    if not any(cue in trimmed for cue in ("=", "\\", "{", "}", "^", "_")):
+        expr = _parse_expression(sp, trimmed)
+        trimmed = _to_latex(sp, expr)
+    return _ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
+
+
+_HELPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "symbolic_simplify": lambda p: symbolic_simplify(expression=str(p.get("expression") or "")),
+    "differentiate": lambda p: differentiate(
+        expression=str(p.get("expression") or ""),
+        variable=str(p.get("variable") or "x"),
+    ),
+    "integrate": lambda p: integrate(
+        expression=str(p.get("expression") or ""),
+        variable=str(p.get("variable") or "x"),
+        lower=p.get("lower"),
+        upper=p.get("upper"),
+    ),
+    "solve_equation": lambda p: solve_equation(
+        equation=str(p.get("equation") or ""),
+        variable=str(p.get("variable") or "x"),
+    ),
+    "latex_to_math_object": lambda p: latex_to_math_object(
+        latex=str(p.get("latex") or p.get("expression") or ""),
+    ),
+}
 
 
 def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:
-    if name == "symbolic_simplify":
-        return symbolic_simplify(expression=str(params.get("expression") or ""))
-    if name == "differentiate":
-        return differentiate(
-            expression=str(params.get("expression") or ""),
-            variable=str(params.get("variable") or "x"),
-        )
-    if name == "integrate":
-        return integrate_helper(
-            expression=str(params.get("expression") or ""),
-            variable=str(params.get("variable") or "x"),
-            lower=params.get("lower"),
-            upper=params.get("upper"),
-        )
-    if name == "solve_equation":
-        return solve_equation(
-            equation=str(params.get("equation") or ""),
-            variable=str(params.get("variable") or "x"),
-        )
-    if name == "latex_to_math_object":
-        return latex_to_math_object(latex=str(params.get("latex") or params.get("expression") or ""))
-    return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
+    handler = _HELPERS.get(name)
+    if handler is None:
+        return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
+    return handler(params)
 
 
 def run_symbolic(
@@ -300,23 +329,13 @@ def run_symbolic(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted symbolic helpers."""
-    del data, context  # reserved for future numeric substitution from sheet data
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return _error_result("INVALID_SPEC", "spec must be a dict or helper name")
+    del data  # reserved for future numeric substitution from sheet data
+    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
+    if isinstance(parsed, dict):
+        return parsed
+    helper, params, _headers, _header_row, ctx, _spec = parsed
 
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return _error_result("MISSING_HELPER", "helper is required")
-    if helper not in HELPER_NAMES:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-
-    params = spec_dict.get("params")
-    if params is None:
-        params = {k: v for k, v in spec_dict.items() if k != "helper"}
-    if not isinstance(params, dict):
-        params = {}
-    return _dispatch_helper(helper, params)
+    result = _dispatch_helper(helper, params)
+    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
+        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
+    return result

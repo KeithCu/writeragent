@@ -9,22 +9,21 @@ Compute is lazy-loaded from ``plugin.scripting.venv.quant`` via ``__getattr__``.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.calc.analysis_runner import calc_tool_context
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.calc.calc_addin_data import _resolve_python_data
 from plugin.doc.doc_type import is_calc, is_writer
+from plugin.framework.errors import ToolExecutionError
+from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.client import run_quant as client_run_quant
 from plugin.scripting.helper_domain import (
+    DomainFacadeConfig,
     header_prefix,
+    make_template_api,
+    supports_calc_or_writer_manual,
 )
-from plugin.framework.errors import ToolExecutionError
-
-log = logging.getLogger(__name__)
-
-from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 
 QUANT_HEADER_PREFIX = header_prefix("quant")
 
@@ -58,9 +57,6 @@ install_lazy_dir(globals(), _QUANT_VENV_EXPORTS)
 
 # --- Templates ---
 
-from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
-
-
 _API = make_template_api(
     DomainFacadeConfig(
         tag="quant",
@@ -87,14 +83,7 @@ def get_quant_template(helper: str) -> str | None:
 
 # --- Runner ---
 
-def supports_quant_manual(doc: Any) -> bool:
-    """True when Run Python Script should expose Quant Helpers for *doc*."""
-    if doc is None:
-        return False
-    try:
-        return is_writer(doc) or is_calc(doc)
-    except Exception:
-        return False
+supports_quant_manual = supports_calc_or_writer_manual
 
 
 def run_trusted_quant(
@@ -119,14 +108,14 @@ def run_trusted_quant(
         raise ToolExecutionError("Quant helpers require a Writer or Calc document.", code="QUANT_ERROR")
 
     dr = str(data_range).strip() if data_range else None
-    
+
     py_data = None
     if dr or data is not None:
         tool_ctx = calc_tool_context(uno_ctx, doc)
         py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
         if err:
             raise ToolExecutionError(err, code="QUANT_ERROR")
-            
+
     # Some helpers like fetch_historical_data do not need py_data
     if name != "fetch_historical_data" and py_data is None:
         raise ToolExecutionError("Provide data_range or data for this quant helper", code="QUANT_ERROR")
@@ -137,8 +126,9 @@ def run_trusted_quant(
     if is_calc(doc):
         try:
             from plugin.calc.bridge import CalcBridge
+
             context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
-        except Exception:
+        except (AttributeError, RuntimeError):
             pass
     if task_hint:
         context["task_hint"] = str(task_hint)
