@@ -473,6 +473,28 @@ def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int | N
     set_config(scoped_key, new_lru)
 
 
+def sync_sidebar_image_model(ctx: Any, ctrl: Any) -> str | None:
+    """Persist sidebar image model combobox text to image_model and image_model_lru."""
+    del ctx
+    if not ctrl or not hasattr(ctrl, "getText"):
+        return None
+    txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
+    if not txt:
+        return None
+    from plugin.framework.client.model_fetcher import get_image_model
+
+    patch: dict[str, Any] = {}
+    if txt != get_image_model():
+        patch["image_model"] = txt
+    lru_key = lru_config_key("image_model_lru", get_current_endpoint())
+    updated = next_lru_list(get_config(lru_key), txt, LRU_MAX_ITEMS)
+    if updated is not None:
+        patch[lru_key] = updated
+    if patch:
+        set_configs(patch)
+    return txt
+
+
 def sync_sidebar_text_model(ctx: Any, ctrl: Any) -> str | None:
     """Persist sidebar chat model combobox text to text_model and model_lru.
 
