@@ -560,7 +560,6 @@ def test_roundtrip_ndarray_complex_containers():
     import numpy as np
     import pickle
     from plugin.scripting.ipc import unpack_pickle_frame
-    from plugin.scripting.ipc import pack_pickle_frame
 
     obj1 = 1 + 2j
     obj2 = np.array([1, 2, 3], dtype=np.float64)
