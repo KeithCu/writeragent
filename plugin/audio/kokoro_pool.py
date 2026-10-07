@@ -26,7 +26,7 @@ import os
 import subprocess
 import threading
 import time
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 from plugin.framework.worker_pool import (
     StderrTail,
@@ -316,7 +316,12 @@ class KokoroProcessPool:
         # pooled slot (see plugin.framework.worker_pool).
         run_in_background(_loop, name="kokoro-idle-reaper", dedicated=True)
 
-    def execute(self, payload: dict[str, Any], timeout_sec: float | None = None) -> dict[str, Any]:
+    def execute(
+        self,
+        payload: dict[str, Any],
+        timeout_sec: float | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
         """Run one Kokoro job. Spawns the child on first use and after a crash.
 
         The pool lock is not held across spawn or the job itself: ``stop_speech``
@@ -327,11 +332,18 @@ class KokoroProcessPool:
         with self._lock:
             if self._shutdown:
                 return {"status": "error", "code": "WORKER_SHUTDOWN", "error": "Kokoro pool is shut down."}
+            if cancel_check and cancel_check():
+                return {"status": "error", "code": "WORKER_CANCELLED", "error": "Kokoro worker was cancelled."}
             self._inflight = True
             self._exec_token = token
             self._last_active = time.monotonic()
             existing = self._worker
             reuse = existing is not None and existing.is_alive() and not existing._retired
+
+        if cancel_check and cancel_check():
+            self.cancel_inflight(token)
+            return {"status": "error", "code": "WORKER_CANCELLED", "error": "Kokoro worker was cancelled."}
+
         if existing is not None and not reuse:
             existing.kill()
         worker = existing if reuse else None

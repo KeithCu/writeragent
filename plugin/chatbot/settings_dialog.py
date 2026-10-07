@@ -290,10 +290,10 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             from plugin.audio.stt_service import normalize_stt_local_model
             val = normalize_stt_local_model(val)
         elif key in ("audio__tts_provider", "audio.tts_provider"):
-            from plugin.audio.tts_service import clean_provider_name
+            from plugin.audio.tts_voices import clean_provider_name
             val = clean_provider_name(str(val))
         elif key in ("audio__tts_voice", "audio.tts_voice"):
-            from plugin.audio.tts_service import (
+            from plugin.audio.tts_voices import (
                 clean_provider_name,
                 clean_voice_name,
                 get_voice_family,
@@ -320,7 +320,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
                 pending["audio.tts_voice"] = val
             continue
         elif key in ("audio__tts_speed", "audio.tts_speed"):
-            from plugin.audio.tts_service import parse_tts_speed
+            from plugin.audio.tts_voices import parse_tts_speed
             spd = parse_tts_speed(val)
             s_val = str(val).strip()
             val = f"{spd:g}x" if s_val.endswith(("x", "X")) or s_val.startswith("1.0x") else f"{spd:g}"
