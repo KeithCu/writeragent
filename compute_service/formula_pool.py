@@ -16,6 +16,8 @@ Maintains a bounded pool of warm subprocesses. Provides:
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -26,7 +28,7 @@ if TYPE_CHECKING:
     import threading
 
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, decode_worker_result, dumps_response, require_execute_wire
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, decode_worker_result, require_execute_wire
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, remaining_sec, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
@@ -34,6 +36,13 @@ log = logging.getLogger("compute_service.formula")
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "formula_worker.py")
+
+
+@dataclass
+class _Session:
+    worker: BaseProcessWorker
+    pid: int | None
+    last_active: float
 
 
 class FormulaProcessPool(BaseProcessPool):
@@ -49,15 +58,10 @@ class FormulaProcessPool(BaseProcessPool):
         eff_shared_ttl = resolve_override(shared_kernel_ttl_sec, cfg.shared_kernel_ttl_sec)
         eff_idle_ttl = resolve_override(idle_worker_ttl_sec, cfg.idle_worker_ttl_sec)
 
-        # Maps exist before the base constructor spawns children. A failed
-        # handshake reaps that pid and the exit callback drops sessions.
-        self._active_sessions: dict[str, BaseProcessWorker] = {}
-        self._worker_sessions: dict[BaseProcessWorker, set[str]] = {}
-        self._session_last_activity: dict[str, float] = {}
-        # Cache of the pid that owned the session. A respawn of the same
-        # wrapper gets a new pid; the old session does not follow it.
-        self._session_pid: dict[str, int] = {}
-        self._lost_sessions: set[str] = set()
+        # Single source of truth for session tracking
+        self._sessions: dict[str, _Session] = {}
+        self._lost_sessions: OrderedDict[str, float] = OrderedDict()
+        self._max_lost_sessions: int = 1000
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
         self._session_reaper_thread: threading.Thread | None = None
@@ -73,17 +77,16 @@ class FormulaProcessPool(BaseProcessPool):
             fn=self._evict_stale_sessions,
         )
 
-    def _evict_stale_sessions(self) -> None:
+    def _evict_stale_sessions(self, ttl_sec: float | None = None) -> None:
         if self._is_shutdown:
             return
+        ttl = self.shared_kernel_ttl_sec if ttl_sec is None else ttl_sec
         now = time.monotonic()
         stale: list[tuple[str, BaseProcessWorker]] = []
         with self._cond:
-            for sid, last_active in list(self._session_last_activity.items()):
-                if now - last_active >= self.shared_kernel_ttl_sec:
-                    worker = self._active_sessions.get(sid)
-                    if worker is not None:
-                        stale.append((sid, worker))
+            for sid, s in list(self._sessions.items()):
+                if now - s.last_active >= ttl:
+                    stale.append((sid, s.worker))
         evicted: list[str] = []
         for sid, worker in stale:
             # Bound lease wait to 2.0s so the session reaper thread does not stall
@@ -95,20 +98,40 @@ class FormulaProcessPool(BaseProcessPool):
                 continue
             try:
                 with self._cond:
-                    refreshed = self._session_last_activity.get(sid)
-                    mapped = self._active_sessions.get(sid)
-                    still_stale = mapped is worker and refreshed is not None and (time.monotonic() - refreshed) >= self.shared_kernel_ttl_sec
+                    sess = self._sessions.get(sid)
+                    still_stale = sess is not None and sess.worker is worker and (time.monotonic() - sess.last_active) >= ttl
                 if not still_stale:
                     continue
                 res = self._reset_session_on_worker(leased, sid, timeout_sec=2.0)
                 with self._cond:
-                    sid_active = sid in self._active_sessions
+                    sid_active = sid in self._sessions
                 if res.get("status") == "ok" or not sid_active:
                     evicted.append(sid)
+                    with self._cond:
+                        self._mark_session_lost_unlocked(sid)
+                        self._drop_one_unlocked(sid)
             finally:
                 self.release_worker(leased)
         if evicted:
             log.info("Session TTL reaper evicted %d idle session(s): %s", len(evicted), evicted)
+
+    def _mark_session_lost_unlocked(self, session_id: str) -> None:
+        self._lost_sessions[session_id] = time.monotonic()
+        while len(self._lost_sessions) > self._max_lost_sessions:
+            self._lost_sessions.popitem(last=False)
+
+    def _mark_session_lost(self, session_id: str) -> None:
+        with self._cond:
+            self._mark_session_lost_unlocked(session_id)
+
+    def _worker_session_count(self, worker: BaseProcessWorker) -> int:
+        return sum(1 for s in self._sessions.values() if s.worker is worker)
+
+    def _worker_has_sessions(self, worker: BaseProcessWorker) -> bool:
+        return any(s.worker is worker for s in self._sessions.values())
+
+    def _worker_sessions_for(self, worker: BaseProcessWorker) -> list[str]:
+        return [sid for sid, s in self._sessions.items() if s.worker is worker]
 
     def _on_process_exit(self, pid: int) -> None:
         """Drop every shared session that named this pid.
@@ -121,24 +144,15 @@ class FormulaProcessPool(BaseProcessPool):
             self._drop_pid_unlocked(pid)
 
     def _drop_pid_unlocked(self, pid: int) -> None:
-        stale = [sid for sid, saved in self._session_pid.items() if saved == pid]
+        stale = [sid for sid, s in self._sessions.items() if s.pid == pid]
         for sid in stale:
-            self._lost_sessions.add(sid)
+            self._mark_session_lost_unlocked(sid)
             self._drop_one_unlocked(sid)
         if stale:
             log.info("Dropped %d shared session(s) with exited pid=%s", len(stale), pid)
 
     def _drop_one_unlocked(self, session_id: str) -> None:
-        worker = self._active_sessions.pop(session_id, None)
-        self._session_pid.pop(session_id, None)
-        self._session_last_activity.pop(session_id, None)
-        if worker is None:
-            return
-        sessions = self._worker_sessions.get(worker)
-        if sessions is not None:
-            sessions.discard(session_id)
-            if not sessions:
-                del self._worker_sessions[worker]
+        self._sessions.pop(session_id, None)
 
     def _reap_dead_sessions_unlocked(self) -> None:
         """Invalidate the session cache against the live pid.
@@ -147,28 +161,25 @@ class FormulaProcessPool(BaseProcessPool):
         and every session that named it is dropped. A wrapper that respawned
         under a new pid is not the old session.
         """
-        for worker, sids in list(self._worker_sessions.items()):
+        for sid, s in list(self._sessions.items()):
+            worker = s.worker
             proc = worker.process
             if proc is None or proc.poll() is not None:
-                for sid in list(sids):
-                    self._lost_sessions.add(sid)
-                self._clear_worker_sessions_unlocked(worker)
-                continue
-            pid = proc.pid
-            for sid in list(sids):
-                if self._session_pid.get(sid) != pid:
-                    self._lost_sessions.add(sid)
-                    self._drop_one_unlocked(sid)
+                self._mark_session_lost_unlocked(sid)
+                self._drop_one_unlocked(sid)
+            elif s.pid is not None and s.pid != proc.pid:
+                self._mark_session_lost_unlocked(sid)
+                self._drop_one_unlocked(sid)
 
     def live_session_worker(self, session_id: str) -> BaseProcessWorker | None:
         """The process that still owns *session_id*, or None once that pid has exited."""
         with self._cond:
             self._reap_dead_sessions_unlocked()
-            return self._active_sessions.get(session_id)
+            s = self._sessions.get(session_id)
+            return s.worker if s is not None else None
 
     def _clear_worker_sessions_unlocked(self, worker: BaseProcessWorker) -> None:
-        sessions = list(self._worker_sessions.get(worker, ()))
-        for sid in sessions:
+        for sid in self._worker_sessions_for(worker):
             self._drop_one_unlocked(sid)
 
     def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
@@ -181,14 +192,14 @@ class FormulaProcessPool(BaseProcessPool):
         ``max_tasks`` recycle stayed blocked. Session TTL already resets
         those namespaces.
         """
-        return bool(self._worker_sessions.get(worker))
+        return self._worker_has_sessions(worker)
 
     def _drop_session_if_worker(self, session_id: str, worker: BaseProcessWorker) -> None:
         """Pop maps only when they still name *worker*."""
         with self._cond:
-            if self._active_sessions.get(session_id) is not worker:
-                return
-            self._drop_one_unlocked(session_id)
+            s = self._sessions.get(session_id)
+            if s is not None and s.worker is worker:
+                self._drop_one_unlocked(session_id)
 
     def _drop_session_after_reset(self, session_id: str, worker: BaseProcessWorker, res: dict[str, Any]) -> bool:
         """Forget *session_id* only when the worker reset reports ``ok``.
@@ -228,11 +239,11 @@ class FormulaProcessPool(BaseProcessPool):
         """
         with self._cond:
             if not worker.is_alive():
-                for sid in list(self._worker_sessions.get(worker, ())):
-                    self._lost_sessions.add(sid)
-                self._clear_worker_sessions_unlocked(worker)
+                for sid in self._worker_sessions_for(worker):
+                    self._mark_session_lost(sid)
+                    self._drop_one_unlocked(sid)
                 return False
-            if self._worker_sessions.get(worker):
+            if self._worker_has_sessions(worker):
                 return False
             return worker.tasks_executed >= self.max_tasks
 
@@ -252,11 +263,11 @@ class FormulaProcessPool(BaseProcessPool):
                 self._idle.discard(worker)
         if not self._idle:
             return None
-        clean_workers = [w for w in self._idle if not self._worker_sessions.get(w)]
+        clean_workers = [w for w in self._idle if not self._worker_has_sessions(w)]
         if clean_workers:
             chosen = clean_workers[0]
         else:
-            chosen = min(self._idle, key=lambda w: len(self._worker_sessions.get(w, ())))
+            chosen = min(self._idle, key=lambda w: self._worker_session_count(w))
         self._idle.remove(chosen)
         return chosen
 
@@ -272,14 +283,15 @@ class FormulaProcessPool(BaseProcessPool):
         gives an in-progress calculation time to complete before failing the
         control-plane reset request.
         """
-        # Do not pop the map before the lease. The old order let a concurrent
-        # execute re-register the session and run a cell, then this reset
-        # wiped the kernel while the map still pointed at the worker. A lease
-        # miss also left the map already gone, so max_tasks recycle could
-        # kill the process anyway.
+        if session_id.endswith(":init") or session_id.startswith("isolated:"):
+            return {"status": "error", "code": "INVALID_REQUEST", "error": "Invalid session_id: cannot end with ':init' or start with 'isolated:'"}
+
         with self._cond:
             self._reap_dead_sessions_unlocked()
-            worker = self._active_sessions.get(session_id)
+            s = self._sessions.get(session_id)
+            worker = s.worker if s is not None else None
+            # Explicit reset: discard from lost set so next call gets a clean kernel without session_reset: true
+            self._lost_sessions.pop(session_id, None)
 
         if worker is None:
             return {"status": "ok"}
@@ -342,6 +354,9 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
+        if session_id and (session_id.endswith(":init") or session_id.startswith("isolated:")):
+            return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": "Invalid session_id: cannot end with ':init' or start with 'isolated:'"}
+
         eff_timeout = float(timeout_sec or self.default_timeout_sec)
         # The HTTP handler passes the accept-time deadline. Starting a fresh
         # clock here used to give the child the original full timeout after
@@ -363,22 +378,37 @@ class FormulaProcessPool(BaseProcessPool):
                 self._reap_dead_sessions_unlocked()
                 if session_id in self._lost_sessions:
                     session_was_lost = True
-                    self._lost_sessions.discard(session_id)
-                target_worker = self._active_sessions.get(session_id)
-                if target_worker is not None and target_worker not in self.workers:
-                    target_worker = None
-                if target_worker is None and self.workers:
+                    self._lost_sessions.pop(session_id, None)
+                sess = self._sessions.get(session_id)
+                if sess is not None and sess.worker not in self.workers:
+                    self._drop_one_unlocked(session_id)
+                    sess = None
+
+                if sess is not None:
+                    target_worker = sess.worker
+                elif self.workers:
                     # Distribute new shared sessions across workers by choosing the worker
                     # currently hosting the fewest active sessions. Prefer idle workers
                     # among ties to distribute load evenly, using hash as final tie-breaker.
                     target_worker = min(
                         self.workers,
                         key=lambda w: (
-                            len(self._worker_sessions.get(w, ())),
+                            self._worker_session_count(w),
                             0 if w in self._idle else 1,
                             abs(hash((session_id, w.worker_id))),
                         ),
                     )
+                    # Reserve session->worker at pick time inside the same with self._cond!
+                    proc = target_worker.process
+                    pid = proc.pid if (proc is not None and proc.poll() is None) else None
+                    self._sessions[session_id] = _Session(
+                        worker=target_worker,
+                        pid=pid,
+                        last_active=time.monotonic(),
+                    )
+                else:
+                    target_worker = None
+
             if target_worker is None:
                 return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
             leased = self.lease_specific(target_worker, timeout_sec=remaining_sec(deadline))
@@ -390,7 +420,7 @@ class FormulaProcessPool(BaseProcessPool):
         if leased is None:
             if session_was_lost and session_id:
                 with self._cond:
-                    self._lost_sessions.add(session_id)
+                    self._mark_session_lost_unlocked(session_id)
             return {"id": req_id, "status": "error", "code": "WORKER_POOL_BUSY", "error": busy_err}
 
         try:
@@ -403,19 +433,11 @@ class FormulaProcessPool(BaseProcessPool):
             child_budget = remaining_sec(deadline)
             child_alarm = max(1, int(child_budget))
             payload["timeout_sec"] = child_alarm
+            payload["session_reset"] = session_was_lost
             host_timeout = max(child_budget, float(child_alarm)) + HOST_IPC_READ_GRACE_SEC
             res = leased.execute(payload, timeout_sec=host_timeout)
             if session_was_lost and isinstance(res, dict):
                 res["session_reset"] = True
-                raw_out = res.get("result_json")
-                if isinstance(raw_out, (bytes, bytearray)):
-                    try:
-                        data = json.loads(bytes(raw_out).decode("utf-8"))
-                        if isinstance(data, dict):
-                            data["session_reset"] = True
-                            res["result_json"] = dumps_response(data)
-                    except Exception:
-                        pass
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             if decode_result and isinstance(res, dict):
@@ -425,27 +447,21 @@ class FormulaProcessPool(BaseProcessPool):
                 return decoded
             return res
         finally:
-            # Register only after the child is alive. Doing it before execute
-            # pinned every workbook to a wrapper whose process had already
-            # died while idle. execute respawned a blank kernel, recycle saw
-            # a live pid, and later cells refreshed the TTL on empty state.
-            # Must register before release_worker(): once released, another
-            # concurrent request could inspect _active_sessions before we update it.
             with self._cond:
-                if leased.did_respawn:
-                    for sid in list(self._worker_sessions.get(leased, ())):
-                        self._lost_sessions.add(sid)
-                    self._clear_worker_sessions_unlocked(leased)
-                # Drop sessions whose pid has exited. The id is then recorded
-                # on the process that actually ran this cell. A replacement
-                # process does not keep the previous workbook's names.
-                self._reap_dead_sessions_unlocked()
                 proc = leased.process
                 if mode == "shared" and session_id and leased.is_alive() and proc is not None and proc.poll() is None:
-                    self._active_sessions[session_id] = leased
-                    self._worker_sessions.setdefault(leased, set()).add(session_id)
-                    self._session_last_activity[session_id] = time.monotonic()
-                    self._session_pid[session_id] = proc.pid
+                    sess = self._sessions.get(session_id)
+                    if sess is not None and sess.worker is leased:
+                        sess.pid = proc.pid
+                        sess.last_active = time.monotonic()
+                    else:
+                        self._sessions[session_id] = _Session(worker=leased, pid=proc.pid, last_active=time.monotonic())
+                self._reap_dead_sessions_unlocked()
+                if mode == "shared" and session_id and not leased.is_alive():
+                    sess = self._sessions.get(session_id)
+                    if sess is not None and sess.worker is leased:
+                        self._mark_session_lost_unlocked(session_id)
+                        self._drop_one_unlocked(session_id)
             self.release_worker(leased)
 
     @staticmethod

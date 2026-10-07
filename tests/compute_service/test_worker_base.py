@@ -243,3 +243,93 @@ def test_set_pdeathsig() -> None:
     else:
         assert set_pdeathsig(signal.SIGKILL) is True
 
+
+def test_run_worker_stdio_loop_oversized_result_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Oversized result writes RESULT_TOO_LARGE error frame without crashing the worker."""
+    import io
+    import sys
+    import types
+    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop
+    from plugin.scripting.ipc import pack_pickle_frame
+
+    # Request 1 returns oversized bytes; Request 2 returns normal result
+    req1 = {"id": "req-1", "action": "oversized"}
+    req2 = {"id": "req-2", "action": "normal"}
+
+    frame1 = pack_pickle_frame(req1)
+    frame2 = pack_pickle_frame(req2)
+    fake_stdin = io.BytesIO(frame1 + frame2)
+    fake_stdout = io.BytesIO()
+
+    monkeypatch.setattr(sys, "stdin", types.SimpleNamespace(buffer=fake_stdin))
+    monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=fake_stdout))
+
+    def handler(req: dict) -> dict:
+        if req["action"] == "oversized":
+            # Return payload that exceeds 1024 bytes cap
+            return {"id": req.get("id"), "status": "ok", "big": b"x" * 2000}
+        return {"id": req.get("id"), "status": "ok", "result": 123}
+
+    ret = run_worker_stdio_loop(handler, max_payload_bytes=1024)
+    assert ret == 0
+
+    fake_stdout.seek(0)
+    ready = read_pickle_frame(fake_stdout, max_payload_bytes=1024)
+    assert isinstance(ready, dict)
+    assert ready["status"] == "ready"
+
+    res1 = read_pickle_frame(fake_stdout, max_payload_bytes=1024)
+    assert isinstance(res1, dict)
+    assert res1["status"] == "error"
+    assert res1["code"] == "RESULT_TOO_LARGE"
+    assert res1["id"] == "req-1"
+
+    res2 = read_pickle_frame(fake_stdout, max_payload_bytes=1024)
+    assert isinstance(res2, dict)
+    assert res2["status"] == "ok"
+    assert res2["result"] == 123
+    assert res2["id"] == "req-2"
+
+
+def test_run_worker_stdio_loop_catches_base_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BaseException in user code is caught and returned as error frame without killing worker."""
+    import io
+    import sys
+    import types
+    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop
+    from plugin.scripting.ipc import pack_pickle_frame
+
+    req1 = {"id": "req-base-exc"}
+    req2 = {"id": "req-normal"}
+    fake_stdin = io.BytesIO(pack_pickle_frame(req1) + pack_pickle_frame(req2))
+    fake_stdout = io.BytesIO()
+
+    monkeypatch.setattr(sys, "stdin", types.SimpleNamespace(buffer=fake_stdin))
+    monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=fake_stdout))
+
+    def handler(req: dict) -> dict:
+        if req.get("id") == "req-base-exc":
+            raise SystemExit("cell exited")
+        return {"id": req.get("id"), "status": "ok"}
+
+    ret = run_worker_stdio_loop(handler, max_payload_bytes=1024 * 1024)
+    assert ret == 0
+
+    fake_stdout.seek(0)
+    ready = read_pickle_frame(fake_stdout)
+    assert isinstance(ready, dict)
+    assert ready["status"] == "ready"
+
+    res1 = read_pickle_frame(fake_stdout)
+    assert isinstance(res1, dict)
+    assert res1["status"] == "error"
+    assert res1["code"] == "WORKER_EXECUTION_ERROR"
+    assert "cell exited" in res1["error"]
+    assert res1["id"] == "req-base-exc"
+
+    res2 = read_pickle_frame(fake_stdout)
+    assert isinstance(res2, dict)
+    assert res2["status"] == "ok"
+    assert res2["id"] == "req-normal"
+
+
