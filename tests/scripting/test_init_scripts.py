@@ -79,7 +79,7 @@ def test_init_script_runs_once_in_isolated_mode():
         # One init execution + two cell executions.
         assert mock_run.call_count == 3
 
-    init_exec = vs._sessions.executors[init_sid]
+    init_exec = vs._SESSION_EXECUTORS[init_sid]
     assert init_exec.state.get("INIT_RUNS") == 1
 
 
@@ -206,10 +206,10 @@ def test_reset_non_calc_session_drops_init_companion():
         init_session_id=init_sid,
         init_script_hash="h",
     )
-    assert init_sid in vs._sessions.executors
+    assert init_sid in vs._SESSION_EXECUTORS
     assert reset_sandbox_session("online-wb")["status"] == "ok"
-    assert init_sid not in vs._sessions.executors
-    assert "online-wb" not in vs._sessions.executors
+    assert init_sid not in vs._SESSION_EXECUTORS
+    assert "online-wb" not in vs._SESSION_EXECUTORS
 
 
 def test_isolated_cells_do_not_share_cell_assignments():
@@ -247,9 +247,9 @@ def test_reset_clears_init_session():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert init_sid in vs._sessions.executors
+    assert init_sid in vs._SESSION_EXECUTORS
     assert reset_sandbox_session(cell_sid)["status"] == "ok"
-    assert init_sid not in vs._sessions.executors
+    assert init_sid not in vs._SESSION_EXECUTORS
     run_sandboxed_code(
         "result = MAGIC",
         session_id=None,
@@ -257,7 +257,30 @@ def test_reset_clears_init_session():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert vs._sessions.executors[init_sid].state.get("INIT_RUNS") == 1
+    assert vs._SESSION_EXECUTORS[init_sid].state.get("INIT_RUNS") == 1
+
+
+def test_reset_clears_from_init_session_id():
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    init_sid = "calc:wb-reset-init:init"
+    cell_sid = "calc:wb-reset-init"
+    init_code = "INIT_RUNS = 1\nMAGIC = 7"
+    h = init_script_hash(init_code)
+    run_sandboxed_code(
+        "result = MAGIC",
+        session_id=cell_sid,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=h,
+    )
+    assert init_sid in vs._SESSION_EXECUTORS
+    assert cell_sid in vs._SESSION_EXECUTORS
+    assert reset_sandbox_session(init_sid)["status"] == "ok"
+    assert init_sid not in vs._SESSION_EXECUTORS
+    assert cell_sid not in vs._SESSION_EXECUTORS
+    assert init_sid not in vs._INIT_SCRIPT_HASH
+    assert cell_sid not in vs._CELL_SESSION_INIT_DIGEST
 
 
 def test_build_python_eval_init_kwargs():

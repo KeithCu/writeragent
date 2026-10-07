@@ -18,7 +18,7 @@ from plugin.scripting.payload_codec import (
 PNG_MAGIC = b"\x89PNG"
 
 
-def test_ensure_mpl_agg_retries_after_use_failure(monkeypatch):
+def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
     from plugin.scripting.venv import venv_sandbox as vs
 
     calls = {"n": 0}
@@ -31,10 +31,9 @@ def test_ensure_mpl_agg_retries_after_use_failure(monkeypatch):
 
     monkeypatch.setattr(vs, "_MPL_AGG_SET", False)
     monkeypatch.setattr(vs, "_MPL_AGG_FAILED", False)
-    monkeypatch.setattr(vs, "optional_module", lambda name, load=True: _Mpl() if name == "matplotlib" else None)
+    monkeypatch.setattr(vs, "optional_module", lambda name: _Mpl() if name == "matplotlib" else None)
     vs._ensure_mpl_agg()
     assert vs._MPL_AGG_SET is False
-    vs._ensure_mpl_agg()
     assert vs._MPL_AGG_FAILED is True
     vs._ensure_mpl_agg()
     assert calls["n"] == 1
@@ -408,3 +407,26 @@ def test_serialize_dict_of_dataframes():
     res = serialize_result({"df_key": df})
     assert isinstance(res, dict)
     assert is_dataframe_payload(res["df_key"])
+
+
+def test_serialize_container_with_ndarray():
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import host_unpack_data
+
+    arr = np.array([1, 2, 3])
+    res = serialize_result([arr, {"k": (arr,)}])
+    assert isinstance(res, list)
+    assert host_unpack_data(res[0]) == [1, 2, 3]
+    assert host_unpack_data(res[1]["k"][0]) == [1, 2, 3]
+
+
+def test_serialize_set_and_frozenset_coercion():
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    res = serialize_result({np.int64(42), np.int64(43)})
+    assert res == {42, 43}
+
+    res_frozen = serialize_result([frozenset([np.int64(7)])])
+    assert res_frozen == [frozenset([7])]

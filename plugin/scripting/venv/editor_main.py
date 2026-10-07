@@ -107,7 +107,10 @@ class JediSession:
             return {"items": []}
 
         try:
-            target_line = line
+            from plugin.scripting.venv.venv_sandbox import apply_auto_imports
+
+            code, lines_added = apply_auto_imports(code)
+            target_line = line + lines_added
             col_idx = max(0, column - 1)
 
             script = jedi.Script(code, environment=self._env)

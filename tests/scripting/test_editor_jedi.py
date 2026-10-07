@@ -36,8 +36,10 @@ def test_jedi_completions_mapping(monkeypatch):
     res = session.get_completions("def ", 1, 5)
 
     # Assert that jedi.Script was called with expected arguments and environment
-    mock_jedi.Script.assert_called_once_with("def ", environment=session._env)
-    mock_script.complete.assert_called_once_with(1, 4)  # Monaco 5 maps to Jedi 4
+    from plugin.scripting.venv.venv_sandbox import apply_auto_imports
+    expected_code, lines_added = apply_auto_imports("def ")
+    mock_jedi.Script.assert_called_once_with(expected_code, environment=session._env)
+    mock_script.complete.assert_called_once_with(1 + lines_added, 4)  # Monaco 5 maps to Jedi 4
 
     # Assert correct structure of returned items
     assert len(res["items"]) == 2
