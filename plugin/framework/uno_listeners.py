@@ -31,7 +31,7 @@ import functools
 import logging
 from typing import Any, NoReturn, TYPE_CHECKING
 
-from plugin.framework.errors import _is_real_disposal
+from plugin.framework.errors import is_real_disposal
 
 log = logging.getLogger(__name__)
 
@@ -247,7 +247,7 @@ def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
     """The one boundary for *exc*, or None when the callback may fail soft.
 
     None is an ordinary Python or UNO runtime error. Real disposal uses
-    :func:`plugin.framework.errors._is_real_disposal`, so a ``RuntimeException``
+    :func:`plugin.framework.errors.is_real_disposal`, so a ``RuntimeException``
     name is not disposal.
     """
     if isinstance(exc, ListenerBoundary):
@@ -256,7 +256,7 @@ def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
         return ListenerBoundary("thread", exc)
     if _is_bridge_veto(exc):
         return ListenerBoundary("veto", exc)
-    if _is_real_disposal(exc):
+    if is_real_disposal(exc):
         return ListenerBoundary("disposed", exc)
     return None
 

@@ -38,17 +38,35 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import threading
-import time
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Generator
 
-from plugin.framework.constants import EXTENSION_ID_LIBREHARPER, EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
+from plugin.framework.constants import (
+    EXTENSION_ID_LIBREHARPER,
+    EXTENSION_ID_LIBREPY,
+    EXTENSION_ID_WRITERAGENT,
+    get_plugin_dir,
+)
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    UnoObjectError,
+    check_disposed,
+    is_real_disposal,
+    safe_call,
+    suppress_disposed,
+)
 from plugin.framework.thread_guard import main_thread_only, on_main_thread
-from plugin.framework.errors import DocumentDisposedError, check_disposed, safe_call, UnoObjectError
+from plugin.framework.vcl_pumping import (
+    _SECONDARY_IDLE_RESERVING as _SECONDARY_IDLE_RESERVING,
+    _post_secondary_idle as _post_secondary_idle,
+    _secondary_idle_lock as _secondary_idle_lock,
+    _secondary_idle_posted as _secondary_idle_posted,
+    focus_preserved as focus_preserved,
+    process_events_to_idle as process_events_to_idle,
+    wait_while_pumping as wait_while_pumping,
+)
 
 log = logging.getLogger("writeragent.context")
 
@@ -61,8 +79,6 @@ _package_extension_id: str | None = None
 
 # Probe order: LibrePy first when both family OXTs are installed (existing behavior).
 _KNOWN_EXTENSION_IDS = (EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT, EXTENSION_ID_LIBREHARPER)
-
-_is_libreharper_cache: bool | None = None
 
 # Process image does not change. None means not computed yet (False is a real answer).
 _desktop_create_unsafe: bool | None = None
@@ -150,42 +166,37 @@ def desktop_create_is_unsafe() -> bool:
 
 def is_libreharper() -> bool:
     """Return True if running under the LibreHarper extension."""
-    global _is_libreharper_cache
-    if _is_libreharper_cache is not None:
-        return _is_libreharper_cache
-    if _package_extension_id == EXTENSION_ID_LIBREHARPER:
-        _is_libreharper_cache = True
-        return True
+    if _package_extension_id is not None:
+        return _package_extension_id == EXTENSION_ID_LIBREHARPER
     try:
         from plugin import _manifest
 
-        _is_libreharper_cache = any(m.get("title") == "LibreHarper" for m in getattr(_manifest, "MODULES", []))
+        return any(m.get("title") == "LibreHarper" for m in getattr(_manifest, "MODULES", []))
     except ImportError:
-        _is_libreharper_cache = False
-    return _is_libreharper_cache
+        return False
 
 
-def set_fallback_ctx(ctx: Any) -> None:
-    """Store a fallback ctx for use when uno module is not available."""
+def set_fallback_ctx(ctx: Any) -> Any | None:
+    """Store a fallback ctx for use when uno module is not available.
+
+    Returns the previous fallback ctx so callers can save and restore it.
+    """
     global _fallback_ctx
+    prev = _fallback_ctx
     _fallback_ctx = ctx
+    return prev
 
 
 def set_package_extension_id(extension_id: str) -> None:
     """Pin the OXT package id used by get_extension_url() (LibrePy vs WriterAgent)."""
-    global _package_extension_id, _is_libreharper_cache
+    global _package_extension_id
     _package_extension_id = extension_id
-    if extension_id == EXTENSION_ID_LIBREHARPER:
-        _is_libreharper_cache = True
-    else:
-        _is_libreharper_cache = False
 
 
 def reset_package_extension_id_for_tests() -> None:
     """Clear cached extension id (unit tests only)."""
-    global _package_extension_id, _is_libreharper_cache
+    global _package_extension_id
     _package_extension_id = None
-    _is_libreharper_cache = None
 
 
 def resolve_package_extension_id(ctx: Any | None = None) -> str:
@@ -195,26 +206,23 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
     ``get_package_info`` is main-thread only, so off-main without a cache
     returns the WriterAgent default (same as the last-resort below).
     """
-    global _package_extension_id, _is_libreharper_cache
+    global _package_extension_id
     if _package_extension_id:
         return _package_extension_id
 
     if not on_main_thread():
         return EXTENSION_ID_WRITERAGENT
 
-    for extension_id in _KNOWN_EXTENSION_IDS:
-        try:
-            pip = get_package_info(ctx)
-            if pip is None:
-                continue
-            location = pip.getPackageLocation(extension_id)
-            if location:
-                _package_extension_id = extension_id
-                if extension_id == EXTENSION_ID_LIBREHARPER:
-                    _is_libreharper_cache = True
-                return extension_id
-        except Exception:
-            log.debug("getPackageLocation(%s) failed", extension_id, exc_info=True)
+    pip = get_package_info(ctx)
+    if pip is not None:
+        for extension_id in _KNOWN_EXTENSION_IDS:
+            try:
+                location = pip.getPackageLocation(extension_id)
+                if location:
+                    _package_extension_id = extension_id
+                    return extension_id
+            except Exception:
+                log.debug("getPackageLocation(%s) failed", extension_id, exc_info=True)
 
     # Last resort: preserve WriterAgent default for older call sites.
     return EXTENSION_ID_WRITERAGENT
@@ -331,7 +339,8 @@ def get_desktop(ctx: Any | None = None) -> Any:
     if desktop_create_is_unsafe():
         log.debug("get_desktop skipped: no-VCL helper process (issue #768)")
         return None
-    ctx = ctx or get_ctx()
+    if ctx is None:
+        ctx = get_ctx()
     if ctx is None:
         return None
     ctx_any = cast("Any", ctx)
@@ -342,60 +351,6 @@ def get_desktop(ctx: Any | None = None) -> Any:
     return _guard_returned_uno(desktop)
 
 
-def _close_scratch_doc(doc: Any) -> None:
-    """Close a hidden scratch document we are about to abandon, so it does not leak."""
-    try:
-        doc.close(True)
-    except Exception:
-        log.debug("new_blank_writer: doc.close() failed", exc_info=True)
-
-
-def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
-    """Hidden, **empty** Writer used as a scratch buffer.
-
-    What was wrong: every scratch document was opened with
-    ``private:factory/swriter``, which honours the user's *default template*.
-    How it happened: a firm that sets its petition model as the default template
-    got that model's text in every scratch doc, and the callers append to it and
-    read the whole body back — so the model's header ("AO DOUTO JUIZO DO ...")
-    came back glued to the caller's real content, and landed in range reads,
-    plain-text conversions and full-document rewrites. Why this change fixes it:
-    the factory URL is still used (it is the only way to get a Writer with the
-    user's own styles), but the body is emptied before the caller sees it.
-
-    Returns None when the desktop is unavailable (no-VCL helper processes).
-    """
-    desktop = get_desktop(ctx)
-    if desktop is None:
-        return None
-    import uno
-
-    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
-    doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
-    if doc is None:
-        return None
-    # What was wrong: a failed clear still returned the scratch Writer, so the
-    # default-template text this function exists to drop was handed to the
-    # caller. How: clear_writer_body logs and returns False on a non-disposal
-    # error, and this ignored that. Why: an already-empty body is False too,
-    # so only a leftover non-empty string is a failure. Disposal still raises.
-    if not clear_writer_body(doc):
-        try:
-            leftover = doc.getText().getString()
-        except Exception as e:
-            _reraise_document_disposed(e, "Writer")
-            log.debug("new_blank_writer: body unreadable after clear", exc_info=True)
-            _close_scratch_doc(doc)
-            return None
-        if (leftover or "").strip():
-            log.debug("new_blank_writer: default template text survived clear_writer_body")
-            _close_scratch_doc(doc)
-            return None
-    # Other document lookups wrap the model so a later off-thread use is
-    # caught by the dev thread guard. This factory used to return it raw.
-    return _guard_returned_uno(doc)
-
-
 def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
     """Re-raise real UNO disposal. Other exceptions stay with the caller.
 
@@ -404,80 +359,11 @@ def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
     is an Exception, so those handlers swallowed it. Why: only real disposal
     (not a bare RuntimeException) becomes DocumentDisposedError.
     """
-    from plugin.framework.errors import _is_real_disposal
-
-    if not _is_real_disposal(exc):
+    if not is_real_disposal(exc):
         return
     if isinstance(exc, DocumentDisposedError):
         raise exc
     raise DocumentDisposedError(str(exc) or "UNO object was disposed", object_type=object_type) from exc
-
-
-# What was wrong: clear_writer_body is a public UNO entry and touched the
-# document with no thread check. A raw model reached PyUNO off the main
-# thread. How: sibling getters use @main_thread_only and this helper did not.
-# Why: the decorator raises before any attribute access when the guard is on.
-# In-tree callers already pass a guarded doc on the main thread; the
-# decorator does not unwrap that argument.
-@main_thread_only
-def clear_writer_body(doc: Any) -> bool:
-    """Empty *doc* of everything a template can put in it. True when something was removed.
-
-    Not just the body text: a letterhead template is often an empty table or a logo
-    anchored to the page, whose body string is "" -- testing the text alone left that
-    table in the scratch doc, and it came back in range reads. So tables, text frames
-    and drawing shapes are disposed explicitly, then the text is cleared.
-
-    Split out so callers that open (or reuse) a scratch Writer their own way can
-    still drop a default template's content.
-    """
-    if doc is None:
-        return False
-    removed = False
-    for supplier in ("getTextTables", "getTextFrames"):
-        try:
-            container = getattr(doc, supplier)()
-            names = list(container.getElementNames())
-        except Exception as e:
-            _reraise_document_disposed(e, "Writer")
-            continue
-        for name in names:
-            try:
-                if container.hasByName(name):  # a nested table goes with its parent
-                    container.getByName(name).dispose()
-                    removed = True
-            except Exception as e:
-                _reraise_document_disposed(e, "Writer")
-                log.debug("clear_writer_body: could not dispose %s %r", supplier, name, exc_info=True)
-    try:
-        page = doc.getDrawPage()
-        # Bounded, never `while getCount()`: if a remove silently fails the count never
-        # drops, and an unbounded loop here would freeze the main thread.
-        # The cap is the count at entry, not a live getCount() check.
-        removal_budget = int(page.getCount())
-        for i in range(removal_budget - 1, -1, -1):
-            try:
-                before = page.getCount()
-                page.remove(page.getByIndex(i))
-                if page.getCount() < before:
-                    removed = True
-            except Exception as e:
-                _reraise_document_disposed(e, "Writer")
-                continue
-    except Exception as e:
-        _reraise_document_disposed(e, "Writer")
-        log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
-    try:
-        text = doc.getText()
-        if (text.getString() or "").strip():
-            removed = True
-        text.setString("")
-    except Exception as e:
-        _reraise_document_disposed(e, "Writer")
-        log.debug("clear_writer_body failed", exc_info=True)
-    if removed:
-        log.debug("clear_writer_body: dropped default-template content from a scratch Writer")
-    return removed
 
 
 @main_thread_only
@@ -500,7 +386,7 @@ def get_active_document(ctx: Any | None = None) -> Any:
         # is None or the component itself is missing.
         raise
     except UnoObjectError:
-        log.exception("get_active_document UnoObjectError")
+        log.warning("get_active_document UnoObjectError", exc_info=True)
         return None
     except Exception as e:
         # What was wrong: DisposedException from get_desktop() is a plain
@@ -514,7 +400,8 @@ def get_active_document(ctx: Any | None = None) -> Any:
 @main_thread_only
 def get_package_info(ctx: Any | None = None) -> Any:
     """Return the PackageInformationProvider singleton."""
-    ctx = ctx or get_ctx()
+    if ctx is None:
+        ctx = get_ctx()
     if ctx is None:
         return None
     ctx_any = cast("Any", ctx)
@@ -527,19 +414,28 @@ def get_package_info(ctx: Any | None = None) -> Any:
 
 @main_thread_only
 def get_extension_url(ctx: Any | None = None, extension_id: str | None = None) -> str:
-    """Return the base URL of the extension package."""
+    """Return the base URL of the extension package, or "" on failure.
+
+    What was wrong: get_extension_url returned "" when get_package_info
+    was None, but "vnd.sun.star.extension://<id>" on exception or empty
+    location.
+    Why this change: return "" consistently on all failure paths and log
+    the failure.
+    """
     if extension_id is None:
         extension_id = resolve_package_extension_id(ctx)
     try:
         pip = get_package_info(ctx)
-        if not pip:
+        if pip is None:
+            log.debug("get_extension_url(%s) failed: no PackageInformationProvider", extension_id)
             return ""
         location = pip.getPackageLocation(extension_id)
         if location:
             return location
+        log.debug("get_extension_url(%s) failed: empty package location", extension_id)
     except Exception:
         log.debug("get_extension_url(%s) failed", extension_id, exc_info=True)
-    return "vnd.sun.star.extension://" + extension_id
+    return ""
 
 
 def menu_icon_asset_url(ext_url: str, icon_filename: str) -> str:
@@ -553,11 +449,13 @@ def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
     ``scripts/build_oxt.py`` remaps ``extension/assets/`` to ``assets/`` at the
     bundle root. ``make release`` pytest/UNO runs against that tree, so looking
     only under ``extension/assets/`` misses ``python_32.png`` and friends.
+
+    What was wrong: icon_filename.replace("assets/", "") stripped the
+    substring anywhere in the path (e.g. "my_assets/x.png" -> "my_x.png").
+    Why this change: use removeprefix("assets/") after lstrip("/") to only
+    remove the leading assets/ prefix.
     """
-
-    from plugin.framework.constants import get_plugin_dir
-
-    clean = icon_filename.replace("assets/", "").lstrip("/")
+    clean = icon_filename.lstrip("/").removeprefix("assets/")
     root = os.path.dirname(get_plugin_dir())
     return (os.path.join(root, "assets", clean), os.path.join(root, "extension", "assets", clean))
 
@@ -579,7 +477,8 @@ def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) 
 @main_thread_only
 def get_toolkit(ctx: Any | None = None) -> Any:
     """Safely retrieve the com.sun.star.awt.Toolkit service."""
-    ctx = ctx or get_ctx()
+    if ctx is None:
+        ctx = get_ctx()
     if ctx is None:
         return None
     try:
@@ -594,181 +493,24 @@ def get_toolkit(ctx: Any | None = None) -> Any:
         return None
 
 
-@contextmanager
-def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[], None] | None = None) -> Generator[None, None, None]:
-    """Restore focus after a block that may steal it (RichTextControl reveal).
+def clear_writer_body(doc: Any) -> bool:
+    """Empty *doc* of everything a template can put in it. True when something was removed.
 
-    *restore* is the query field of the panel that is running this block.
-    There is no process-wide pin: a second window's stream must not call
-    ``setFocus`` here. When *restore* is omitted, the toolkit focus window
-    at entry is restored — which is the Send button after a click, so
-    callers that own an Ask field pass it.
-
-    *restore_focus* is the panel's ``FrameSession.restore_focus`` callback.
-    When given, it runs on exit instead of ``restore.setFocus()``. Why: a
-    raw ``setFocus`` here ignored the frame session (closed, user left the
-    Ask field, frame not the active window) and pulled focus back into a
-    background document window (release QA BUG A, fix 3).
+    Delegates to :func:`~plugin.framework.scratch_writer.clear_writer_body`.
     """
-    if callable(restore_focus):
-        try:
-            yield
-        finally:
-            try:
-                restore_focus()
-            except Exception as e:
-                log.debug("focus_preserved restore_focus: %s", e)
-        return
-    saved = restore
-    if saved is None:
-        try:
-            tk = get_toolkit(ctx)
-            if tk is not None and hasattr(tk, "getFocusWindow"):
-                saved = tk.getFocusWindow()
-        except Exception as e:
-            log.debug("focus_preserved capture: %s", e)
-    try:
-        yield
-    finally:
-        if saved is not None:
-            try:
-                if hasattr(saved, "setFocus"):
-                    saved.setFocus()
-            except Exception as e:
-                log.debug("focus_preserved restore: %s", e)
+    from plugin.framework.scratch_writer import clear_writer_body as _clear_writer_body
+
+    return _clear_writer_body(doc)
 
 
-@main_thread_only
-def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bool:
-    """Drain the UI event queue *rounds* times via the approved VCL pump chokepoint.
+def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
+    """Hidden, **empty** Writer used as a scratch buffer.
 
-    When a chat/MCP :func:`~plugin.framework.queue_executor.drain_owner_scope` is
-    active, skips VCL pumping so secondary progress helpers (grep, Harper status,
-    notebook import) cannot nest ``processEventsToIdle`` inside the drain loop.
-    Pass force=True (e.g. for RichTextControl caret reveal) to pump VCL even when
-    under a drain owner.
-    Returns True if at least one VCL pump ran. Blocking secondary waits should
-    use :func:`wait_while_pumping` rather than a local PE2I loop.
+    Delegates to :func:`~plugin.framework.scratch_writer.new_blank_writer`.
     """
-    from plugin.framework.queue_executor import _note_suppressed_vcl_pump, _pump_vcl_events, get_drain_owner
+    from plugin.framework.scratch_writer import new_blank_writer as _new_blank_writer
 
-    if not on_main_thread():
-        return False
-
-    if not force:
-        if os.environ.get("WRITERAGENT_TESTING") == "1":
-            return False
-        owner = get_drain_owner()
-        if owner is not None:
-            _note_suppressed_vcl_pump(owner)
-            return False
-
-    pumped = False
-    for _idx in range(max(1, rounds)):
-        try:
-            tk = get_toolkit(ctx)
-            if _pump_vcl_events(tk):
-                pumped = True
-        except Exception:
-            log.debug("process_events_to_idle failed", exc_info=True)
-    return pumped
-
-
-# One in-flight secondary-idle post. ``_SECONDARY_IDLE_RESERVING`` covers the
-# window inside ``post_to_main_thread`` before the callable is visible on the
-# queue. The stored callable is cleared on the next tick once it is no longer
-# scheduled, so a drop is not sticky.
-_SECONDARY_IDLE_RESERVING = object()
-_secondary_idle_lock = threading.Lock()
-_secondary_idle_posted: object | None = None
-
-
-def _post_secondary_idle(ctx: Any) -> None:
-    """Enqueue one PE2I tick on the VCL thread. Must not run PE2I on the waiter."""
-    global _secondary_idle_posted
-    from plugin.framework.queue_executor import default_executor, post_to_main_thread
-
-    def _pump() -> None:
-        # QueueExecutor.post can fall back onto the caller when AsyncCallback
-        # is missing. process_events_to_idle is @main_thread_only — skip.
-        if not on_main_thread():
-            return
-        process_events_to_idle(ctx, force=False)
-
-    with _secondary_idle_lock:
-        posted = _secondary_idle_posted
-        if posted is _SECONDARY_IDLE_RESERVING:
-            return
-        if posted is not None and default_executor.callable_is_scheduled(posted):
-            return
-        # What was wrong: each 75ms tick could enqueue another no-op pump, and
-        # the guard for that skipped the post whenever ``pending_work_count()``
-        # was non-zero. How: that count is the whole process-wide marshal
-        # queue. A leftover item from another test (pytest-xdist) or unrelated
-        # UI work looked like "our pump is already queued", so a Dummy-*
-        # linguistic wait never posted. The lint then ran out its own timeout
-        # (CI: ``posts["n"] == 0``, slow result elapsed_ms=2000). Why: coalesce
-        # only this pump. ``post`` dropping the callable, or a test double that
-        # does not enqueue it, leaves nothing scheduled, so the next tick tries
-        # again.
-        _secondary_idle_posted = _SECONDARY_IDLE_RESERVING
-
-    try:
-        post_to_main_thread(_pump)
-    except Exception:
-        with _secondary_idle_lock:
-            if _secondary_idle_posted is _SECONDARY_IDLE_RESERVING:
-                _secondary_idle_posted = None
-        raise
-
-    with _secondary_idle_lock:
-        if _secondary_idle_posted is not _SECONDARY_IDLE_RESERVING:
-            return
-        if default_executor.callable_is_scheduled(_pump):
-            _secondary_idle_posted = _pump
-        else:
-            _secondary_idle_posted = None
-
-
-def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
-    """Wait for *done* while pumping VCL as a secondary caller.
-
-    On the LibreOffice main thread, each tick calls :func:`process_events_to_idle`
-    with ``force=False`` so a chat/MCP drain owner suppresses nested VCL.
-    Off the main thread (Writer ``doProofreading`` linguistic workers are
-    ``Dummy-*``, not VCL) PE2I is **posted** to the main thread — never called
-    on the waiter. Calling PE2I on Dummy-21 popped a UNO thread-violation
-    dialog every poll tick (the wait loop from #778). Repeated off-main ticks
-    coalesce to one outstanding secondary-idle pump; other marshal items do
-    not count. Drain-owner wait loops must keep using
-    :func:`~plugin.framework.queue_executor.pump_ui_idle` /
-    ``run_blocking_in_thread``, not this helper.
-
-    Default *poll_sec* is 75ms (stay inside 50–100ms; same band as the
-    linguistic PE2I-in-proofread wait). Returns True if *done* was set, False
-    if *timeout* elapsed first. Post/PE2I failures are swallowed so a pump
-    miss cannot abort the wait.
-    """
-    pump_on_caller = on_main_thread()
-    deadline = time.monotonic() + max(0.0, timeout)
-    while not done.is_set():
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return False
-        try:
-            if pump_on_caller:
-                process_events_to_idle(ctx, force=False)
-            else:
-                _post_secondary_idle(ctx)
-        except Exception:
-            log.debug("wait_while_pumping process_events_to_idle failed", exc_info=True)
-        if done.is_set():
-            return True
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return False
-        done.wait(timeout=min(poll_sec, remaining))
-    return True
+    return _new_blank_writer(ctx, target=target, flags=flags, extra_props=extra_props)
 
 
 def _doc_identity_url(url: Any) -> str:
@@ -907,6 +649,60 @@ def uno_same(a: Any, b: Any) -> bool:
         return False
 
 
+def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
+    """Iterate open document models from desktop components enumeration.
+
+    Handles frame controller unwrapping, guards against truthy mock loops,
+    stops on nextElement failure, and re-raises real disposal.
+    """
+    if desktop is None:
+        return
+    try:
+        comps = desktop.getComponents()
+    except Exception as e:
+        _reraise_document_disposed(e, "Desktop")
+        return
+    if comps is None:
+        return
+    try:
+        enum = comps.createEnumeration()
+    except Exception as e:
+        _reraise_document_disposed(e, "Desktop")
+        return
+    if enum is None:
+        return
+
+    while True:
+        try:
+            more = enum.hasMoreElements()
+        except Exception as e:
+            _reraise_document_disposed(e, "Desktop")
+            break
+        if more is not True and more != 1:
+            break
+        try:
+            elem = enum.nextElement()
+        except Exception as e:
+            _reraise_document_disposed(e, "Desktop")
+            log.debug("iter_open_models nextElement error: %s", type(e).__name__)
+            break
+        try:
+            model = None
+            if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                model = elem
+            elif hasattr(elem, "getController") and callable(getattr(elem, "getController")):
+                # Desktop enumeration can yield frames, not models. Frames
+                # expose the document via getController().getModel().
+                controller = elem.getController()
+                if controller is not None and hasattr(controller, "getModel"):
+                    model = controller.getModel()
+            if model is not None:
+                yield model
+        except Exception as e:
+            log.debug("iter_open_models element error: %s", type(e).__name__)
+            continue
+
+
 @main_thread_only
 def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
     """Resolve an open document by URL or RuntimeUID. Must be called on the UNO main thread.
@@ -926,71 +722,14 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         desktop = get_desktop(ctx)
         if desktop is None:
             return (None, None)
-        comps = desktop.getComponents()
-        if not comps:
-            return (None, None)
-        enum = comps.createEnumeration()
-        if not enum:
-            return (None, None)
-        # Real UNO hasMoreElements() is bool. A MagicMock is always truthy,
-        # so ``while enum.hasMoreElements()`` spun the main thread in pytest.
-        # Same guard as get_open_documents.
-        # What was wrong: ``while enum is not None`` never ended the loop.
-        # How: nothing in the body assigns ``enum = None``; the exits are
-        # ``break``. Why: ``while True`` matches those breaks.
-        # Same ceiling as the paragraph walks in html_import and format.
-        # Open desktops are far smaller; the cap only matters when
-        # hasMoreElements() never goes false.
-        walk_limit = 200000
-        seen = 0
-        while True:
+        for model in iter_open_models(desktop):
             try:
-                more = enum.hasMoreElements()
-            except Exception as e:
-                # What was wrong: a disposed desktop enumeration broke the
-                # loop and the caller was told the document was not open.
-                # How: this except swallowed DisposedException before the
-                # outer handler could re-raise it. Why: disposal of the
-                # enumeration is re-raised. A fetched element that then
-                # raises is skipped below; a failed nextElement stops.
-                _reraise_document_disposed(e, "Desktop")
-                break
-            if more is not True and more != 1:
-                break
-            seen += 1
-            if seen > walk_limit:
-                log.debug("resolve_document_by_url stopped at walk cap")
-                break
-            try:
-                elem = enum.nextElement()
-            except Exception as e:
-                # What was wrong: this failure ``continue``d while
-                # hasMoreElements() stayed true. How: UNO does not always
-                # advance the enumeration when nextElement fails, so the
-                # loop never saw a false hasMoreElements and froze the
-                # main thread. Why: stop, as html_import and format do on
-                # a failed nextElement. A model fetched successfully that
-                # then raises is still skipped below.
-                _reraise_document_disposed(e, "Desktop")
-                log.debug("resolve_document_by_url nextElement error: %s", type(e).__name__)
-                break
-            try:
-                model = None
-                if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-                    model = elem
-                elif hasattr(elem, "getController") and callable(getattr(elem, "getController")):
-                    # Desktop enumeration can yield frames, not models. Frames
-                    # expose the document via getController().getModel().
-                    controller = elem.getController()
-                    if controller is not None and hasattr(controller, "getModel"):
-                        model = controller.getModel()
-                if model is not None:
-                    doc_url = _doc_identity_url(model.getURL()) if hasattr(model, "getURL") else ""
-                    uid = get_runtime_uid(model)
-                    if (doc_url and doc_url == target) or (uid and uid == target):
-                        doc_type_enum = _doc_type.get_document_type(model)
-                        doc_type = _doc_type.doc_type_label_for_enum(doc_type_enum, impress_as_draw=True)
-                        return (_guard_returned_uno(model), doc_type)
+                doc_url = _doc_identity_url(model.getURL()) if hasattr(model, "getURL") else ""
+                uid = get_runtime_uid(model)
+                if (doc_url and doc_url == target) or (uid and uid == target):
+                    doc_type_enum = _doc_type.get_document_type(model)
+                    doc_type = _doc_type.doc_type_label_for_enum(doc_type_enum, impress_as_draw=True)
+                    return (_guard_returned_uno(model), doc_type)
             except Exception as e:
                 # One dead window must not hide the rest of the desktop.
                 log.debug("resolve_document_by_url element error: %s", type(e).__name__)
@@ -1010,14 +749,13 @@ def get_document_from_frame(frame: Any) -> Any:
     This is the preferred path for sidebar panels to ensure we resolve
     the document bound to the active window rather than relying on Desktop.
     """
-    if not frame:
+    if frame is None:
         return None
-    from plugin.framework.errors import suppress_disposed
 
     with suppress_disposed("resolve document from frame", logger=log):
         check_disposed(frame, "Frame")
         controller = frame.getController()
-        if not controller:
+        if controller is None:
             return None
         check_disposed(controller, "Controller")
         model = controller.getModel()
