@@ -294,6 +294,8 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
     daemon_threads: bool = True
     allow_reuse_address: bool = os.name != "nt"
+    route_registry: Any
+    ssl_ctx: Any
 
     def get_request(self) -> tuple[Any, Any]:
         """Accept one connection and bound how long a later recv may block.
