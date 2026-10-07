@@ -96,7 +96,7 @@ config:
     default: ""
     widget: password
     label: Provider config
-    helper: "Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. Empty = provider default / CLI config. Unused for Tailscale. (Note: Tailscale reset may turn off your existing user serve config for the MCP port.)"
+    helper: "Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. Empty = provider default / CLI config. Unused for Tailscale."
     public: true
     # Keep field immediately after label (label ~85 wide); right edge matches Tool Exposure (~430).
     label_x: 215

@@ -679,10 +679,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
     ):
         assert mgr.start(18765, "tailscale") is True
         # pre_start resets before the funnel process is spawned.
-        assert reset_cmds == [
-            ["tailscale", "funnel", "off"],
-            ["tailscale", "serve", "--tcp", "18765", "off"],
-        ]
+        assert reset_cmds == _tailscale_reset_cmds(18765)
         assert mgr.provider == "tailscale"
 
         assert mgr.start(18765, "cloudflare") is True
@@ -694,12 +691,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         t0 = time.monotonic()
         while len(reset_cmds) < 4 and time.monotonic() - t0 < 2:
             time.sleep(0.01)
-        assert reset_cmds == [
-            ["tailscale", "funnel", "off"],
-            ["tailscale", "serve", "--tcp", "18765", "off"],
-            ["tailscale", "funnel", "off"],
-            ["tailscale", "serve", "--tcp", "18765", "off"],
-        ]
+        assert reset_cmds == _tailscale_reset_cmds(18765) * 2
         # Stale tailscale exit must not drop the cloudflared process.
         exits[0](0)
         assert mgr._process is procs[1]
@@ -804,8 +796,8 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
 
 def _tailscale_reset_cmds(port: int = 18765) -> list[list[str]]:
     return [
-        ["tailscale", "funnel", "off"],
-        ["tailscale", "serve", "--tcp", str(int(port)), "off"],
+        ["tailscale", "funnel", str(int(port)), "off"],
+        ["tailscale", "serve", "--https=443", "off"],
     ]
 
 

@@ -62,10 +62,9 @@ _TAILSCALE_URL_RE = re.compile(r"(https://[\w.-]+\.ts\.net(?::\d+)?)")
 # What was wrong: "reset" wipes all user serve config, destroying any
 # background processes the user mapped before running MCP.
 # Why: "off" is the documented way to stop a specific port without
-# destroying the rest of the node's config. (If they mapped port 18765
-# for something else, WriterAgent clobbers that port anyway while active.)
-def _TAILSCALE_RESET_COMMANDS(port: int) -> tuple[list[str], list[str]]:
-    return (["tailscale", "funnel", "off"], ["tailscale", "serve", "--tcp", str(int(port)), "off"])
+# destroying the rest of the node's config.
+def _tailscale_off_commands(port: int) -> tuple[list[str], list[str]]:
+    return (["tailscale", "funnel", str(int(port)), "off"], ["tailscale", "serve", "--https=443", "off"])
 
 _REDACT_FLAGS = frozenset({"--authtoken", "--token", "--secret"})
 
@@ -217,13 +216,13 @@ def parse_tailscale_url(line: str) -> Optional[str]:
     return m.group(1).rstrip("/")
 
 
-def _tailscale_reset(port: int = 18765) -> None:
-    for cmd in _TAILSCALE_RESET_COMMANDS(port):
+def _tailscale_reset(port: int) -> None:
+    for cmd in _tailscale_off_commands(port):
         try:
             subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
-            log.debug("Tailscale reset: %s", " ".join(cmd))
+            log.debug("Tailscale off: %s", " ".join(cmd))
         except Exception:
-            log.debug("Tailscale reset failed: %s", " ".join(cmd), exc_info=True)
+            log.debug("Tailscale off failed: %s", " ".join(cmd), exc_info=True)
 
 
 # Written next to writeragent.json when we spawn `tailscale funnel`. Survives
@@ -298,11 +297,11 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "install_url": ("https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"),
         "build_command": build_cloudflare_command,
         "parse_line": parse_cloudflare_url,
-        "pre_start": lambda port: None,
-        "post_stop": lambda port: None,
+        "pre_start": None,
+        "post_stop": None,
     },
-    "bore": {"label": "Bore", "version_args": ["bore", "--version"], "install_url": "https://github.com/ekzhang/bore/releases", "build_command": build_bore_command, "parse_line": parse_bore_url, "pre_start": lambda port: None, "post_stop": lambda port: None},
-    "ngrok": {"label": "Ngrok", "version_args": ["ngrok", "version"], "install_url": "https://ngrok.com/download", "build_command": build_ngrok_command, "parse_line": parse_ngrok_url, "pre_start": lambda port: None, "post_stop": lambda port: None},
+    "bore": {"label": "Bore", "version_args": ["bore", "--version"], "install_url": "https://github.com/ekzhang/bore/releases", "build_command": build_bore_command, "parse_line": parse_bore_url, "pre_start": None, "post_stop": None},
+    "ngrok": {"label": "Ngrok", "version_args": ["ngrok", "version"], "install_url": "https://ngrok.com/download", "build_command": build_ngrok_command, "parse_line": parse_ngrok_url, "pre_start": None, "post_stop": None},
     "tailscale": {"label": "Tailscale", "version_args": ["tailscale", "version"], "install_url": "https://tailscale.com/download", "build_command": build_tailscale_command, "parse_line": parse_tailscale_url, "pre_start": _tailscale_reset, "post_stop": _tailscale_reset},
 }
 
@@ -681,9 +680,10 @@ class TunnelManager:
         # below so a failed spawn does not look like a live Funnel.
         if provider == "tailscale":
             _write_tailscale_arm()
+        import os
+
         try:
             from plugin.framework.worker_pool import AsyncProcess
-            import os
 
             # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
             env = os.environ.copy()
@@ -752,7 +752,7 @@ class TunnelManager:
                     continue
 
                 pre_start: Optional[Callable[[int], None]] = info.get("pre_start")
-                if pre_start and provider == "tailscale":
+                if pre_start:
                     # What was wrong: _tailscale_reset ran on this thread while
                     # _lock was held (two CLIs, 5s each). stop() and the UI
                     # sync path blocked for that whole wait. post_stop was
