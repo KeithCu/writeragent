@@ -874,63 +874,60 @@ class MCPProtocolHandler:
         events_to_process = [initial_event]
         final_result = None
 
-        try:
-            while events_to_process:
-                event = events_to_process.pop(0)
-                tr = next_state(state, event)
-                state = tr.state
-                effects = tr.effects
+        while events_to_process:
+            event = events_to_process.pop(0)
+            tr = next_state(state, event)
+            state = tr.state
+            effects = tr.effects
 
-                for effect in effects:
-                    if isinstance(effect, ParseRequestEffect):
-                        log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
-                        event_bus = getattr(self, "event_bus", None)
-                        if event_bus is not None:
-                            event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
+            for effect in effects:
+                if isinstance(effect, ParseRequestEffect):
+                    log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
+                    event_bus = getattr(self, "event_bus", None)
+                    if event_bus is not None:
+                        event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
 
-                    elif isinstance(effect, ExecuteToolEffect):
-                        try:
-                            if effect.is_long_running is True:
-                                res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
-                            else:
-                                res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
-                            events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
-                        except BusyError:
-                            raise
-                        except TimeoutError:
-                            # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
-                            raise
-                        except Exception as e:
-                            # Tool failures must be MCP tool results (isError), not JSON-RPC
-                            # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
-                            # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
-                            # stay 429/504 above. WriterAgentException used to re-raise into
-                            # _process_jsonrpc as HTTP 500 — that is the retryable path.
-                            log.exception("MCP tool %s raised unexpectedly", effect.tool_name)
-                            code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
-                            if code == "INTERNAL_ERROR":
-                                code = "TOOL_EXECUTION_ERROR"
-                            events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
-
-                    elif isinstance(effect, StreamResponseEffect):
-                        event_bus = getattr(self, "event_bus", None)
-                        if event_bus is not None:
-                            snippet = str(effect.result)[:100] if effect.result else ""
-                            event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
-
-                        # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
-                        # emit a native MCP image content block (get_image) instead of base64-as-text.
-                        res = effect.result
-                        img = res.get("_mcp_image") if isinstance(res, dict) else None
-                        if isinstance(img, dict) and img.get("data"):
-                            final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
+                elif isinstance(effect, ExecuteToolEffect):
+                    try:
+                        if effect.is_long_running is True:
+                            res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
                         else:
-                            final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
+                            res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
+                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
+                    except BusyError:
+                        raise
+                    except TimeoutError:
+                        # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
+                        raise
+                    except Exception as e:
+                        # Tool failures must be MCP tool results (isError), not JSON-RPC
+                        # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
+                        # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
+                        # stay 429/504 above. WriterAgentException used to re-raise into
+                        # _process_jsonrpc as HTTP 500 — that is the retryable path.
+                        log.exception("MCP tool %s raised unexpectedly", effect.tool_name)
+                        code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
+                        if code == "INTERNAL_ERROR":
+                            code = "TOOL_EXECUTION_ERROR"
+                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
 
-                    elif isinstance(effect, SendErrorEffect):
-                        raise ValueError(effect.message)
-        finally:
-            pass
+                elif isinstance(effect, StreamResponseEffect):
+                    event_bus = getattr(self, "event_bus", None)
+                    if event_bus is not None:
+                        snippet = str(effect.result)[:100] if effect.result else ""
+                        event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
+
+                    # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
+                    # emit a native MCP image content block (get_image) instead of base64-as-text.
+                    res = effect.result
+                    img = res.get("_mcp_image") if isinstance(res, dict) else None
+                    if isinstance(img, dict) and img.get("data"):
+                        final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
+                    else:
+                        final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
+
+                elif isinstance(effect, SendErrorEffect):
+                    raise ValueError(effect.message)
 
         return final_result
 
