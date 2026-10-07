@@ -26,6 +26,7 @@ protocol is added here.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 from typing import Any, Callable
@@ -265,8 +266,6 @@ def _catalog_lead(namespaces: list[str]) -> str:
         "When the work is bulk or scripted, do that domain work in one run_venv_python_script."
     )
 
-
-import functools
 
 @functools.lru_cache(maxsize=16)
 def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
