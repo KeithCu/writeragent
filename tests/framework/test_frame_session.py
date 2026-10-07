@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import types
 from contextlib import contextmanager
@@ -739,3 +740,47 @@ def test_dispose_handles_thread_violation_in_release_listeners():
     assert session._frame_listener is None
     assert session.panel is None
     assert session_for_frame(frame) is None
+
+
+def test_remove_close_hook_drops_registered_hook():
+    session = FrameSession(MagicMock(), "doc-a")
+    hook1 = MagicMock()
+    hook2 = MagicMock()
+    session.add_close_hook(hook1)
+    session.add_close_hook(hook2)
+    assert len(session._close_hooks) == 2
+
+    session.remove_close_hook(hook1)
+    assert session._close_hooks == [hook2]
+
+    # Removing a hook not present is a no-op
+    session.remove_close_hook(hook1)
+    assert session._close_hooks == [hook2]
+
+
+def test_release_panel_removes_registered_close_hook():
+    session = FrameSession(MagicMock(), "doc-a")
+    panel = MagicMock()
+    hook = MagicMock()
+    panel._frame_close_hook = hook
+    session.add_close_hook(hook)
+    assert len(session._close_hooks) == 1
+
+    session.release_panel(panel)
+    assert len(session._close_hooks) == 0
+    assert getattr(panel, "_frame_close_hook", None) is None
+
+
+def test_frame_close_disposing_swallows_dispose_failure(caplog):
+    frame = MagicMock()
+    session = open_frame_session(frame, "doc-a")
+    assert session._frame_listener is not None
+
+    with patch.object(session, "dispose", side_effect=RuntimeError("simulated teardown error")):
+        # Must not raise into UNO caller
+        session._frame_listener.disposing(None)
+
+    assert any(
+        record.levelno == logging.ERROR and "unhandled exception in disposing" in record.message
+        for record in caplog.records
+    )

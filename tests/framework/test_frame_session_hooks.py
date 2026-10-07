@@ -70,3 +70,44 @@ def test_release_live_sidebar_called_twice_is_noop():
     # It now short-circuits due to the _released flag.
     assert listener.disposing.call_count == 1
     assert panel.frame_session.release_panel.call_count == 1
+
+
+def test_release_panel_removes_close_hook():
+    ctx = MagicMock()
+    frame = MagicMock()
+    parent = MagicMock()
+    session = FrameSession(frame)
+
+    panel = ChatPanelElement(ctx, frame, parent, "url", session)
+    session.bind_panel(panel)
+    listener = MagicMock()
+    query = MagicMock()
+
+    _bind_close_hook(session, panel, listener, query)
+    assert len(session._close_hooks) == 1
+
+    release_live_sidebar(panel, query)
+    assert len(session._close_hooks) == 0
+    assert panel._frame_close_hook is None
+
+
+def test_rebound_panel_does_not_accumulate_close_hooks():
+    ctx = MagicMock()
+    frame = MagicMock()
+    parent = MagicMock()
+    session = FrameSession(frame)
+
+    panel1 = ChatPanelElement(ctx, frame, parent, "url", session)
+    session.bind_panel(panel1)
+    _bind_close_hook(session, panel1, MagicMock(), MagicMock())
+    assert len(session._close_hooks) == 1
+
+    # Close panel 1 (sidebar closed / mode switched)
+    release_live_sidebar(panel1)
+    assert len(session._close_hooks) == 0
+
+    # Panel 2 created on reopened deck for same frame
+    panel2 = ChatPanelElement(ctx, frame, parent, "url", session)
+    session.bind_panel(panel2)
+    _bind_close_hook(session, panel2, MagicMock(), MagicMock())
+    assert len(session._close_hooks) == 1

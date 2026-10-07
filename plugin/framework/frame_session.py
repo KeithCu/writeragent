@@ -186,6 +186,13 @@ class FrameSession:
             return
         self._close_hooks.append(hook)
 
+    def remove_close_hook(self, hook: Callable[[], None]) -> None:
+        """Drop *hook* from close callbacks."""
+        try:
+            self._close_hooks.remove(hook)
+        except ValueError:
+            pass
+
     def bind_panel(self, panel: Any) -> None:
         """This sidebar is the one the session owns."""
         self.panel = panel
@@ -303,7 +310,18 @@ class FrameSession:
 
         session = self
 
+        from plugin.framework.uno_listeners import _catch_and_log
+
+        # What was wrong: _FrameClose.disposing called session.dispose() without
+        # _catch_and_log. If an exception occurred during disposal (such as
+        # listener removal or thread violation), it propagated into the UNO
+        # bridge and aborted teardown of remaining listeners.
+        # How: All other listeners in FrameSession use Base*Listener which wraps
+        # callbacks in _catch_and_log, but _FrameClose was a bare class.
+        # Why: Wrapping disposing in _catch_and_log catches and logs unexpected
+        # errors so teardown of other listeners proceeds safely.
         class _FrameClose(unohelper.Base, XEventListener):  # type: ignore[misc]
+            @_catch_and_log
             def disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
                 session.dispose()
 
@@ -415,6 +433,18 @@ class FrameSession:
         if self._closed:
             return
         self.clear_focus_pin_if(query_control)
+        # What was wrong: close hooks registered by _bind_close_hook leaked in
+        # _close_hooks across sidebar deck reopens.
+        # How: each time a sidebar was built, a new on_frame_close closure was
+        # appended to self._close_hooks, keeping the old panel and send_listener alive.
+        # Why: drop the registered hook for this panel on release.
+        hook = panel.__dict__.get("_frame_close_hook") if hasattr(panel, "__dict__") else getattr(panel, "_frame_close_hook", None)
+        if hook is not None:
+            self.remove_close_hook(hook)
+            try:
+                panel._frame_close_hook = None
+            except Exception:
+                pass
         if self.panel is not panel:
             return
         self.panel = None
