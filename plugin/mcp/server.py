@@ -35,21 +35,20 @@ from __future__ import annotations
 from plugin.framework.thread_guard import background
 import json
 import logging
+import os
 import socket
 import socketserver
 import sys
 import threading
 import weakref
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.mcp.cors import reject_forbidden_origin, send_cors_headers
 from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_route
 
-if TYPE_CHECKING:
-    from plugin.mcp.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.framework.http_server")
 
@@ -89,6 +88,7 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
     ``test_post_unsupported_protocol_version``).
     """
     body = json.dumps(data, ensure_ascii=False, default=str, indent=indent).encode("utf-8")
+    handler._response_started = True
     handler.send_response(status)
     if extra_headers is not None:
         extra_headers(handler)
@@ -144,7 +144,7 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         return None, (413, err)
     try:
         raw_bytes = handler.rfile.read(content_length)
-    except TimeoutError:
+    except (socket.timeout, TimeoutError):
         log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
         err = AgentParsingError("Timed out reading HTTP body", details={"length": content_length})
         return None, (408, err)
@@ -166,6 +166,7 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
 
 def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> None:
     """Status-only response (204/202) with Content-Length: 0 so the client is not left reading to EOF."""
+    handler._response_started = True
     handler.send_response(status)
     if extra_headers is not None:
         extra_headers(handler)
@@ -292,6 +293,7 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     """HTTP server that handles each request in its own thread."""
 
     daemon_threads: bool = True
+    allow_reuse_address: bool = os.name != "nt"
 
     def get_request(self) -> tuple[Any, Any]:
         """Accept one connection and bound how long a later recv may block.
@@ -305,12 +307,15 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
             conn.settimeout(MCP_HTTP_SOCKET_TIMEOUT_SEC)
         except OSError:
             pass
+        ssl_ctx = getattr(self, "ssl_ctx", None)
+        if ssl_ctx is not None:
+            conn = ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
         return conn, addr
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         """A stalled read is a closed request, not a traceback on the console."""
         _typ, exc, _tb = sys.exc_info()
-        if isinstance(exc, TimeoutError):
+        if isinstance(exc, (socket.timeout, TimeoutError)):
             host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
             log.info("HTTP read timed out from %s", host)
             return
@@ -324,8 +329,6 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     # ClassVar matches StreamRequestHandler.timeout so this stays a class
     # attribute (a bare annotation is treated as an instance variable).
     timeout: ClassVar[float | None] = MCP_HTTP_SOCKET_TIMEOUT_SEC
-
-    route_registry: HttpRouteRegistry | None = None  # set by HttpServer.start()
 
     def do_GET(self) -> None:
         self._dispatch("GET")
@@ -348,7 +351,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             return
         path = get_url_path(self.path)
         log_http_request(self, method, path)
-        route = self.route_registry.match(method, path) if self.route_registry else None
+        route_registry = getattr(self.server, "route_registry", None)
+        route = route_registry.match(method, path) if route_registry else None
 
         if route is None:
             log_no_route(self, method, path)
@@ -382,9 +386,12 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(status, data)
         except Exception as e:
             log.exception("%s %s failed", method, path)
-            from plugin.framework.errors import format_error_payload
-
-            self._send_json(500, format_error_payload(e))
+            if not getattr(self, "_response_started", False):
+                try:
+                    from plugin.framework.errors import format_error_payload
+                    self._send_json(500, format_error_payload(e))
+                except OSError:
+                    pass
 
     def _read_body(self) -> Any:
         data, rejected = read_json_body(self)
@@ -430,13 +437,12 @@ class HttpServer:
             log.warning("HTTP server is already running")
             return
 
-        GenericRequestHandler.route_registry = self.route_registry
-
         # Single bind — no retry/sleep. A busy port used to block bootstrap and the Start MCP
         # menu for ~4s (5×1s). Stdio clients that start before LO are handled by mcp_bridge.py;
         # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
         try:
             self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
+            self._server.route_registry = self.route_registry
             # Before the accept thread exists, so request handlers share this state.
             _sse_state(self._server)
         except OSError:
@@ -455,15 +461,17 @@ class HttpServer:
                 try:
                     ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
                     if self._server:
-                        self._server.socket = ssl_ctx.wrap_socket(self._server.socket, server_side=True)
+                        self._server.ssl_ctx = ssl_ctx
                 except Exception:
                     if self._server:
                         self._server.server_close()
                         self._server = None
                     raise
             else:
-                log.warning("use_ssl is True but no certificates provided. Disabling TLS.")
-                self.use_ssl = False
+                if self._server:
+                    self._server.server_close()
+                    self._server = None
+                raise ValueError("use_ssl is True but no certificates provided.")
 
         self._running = True
         self._thread = run_in_background(self._run, daemon=True, name="http-server", dedicated=True)
@@ -501,9 +509,10 @@ class HttpServer:
 
     @background
     def _run(self) -> None:
+        server = self._server
         try:
-            if self._server:
-                self._server.serve_forever()
+            if server:
+                server.serve_forever()
         except Exception:
             if self._running:
                 log.exception("HTTP server error")
@@ -516,14 +525,15 @@ class HttpServer:
             # Call server_close() only on that unexpected exit. The normal
             # stop() path has already closed the listener, so this branch
             # does not run and does not close it a second time.
-            unexpected = self._running
+            unexpected = self._running and self._server is server
             self._running = False
             if unexpected:
                 try:
-                    if self._server is not None:
-                        self._server.server_close()
+                    if server is not None:
+                        server.server_close()
                 finally:
-                    stop_sse_keepalives(self._server)
+                    if server is not None:
+                        stop_sse_keepalives(server)
 
     def is_running(self) -> bool:
         return self._running

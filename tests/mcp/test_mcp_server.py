@@ -309,6 +309,19 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
     assert status == 408
     assert body.get("code") == "PARSE_ERROR"
 
+    stalled_socket = _bare_generic_handler({"Content-Length": "8"}, b"")
+
+    def _socket_timeout(n=-1):
+        del n
+        import socket
+        raise socket.timeout("stalled")
+
+    stalled_socket.rfile.read = _socket_timeout
+    assert stalled_socket._read_body() is None
+    status, body = _response_json(stalled_socket)
+    assert status == 408
+    assert body.get("code") == "PARSE_ERROR"
+
     negative = _bare_generic_handler({"Content-Length": "-1"}, b"{}")
 
     def _refuse_read(n=-1):
@@ -358,6 +371,14 @@ def test_handle_error_timeout_does_not_call_super():
         with patch("socketserver.BaseServer.handle_error") as super_handle:
             server.handle_error(None, ("127.0.0.1", 1))
     super_handle.assert_not_called()
+
+    import socket
+    try:
+        raise socket.timeout("stalled body socket")
+    except socket.timeout:
+        with patch("socketserver.BaseServer.handle_error") as super_handle2:
+            server.handle_error(None, ("127.0.0.1", 1))
+    super_handle2.assert_not_called()
 
 def test_handle_mcp_post_truncated_json():
     """Test when Content-Length is larger than body (truncated JSON).
