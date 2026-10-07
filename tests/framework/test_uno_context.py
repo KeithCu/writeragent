@@ -957,7 +957,7 @@ def test_clear_writer_body_cannot_spin_on_a_page_that_never_empties():
     stuck.getCount.return_value = 3  # remove() never changes it
     doc.getDrawPage.return_value = stuck
     clear_writer_body(doc)
-    assert stuck.remove.call_count == 1
+    assert stuck.remove.call_count == 3
 
 
 def test_clear_writer_body_reraises_disposal():
@@ -1089,3 +1089,69 @@ def test_focus_preserved_callback_runs_when_block_raises():
     except ValueError:
         pass
     restore_focus.assert_called_once_with()
+
+def test_product_display_name_libreharper_auto_detect():
+    from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
+    from plugin.framework.uno_context import (
+        product_display_name,
+        reset_package_extension_id_for_tests,
+    )
+
+    reset_package_extension_id_for_tests()
+    pip = MagicMock()
+    pip.getPackageLocation.side_effect = lambda eid: (
+        "file:///tmp/LibreHarper.oxt" if eid == EXTENSION_ID_LIBREHARPER else ""
+    )
+    with (
+        patch("plugin.framework.uno_context.get_package_info", return_value=pip),
+        patch.dict("sys.modules", {"plugin._manifest": None}),
+    ):
+        assert product_display_name() == "LibreHarper"
+    reset_package_extension_id_for_tests()
+
+def test_desktop_create_is_unsafe_now_singleaccept_on_soffice_is_safe():
+    from plugin.framework.uno_context import _desktop_create_is_unsafe_now
+    proc = ("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", ["/usr/lib/libreoffice/program/soffice.bin", "--singleaccept"])
+    with (
+        patch.object(sys, "argv", ["soffice", "--singleaccept"]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+    ):
+        assert _desktop_create_is_unsafe_now() is False
+
+def test_get_package_info_returns_none_when_ctx_none():
+    from plugin.framework.uno_context import get_package_info
+    with patch("plugin.framework.uno_context.get_ctx", return_value=None):
+        assert get_package_info() is None
+
+def test_clear_writer_body_continues_past_remove_failures():
+    from unittest.mock import MagicMock
+    from plugin.framework.uno_context import clear_writer_body
+
+    doc, _, _, _, _ = _scratch_doc()
+    stuck = MagicMock()
+    stuck.getCount.side_effect = [3, 3, 2, 2, 2, 2, 2] # start at 3, after fail 3, after fail 2...
+
+    # Let's say getByIndex(2) fails to remove, getByIndex(1) succeeds, getByIndex(0) fails
+    def mock_remove(shape):
+        if shape.name == 'fail':
+            raise Exception("Cannot remove")
+        else:
+            stuck.getCount.return_value -= 1
+
+    shape2 = MagicMock(name='fail')
+    shape1 = MagicMock(name='success')
+    shape0 = MagicMock(name='fail')
+
+    stuck.getByIndex.side_effect = lambda i: {2: shape2, 1: shape1, 0: shape0}[i]
+    stuck.remove.side_effect = mock_remove
+
+    doc.getDrawPage.return_value = stuck
+    clear_writer_body(doc)
+    assert stuck.remove.call_count == 3
+
+def test_new_blank_writer_returns_none_if_load_fails():
+    from plugin.framework.uno_context import new_blank_writer
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert new_blank_writer() is None

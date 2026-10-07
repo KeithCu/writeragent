@@ -117,8 +117,6 @@ def _desktop_create_is_unsafe_now() -> bool:
     argv = [str(arg) for arg in sys.argv]
     if argv and _basename_is_uno_helper(argv[0]):
         return True
-    if _tokens_have_singleaccept(argv):
-        return True
     exe_sys = getattr(sys, "executable", "") or ""
     if exe_sys and _basename_is_uno_helper(exe_sys):
         return True
@@ -132,7 +130,7 @@ def _desktop_create_is_unsafe_now() -> bool:
         return True
     if cmdline and _basename_is_uno_helper(cmdline[0]):
         return True
-    return _tokens_have_singleaccept(cmdline)
+    return False
 
 
 def desktop_create_is_unsafe() -> bool:
@@ -216,6 +214,9 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
             location = pip.getPackageLocation(extension_id)
             if location:
                 _package_extension_id = extension_id
+                if extension_id == EXTENSION_ID_LIBREHARPER:
+                    global _is_libreharper_cache
+                    _is_libreharper_cache = True
                 return extension_id
         except Exception:
             log.debug("getPackageLocation(%s) failed", extension_id, exc_info=True)
@@ -376,6 +377,8 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
 
     hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
     doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
+    if doc is None:
+        return None
     # What was wrong: a failed clear still returned the scratch Writer, so the
     # default-template text this function exists to drop was handed to the
     # caller. How: clear_writer_body logs and returns False on a non-disposal
@@ -457,14 +460,15 @@ def clear_writer_body(doc: Any) -> bool:
         # drops, and an unbounded loop here would freeze the main thread.
         # The cap is the count at entry, not a live getCount() check.
         removal_budget = int(page.getCount())
-        removal_attempt = 0
-        while removal_attempt < removal_budget:
-            before = page.getCount()
-            page.remove(page.getByIndex(0))
-            removal_attempt += 1
-            if page.getCount() >= before:
-                break
-            removed = True
+        for i in range(removal_budget - 1, -1, -1):
+            try:
+                before = page.getCount()
+                page.remove(page.getByIndex(i))
+                if page.getCount() < before:
+                    removed = True
+            except Exception as e:
+                _reraise_document_disposed(e, "Writer")
+                continue
     except Exception as e:
         _reraise_document_disposed(e, "Writer")
         log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
@@ -516,7 +520,8 @@ def get_active_document(ctx: Any | None = None) -> Any:
 def get_package_info(ctx: Any | None = None) -> Any:
     """Return the PackageInformationProvider singleton."""
     ctx = ctx or get_ctx()
-    assert ctx is not None
+    if ctx is None:
+        return None
     ctx_any = cast("Any", ctx)
     gvn = getattr(ctx_any, "getValueByName", None)
     if gvn is None:
