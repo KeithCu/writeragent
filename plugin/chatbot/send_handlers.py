@@ -197,7 +197,7 @@ class SendHandlerHost(Protocol):
     def _run_brainstorming(self, query_text: str, model: Any) -> None: ...
     def _run_writing_plan(self, query_text: str, model: Any) -> None: ...
     def _run_ppt_master(self, query_text: str, model: Any) -> None: ...
-    def _run_web_research(self, query_text: str, model: Any) -> None: ...
+    def _run_web_research(self, query_text: str, model: Any, is_deep_research: bool = False) -> None: ...
 
 
 class TypedEvent(Protocol):
@@ -266,9 +266,9 @@ class SendHandlersMixin:
 
             # Always create a fresh client to avoid reusing previous STT endpoint/key
             api_config = get_api_config()
-            self.client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope, register_with_send=False)
+            local_client = LlmClient(api_config, self.ctx, cancellation_scope=cancel_scope, register_with_send=False)
 
-            cl = self.client
+            cl = local_client
             assert cl is not None
             if cancel_scope is not None and not cancel_scope.is_cancelled():
                 clearer = getattr(cl, "clear_stop", None)
@@ -380,6 +380,17 @@ class SendHandlersMixin:
                     finished_cb(exported=bool(payload.get("exported")))
                 else:
                     self._in_ppt_master_mode = False
+
+            if "in_librarian_mode" in payload:
+                self._in_librarian_mode = payload["in_librarian_mode"]
+            if "in_brainstorming_mode" in payload:
+                self._in_brainstorming_mode = payload["in_brainstorming_mode"]
+            if "in_writing_plan_mode" in payload:
+                self._in_writing_plan_mode = payload["in_writing_plan_mode"]
+            if "in_ppt_master_mode" in payload:
+                self._in_ppt_master_mode = payload["in_ppt_master_mode"]
+            if payload.get("record_assistant_start"):
+                self._record_assistant_start = True
 
         def on_stream_done(item: Any) -> None:
             # Stop or a new send already aborted this turn. The worker
@@ -617,6 +628,19 @@ class SendHandlersMixin:
         if turn_session is None:
             return
 
+        def _handle_early_error(err_msg: str, exception_instance: Exception) -> None:
+            self._terminal_status = "Error"
+            self._set_status(_("Error"))
+
+            # Step 1: dispatch ErrorEvent to current state machine (this will persist the banner)
+            step = next_state(current_state, ErrorEvent(exception_instance))
+            interpreter.current_state = step.state
+            for eff in step.effects:
+                interpreter.interpret(eff)
+
+            # Step 2: Ensure turn is closed out properly, just as _do_send_direct_image does
+            defer_until_drain_done(lambda: abort_turn(self))
+
         try:
             turn_session.refresh_document_context(model, self.ctx)
             doc_context = turn_session.document_context
@@ -627,9 +651,7 @@ class SendHandlersMixin:
                 log.debug("Failed to build document context for agent backend (likely disposed): %s", e)
             else:
                 log.exception("Failed to build document context for agent backend")
-            self._append_response("\n" + _("[Document context error: {0}]").format(str(e)) + "\n")
-            self._terminal_status = "Error"
-            self._set_status(_("Error"))
+            _handle_early_error(_("[Document context error: {0}]").format(str(e)), e)
             return
 
 
@@ -639,16 +661,12 @@ class SendHandlersMixin:
         if not adapter:
 
 
-            self._append_response("\n" + _("[Agent backend '{0}' not found.]").format(backend_id) + "\n")
-            self._terminal_status = "Error"
-            self._set_status(_("Error"))
+            _handle_early_error(_("[Agent backend '{0}' not found.]").format(backend_id), ValueError(_("Agent backend '{0}' not found.").format(backend_id)))
             return
         if not adapter.is_available(self.ctx):
 
 
-            self._append_response("\n" + _("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id)) + "\n")
-            self._terminal_status = "Error"
-            self._set_status(_("Error"))
+            _handle_early_error(_("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id)), ValueError(_("Agent backend '{0}' is not available. Check Settings (path, install).").format(_agent_backend_label(adapter, backend_id))))
             return
 
         turn_session.add_user_message(query_text)
@@ -730,7 +748,11 @@ class SendHandlersMixin:
             elif not prompt_for_permission:
                 approved = True
             else:
-                approved = show_approval_dialog(self.ctx, description, tool_name, parent_frame=getattr(self, "frame", None))
+                try:
+                    approved = show_approval_dialog(self.ctx, description, tool_name, parent_frame=getattr(self, "frame", None))
+                except Exception as e:
+                    log.error("Error showing approval dialog: %s", e)
+                    approved = False
 
             if request_id is not None and hasattr(adapter, "submit_approval"):
                 try:
@@ -746,7 +768,8 @@ class SendHandlersMixin:
         def _agent_ready() -> None:
             if self._terminal_status not in ("Error", "Stopped"):
                 self._terminal_status = "Ready"
-            self._current_agent_backend = None
+            if self._current_agent_backend is adapter:
+                self._current_agent_backend = None
 
         defer_until_drain_done(_agent_ready)
 
@@ -760,10 +783,10 @@ class SendHandlersMixin:
         # Resolve on the UI thread so UNO UserProfile reads stay on the main thread.
         self._librarian_suggested_user_name = get_suggested_user_name(self.ctx)
 
-        self._in_librarian_mode = True
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
+        self._in_librarian_mode = True
         turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
@@ -782,10 +805,10 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        self._in_brainstorming_mode = True
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
+        self._in_brainstorming_mode = True
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -802,10 +825,10 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        self._in_writing_plan_mode = True
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
+        self._in_writing_plan_mode = True
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -822,10 +845,10 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
-        self._in_ppt_master_mode = True
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
+        self._in_ppt_master_mode = True
         turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -837,7 +860,7 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _run_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
+    def _run_web_research(self: SendHandlerHost, query_text: str, model: Any, is_deep_research: bool = False) -> None:
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
@@ -845,6 +868,10 @@ class SendHandlersMixin:
         turn_session = _turn_session_or_stop(self)
         if turn_session is None:
             return
+
+        if is_deep_research:
+            setattr(self, "_active_run_deep_research", True)
+
         turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
@@ -856,8 +883,7 @@ class SendHandlersMixin:
 
     def _run_deep_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run Deep Research sidebar session (sub-agent with apply_document_content)."""
-        setattr(self, "_active_run_deep_research", True)
-        self._run_web_research(query_text, model)
+        self._run_web_research(query_text, model, is_deep_research=True)
 
     def _execute_web_research_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         from plugin.main import get_tools
@@ -1001,7 +1027,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1009,11 +1035,11 @@ class SendHandlersMixin:
                         answer = data.get("result", _("Brainstorming complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
-                        self._in_brainstorming_mode = False
+                        done_payload["in_brainstorming_mode"] = False
                         msg = data.get("message", _("Unknown brainstorming error."))
                         note = "\n" + _("[Brainstorming error: {0}]").format(msg) + "\n"
                         q.put((StreamQueueKind.CHUNK, note))
@@ -1041,7 +1067,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1049,11 +1075,11 @@ class SendHandlersMixin:
                         answer = data.get("result", _("Writing plan complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
-                        self._in_writing_plan_mode = False
+                        done_payload["in_writing_plan_mode"] = False
                         msg = data.get("message", _("Unknown writing plan error."))
                         note = "\n" + _("[Writing plan error: {0}]").format(msg) + "\n"
                         q.put((StreamQueueKind.CHUNK, note))
@@ -1081,7 +1107,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
@@ -1089,11 +1115,11 @@ class SendHandlersMixin:
                         answer = data.get("result", _("PPT-Master session complete."))
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
-                        self._in_ppt_master_mode = False
+                        done_payload["in_ppt_master_mode"] = False
                         msg = data.get("message", _("Unknown PPT-Master error."))
                         note = "\n" + _("[PPT-Master error: {0}]").format(msg) + "\n"
                         q.put((StreamQueueKind.CHUNK, note))
@@ -1120,7 +1146,7 @@ class SendHandlersMixin:
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
                         done_payload["assistant_content"] = answer
                     else:
@@ -1148,7 +1174,7 @@ class SendHandlersMixin:
                         if not isinstance(answer, str):
                             answer = str(answer)
                         cache_block = format_research_cache_result_chat(data)
-                        self._record_assistant_start = True
+                        done_payload["record_assistant_start"] = True
                         q.put((StreamQueueKind.CHUNK, cache_block + answer + "\n"))
                         done_payload["assistant_content"] = cache_block + answer
                     else:
