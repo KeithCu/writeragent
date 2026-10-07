@@ -60,12 +60,13 @@ _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
 # 8443/10000; 443 omits the port).
 _TAILSCALE_URL_RE = re.compile(r"(https://[\w.-]+\.ts\.net(?::\d+)?)")
 
-# What was wrong: "reset" wipes all user serve config, destroying any
-# background processes the user mapped before running MCP.
-# Why: "off" is the documented way to stop a specific port without
-# destroying the rest of the node's config.
-def _tailscale_off_commands(port: int) -> tuple[list[str], list[str]]:
-    return (["tailscale", "funnel", str(int(port)), "off"], ["tailscale", "serve", "--https=443", "off"])
+# What was wrong: running `tailscale serve --https=443 off` wiped any
+# user-configured serve on port 443 (e.g. background services mapped before MCP).
+# How it happened: _tailscale_off_commands attempted to clean up both funnel and
+# port 443 serve, conflicting with the intent to avoid destroying user config.
+# Why: only turn off the specific Funnel port (`tailscale funnel <port> off`).
+def _tailscale_off_commands(port: int) -> tuple[list[str]]:
+    return (["tailscale", "funnel", str(int(port)), "off"],)
 
 _REDACT_FLAGS = frozenset({"--authtoken", "--token", "--secret"})
 
@@ -552,7 +553,7 @@ class TunnelManager:
         if provider:
             self._retire_snippet_provider(provider)
 
-    def _schedule_post_stop_unlocked(self, provider: str) -> None:
+    def _schedule_post_stop_unlocked(self, provider: str, port: int) -> None:
         """Run provider post_stop off the manager lock, unless a newer session started.
 
         The generation is captured now (default arg, not a closure over the
@@ -570,9 +571,13 @@ class TunnelManager:
             self._tailscale_reset_issued = True
         generation = self._tunnel_generation
         cfg_lock = self._provider_cfg_lock
-        port = self._state.port
+        # What was wrong: reading self._state.port here used the new port when
+        # called on a port change, running `tailscale funnel <newport> off`.
+        # How it happened: START_REQUESTED updated self._state before effects ran.
+        # Why: prefer port passed from TerminateProcessEffect (the old session's port).
+        target_port = port
 
-        def _safe_post_stop(expected: int = generation, fn: Callable[[int], None] = post_stop, prov: str = provider, p: int = port) -> None:
+        def _safe_post_stop(expected: int = generation, fn: Callable[[int], None] = post_stop, prov: str = provider, p: int = target_port) -> None:
             with cfg_lock:
                 # A newer Tailscale session bumped the generation after this
                 # reset was scheduled. Running it now would clear the Funnel
@@ -721,12 +726,19 @@ class TunnelManager:
                         proc.terminate()
                     except Exception:
                         log.exception("Error terminating tunnel process")
-                # What was wrong: next_state stores the new provider on
-                # TunnelState before effects run, and post_stop read that
-                # field. Tailscale → another provider looked up the new
-                # provider (no post_stop) and left the Funnel/serve rule up.
-                # Why: the effect carries the provider that owned this process.
+                # What was wrong: next_state stores the new provider and port on
+                # TunnelState before effects run, and post_stop read those fields.
+                # Tailscale → another provider or a port change looked up the new
+                # provider/port and ran post_stop on the wrong port (or skipped it).
+                # How it happened: START_REQUESTED updated state before effects ran.
+                # Why: TerminateProcessEffect carries provider and port from pre-transition state.
                 provider = effect.provider or self._state.provider
+                # What was wrong: next_state stores the new provider/port on
+                # TunnelState before effects run, and post_stop read those
+                # fields, so Tailscale off hit the new port or the wrong
+                # provider. Why: the effect carries the provider and port that
+                # owned this process.
+                port = effect.port
                 # What was wrong: post_stop also required a live process.
                 # RECONNECTING and FAILED already cleared _process in
                 # _on_exit, so switching provider or disabling the tunnel
@@ -741,7 +753,7 @@ class TunnelManager:
                 # A crash marker is the exception, handled in stop().
                 leaving_live_session = proc is not None or previous_status != TunnelStatus.STOPPED
                 if leaving_live_session:
-                    self._schedule_post_stop_unlocked(provider)
+                    self._schedule_post_stop_unlocked(provider, port)
 
             elif isinstance(effect, StartProcessEffect):
                 provider = effect.provider
@@ -918,9 +930,12 @@ class TunnelManager:
             if epoch != self._start_epoch:
                 log.info("Ignoring stale MCP tunnel start (%s)", provider)
                 return False
-            if self._state.last_error and ("not found on PATH" in self._state.last_error or "failed to start" in self._state.last_error or "pre_start failed" in self._state.last_error):
-                return False
-            return True
+            # What was wrong: start() return value depended on matching specific
+            # substrings in last_error ("not found on PATH", "failed to start", etc.).
+            # How it happened: checking error strings instead of the state machine status.
+            # Why: checking status != FAILED directly avoids silent True returns if
+            # an error message is reworded or a new failure reason is introduced.
+            return self._state.status != TunnelStatus.FAILED
 
     def stop(self) -> None:
         with self._lock:
@@ -944,7 +959,7 @@ class TunnelManager:
             # _tailscale_reset_issued blocks a second stop in this process
             # from resetting again before the background clear finishes.
             if idle and not self._tailscale_reset_issued and _tailscale_arm_file_exists():
-                self._schedule_post_stop_unlocked("tailscale")
+                self._schedule_post_stop_unlocked("tailscale", self._state.port)
 
 
 def _redact_cmd_for_log(cmd: list[str]) -> str:

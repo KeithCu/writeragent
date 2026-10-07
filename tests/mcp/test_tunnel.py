@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from plugin.mcp.tunnel import (
     TunnelManager,
     _redact_cmd_for_log,
+    _tailscale_off_commands,
     build_bore_command,
     build_cloudflare_command,
     build_ngrok_command,
@@ -100,6 +101,13 @@ def test_build_ngrok_and_tailscale():
         "json",
     ]
     assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
+
+
+def test_tailscale_off_commands_only_stops_funnel_port():
+    cmds = _tailscale_off_commands(18765)
+    assert cmds == (["tailscale", "funnel", "18765", "off"],)
+    # Must not run serve --https=443 off to avoid wiping user serve config
+    assert not any("serve" in cmd for cmd in cmds)
 
 
 def test_parse_cloudflare_url():
@@ -345,6 +353,32 @@ def test_start_sets_last_error_unknown_provider(monkeypatch):
     assert mgr.last_error and "unknown" in mgr.last_error
 
 
+def test_start_returns_false_when_status_is_failed_with_custom_message(monkeypatch):
+    """start() returns False on TunnelStatus.FAILED regardless of last_error text."""
+    import dataclasses
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+
+    def _fail_spawn(effect):
+        with mgr._lock:
+            mgr._state = dataclasses.replace(
+                mgr._state,
+                status=TunnelStatus.FAILED,
+                last_error="unrecognized custom error message",
+                desired_running=False,
+            )
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch.object(mgr, "_spawn_process_unlocked", side_effect=_fail_spawn),
+    ):
+        assert mgr.start(18765, "cloudflare") is False
+        assert mgr.status == TunnelStatus.FAILED
+        assert mgr.last_error == "unrecognized custom error message"
+
+
 def test_auth_line_and_exit_without_url_set_last_error(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
@@ -367,7 +401,7 @@ def test_auth_line_and_exit_without_url_set_last_error(monkeypatch):
         patch("plugin.mcp.tunnel.binary_available", return_value=True),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
-        assert mgr.start(18765, "ngrok") is True
+        assert mgr.start(18765, "ngrok") is False
         assert mgr.last_error == "ngrok authtoken required or invalid"
         assert mgr.public_url is None
 
@@ -689,13 +723,56 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         # post_stop for the provider being left, not cloudflare (which has none).
         import time
         t0 = time.monotonic()
-        while len(reset_cmds) < 4 and time.monotonic() - t0 < 2:
+        while len(reset_cmds) < len(_tailscale_reset_cmds(18765)) * 2 and time.monotonic() - t0 < 2:
             time.sleep(0.01)
         assert reset_cmds == _tailscale_reset_cmds(18765) * 2
         # Stale tailscale exit must not drop the cloudflared process.
         exits[0](0)
         assert mgr._process is procs[1]
         assert mgr.is_reconnecting is False
+        mgr.stop()
+
+
+def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch):
+    """When port changes on provider switch, post_stop must reset old port, not new port."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    procs: list = []
+
+    def _run(cmd, **kwargs):
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.start = MagicMock()
+        proc.terminate = MagicMock()
+        procs.append(proc)
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert reset_cmds == _tailscale_reset_cmds(18765)
+
+        # Switch to cloudflare on port 19000
+        assert mgr.start(19000, "cloudflare") is True
+        import time
+        t0 = time.monotonic()
+        while len(reset_cmds) < 2 and time.monotonic() - t0 < 2:
+            time.sleep(0.01)
+        # Old port (18765) must be turned off, NOT the new port (19000)
+        assert reset_cmds == [
+            ["tailscale", "funnel", "18765", "off"],
+            ["tailscale", "funnel", "18765", "off"],
+        ]
         mgr.stop()
 
 
@@ -797,7 +874,6 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
 def _tailscale_reset_cmds(port: int = 18765) -> list[list[str]]:
     return [
         ["tailscale", "funnel", str(int(port)), "off"],
-        ["tailscale", "serve", "--https=443", "off"],
     ]
 
 

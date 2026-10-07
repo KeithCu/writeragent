@@ -92,6 +92,18 @@ def test_start_requested_terminate_names_provider_being_left():
     assert tr.state.port == 19000
     term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)][0]
     assert term.provider == "tailscale"
+    assert term.port == 18765
+
+
+def test_start_requested_terminate_carries_old_port_on_port_change():
+    """Port change must carry old port in TerminateProcessEffect for Funnel off."""
+    state = TunnelState(status=TunnelStatus.CONNECTED, provider="tailscale", port=18765, desired_running=True)
+    event = TunnelEvent(TunnelEventKind.START_REQUESTED, {"port": 19000, "provider": "tailscale", "provider_token": ""})
+    tr = next_state(state, event)
+    assert tr.state.port == 19000
+    term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)][0]
+    assert term.provider == "tailscale"
+    assert term.port == 18765
 
 
 def test_url_acquired_transition():
@@ -175,6 +187,7 @@ def test_process_exited_exhausts_max_retries():
     term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)]
     assert len(term) == 1
     assert term[0].provider == "ngrok"
+    assert term[0].port == 18765
 
 
 def test_process_exited_auth_error_fails_immediately_without_retry():
@@ -198,6 +211,7 @@ def test_process_exited_auth_error_fails_immediately_without_retry():
     term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)]
     assert len(term) == 1
     assert term[0].provider == "ngrok"
+    assert term[0].port == 18765
 
 
 def test_retry_timer_expired_starts_process_when_desired_running():
@@ -255,6 +269,7 @@ def test_stop_requested_cleans_up_from_any_state():
         assert any(isinstance(e, CancelRetryTimerEffect) for e in tr.effects)
         term = [e for e in tr.effects if isinstance(e, TerminateProcessEffect)][0]
         assert term.provider == "cloudflare"
+        assert term.port == 18765
 
 
 # ── Hypothesis Property-Based Verification ─────────────────────────────
