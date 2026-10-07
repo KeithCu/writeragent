@@ -25,6 +25,9 @@ _MAX_SYMBOLIC_EXPR_CHARS = 10_000
 
 
 class _SymbolicError(Exception):
+    code: str
+    message: str
+
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
@@ -178,7 +181,7 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
         if sp is None:
             return _missing_package_error(helper, "sympy")
         try:
-            return func(sp, *args, **kwargs)
+            return func(*args, **kwargs)
         except _SymbolicError as exc:
             return _error_result(exc.code, exc.message, helper=helper)
         except ValueError as exc:
@@ -190,7 +193,9 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
 
 
 @_symbolic_helper
-def symbolic_simplify(sp: Any, *, expression: str) -> dict[str, Any]:
+def symbolic_simplify(*, expression: str) -> dict[str, Any]:
+    sp = _require_sympy()
+    assert sp is not None
     expr = _parse_expression(sp, expression)
     simplified = sp.simplify(expr)
     latex = _to_latex(sp, simplified)
@@ -198,7 +203,9 @@ def symbolic_simplify(sp: Any, *, expression: str) -> dict[str, Any]:
 
 
 @_symbolic_helper
-def differentiate(sp: Any, *, expression: str, variable: str = "x") -> dict[str, Any]:
+def differentiate(*, expression: str, variable: str = "x") -> dict[str, Any]:
+    sp = _require_sympy()
+    assert sp is not None
     sym = _parse_variable(sp, variable)
     expr = _parse_expression(sp, expression, variable=sym)
     result = sp.diff(expr, sym)
@@ -211,13 +218,14 @@ def differentiate(sp: Any, *, expression: str, variable: str = "x") -> dict[str,
 
 @_symbolic_helper
 def integrate(
-    sp: Any,
     *,
     expression: str,
     variable: str = "x",
     lower: str | None = None,
     upper: str | None = None,
 ) -> dict[str, Any]:
+    sp = _require_sympy()
+    assert sp is not None
     sym = _parse_variable(sp, variable)
     expr = _parse_expression(sp, expression, variable=sym)
     has_lower = lower is not None and str(lower).strip() != ""
@@ -243,7 +251,9 @@ integrate_helper = integrate
 
 
 @_symbolic_helper
-def solve_equation(sp: Any, *, equation: str, variable: str = "x") -> dict[str, Any]:
+def solve_equation(*, equation: str, variable: str = "x") -> dict[str, Any]:
+    sp = _require_sympy()
+    assert sp is not None
     sym = _parse_variable(sp, variable)
     text = str(equation or "").strip()
     if not text:
@@ -281,7 +291,7 @@ def solve_equation(sp: Any, *, equation: str, variable: str = "x") -> dict[str, 
 
 
 @_symbolic_helper
-def latex_to_math_object(sp: Any, *, latex: str) -> dict[str, Any]:
+def latex_to_math_object(*, latex: str) -> dict[str, Any]:
     trimmed = str(latex or "").strip()
     if not trimmed:
         raise _SymbolicError("MISSING_PARAM", "latex is required")
@@ -289,6 +299,8 @@ def latex_to_math_object(sp: Any, *, latex: str) -> dict[str, Any]:
     # How: Only '=' and '\\' were checked before routing to SymPy parse_expr.
     # Why: Treat '{', '}', '^', '_' as LaTeX cues as well to preserve valid LaTeX syntax.
     if not any(cue in trimmed for cue in ("=", "\\", "{", "}", "^", "_")):
+        sp = _require_sympy()
+        assert sp is not None
         expr = _parse_expression(sp, trimmed)
         trimmed = _to_latex(sp, expr)
     return _ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
