@@ -171,8 +171,11 @@ def resolve_bibliographic_type(value: Any) -> int | None:
     text = str(value).strip()
     if not text:
         return None
-    if text.isdigit() or (text.startswith("-") and text[1:].isdigit()):
-        return int(text)
+    if text.isascii() and (text.isdigit() or (text.startswith("-") and text[1:].isdigit())):
+        val = int(text)
+        if 0 <= val <= 16:
+            return val
+        return None
     return _BIB_TYPE_NAMES.get(text.lower().replace(" ", "").replace("-", ""))
 
 
@@ -437,7 +440,11 @@ def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple
 
     ranges = search_mod.find_all_ranges(doc, old_content) or []
     text = anchor.getText()
-    inside = [found for found in ranges if _contained(text, anchor, found)]
+    inside = [
+        found for found in ranges
+        if _contained(text, anchor, found)
+        and _para_style_name(_paragraph_element(found)) != "Contents Heading"
+    ]
     pick = 0 if occurrence is None else occurrence
     if not inside or pick >= len(inside):
         if occurrence not in (None, 0):
@@ -515,7 +522,10 @@ def _commit_toc_mutation(
                 if titles and titles[0] == undo_title:
                     mgr.undo()
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).exception("TOC edit rollback failed")
+                if error is not None:
+                    error = tool._tool_error(fallback_message)
     if error is not None or not applied:
         if error is not None:
             return error
@@ -866,7 +876,7 @@ def _insert_toc_paragraph(
     return lived if isinstance(lived, str) else new_text
 
 
-def _remove_paragraph(text: Any, para: Any) -> None:
+def _remove_paragraph(text: Any, para: Any, anchor: Any = None) -> None:
     """Delete *para* including its paragraph break, leaving the next row intact.
 
     Select from this paragraph start to the next paragraph start so the range
@@ -880,10 +890,11 @@ def _remove_paragraph(text: Any, para: Any) -> None:
     sel.gotoStartOfParagraph(False)
     nxt = text.createTextCursorByRange(sel.getStart())
     if nxt.gotoNextParagraph(False) is True:
-        nxt.gotoStartOfParagraph(False)
-        sel.gotoRange(nxt.getStart(), True)
-        sel.setString("")
-        return
+        if anchor is None or _contained(text, anchor, nxt):
+            nxt.gotoStartOfParagraph(False)
+            sel.gotoRange(nxt.getStart(), True)
+            sel.setString("")
+            return
     prev = text.createTextCursorByRange(sel.getStart())
     if prev.gotoPreviousParagraph(False) is True:
         prev.gotoEndOfParagraph(False)
@@ -931,6 +942,8 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
         if not isinstance(content, str):
             return self._tool_error("content must be plain text.", code="INVALID_PARAM")
+        if "\n" in content or "\r" in content:
+            content = content.replace("\n", " ").replace("\r", " ")
         from ..format import content_has_markup
         if content_has_markup(content):
             return self._tool_error(
@@ -942,6 +955,8 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             if not isinstance(raw_url, str) or not raw_url.strip():
                 return self._tool_error("hyperlink_url must be a non-empty string.", code="INVALID_PARAM")
             override = raw_url
+            if "\n" in override or "\r" in override:
+                override = override.replace("\n", "").replace("\r", "")
         occurrence = kwargs.get("occurrence")
         if occurrence is not None and (isinstance(occurrence, bool) or not isinstance(occurrence, int) or occurrence < 0):
             return self._tool_error("occurrence must be a non-negative integer.", code="INVALID_PARAM")
@@ -1106,7 +1121,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             return preview
 
         def mutate() -> dict[str, Any] | None:
-            _remove_paragraph(anchor.getText(), para)
+            _remove_paragraph(anchor.getText(), para, anchor)
             return None
 
         error = _commit_toc_mutation(
@@ -1162,6 +1177,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if not isinstance(content, str) or not content.strip():
             return self._tool_error("content must be a non-empty string.", code="INVALID_PARAM")
         content = content.strip()
+        if "\n" in content or "\r" in content:
+            content = content.replace("\n", " ").replace("\r", " ")
         if _reject_markup(content):
             return self._tool_error(
                 "indexes_insert_toc_entry takes plain text so the new entry's formatting can be cloned.",
@@ -1169,6 +1186,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         page, page_error = self._page_text(kwargs.get("page"))
         if page_error:
             return self._tool_error(page_error, code="INVALID_PARAM")
+        if page is not None and ("\n" in page or "\r" in page):
+            page = page.replace("\n", " ").replace("\r", " ")
         if page is not None and _reject_markup(page):
             return self._tool_error("page must be plain text.", code="INVALID_PARAM")
         if page is not None and "\t" in content:
@@ -1178,6 +1197,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         url, url_error = self._outline_url(kwargs.get("hyperlink_url"))
         if url_error:
             return self._tool_error(url_error, code="INVALID_PARAM")
+        if url is not None and ("\n" in url or "\r" in url):
+            url = url.replace("\n", "").replace("\r", "")
         position = kwargs.get("position") or "end"
         if position not in ("before", "after", "end"):
             return self._tool_error("position must be before, after, or end.", code="INVALID_PARAM")
@@ -1444,7 +1465,7 @@ class IndexesListCites(ToolWriterIndexBase):
         cites: list[Any] = []
         hf_labels: dict[int, str] = {}
         scanned = 0
-        while enum.hasMoreElements():
+        while _enum_has_more(enum):
             field = enum.nextElement()
             scanned += 1
             if not is_bibliography_text_field(field):
@@ -1518,6 +1539,8 @@ class IndexesCreate(ToolWriterIndexBase):
                 "object": "com.sun.star.text.ObjectIndex",
                 "bibliography": "com.sun.star.text.Bibliography",
             }
+            if index_kind not in service_map:
+                return self._tool_error(f"Unknown index kind: {index_kind}", code="INVALID_PARAM")
             service_name = service_map.get(index_kind, "com.sun.star.text.ContentIndex")
 
             index = doc.createInstance(service_name)
@@ -1607,6 +1630,8 @@ class IndexesAddMark(ToolWriterIndexBase):
             return self._tool_error("Failed to resolve target location.")
 
         try:
+            if index_kind not in ("alphabetical", "user", "bibliography"):
+                return self._tool_error(f"Unknown index mark kind: {index_kind}", code="INVALID_PARAM")
             if index_kind == "bibliography":
                 return self._insert_bibliography_cite(
                     doc, cursor, kwargs, unused_reserved
@@ -1618,10 +1643,10 @@ class IndexesAddMark(ToolWriterIndexBase):
 
             mark = doc.createInstance(service_name)
 
-            if hasattr(mark, "MarkEntry"):
-                mark.MarkEntry = mark_text
-            elif hasattr(mark, "PrimaryKey") and hasattr(mark, "SecondaryKey"):
-                pass  # DocumentIndexMark handles these via properties
+            try:
+                mark.setPropertyValue("AlternativeText", mark_text)
+            except Exception:
+                pass
 
             if index_kind == "alphabetical":
                 if hasattr(mark, "PrimaryKey") and primary_key is not None:

@@ -187,6 +187,21 @@ def test_indexes_create():
     index_mock.update.assert_called()
 
 
+def test_indexes_create_invalid_kind():
+    tool = IndexesCreate()
+    ctx = MagicMock()
+    res = tool.execute(ctx, kind="unknown")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+def test_indexes_add_mark_invalid_kind():
+    tool = IndexesAddMark()
+    ctx = MagicMock()
+    ctx.doc.getText().createTextCursor.return_value = MagicMock()
+    res = tool.execute(ctx, text="term", kind="unknown")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
 def test_indexes_add_mark():
     tool = IndexesAddMark()
     ctx = MagicMock()
@@ -202,7 +217,7 @@ def test_indexes_add_mark():
     assert res["message"] == "Added 'alphabetical' index mark for 'Important Term'"
 
     doc.createInstance.assert_called_with("com.sun.star.text.DocumentIndexMark")
-    assert mark_mock.MarkEntry == "Important Term"
+    mark_mock.setPropertyValue.assert_any_call("AlternativeText", "Important Term")
     assert mark_mock.PrimaryKey == "Terms"
 
     text_mock = cursor_mock.getText()
