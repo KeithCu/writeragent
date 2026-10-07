@@ -2112,10 +2112,6 @@ def test_approval_dialog_wrapping():
 
     with patch("plugin.chatbot.send_handlers.show_approval_dialog", side_effect=Exception("UI Error")):
         # Call the effect which will trigger the fake drain
-        interpreter = MagicMock()
-        state = MagicMock()
-        state.handler_type = "agent"
-        state.status = "ready"
         panel.stop_requested = False
         with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()), \
              patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
