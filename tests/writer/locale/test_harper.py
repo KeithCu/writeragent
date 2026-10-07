@@ -1194,8 +1194,8 @@ def test_harper_try_lint_eof_returns_none(mock_bg: MagicMock) -> None:
     harper_module._set_state(HarperRuntimeState.READY)
     with patch.object(client, "_write", lambda _payload: None):
         assert harper_try_lint("Hello.", "/tmp") is None
-    assert mock_bg.call_count == 0
-    assert harper_module._HARPER_STATE is HarperRuntimeState.FAILED
+    assert mock_bg.call_count == 1
+    assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
 
 
 def test_ensure_replaces_dead_cached_client() -> None:
@@ -1424,8 +1424,7 @@ def test_harper_try_lint_logs_error_on_lint_exception(mock_bg: MagicMock, caplog
     caplog.set_level(logging.ERROR, logger="writeragent.grammar")
     assert harper_try_lint("He go to the store.", "/tmp") is None
     assert any("lint failed on ready client" in r.message for r in caplog.records)
-    assert mock_bg.call_count == 0
-    assert harper_module._HARPER_STATE is HarperRuntimeState.FAILED
+    assert mock_bg.call_count == 1
 
 
 def _ready_harper_client(lint_side_effect: object) -> MagicMock:
@@ -1835,6 +1834,82 @@ def test_lint_restart_drops_lock_during_client_construction() -> None:
     assert isinstance(harper_module._HARPER_CLIENT_CACHE[dead.binary_path], FakeClient)
 
 def test_lsp_range_to_offset_unicode_line_separator() -> None:
-    text = "a\u2028b teh"
-    assert lsp_range_to_offset(text, 0, 0) == 0
-    assert lsp_range_to_offset(text, 0, 2) == 2
+    text = "x\na\u2028b teh"
+    assert lsp_range_to_offset(text, 1, 4) == 6
+
+
+def test_run_lint_off_caller_thread_closes_client_on_cancel_timeout() -> None:
+    """When a cancelled lint wait times out joining the worker, client.close() is called."""
+    client = MagicMock()
+    unblock = threading.Event()
+
+    def blocked_lint(*args: object, **kwargs: object) -> list[object]:
+        del args, kwargs
+        unblock.wait(5.0)
+        return []
+
+    client.lint.side_effect = blocked_lint
+
+    def fake_wait(done: threading.Event, ctx: object, *, timeout: float) -> bool:
+        del done, ctx, timeout
+        return False
+
+    with (
+        patch("plugin.framework.uno_context.wait_while_pumping", fake_wait),
+        patch("plugin.writer.locale.harper._HARPER_CANCEL_JOIN_SEC", 0.05),
+    ):
+        with pytest.raises(TimeoutError, match="Harper LSP operation timed out"):
+            harper_module._run_lint_off_caller_thread(client, "Hi.", "en-US", ctx=object(), restart=False)
+
+    unblock.set()
+    client.close.assert_called_once()
+
+
+def test_lint_with_client_maps_diagnostics_against_normalized_text() -> None:
+    """Diagnostics returned by Harper must be mapped against normalized lint_text."""
+    client = MagicMock()
+    raw_text = "foo\u00a0bar teh"
+    normalized_text = "foo bar teh"
+    assert harper_module.normalize_spaces_1to1(raw_text) == normalized_text
+
+    mock_diagnostic = {
+        "diagnostic": {
+            "range": {"start": {"line": 0, "character": 8}, "end": {"line": 0, "character": 11}},
+            "message": "Did you mean 'the'?",
+            "code": "Typo",
+        },
+        "suggestions": ["the"],
+    }
+    client.lint.return_value = [mock_diagnostic]
+
+    with patch("plugin.writer.locale.harper._diagnostics_to_errors", wraps=harper_module._diagnostics_to_errors) as mock_diag:
+        with harper_module._HARPER_LOCK:
+            out = harper_module._lint_with_client(client, raw_text, "en-US", restart=False)
+
+        mock_diag.assert_called_once_with(normalized_text, [mock_diagnostic])
+
+    assert len(out["errors"]) == 1
+    assert out["errors"][0]["wrong"] == "teh"
+    assert out["errors"][0]["n_error_start"] == 8
+    assert out["errors"][0]["n_error_length"] == 3
+
+
+def test_ensure_failure_while_resolving_sets_failed_and_cooldown_allows_restart() -> None:
+    """An ensure failure while RESOLVING ends in FAILED with failed_at set, allowing restart after cooldown."""
+    harper_module._set_state(HarperRuntimeState.RESOLVING)
+    assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+
+    with patch("plugin.writer.locale.harper._get_harper_binary", side_effect=RuntimeError("binary not found")):
+        harper_module._harper_ensure_ready_body("/tmp", "en-US")
+
+    assert harper_module._HARPER_STATE is HarperRuntimeState.FAILED
+    assert harper_module._HARPER_FAILED_AT > 0.0
+
+    # During cooldown, ensure cannot start
+    with harper_module._HARPER_LOCK:
+        assert not harper_module._can_start_ensure_locked()
+
+    # After cooldown expires, ensure can start
+    harper_module._HARPER_FAILED_AT -= (harper_module._HARPER_FAIL_COOLDOWN_SEC + 1.0)
+    with harper_module._HARPER_LOCK:
+        assert harper_module._can_start_ensure_locked()

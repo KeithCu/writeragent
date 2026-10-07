@@ -15,6 +15,7 @@ import enum
 import logging
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -403,7 +404,18 @@ class HarperLSClient:
 
 def lsp_range_to_offset(text: str, line: int, character: int) -> int:
     """Convert LSP 0-indexed line/character (UTF-16 code units) to a Python string offset."""
-    lines = [text] if ("\n" not in text and "\r" not in text) else text.splitlines(keepends=True)
+    # What was wrong: str.splitlines() split on Unicode separators like \u2028, \x0b, \x0c,
+    # \x1c-\x1e, and \x85, causing character offsets to diverge from the LSP server.
+    # How it happened: Python's str.splitlines() splits on all Unicode line breaks, whereas
+    # LSP specifies that only \r\n, \r, and \n end lines.
+    # Why this change fixes it: splitting only on (\r\n|\r|\n) keeps line endings aligned with LSP.
+    if "\n" not in text and "\r" not in text:
+        lines = [text] if text else []
+    else:
+        parts = re.split(r"(\r\n|\r|\n)", text)
+        lines = [parts[i] + parts[i + 1] for i in range(0, len(parts) - 1, 2)]
+        if parts[-1]:
+            lines.append(parts[-1])
     if line >= len(lines):
         return len(text)
     pos = _LSP_POSITION_CODEC.position_from_client_units(lines, ClientPosition(line=line, character=character))
@@ -576,9 +588,14 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
         _schedule_proofread_again()
     except Exception:
         log.exception("[harper] Background ensure failed")
+        # What was wrong: an ensure failure guarded state transition behind
+        # `if _HARPER_STATE is not HarperRuntimeState.RESOLVING`. Because
+        # harper_ensure_ready_async sets RESOLVING before submitting the job,
+        # the failure was never recorded and _can_start_ensure_locked() refused forever.
+        # How it happened: the condition attempted to preserve RESOLVING during concurrent checks.
+        # Why this change fixes it: always set state to FAILED with failed_at timestamp.
         with _HARPER_LOCK:
-            if _HARPER_STATE is not HarperRuntimeState.RESOLVING:
-                _set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
+            _set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
 
 
 def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> bool:
@@ -698,9 +715,13 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     except Exception:
         # restart=False: do not Popen on the linguistic thread. The
         # walk returns empty; background ensure restarts harper-ls.
+        # What was wrong: setting FAILED triggered the 30s cooldown, causing the
+        # subsequent harper_ensure_ready_async call to no-op instead of restarting.
+        # How it happened: FAILED was erroneously used here instead of IDLE.
+        # Why this change fixes it: resetting state to IDLE allows harper_ensure_ready_async to restart immediately.
         log.exception("[harper] lint failed on ready client; empty aErrors this walk")
         with _HARPER_LOCK:
-            _set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
+            _set_state(HarperRuntimeState.IDLE)
         harper_ensure_ready_async(user_config_dir, bcp47)
         return None
     finally:
@@ -744,7 +765,7 @@ def warn_if_harper_result_slow(
     return True
 
 
-def _diagnostics_to_errors(text: str, results: list[Any]) -> dict[str, Any]:
+def _diagnostics_to_errors(lint_text: str, results: list[Any]) -> dict[str, Any]:
     errors = []
     for item in results:
         diag = item["diagnostic"]
@@ -757,13 +778,13 @@ def _diagnostics_to_errors(text: str, results: list[Any]) -> dict[str, Any]:
         start_pos = diag_range.get("start", {})
         end_pos = diag_range.get("end", {})
 
-        start_offset = lsp_range_to_offset(text, start_pos.get("line", 0), start_pos.get("character", 0))
-        end_offset = lsp_range_to_offset(text, end_pos.get("line", 0), end_pos.get("character", 0))
+        start_offset = lsp_range_to_offset(lint_text, start_pos.get("line", 0), start_pos.get("character", 0))
+        end_offset = lsp_range_to_offset(lint_text, end_pos.get("line", 0), end_pos.get("character", 0))
         length = max(0, end_offset - start_offset)
 
         errors.append(
             {
-                "wrong": text[start_offset:end_offset] if length else "",
+                "wrong": lint_text[start_offset:end_offset] if length else "",
                 "correct": suggestions[0] if suggestions else "",
                 "n_error_start": start_offset,
                 "n_error_length": length,
@@ -847,6 +868,16 @@ def _run_lint_off_caller_thread(
         # every other Harper caller. Cancel unblocks the poll in ``_read``.
         cancel_event.set()
         handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
+        # What was wrong: if a worker was blocked on _write under _HARPER_LOCK,
+        # setting cancel_event and waiting for handle.join did not unblock the socket/pipe,
+        # leaving _HARPER_LOCK held and deadlocking subsequent Harper calls.
+        # How it happened: cancel_event was only checked in reader poll loops, not during blocked writes.
+        # Why this change fixes it: closing the client aborts pending I/O and process, unblocking the worker.
+        if not done.is_set():
+            try:
+                client.close()
+            except Exception:
+                pass
     if "exc" in box:
         raise box["exc"]
     result = box.get("result")
@@ -935,7 +966,11 @@ def _lint_with_client(
                 raise
             restarted = _replace_harper_client(client, bcp47, heartbeat_fn)
             results = _call_lint(restarted)
-        out = _diagnostics_to_errors(text, results)
+        # What was wrong: diagnostics from Harper LSP were mapped against original `text`
+        # instead of `lint_text` (which was the text actually sent to Harper).
+        # How it happened: `text` was passed to `_diagnostics_to_errors` instead of `lint_text`.
+        # Why this change fixes it: passing `lint_text` ensures offsets and line mappings align.
+        out = _diagnostics_to_errors(lint_text, results)
         error_count = len(out.get("errors") or [])
         return out
     finally:
