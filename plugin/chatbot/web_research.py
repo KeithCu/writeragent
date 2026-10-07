@@ -293,8 +293,13 @@ def _cdp_run_enter() -> None:
     """
     global _cdp_runs
     with _cdp_visits_cond:
+        import time
+        start_wait = time.time()
         while _cdp_closing:
-            _cdp_visits_cond.wait()
+            _cdp_visits_cond.wait(1.0)
+            if time.time() - start_wait > 35.0:
+                log.warning("Timeout waiting for previous CDP browser to close")
+                break
         _cdp_runs += 1
 
 
@@ -340,8 +345,13 @@ def _finish_cdp_browser() -> None:
         if _cdp_runs > 0:
             return
         _cdp_closing = True
+        import time
+        start_wait = time.time()
         while _cdp_visits_inflight > 0:
-            _cdp_visits_cond.wait()
+            _cdp_visits_cond.wait(1.0)
+            if time.time() - start_wait > 35.0:
+                log.warning("Timeout waiting for in-flight CDP visits to finish")
+                break
     try:
         cleanup_local_chrome()
     except Exception as exc:
@@ -360,15 +370,20 @@ class VisitWebpageCdpTool(Tool):
     cdp_url: str
     max_output_length: int
 
-    def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs: Any) -> None:
+    def __init__(self, cdp_url: str, stop_checker: Any = None, max_output_length: int = 40000, **kwargs: Any) -> None:
         super().__init__()
         self.cdp_url = cdp_url
         self.max_output_length = max_output_length
+        self.stop_checker = stop_checker
 
     def forward(self, url: str) -> str:
         from plugin.contrib.cdp.browser_cdp_tool import browser_cdp
         import json
         import time
+
+        lower_url = str(url).strip().lower()
+        if not (lower_url.startswith("http://") or lower_url.startswith("https://")):
+            return "Error visiting webpage via CDP: URL must use http or https scheme."
 
         # Each visit opens and closes its own target. Reusing the first page
         # tab meant two deep-research workers navigated the same document.
@@ -389,7 +404,10 @@ class VisitWebpageCdpTool(Tool):
             if not nav_data.get("success"):
                 return f"Failed to navigate to {url}: {nav_data.get('error')}"
 
-            time.sleep(3.0)
+            for _ in range(12):
+                if self.stop_checker and self.stop_checker():
+                    return "Error visiting webpage via CDP: stopped by user."
+                time.sleep(0.25)
 
             eval_raw = browser_cdp(
                 "Runtime.evaluate",
@@ -462,7 +480,7 @@ def _run_web_agent(
     )
 
     visit_inner = (
-        VisitWebpageCdpTool(cdp_url=params.cdp_url)
+        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=params.stop_checker)
         if (params.cdp_enabled and params.cdp_url)
         else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
     )
@@ -620,7 +638,7 @@ def _run_deep_web_research(
             status_callback=agent_params.status_callback,
             stop_checker=agent_params.stop_checker,
         )
-        worker_params = replace(deep_params, smol_model=worker_model)
+        worker_params = replace(deep_params, smol_model=worker_model, approval_callback=None)
 
         def run_sub_agent(sub_query: str, research_goal: str, sub_history: str | None) -> str | dict[str, Any]:
             return _run_web_agent(ctx, sub_query, sub_history, worker_params, research_goal=research_goal or None)
@@ -730,7 +748,7 @@ class WebResearchTool(ToolBase):
         unique_key = _get_unique_words_key(query_str, snowball_lang=stem_lang)
         embedding_text = _get_embedding_words_text(query_str, snowball_lang=stem_lang)
 
-        from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir, get_config_int_safe
+        from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir
         cache_enabled = get_config_bool_safe("web_research_cache_enabled")
         udir = user_config_dir()
         raw_mb = get_config_int("web_cache_max_mb")
@@ -893,21 +911,19 @@ class WebResearchTool(ToolBase):
                 if final_ans.get("status") == "ok":
                     final_ans.setdefault("instruction", instruction)
                 if final_ans.get("status") == "ok" and cacheable and cache_enabled and cache_path and unique_key:
-                    try:
-                        raw_mb = get_config_int_safe("web_cache_max_mb")
-                        cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-                        cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
-                    except Exception as e:
-                        log.warning("Failed to write to web research cache: %s", e)
+                    result_text = str(final_ans.get("result", ""))
+                    if result_text.strip():
+                        try:
+                            cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_text, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
+                        except Exception as e:
+                            log.warning("Failed to write to web research cache: %s", e)
                 if cache_fields:
                     return {**final_ans, **cache_fields}
                 return final_ans
 
             result_str = str(final_ans)
-            if cache_enabled and cache_path and unique_key:
+            if cache_enabled and cache_path and unique_key and result_str.strip():
                 try:
-                    raw_mb = get_config_int_safe("web_cache_max_mb")
-                    cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
                     cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
                 except Exception as e:
                     log.warning("Failed to write to web research cache: %s", e)
@@ -921,6 +937,12 @@ class WebResearchTool(ToolBase):
         finally:
             if cdp_held:
                 _finish_cdp_browser()
+            try:
+                if 'smol_model' in locals() and smol_model:
+                    if hasattr(smol_model, "api") and hasattr(smol_model.api, "stop"):
+                        smol_model.api.stop()
+            except Exception as e:
+                log.debug("Error stopping smol_model api: %s", e)
 
 
 def _web_search_query_from_arguments(arguments: Any) -> str:

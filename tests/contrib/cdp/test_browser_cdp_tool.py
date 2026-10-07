@@ -126,4 +126,5 @@ def test_visit_webpage_cdp_tool_forward(mock_sleep, mock_browser_cdp):
     assert result == "This is page text content retrieved via CDP."
     methods = [call.args[0] for call in mock_browser_cdp.call_args_list]
     assert methods == ["Target.createTarget", "Page.navigate", "Runtime.evaluate", "Target.closeTarget"]
-    mock_sleep.assert_called_once_with(3.0)
+    assert mock_sleep.call_count == 12
+    mock_sleep.assert_called_with(0.25)

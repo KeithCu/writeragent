@@ -459,6 +459,13 @@ class VisitWebpageTool(Tool):
     def forward(self, url: str) -> str:
         key = str(url).strip()
 
+        lower_url = key.lower()
+        if not (lower_url.startswith("http://") or lower_url.startswith("https://")):
+            return self._return_error(
+                key,
+                "Error fetching the webpage: URL must use http or https scheme.",
+            )
+
         # Cache lookup
         if self._cache_path and self._cache_max_mb > 0 and key:
             cached = _web_cache_get(self._cache_path, "page", key, max_age_days=self._cache_max_age_days)
