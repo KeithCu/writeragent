@@ -89,6 +89,28 @@ def _manual_multipart(
 
 
 class TestPeelExecuteRequest:
+
+    def test_peel_skips_unknown_keys(self) -> None:
+        payload = b'{"id": "1", "junk": [1,2,3], "code": "1"}'
+        # Assert behavior: should parse without crashing and return the specified fields
+        res = parse_execute_request(payload, None)
+        assert res.req_id == "1"
+        assert res.code == "1"
+
+    def test_skip_string_invalid_unicode_escape_malformed(self) -> None:
+        with pytest.raises(ExecuteRequestError, match="Invalid unicode escape|Unterminated escape"):
+            payload = b'{"id": "\\u12",", "code": "1"}'
+            parse_execute_request(payload, None)
+
+    def test_nested_nonfinite_id_rejected(self) -> None:
+        with pytest.raises(ExecuteRequestError):
+            payload = b'{"id": [1e9999], "code": "1"}'
+            parse_execute_request(payload, None)
+
+    def test_non_scalar_timeout_ms_rejected(self) -> None:
+        with pytest.raises(ExecuteRequestError):
+            payload = b'{"timeout_ms": [1000], "code": "1"}'
+            parse_execute_request(payload, None)
     def test_keeps_exact_data_bytes(self) -> None:
         data_literal = b'[1, 2, {"k": "caf\\u00e9"}]'
         body = b'{"id":"r1","code":"result = data","data":' + data_literal + b',"mode":"isolated"}'

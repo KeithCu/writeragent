@@ -107,10 +107,10 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
             raise ExecuteRequestError("Trailing comma in JSON object")
 
     req_id = fields.get("id")
-    if req_id is not None and not isinstance(req_id, (str, int)):
+    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
         raise ExecuteRequestError("id must be a scalar")
     timeout_ms = fields.get("timeout_ms")
-    if timeout_ms is not None and not isinstance(timeout_ms, (int, float)):
+    if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
         raise ExecuteRequestError("timeout_ms must be a scalar")
 
     return ExecuteRequestParts(

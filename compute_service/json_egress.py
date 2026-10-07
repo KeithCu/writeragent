@@ -138,8 +138,8 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
     if is_image_payload(result) or (isinstance(result, dict) and result.get("__wa_payload__") == "image"):
         images.append(_image_to_json(result if isinstance(result, dict) else {}))
         result_out: Any = None
-    elif isinstance(result, dict) and is_multi_data(result) and result.get("items") and all(is_image_payload(x) or (isinstance(x, dict) and x.get("__wa_payload__") == "image") for x in (result.get("items") or [])):  # type: ignore[union-attr]
-        for item in result.get("items") or []:
+    elif isinstance(result, dict) and is_multi_data(result) and isinstance(items := result.get("items"), list) and items and all(is_image_payload(x) or (isinstance(x, dict) and x.get("__wa_payload__") == "image") for x in items):
+        for item in items:
             images.append(_image_to_json(item if isinstance(item, dict) else {}))
         result_out = None
     else:

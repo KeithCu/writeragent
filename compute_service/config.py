@@ -123,7 +123,7 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
     prefixes = _allow_prefixes(allow_prefixes)
     if not ocr_path_is_allowed(file_path, prefixes):
         return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NONBLOCK
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(os.path.expanduser(file_path.strip()), flags)
     except FileNotFoundError:

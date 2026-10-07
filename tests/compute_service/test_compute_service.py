@@ -2470,3 +2470,15 @@ def test_real_socket_queue_timeout() -> None:
         server.server_close()
 
 
+
+
+def test_empty_multi_data_result() -> None:
+    payload = {
+        "status": "ok",
+        "result": {
+            "__wa_payload__": "multi_data",
+            "items": []
+        }
+    }
+    out = normalize_execute_response(payload)
+    assert out["result"] == []
