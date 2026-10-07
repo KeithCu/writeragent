@@ -2,6 +2,7 @@
 from plugin.framework.client.errors import (
     _format_http_error_response,
     append_zai_unknown_model_hint,
+    format_context_window_label,
     is_local_model_server_crash,
     local_model_overflow_message,
 )
@@ -66,6 +67,15 @@ class TestLlamaServerOverflowSentence:
         assert (is_local_model_server_crash(self._CRASH_BODY))
         assert (is_local_model_server_crash("truncating input prompt limit=4095"))
         assert not (is_local_model_server_crash("HTTP Error 500 from AI Provider: boom"))
+
+    def test_format_context_window_label_overflow(self):
+        assert format_context_window_label(float("inf")) is None
+        assert format_context_window_label(float("-inf")) is None
+        assert format_context_window_label("inf") is None
+        assert format_context_window_label(float("nan")) is None
+        assert format_context_window_label(4096) == "4K"
+        assert format_context_window_label("8192") == "8K"
+
 
 
 class TestValidateApiConfigPlaceholders:
