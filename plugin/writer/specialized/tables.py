@@ -1106,12 +1106,12 @@ class TableInsert(ToolWriterTableBase):
                         for c_idx, val in enumerate(r_data):
                             if val is None or str(val) == "":
                                 continue
+                            c_name = _cell_name(c_idx, r_idx)
                             try:
-                                c_name = _cell_name(c_idx, r_idx)
                                 cell = table.getCellByName(c_name)
                                 cell.setString(str(val))
                                 written[0] += 1
-                            except Exception as exc:
+                            except Exception:
                                 log.debug("Failed to set cell %s during insert", c_name, exc_info=True)
 
                 try:
