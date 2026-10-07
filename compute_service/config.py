@@ -233,6 +233,12 @@ class ComputeSettings:
             raise ConfigError("ocr_workers must be >= 0")
         if self.ocr_timeout_sec < 1:
             raise ConfigError("ocr_timeout_sec must be >= 1")
+        # Bugfix (#1365 regression): ocr_timeout_sec was not checked against max_timeout_sec.
+        # When max_timeout_sec was configured lower than ocr_timeout_sec (e.g. max 30s with
+        # default 60s OCR timeout), OCR jobs could exceed the maximum timeout ceiling.
+        # Adding this check ensures ocr_timeout_sec respects max_timeout_sec like default_timeout_sec does.
+        if self.ocr_timeout_sec > self.max_timeout_sec:
+            raise ConfigError("ocr_timeout_sec cannot exceed max_timeout_sec")
         if self.ocr_max_tasks < 1:
             raise ConfigError("ocr_max_tasks must be >= 1")
         if self.max_code_chars < MIN_MAX_CODE_CHARS:
@@ -359,7 +365,12 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
     return raw
 
 
-_FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings))
+# Bugfix (#1365 regression): _FIELD_NAMES included non-init fields like 'threads'
+# because fields(ComputeSettings) contains all dataclass fields regardless of init=True.
+# A config specifying 'threads' passed _reject_unknown_keys but failed inside
+# ComputeSettings(**values) with a TypeError on startup. Filtering by f.init ensures
+# only constructor fields are accepted, rejecting 'threads' as an unknown key via ConfigError.
+_FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings) if f.init)
 _SECTION_KEYS = frozenset({"listen", "auth", "limits", "ocr", "logging"})
 _ALIASES = frozenset({"max_workers", "session_ttl_sec", "api_key_file"})
 _TOP_LEVEL_KEYS = _FIELD_NAMES | _SECTION_KEYS | _ALIASES
@@ -504,8 +515,13 @@ def load_settings(
         values.update(_flatten_config_json(_load_json_file(resolved_config)))
 
     # Environment settings.
+    # Bugfix (#1365 regression): Environment variables were ignored when a setting was
+    # defined in JSON config because 'field_name not in values' prevented overrides.
+    # In #1365, that guard was added when converting to a loop over _ENV_FIELD_MAP,
+    # violating the layering rule (defaults -> JSON -> env -> CLI). Dropping the guard
+    # allows environment variables to take precedence over JSON config.
     for env_name, field_name in _ENV_FIELD_MAP:
-        if env.get(env_name) and field_name not in values:
+        if env.get(env_name):
             values[field_name] = env[env_name]
 
     # Do not strip. _read_key_file keeps leading and trailing spaces (it
