@@ -136,6 +136,28 @@ def _specialized_tool_error_payload(note: str) -> dict[str, str]:
     return {"assistant_content": note.strip()}
 
 
+_ACTIVE_RUN_FLAGS = (
+    "_active_run_librarian",
+    "_active_run_brainstorming",
+    "_active_run_writing_plan",
+    "_active_run_ppt_master",
+    "_active_run_deep_research",
+)
+
+
+def _reset_active_run_flags(host: Any) -> None:
+    """Clear temporary active run markers so stale flags do not leak between sends.
+
+    Bugfix: what was wrong: specialized run flags were only deleted inside
+    _execute_web_research_effect. If an error occurred before effect execution,
+    the flag remained set on host and caused the next plain send to route to
+    the wrong specialized tool.
+    Why this change: reset flags at both the start and end of each run.
+    """
+    for flag in _ACTIVE_RUN_FLAGS:
+        setattr(host, flag, False)
+
+
 if TYPE_CHECKING:
     from plugin.chatbot.panel import ChatSession
 
@@ -166,6 +188,11 @@ class SendHandlerHost(Protocol):
     _in_writing_plan_mode: bool
     _writing_plan_topic: str
     _in_ppt_master_mode: bool
+    _active_run_librarian: bool
+    _active_run_brainstorming: bool
+    _active_run_writing_plan: bool
+    _active_run_ppt_master: bool
+    _active_run_deep_research: bool
     session: "ChatSession"
     response_control: Any
     status_control: Any
@@ -193,6 +220,9 @@ class SendHandlerHost(Protocol):
     def _do_send_direct_image(self, query_text: str, model: Any) -> None: ...
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def on_librarian_session_finished(self) -> None: ...
+    def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None: ...
+    def on_writing_plan_session_finished(self) -> None: ...
+    def on_ppt_master_session_finished(self, exported: bool = False) -> None: ...
     def _run_librarian(self, query_text: str, model: Any) -> None: ...
     def _run_brainstorming(self, query_text: str, model: Any) -> None: ...
     def _run_writing_plan(self, query_text: str, model: Any) -> None: ...
@@ -225,6 +255,11 @@ class SendHandlersMixin:
     _in_brainstorming_mode: bool = False
     _in_writing_plan_mode: bool = False
     _in_ppt_master_mode: bool = False
+    _active_run_librarian: bool = False
+    _active_run_brainstorming: bool = False
+    _active_run_writing_plan: bool = False
+    _active_run_ppt_master: bool = False
+    _active_run_deep_research: bool = False
     _turn: Any = None
 
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
@@ -356,30 +391,41 @@ class SendHandlersMixin:
             # Brainstorm / writing-plan / PPT used to call these on the send
             # worker. They touch the mode combo (UNO). Librarian already
             # rides STREAM_DONE; these three do the same.
-            if payload.get("librarian_switch_to_chat"):
+            #
+            # Bugfix: what was wrong: when a tool error cleared in_*_mode flags,
+            # this method only assigned the host attributes without calling the
+            # on_*_session_finished callbacks or syncing the mode combo box.
+            # How it happened: the error branches set in_*_mode=False in STREAM_DONE
+            # payload, but _finish_specialized_session only looked for success keys
+            # (e.g. librarian_switch_to_chat, brainstorming_finished).
+            # Why this change: when in_*_mode is False, run the same session finished
+            # callback as success, which resets the combo and applies Chat mode.
+            if payload.get("librarian_switch_to_chat") or payload.get("in_librarian_mode") is False:
                 finished_cb = getattr(self, "on_librarian_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
                 else:
                     self._in_librarian_mode = False
-            if payload.get("brainstorming_finished"):
+            if payload.get("brainstorming_finished") or payload.get("in_brainstorming_mode") is False:
+                spec_saved = bool(payload.get("spec_saved", False))
                 finished_cb = getattr(self, "on_brainstorming_session_finished", None)
                 if callable(finished_cb):
-                    finished_cb(spec_saved=bool(payload.get("spec_saved")))
+                    finished_cb(spec_saved=spec_saved)
                 else:
                     self._in_brainstorming_mode = False
-            if payload.get("writing_plan_finished"):
+            if payload.get("writing_plan_finished") or payload.get("in_writing_plan_mode") is False:
                 finished_cb = getattr(self, "on_writing_plan_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
                 else:
                     self._in_writing_plan_mode = False
-            if payload.get("ppt_master_finished"):
+            if payload.get("ppt_master_finished") or payload.get("in_ppt_master_mode") is False:
                 finished_cb = getattr(self, "on_ppt_master_session_finished", None)
                 if callable(finished_cb):
-                    finished_cb(exported=bool(payload.get("exported")))
+                    finished_cb(exported=bool(payload.get("exported", False)))
                 else:
                     self._in_ppt_master_mode = False
+
 
             if "in_librarian_mode" in payload:
                 self._in_librarian_mode = payload["in_librarian_mode"]
@@ -482,13 +528,15 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="image", status="ready")
 
+        turn_session = _turn_session_or_stop(self)
         # What was wrong: Image mode painted 'You: <prompt>' twice. The StartEvent
         # user append folded the prompt into the session, then the spawn effect
         # called add_user_message again. Why: store it once here, before the
         # append, like web research; the fold then sees it and only paints.
-        turn_session = _turn_session_or_stop(self)
-        if turn_session is not None:
-            turn_session.add_user_message(query_text)
+        # An aborted turn (None) must not spawn the image worker.
+        if turn_session is None:
+            return
+        turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "image"))
@@ -498,6 +546,9 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
+        turn_session = _turn_session_or_stop(self)
+        if turn_session is None:
+            return
         # The user row was stored by _do_send_direct_image before StartEvent.
         drain_q, q = _send_worker_queues(self)
         # Probe on the UI thread. The tool re-reads the selection when it
@@ -725,7 +776,12 @@ class SendHandlersMixin:
                     log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
                     q.put((StreamQueueKind.ERROR, format_error_payload(e)))
             finally:
-                self._current_agent_backend = None
+                # Bugfix: what was wrong: worker unconditionally cleared _current_agent_backend = None.
+                # How it happened: if a newer send started before this worker finished, it installed its
+                # own backend into self._current_agent_backend, which this worker's finally clobbered.
+                # Why this change: only clear _current_agent_backend if it is still the backend this worker set.
+                if getattr(self, "_current_agent_backend", None) is adapter:
+                    self._current_agent_backend = None
 
         def on_approval_required(item: Any) -> None:
             # item = ("approval_required", description, tool_name, args, request_id)
@@ -775,6 +831,7 @@ class SendHandlersMixin:
         """Run the librarian onboarding tool via the sub-agent and stream its result into the response area."""
         from plugin.chatbot.librarian import get_suggested_user_name
 
+        _reset_active_run_flags(self)
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")  # We can reuse 'web' handler_type or create a new one, but for simplicity, 'web' will dispatch StartEvent
 
@@ -795,11 +852,15 @@ class SendHandlersMixin:
         # Manually set the run_librarian flag to distinguish from web research in effect execution
         setattr(self, "_active_run_librarian", True)
 
-        for effect in step.effects:
-            interpreter.interpret(effect)
+        try:
+            for effect in step.effects:
+                interpreter.interpret(effect)
+        finally:
+            _reset_active_run_flags(self)
 
     def _run_brainstorming(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the brainstorming sub-agent and stream its result into the response area."""
+        _reset_active_run_flags(self)
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
@@ -815,11 +876,15 @@ class SendHandlersMixin:
 
         setattr(self, "_active_run_brainstorming", True)
 
-        for effect in step.effects:
-            interpreter.interpret(effect)
+        try:
+            for effect in step.effects:
+                interpreter.interpret(effect)
+        finally:
+            _reset_active_run_flags(self)
 
     def _run_writing_plan(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the writing plan sub-agent and stream its result into the response area."""
+        _reset_active_run_flags(self)
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
@@ -835,11 +900,15 @@ class SendHandlersMixin:
 
         setattr(self, "_active_run_writing_plan", True)
 
-        for effect in step.effects:
-            interpreter.interpret(effect)
+        try:
+            for effect in step.effects:
+                interpreter.interpret(effect)
+        finally:
+            _reset_active_run_flags(self)
 
     def _run_ppt_master(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the PPT-Master sub-agent (Impress/Draw sidebar mode)."""
+        _reset_active_run_flags(self)
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
@@ -855,11 +924,15 @@ class SendHandlersMixin:
 
         setattr(self, "_active_run_ppt_master", True)
 
-        for effect in step.effects:
-            interpreter.interpret(effect)
+        try:
+            for effect in step.effects:
+                interpreter.interpret(effect)
+        finally:
+            _reset_active_run_flags(self)
 
     def _run_web_research(self: SendHandlerHost, query_text: str, model: Any, is_deep_research: bool = False) -> None:
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
+        _reset_active_run_flags(self)
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
@@ -876,8 +949,11 @@ class SendHandlersMixin:
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
         interpreter.current_state = current_state
-        for effect in step.effects:
-            interpreter.interpret(effect)
+        try:
+            for effect in step.effects:
+                interpreter.interpret(effect)
+        finally:
+            _reset_active_run_flags(self)
 
     def _run_deep_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run Deep Research sidebar session (sub-agent with apply_document_content)."""
@@ -885,21 +961,12 @@ class SendHandlersMixin:
 
     def _execute_web_research_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         from plugin.main import get_tools
-        is_librarian = getattr(self, "_active_run_librarian", False)
-        if hasattr(self, "_active_run_librarian"):
-            delattr(self, "_active_run_librarian")
-        is_brainstorming = getattr(self, "_active_run_brainstorming", False)
-        if hasattr(self, "_active_run_brainstorming"):
-            delattr(self, "_active_run_brainstorming")
-        is_writing_plan = getattr(self, "_active_run_writing_plan", False)
-        if hasattr(self, "_active_run_writing_plan"):
-            delattr(self, "_active_run_writing_plan")
-        is_ppt_master = getattr(self, "_active_run_ppt_master", False)
-        if hasattr(self, "_active_run_ppt_master"):
-            delattr(self, "_active_run_ppt_master")
-        is_deep_research = getattr(self, "_active_run_deep_research", False)
-        if hasattr(self, "_active_run_deep_research"):
-            delattr(self, "_active_run_deep_research")
+        is_librarian = bool(getattr(self, "_active_run_librarian", False))
+        is_brainstorming = bool(getattr(self, "_active_run_brainstorming", False))
+        is_writing_plan = bool(getattr(self, "_active_run_writing_plan", False))
+        is_ppt_master = bool(getattr(self, "_active_run_ppt_master", False))
+        is_deep_research = bool(getattr(self, "_active_run_deep_research", False))
+        _reset_active_run_flags(self)
 
 
 
@@ -1198,6 +1265,7 @@ class SendHandlersMixin:
         self._run_unified_worker_drain_loop(drain_q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 
         def _finalize_research() -> None:
+            _reset_active_run_flags(self)
             from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
             finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)

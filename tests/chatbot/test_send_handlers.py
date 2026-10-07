@@ -2164,3 +2164,147 @@ def test_record_assistant_start_on_ui_thread_for_web_research():
 
     panel._run_unified_worker_drain_loop(q, worker_fn, current_state, MagicMock())
     assert getattr(panel, "_record_assistant_start", False) is True
+
+
+def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
+    """A tool error that sets in_*_mode False runs the on_*_session_finished callback (which resets the combo)."""
+    for mode_attr, payload_key, callback_name in [
+        ("_in_librarian_mode", "in_librarian_mode", "on_librarian_session_finished"),
+        ("_in_brainstorming_mode", "in_brainstorming_mode", "on_brainstorming_session_finished"),
+        ("_in_writing_plan_mode", "in_writing_plan_mode", "on_writing_plan_session_finished"),
+        ("_in_ppt_master_mode", "in_ppt_master_mode", "on_ppt_master_session_finished"),
+    ]:
+        panel = DummyChatbotPanel()
+        setattr(panel, mode_attr, True)
+        callback = MagicMock()
+        setattr(panel, callback_name, callback)
+
+        q = queue.Queue()
+        current_state = SendHandlerState("web", "ready")
+        error_payload = {payload_key: False, "assistant_content": "[error message]"}
+
+        def worker_fn():
+            q.put((StreamQueueKind.STREAM_DONE, error_payload))
+
+        panel._run_unified_worker_drain_loop(q, worker_fn, current_state, MagicMock())
+
+        assert getattr(panel, mode_attr) is False
+        callback.assert_called_once()
+
+
+def test_do_send_direct_image_aborted_turn_does_not_spawn_worker():
+    """_do_send_direct_image must return early without spawning image worker if turn is aborted."""
+    panel = DummyChatbotPanel()
+    panel._execute_direct_image_effect = MagicMock()
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+        panel._do_send_direct_image("draw a cat", MagicMock())
+
+    panel._execute_direct_image_effect.assert_not_called()
+
+
+def test_execute_direct_image_effect_aborted_turn_returns_early():
+    """_execute_direct_image_effect returns early if turn is aborted before execution."""
+    panel = DummyChatbotPanel()
+    panel._run_unified_worker_drain_loop = MagicMock()
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=None):
+        panel._execute_direct_image_effect("draw a cat", MagicMock(), MagicMock(), MagicMock())
+
+    panel._run_unified_worker_drain_loop.assert_not_called()
+
+
+def test_agent_worker_finally_preserves_newer_backend_on_worker_exit():
+    """Agent worker must not clear _current_agent_backend if a newer send installed its own backend."""
+    panel = DummyChatbotPanel()
+    adapter1 = MagicMock()
+    adapter1.is_available.return_value = True
+    adapter2 = MagicMock()
+
+    def fake_send(*args, **kwargs):
+        # A newer send arrives and replaces the active backend
+        panel._current_agent_backend = adapter2
+
+    adapter1.send.side_effect = fake_send
+
+    def fake_drain(drain_q, run_agent_fn, *args, **kwargs):
+        run_agent_fn()
+
+    panel._run_unified_worker_drain_loop = fake_drain
+    mock_turn = MagicMock()
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
+         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter1), \
+         patch("plugin.chatbot.send_handlers.get_config", return_value="backend1"), \
+         patch("plugin.mcp.is_mcp_server_running", return_value=False):
+        panel._execute_agent_backend_effect("test", MagicMock(), "writer", MagicMock(), MagicMock())
+
+    assert panel._current_agent_backend is adapter2
+
+
+def test_agent_worker_finally_clears_matching_backend():
+    """Agent worker clears _current_agent_backend when it still matches the worker's adapter."""
+    panel = DummyChatbotPanel()
+    adapter1 = MagicMock()
+    adapter1.is_available.return_value = True
+
+    def fake_drain(drain_q, run_agent_fn, *args, **kwargs):
+        run_agent_fn()
+
+    panel._run_unified_worker_drain_loop = fake_drain
+    mock_turn = MagicMock()
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
+         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter1), \
+         patch("plugin.chatbot.send_handlers.get_config", return_value="backend1"), \
+         patch("plugin.mcp.is_mcp_server_running", return_value=False):
+        panel._execute_agent_backend_effect("test", MagicMock(), "writer", MagicMock(), MagicMock())
+
+    assert panel._current_agent_backend is None
+
+
+def test_stale_active_run_flag_does_not_hijack_web_research():
+    """Stale _active_run_* flags must be reset so they do not leak into the next send."""
+    panel = DummyChatbotPanel()
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    mock_registry.execute.return_value = {"status": "ok", "result": "Search results"}
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+
+    # Stale flags from a previous aborted send
+    panel._active_run_librarian = True
+    panel._active_run_brainstorming = True
+
+    mock_turn = MagicMock()
+
+    def fake_drain(q, run_search, *args, **kwargs):
+        run_search()
+
+    panel._run_unified_worker_drain_loop = fake_drain
+
+    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+        with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn):
+            panel._run_web_research("test query", MagicMock())
+
+    assert not getattr(panel, "_active_run_librarian", False)
+    assert not getattr(panel, "_active_run_brainstorming", False)
+
+    mock_registry.execute.assert_called_once()
+    assert mock_registry.execute.call_args[0][0] == "web_research"
+
+
+def test_active_run_flags_reset_on_interpret_exception():
+    """Active run flags are reset in finally block even if effect execution raises."""
+    panel = DummyChatbotPanel()
+    mock_turn = MagicMock()
+    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
+         patch("plugin.chatbot.send_handlers.next_state") as mock_next_state:
+        mock_step = MagicMock()
+        mock_eff = MagicMock()
+        mock_step.effects = [mock_eff]
+        mock_step.state = MagicMock()
+        mock_next_state.return_value = mock_step
+
+        with patch("plugin.chatbot.state_machine.EffectInterpreter.interpret", side_effect=RuntimeError("UI error")):
+            with pytest.raises(RuntimeError):
+                panel._run_librarian("hello", MagicMock())
+
+    assert not getattr(panel, "_active_run_librarian", False)
+
