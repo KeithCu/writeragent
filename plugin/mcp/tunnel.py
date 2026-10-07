@@ -357,7 +357,7 @@ def _build_provider_command(provider: str, port: int, provider_token: str) -> li
 
 def _build_provider_env(provider: str, provider_token: str) -> dict[str, str]:
     """Return environment variables for provider secrets."""
-    env = {}
+    env: dict[str, str] = {}
     token = (provider_token or "").strip()
     if not token:
         return env
