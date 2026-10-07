@@ -14,13 +14,29 @@ from plugin.writer.specialized.tables import (
     TableList,
     ManageTableStructure,
     TableSetCell,
-    _cell_name,
-    _col_letters,
     _hosted_in_band,
     _unknown_cell_message,
     _writer_cell_position,
 )
 from plugin.writer.html_export import _writer_table_copy_layout
+
+
+def _col_letters(col_idx: int) -> str:
+    """0-based column index -> spreadsheet letters (0->A, 25->Z, 26->AA)."""
+    s = ""
+    n = col_idx
+    while True:
+        s = chr(ord("A") + n % 26) + s
+        n = n // 26 - 1
+        if n < 0:
+            break
+    return s
+
+
+def _cell_name(col_idx: int, row_idx: int) -> str:
+    """0-based (col, row) -> A1-style name (col 0/row 0 -> 'A1')."""
+    return "%s%d" % (_col_letters(col_idx), row_idx + 1)
+
 
 # 5×4 table after merge A1:D1: covered B1/C1/D1 drop; D2 remains (20 − 3 = 17).
 _MERGED_BANNER_NAMES = ["A1"] + [
@@ -1134,3 +1150,131 @@ def test_table_insert_rejects_non_integer_dims_and_non_list_data():
     assert bad_dims["status"] == "error" and "integers" in bad_dims["message"]
     bad_data = tool.execute(SimpleNamespace(doc=doc), rows=2, columns=2, data="ab")
     assert bad_data["status"] == "error" and "list of rows" in bad_data["message"]
+
+
+def test_table_set_cell_non_string_cell():
+    """Bug 1: TableSetCell must handle non-string cell arguments without AttributeError."""
+    doc = FakeWriterDoc({"T": FakeTable(2, 2, cells={"A1": "old"})})
+    tool = TableSetCell()
+    res = tool.execute(SimpleNamespace(doc=doc), name="T", cell=123, text="new")
+    assert res["status"] == "error"
+    assert "Cell '123' not in table 'T'" in res["message"]
+
+
+def test_table_insert_draw_non_numeric_rows_columns():
+    """Bug 2: TableInsert on Draw document with non-numeric rows/columns returns tool error."""
+    from unittest.mock import MagicMock
+    from plugin.draw.tables import insert_draw_table
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
+    ctx = SimpleNamespace(doc=doc, active_page_index=0)
+
+    tool = TableInsert()
+    res = tool.execute(ctx, rows="invalid", columns=2)
+    assert res["status"] == "error"
+    assert "rows and columns must be integers" in res["message"]
+
+    res_cols = tool.execute(ctx, rows=2, columns="invalid")
+    assert res_cols["status"] == "error"
+    assert "rows and columns must be integers" in res_cols["message"]
+
+    direct_res = insert_draw_table(ctx, rows="not-a-number", columns=2)
+    assert direct_res["status"] == "error"
+    assert "rows and columns must be integers" in direct_res["message"]
+
+
+class DisposedException(Exception):
+    pass
+
+
+def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
+    """Bug 3: TableGetCells logs warning and continues on cell read failure, and re-raises disposal."""
+    import logging
+    from unittest.mock import MagicMock
+    import pytest
+
+    table = FakeTable(1, 2, cells={"A1": "ok"})
+    table._explicit_names = ["A1", "B1"]
+    orig_get_cell = table.getCellByName
+
+    def mock_get_cell(name):
+        if name == "B1":
+            raise RuntimeError("cell read error")
+        return orig_get_cell(name)
+
+    table.getCellByName = mock_get_cell
+
+    doc = FakeWriterDoc({"T": table})
+    ctx = SimpleNamespace(doc=doc)
+
+    with caplog.at_level(logging.WARNING):
+        res = TableGetCells().execute(ctx, name="T")
+    assert res["status"] == "ok"
+    assert "A1" in res["cells"]
+    assert "B1" not in res["cells"]
+    assert any("could not read cell 'B1'" in rec.message for rec in caplog.records)
+
+    disposed_table = FakeTable(1, 1)
+    disposed_table.getCellByName = MagicMock(side_effect=DisposedException("object disposed"))
+    with pytest.raises(Exception) as exc_info:
+        TableGetCells().execute(SimpleNamespace(doc=FakeWriterDoc({"T": disposed_table})), name="T")
+    assert "disposed" in str(exc_info.value).lower() or type(exc_info.value).__name__ == "DisposedException"
+
+
+
+def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
+    """Bug 4: TableList skips corrupt table that fails _dims, and re-raises disposal."""
+    import logging
+    from unittest.mock import MagicMock
+    import pytest
+
+    good = FakeTable(2, 2)
+    bad = MagicMock()
+    bad.getRows.side_effect = RuntimeError("corrupted table rows")
+
+    doc = FakeWriterDoc({"Good": good, "Bad": bad})
+    ctx = SimpleNamespace(doc=doc)
+
+    with caplog.at_level(logging.WARNING):
+        res = TableList().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert res["tables"][0]["name"] == "Good"
+    assert any("skipping unreadable table 'Bad'" in rec.message for rec in caplog.records)
+
+    disposed_table = MagicMock()
+    disposed_table.getRows.side_effect = DisposedException("disposed document")
+    doc_disposed = FakeWriterDoc({"Disposed": disposed_table})
+    with pytest.raises(Exception) as exc_info:
+        TableList().execute(SimpleNamespace(doc=doc_disposed))
+    assert "disposed" in str(exc_info.value).lower() or type(exc_info.value).__name__ == "DisposedException"
+
+
+def test_resolve_uno_context():
+    from plugin.writer.table_helpers import _resolve_uno_context
+    ctx = SimpleNamespace(ctx="CUSTOM_UNO_CTX")
+    assert _resolve_uno_context(ctx) == "CUSTOM_UNO_CTX"
+
+
+def test_read_helpers_reraise_disposal():
+    from unittest.mock import MagicMock
+    import pytest
+    from plugin.writer.table_helpers import _is_text_table, _iter_direct_children, _cell_hosted_table_names
+
+    disposed_obj = MagicMock()
+    disposed_obj.supportsService.side_effect = DisposedException("disposed")
+    with pytest.raises(Exception):
+        _is_text_table(disposed_obj)
+
+    disposed_xtext = MagicMock()
+    disposed_xtext.createEnumeration.side_effect = DisposedException("disposed")
+    with pytest.raises(Exception):
+        list(_iter_direct_children(disposed_xtext))
+
+    disposed_cell = MagicMock()
+    disposed_cell.createEnumeration.side_effect = DisposedException("disposed")
+    with pytest.raises(Exception):
+        _cell_hosted_table_names(disposed_cell)
+
+
