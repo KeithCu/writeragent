@@ -1431,3 +1431,213 @@ def test_translate_multiple_arguments_aggregates():
     assert "sum(np.sum" in res.code
 
 
+def test_translate_emitter_precedence():
+    # Bug 1: parenthesize emitted sub-expressions so operator precedence is preserved.
+    # MOD(a+b, c) must not emit a + b % c
+    res = translate_formula("=MOD(A1+B1, C1)")
+    assert res.ok
+    assert res.code == "((data[0] + data[1]) % data[2])"
+    # Exec with real values: (10 + 5) % 4 == 3 (whereas 10 + (5 % 4) == 11)
+    locs = {"data": [10.0, 5.0, 4.0], "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 3.0
+
+    # 2*MOD(A1, B1) must compute 2 * (a % b), not (2 * a) % b
+    res = translate_formula("=2*MOD(A1, B1)")
+    assert res.ok
+    assert res.code == "(2 * (data[0] % data[1]))"
+    locs = {"data": [7.0, 4.0], "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 6.0  # 2 * (7 % 4) == 6; whereas (2*7) % 4 == 2
+
+    # 1/LOG(A1, 2)
+    res = translate_formula("=1/LOG(A1, 2)")
+    assert res.ok
+    assert "(1 / (np.log(data) / np.log(2)))" in res.code
+    locs = {"data": 8.0, "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert abs(locs["result"] - (1.0 / 3.0)) < 1e-6
+
+    # 1/ROUNDUP(A1, 1)
+    res = translate_formula("=1/ROUNDUP(A1, 1)")
+    assert res.ok
+    assert "(1 / " in res.code
+    locs = {"data": 1.21, "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert abs(locs["result"] - (1.0 / 1.3)) < 1e-6
+
+    # 1/POWER(A1, 2)
+    res = translate_formula("=1/POWER(A1, 2)")
+    assert res.ok
+    assert res.code == "(1 / (data ** 2))"
+    locs = {"data": 4.0, "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 1.0 / 16.0
+
+    # 1/QUOTIENT(A1, 2)
+    res = translate_formula("=1/QUOTIENT(A1, 2)")
+    assert res.ok
+    assert res.code == "(1 / (data // 2))"
+    locs = {"data": 10.0, "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 0.2
+
+
+def test_translate_function_arity_errors():
+    # Bug 2: catch IndexError when a function gets too few args and report UNSUPPORTED_ARITY
+    for bad_f in ["=MOD(A1)", "=ABS()", "=IF()", "=DATE(2023, 10)", "=ROUND()", "=SWITCH(A1)"]:
+        res = translate_formula(bad_f)
+        assert not res.ok, f"Expected failure for {bad_f}"
+        assert res.reason == "UNSUPPORTED_ARITY", f"Expected UNSUPPORTED_ARITY for {bad_f}, got {res.reason}"
+
+
+def test_translate_row_column():
+    # Bug 3: ROW/COLUMN strips $ and sheet prefix; invalid or missing cell_addr raises unsupported
+    # Absolute reference with $
+    res = translate_formula("=ROW($A$5)")
+    assert res.ok
+    assert res.code == "(5)+0.0"
+
+    # Cross-sheet range reference with sheet prefix
+    res = translate_formula("=ROW(Sheet2.A1:A3)")
+    assert res.ok
+    assert "1.0, 2.0, 3.0" in res.code
+
+    res = translate_formula("=ROW(Sheet2.$A$1:$A$3)")
+    assert res.ok
+    assert "1.0, 2.0, 3.0" in res.code
+
+    # COLUMN with absolute reference
+    res = translate_formula("=COLUMN($C$5)")
+    assert res.ok
+    assert res.code == "(3)+0.0"
+
+    # COLUMN with cross-sheet range
+    res = translate_formula("=COLUMN(Sheet2.B1:D3)")
+    assert res.ok
+    assert "2.0, 3.0, 4.0" in res.code
+
+    # Argless ROW/COLUMN with provided cell_addr
+    res = translate_formula("=ROW()", cell_addr="B10")
+    assert res.ok
+    assert res.code == "(10)+0.0"
+
+    res = translate_formula("=COLUMN()", cell_addr="B10")
+    assert res.ok
+    assert res.code == "(2)+0.0"
+
+    # Argless ROW/COLUMN without cell_addr fails as unsupported
+    res = translate_formula("=ROW()")
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
+
+    res = translate_formula("=COLUMN()")
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
+
+    # Non-range argument fails as unsupported
+    res = translate_formula("=ROW(123)")
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
+
+    res = translate_formula("=ROW(\"abc\")")
+    assert not res.ok
+    assert res.reason == "UNSUPPORTED_FUNCTION"
+
+
+def test_translate_if_two_arguments():
+    # Bug 4: IF with 2 arguments (no else branch) emits False for the missing else branch
+    res = translate_formula("=IF(A1>0, B1)")
+    assert res.ok
+    assert res.code == "(data[1] if (data[0] > 0) else False)"
+
+    locs = {"data": [5.0, 42.0], "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 42.0
+
+    locs = {"data": [-1.0, 42.0], "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] is False
+
+
+def test_translate_scientific_notation():
+    # Bug 5: scientific notation with signed exponents
+    res = translate_formula("=0.5E+3")
+    assert res.ok
+    assert res.code == "500"
+
+    res = translate_formula("=10E+3")
+    assert res.ok
+    assert res.code == "10000"
+
+    res = translate_formula("=1.E+3")
+    assert res.ok
+    assert res.code == "1000"
+
+    res = translate_formula("=12e-3")
+    assert res.ok
+    assert res.code == "0.012"
+
+
+def test_translate_postfix_percent():
+    # Bug 6: Postfix % must bind with Excel precedence (tighter than ^ and * /)
+    # -50% -> ((-50) * 0.01)
+    res = translate_formula("=-50%")
+    assert res.ok
+    assert res.code == "((-50) * 0.01)"
+    locs = {"np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == -0.5
+
+    # 2^50% -> 2^(50%) = 2^0.5 = sqrt(2) ~ 1.41421356
+    # Not (2^50)*0.01 = 1.125e13
+    res = translate_formula("=2^50%")
+    assert res.ok
+    assert res.code == "(2 ** (50 * 0.01))"
+    locs = {"np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert abs(locs["result"] - math.sqrt(2)) < 1e-6
+
+    # 2*50% -> 2 * (50 * 0.01) = 1.0
+    res = translate_formula("=2*50%")
+    assert res.ok
+    assert res.code == "(2 * (50 * 0.01))"
+    locs = {"np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 1.0
+
+    # Cell reference with percent: A1%
+    res = translate_formula("=A1%")
+    assert res.ok
+    assert res.code == "(data * 0.01)"
+    locs = {"data": 25.0, "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 0.25
+
+    # Compound expression with percent: (A1+B1)%
+    res = translate_formula("=(A1+B1)%")
+    assert res.ok
+    assert res.code == "((data[0] + data[1]) * 0.01)"
+    locs = {"data": [20.0, 30.0], "np": np, "calc": calc}
+    exec(f"result = {res.code}", locs)
+    assert locs["result"] == 0.5
+
+
+def test_translate_quoted_sheet_names():
+    # Bug 7: keep quotes and casing on quoted sheet names ('My Sheet'!A1)
+    from plugin.calc.spreadsheet_import.emit import emit_py_formula
+
+    res = translate_formula("='My Sheet'!A1")
+    assert res.ok
+    assert res.data_ranges == ["'My Sheet'!A1"]
+    py_f = emit_py_formula(res.code, res.data_ranges)
+    assert "'My Sheet'.A1" in py_f
+
+    res = translate_formula("='My Sheet'.A1")
+    assert res.ok
+    assert res.data_ranges == ["'My Sheet'.A1"]
+    py_f = emit_py_formula(res.code, res.data_ranges)
+    assert "'My Sheet'.A1" in py_f
+
+
+
