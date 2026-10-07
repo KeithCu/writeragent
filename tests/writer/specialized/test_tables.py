@@ -879,6 +879,16 @@ def test_table_insert_parent_xor_cell_errors():
     only_cell = tool.execute(ctx, rows=1, columns=1, cell="B2")
     assert only_cell["status"] == "error" and "parent" in only_cell["message"]
 
+def test_table_insert_with_data_validates_dimensions():
+    doc = FakeWriterDoc({})
+    tool = TableInsert()
+    # Too many rows in data
+    res_rows = tool.execute(SimpleNamespace(doc=doc), rows=1, columns=2, data=[["A", "B"], ["C", "D"]])
+    assert res_rows["status"] == "error" and "table only has 1" in res_rows["message"]
+    # Too many columns in data
+    res_cols = tool.execute(SimpleNamespace(doc=doc), rows=2, columns=1, data=[["A", "B"]])
+    assert res_cols["status"] == "error" and "table only has 1" in res_cols["message"]
+
 
 def test_table_insert_unknown_parent_or_cell():
     parent = FakeParentTable(2, 2, name="Parent")

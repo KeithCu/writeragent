@@ -508,7 +508,7 @@ def _is_wrong_start_node(exc: BaseException) -> bool:
     wording is ``End of content node doesn't have the proper start node``.
     """
     msg = str(exc).lower()
-    return "start node" in msg or "content node" in msg
+    return "start node" in msg and "content node" in msg
 
 
 def _recording_changes(doc: Any) -> bool:
@@ -553,19 +553,31 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     controller.select(table)
     helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
     helper.executeDispatch(controller.getFrame(), ".uno:DeleteTable", "", 0, ())
-    for cell_name in empty_cells:
-        cell = table.getCellByName(cell_name)
-        if cell.getString() == _EMPTY_ROW_ANCHOR:
-            cursor = cell.createTextCursor()
-            cursor.gotoStart(False)
-            cursor.goRight(1, True)
-            cursor.setString("")
+
+    recorded = doc.getRedlines().getCount() > before
+    from plugin.framework.errors import is_disposed_exception
+    try:
+        for cell_name in empty_cells:
+            cell = table.getCellByName(cell_name)
+            if cell.getString() == _EMPTY_ROW_ANCHOR:
+                cursor = cell.createTextCursor()
+                cursor.gotoStart(False)
+                cursor.goRight(1, True)
+                cursor.setString("")
+                recorded = True
+    except Exception as e:
+        if is_disposed_exception(e):
+            pass
+        else:
+            raise
+
     if previous is not None:
         try:
             controller.select(previous)  # leave the user's cursor where it was
         except Exception:
             log.debug("table_delete: could not restore the previous selection", exc_info=True)
-    if doc.getRedlines().getCount() > before:
+
+    if recorded or doc.getRedlines().getCount() > before:
         return
     if doc.getTextTables().hasByName(name):
         raise RuntimeError("the tracked delete did not run, so the table was left in place")
@@ -1030,70 +1042,105 @@ class TableInsert(ToolWriterTableBase):
         columns = kwargs.get("columns")
         if rows is None or columns is None:
             return self._tool_error("rows and columns are required.")
-        rows = int(rows)
-        columns = int(columns)
+        try:
+            rows = int(rows)
+            columns = int(columns)
+        except ValueError:
+            return self._tool_error("rows and columns must be integers.")
         if rows < 1 or columns < 1:
             return self._tool_error("rows and columns must be at least 1.")
+
+        data = kwargs.get("data")
+        if data:
+            if len(data) > rows:
+                return self._tool_error("data has %d rows but table only has %d." % (len(data), rows))
+            for r_idx, row in enumerate(data):
+                if isinstance(row, (list, tuple)) and len(row) > columns:
+                    return self._tool_error("data row %d has %d columns but table only has %d." % (r_idx, len(row), columns))
+
         try:
             doc = ctx.doc
-            table = doc.createInstance("com.sun.star.text.TextTable")
-            table.initialize(rows, columns)
             host_cell_name = ""
-            if parent:
-                parent_table = _get_table(doc, parent)
-                host_cell_name = _resolve_cell_name(parent_table, cell_raw) or ""
-                if not host_cell_name:
-                    return self._tool_error(
-                        _unknown_cell_message(cell_raw, parent, _writer_named_cells(parent_table))
-                    )
-                host = parent_table.getCellByName(host_cell_name)
-                # After existing cell text so setString-refuse still applies to the host.
-                host.insertTextContent(host.getEnd(), table, False)
-            else:
-                text = doc.getText()
-                cursor = None
-                try:
-                    cursor = doc.getCurrentController().getViewCursor()
-                except Exception:
-                    cursor = None
-                if cursor is None:
-                    cursor = text.getEnd()
-                try:
-                    text.insertTextContent(cursor, table, False)
-                except Exception as exc:
-                    # Body XText + cursor already in a cell: do not guess a nest target.
-                    if _is_wrong_start_node(exc):
-                        return self._tool_error(
-                            "Cannot insert a table at the view cursor (it is probably inside a cell). "
-                            "Pass parent and cell to nest, or move the cursor out of the table."
-                        )
-                    raise
-            written = 0
-            data = kwargs.get("data")
-            if data:
-                from plugin.draw.tables import fill_table_cells
+            written = [0]
+            name = [""]
+            nesting = [_not_nested()]
 
-                written = fill_table_cells(table, data)
-            name = ""
-            try:
-                name = str(table.getName() if hasattr(table, "getName") else getattr(table, "Name", "") or "")
-            except Exception:
-                pass
-            # Prefer the parent/cell we just used — getTextTables() can lag a nameless insert.
-            if parent and host_cell_name:
-                nesting = {"is_nested": True, "parent_table": parent, "parent_cell": host_cell_name}
-            elif name:
-                nesting = _nesting_for(doc, name)
-            else:
-                nesting = _not_nested()
+            def _apply() -> None:
+                nonlocal host_cell_name
+                table = doc.createInstance("com.sun.star.text.TextTable")
+                table.initialize(rows, columns)
+                if parent:
+                    parent_table = _get_table(doc, parent)
+                    host_cell_name = _resolve_cell_name(parent_table, cell_raw) or ""
+                    if not host_cell_name:
+                        raise ValueError(
+                            _unknown_cell_message(cell_raw, parent, _writer_named_cells(parent_table))
+                        )
+                    host = parent_table.getCellByName(host_cell_name)
+                    # After existing cell text so setString-refuse still applies to the host.
+                    host.insertTextContent(host.getEnd(), table, False)
+                else:
+                    text = doc.getText()
+                    cursor = None
+                    try:
+                        cursor = doc.getCurrentController().getViewCursor()
+                    except Exception:
+                        cursor = None
+                    if cursor is None:
+                        cursor = text.getEnd()
+                    try:
+                        text.insertTextContent(cursor, table, False)
+                    except Exception as exc:
+                        # Body XText + cursor already in a cell: do not guess a nest target.
+                        if _is_wrong_start_node(exc):
+                            raise ValueError(
+                                "Cannot insert a table at the view cursor (it is probably inside a cell). "
+                                "Pass parent and cell to nest, or move the cursor out of the table."
+                            )
+                        raise
+
+                if data:
+                    for r_idx, r_data in enumerate(data):
+                        if not isinstance(r_data, (list, tuple)):
+                            continue
+                        for c_idx, val in enumerate(r_data):
+                            if val is None or str(val) == "":
+                                continue
+                            try:
+                                c_name = _cell_name(c_idx, r_idx)
+                                cell = table.getCellByName(c_name)
+                                cell.setString(str(val))
+                                written[0] += 1
+                            except Exception as exc:
+                                log.debug("Failed to set cell %s during insert", c_name, exc_info=True)
+
+                try:
+                    name[0] = str(table.getName() if hasattr(table, "getName") else getattr(table, "Name", "") or "")
+                except Exception:
+                    pass
+
+                if parent and host_cell_name:
+                    nesting[0] = {"is_nested": True, "parent_table": parent, "parent_cell": host_cell_name}
+                elif name[0]:
+                    nesting[0] = _nesting_for(doc, name[0])
+                else:
+                    nesting[0] = _not_nested()
+
+            uno_ctx = getattr(ctx, "ctx", None)
+            if uno_ctx is None:
+                from plugin.framework.uno_context import get_ctx
+                uno_ctx = get_ctx()
+            from plugin.writer.format import run_writer_mutation_with_optional_review
+            run_writer_mutation_with_optional_review(doc, uno_ctx, _apply)
+
             return {
                 "status": "ok",
                 "message": "Table inserted",
-                "table_name": name,
+                "table_name": name[0],
                 "rows": rows,
                 "columns": columns,
-                "cells_written": written,
-                "nesting": nesting,
+                "cells_written": written[0],
+                "nesting": nesting[0],
             }
         except ValueError as ve:
             return self._tool_error(str(ve))
@@ -1144,6 +1191,9 @@ class TableDelete(ToolWriterTableBase):
             nesting = _nesting_for(ctx.doc, name)
             tracked: list[bool] = []
             uno_ctx = getattr(ctx, "ctx", None)
+            if uno_ctx is None:
+                from plugin.framework.uno_context import get_ctx
+                uno_ctx = get_ctx()
 
             def _apply() -> None:
                 # In review mode the wrapper below has just turned change tracking on; a user
