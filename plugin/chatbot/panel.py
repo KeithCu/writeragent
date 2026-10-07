@@ -1014,7 +1014,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._append_response(text)
 
     def _start_local_error_turn(self, text: str) -> None:
-        from plugin.chatbot.tool_loop_actions import begin_send_turn, drop_turn
+        from plugin.chatbot.tool_loop_actions import begin_send_turn, drop_turn, running_turn
+
+        # A live send owns the response area: append to it rather than abort it.
+        if running_turn(self) is not None:
+            self._append_response(text)
+            return
         begin_send_turn(self, "")
         self._append_response(text)
         self._terminal_status = "Error"
