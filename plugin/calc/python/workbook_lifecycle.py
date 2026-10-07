@@ -23,15 +23,13 @@ import time
 import weakref
 from typing import Any
 
-from plugin.framework.thread_guard import unwrap_uno
-from plugin.framework.uno_listeners import BaseDocumentEventListener, HAVE_UNO
+from plugin.framework.thread_guard import _unwrap_uno
+from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
+from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.scripting.session_manager import calc_workbook_base_session_id
 from plugin.scripting.venv_worker import reset_python_session
 
 log = logging.getLogger(__name__)
-
-# Re-use availability flag from uno_listeners rather than probing again.
-_HAVE_UNO_DOC_EVENTS = HAVE_UNO
 
 # Re-entrant: ensure_* holds this lock while calling note_*, and note_* /
 # _teardown take it too. A plain Lock deadlocks that same-thread re-entry.
@@ -53,7 +51,7 @@ def _doc_objects(doc: Any) -> list[Any]:
     """*doc* and its unwrapped UNO target, without calling UNO methods."""
     objects = [doc]
     try:
-        raw = unwrap_uno(doc)
+        raw = _unwrap_uno(doc)
     except Exception:
         raw = doc
     if raw is not None and raw is not doc:

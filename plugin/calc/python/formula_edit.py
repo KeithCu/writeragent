@@ -305,9 +305,6 @@ def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], s
     return "".join(out)
 
 
-_rewrite_token_calls_body = _rewrite_token_calls
-
-
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
 def sanitize_inline_py_code(code: str) -> str:
@@ -533,9 +530,6 @@ def format_excel_data_range(range_addr: str) -> str:
         return f"{quoted}!{rest}"
     return f"{sheet}!{rest}"
 
-
-_format_py_data_range_body = format_py_data_range
-_format_excel_data_range_body = format_excel_data_range
 
 
 # Defaulted kwargs: deal only forwards provided args + result= (see framework/formal-verification.md §8.1 A).

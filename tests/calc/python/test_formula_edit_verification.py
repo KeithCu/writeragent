@@ -304,8 +304,6 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         "rebuild_python_formula_with_code_ref",
         "cell_looks_python_like",
         # cover-all 35526755391 leftovers (~2.45h formula_edit)
-        "_format_py_data_range_body",
-        "_format_excel_data_range_body",
         "_parts_result_ok",
         "_quoted_parse_result_ok",
         "py_call_open_end",
