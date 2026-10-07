@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal, inverse_ensure, str_bounded
+from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal, inverse_ensure, str_bounded
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
@@ -30,7 +30,7 @@ _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "
 _RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
 
 
-def _py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
+def py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
     # crosshair: off
     # cover-all 35526755391 (~5.4m). Prefix scanner as cover entry; stay-on parse still exercises it. Doable later: tiny PY-prefix alphabet.
     """Return index after the opening ``(`` of a PY/PYTHON call, or None.
@@ -110,7 +110,7 @@ def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
     # cover-all 35526755391 (~7.5m / 103 examples). Nested ensure predicate as cover entry. Doable later: rename _deal_ + skip.
     if result is None:
         return True
-    return isinstance(result, PythonFormulaParts) and isinstance(result.prefix, str) and bool(result.prefix) and _py_call_open_end(result.prefix, require_equals=True) == len(result.prefix) and isinstance(result.code, str) and isinstance(result.data_suffix, str) and result.data_suffix.endswith(")")
+    return isinstance(result, PythonFormulaParts) and isinstance(result.prefix, str) and bool(result.prefix) and py_call_open_end(result.prefix, require_equals=True) == len(result.prefix) and isinstance(result.code, str) and isinstance(result.data_suffix, str) and result.data_suffix.endswith(")")
 
 
 # Cap start to len(s): `start >= 0` alone lets CrossHair feed a giant int.
@@ -164,7 +164,9 @@ def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     return s
 
 
-@deal.pre(lambda rest: _DEAL_SHEET_TOKEN(rest, DEAL_MAX_TOKEN))
+# Bugfix: DEAL_MAX_TOKEN (64) caused @deal.pre to reject formulas with long multi-range
+# data suffixes (e.g. ; A1; B1; C1; D1...). Bounding by DEAL_MAX_SOURCE accommodates valid suffixes.
+@deal.pre(lambda rest: str_bounded(rest, DEAL_MAX_SOURCE))
 def _is_data_arg_separator(rest: str) -> bool:
     """True when *rest* begins a PY/PYTHON data-argument suffix (``;`` or ``,``)."""
     return bool(rest) and rest[0] in (";", ",")
@@ -178,7 +180,7 @@ def extract_python_code_loose(formula: str) -> str | None:
     if parts is not None:
         return parts.code
     raw = normalize_formula_string(formula)
-    inner_start = _py_call_open_end(raw, require_equals=True)
+    inner_start = py_call_open_end(raw, require_equals=True)
     if inner_start is None:
         return None
     inner = raw[inner_start:]
@@ -201,7 +203,7 @@ def normalize_formula_string(formula: str) -> str:
     raw = (formula or "").strip().translate(_QUOTE_NORMALIZE)
     if raw.startswith("{") and raw.endswith("}"):
         raw = raw[1:-1].strip()
-    if raw and not raw.startswith("=") and _py_call_open_end(raw, require_equals=False) is not None:
+    if raw and not raw.startswith("=") and py_call_open_end(raw, require_equals=False) is not None:
         raw = "=" + raw
     return raw
 
@@ -214,7 +216,7 @@ def build_new_python_formula(code: str) -> str:
     return f'={CALC_PYTHON_FN}("{escaped}")'
 
 
-# Nested _parts_result_ok (_py_call_open_end on prefix) hung deep check
+# Nested _parts_result_ok (py_call_open_end on prefix) hung deep check
 # (~45m, 232k lines). Skip under CrossHair; cheap @deal.post still runs.
 @deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or isinstance(result, PythonFormulaParts))
@@ -226,7 +228,7 @@ def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     raw = normalize_formula_string(formula)
     if not raw:
         return None
-    inner_start = _py_call_open_end(raw, require_equals=True)
+    inner_start = py_call_open_end(raw, require_equals=True)
     if inner_start is None:
         return None
     if inner_start >= len(raw) or raw[inner_start - 1] != "(":
@@ -264,23 +266,17 @@ def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     return PythonFormulaParts(prefix=raw[:inner_start], code=code, data_suffix=data_suffix)
 
 
-# Defensive rewrites when *emitting* Calc ``=PY("…")`` formulas.
+# Defensive rewrites for machine-generated Python code (plugin/calc/spreadsheet_import/translate.py).
 #
-# Corrected diagnosis (2026-07): ASCII-quoted strings are already opaque in
-# ScCompiler::NextSymbol (ssGetString). ``=PY("float(1)")`` does not #NAME? from
-# scanning inside quotes. ``#NAME?`` happens for *unquoted* ``float(`` (unknown
-# spreadsheet function). Real LO limits for long Excel-style Python are
-# MAXSTRLEN (1024) → Err:513 and curly quotes → Err:508 — see
-# docs/enabling_numpy_in_libreoffice.md#future-libreoffice-formula-string-work.
-#
-# TODO(libreoffice): one day raise/grow string-symbol limit and accept/normalize
-# curly quotes in Calc core; then this sanitizer can be slimmed or removed.
-# Until then we still rewrite float/int/str when building Calc formulas in case
-# quotes are lost or tooling strips them.
+# Diagnosis: ASCII-quoted strings are opaque in ScCompiler::NextSymbol (ssGetString).
+# =PY("float(1)") does not #NAME? from scanning inside quotes. Hand-written user code
+# in Monaco editor must not be sanitized (float("3.5"), int(-3.7), ax.text(...), etc.
+# must be preserved verbatim). Quote-escaping only doubles quotes.
+# sanitize_inline_py_code is retained only for machine-generated code from spreadsheet_import.
 _LEXER_COLLISION_FLOAT_RE = re.compile(r"\bfloat\s*\(")
 _LEXER_COLLISION_INT_RE = re.compile(r"\bint\s*\(")
 _LEXER_COLLISION_STR_RE = re.compile(r"\bstr\s*\(")
-_LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\.text\s*\(")
+_LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\bcalc\.text\s*\(")
 
 
 @deal.pre(lambda s, open_idx: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(open_idx, int) and 0 <= open_idx < len(s))
@@ -348,18 +344,16 @@ def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], s
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
 def sanitize_inline_py_code(code: str) -> str:
-    """Defensive rewrite of tokens that are dangerous if formula quotes are lost.
-
-    Not required for correct Calc parsing of ASCII-quoted ``=PY("float(…)")``
-    (strings are opaque). Kept when *emitting* Calc formulas until LibreOffice
-    raises ``MAXSTRLEN`` / curly-quote handling — see module comment above.
-    """
+    """Defensive rewrite of tokens for machine-generated Python from spreadsheet import."""
     # Regex rewrite hang even at DEAL_MAX_SOURCE=16 (~3h13m on cheap str post).
     # crosshair: off
     if not code or UNDER_CROSSHAIR:
         return code
     sanitized = code.replace("dtype=float", "dtype=np.float64")
-    sanitized = _LEXER_COLLISION_XL_TEXT_RE.sub(".fmt(", sanitized)
+    # Bugfix: .text( regex previously matched any attribute like ax.text(...) or
+    # plt.text(...), rewriting it to .fmt(...). Narrowed to calc.text( only so
+    # user methods like matplotlib's ax.text are preserved.
+    sanitized = _LEXER_COLLISION_XL_TEXT_RE.sub("calc.fmt(", sanitized)
     # Body, not the deal-wrapped helper: ``dtype=float`` → ``dtype=np.float64``
     # grows +5, so a DEAL_MAX_SOURCE=16 input like ``dtype=float\\x00`` is still
     # a legal caller string but fails the nested ``str_bounded`` pre.
@@ -387,35 +381,42 @@ def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
     return hits
 
 
+# Bugfix: escape_code_for_formula previously called sanitize_inline_py_code,
+# corrupting hand-written code (e.g. float("3.5") became ("3.5")+0.0, ax.text
+# became .fmt, int(-3.7) became -4) during Monaco formula save. ASCII-quoted
+# Calc strings are opaque to the formula lexer, so only quote doubling is needed.
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
-@deal.ensure(lambda code, result: result == sanitize_inline_py_code(code or "").replace('"', '""'))
+@deal.ensure(lambda code, result: result == (code or "").replace('"', '""'))
 def escape_code_for_formula(code: str) -> str:
-    """Escape Python source for embedding in a Calc string literal.
+    """Escape Python source for embedding in a Calc string literal by doubling quotes.
 
-    Applies defensive sanitization (``float(`` etc.) then doubles quotes.
+    ASCII-quoted Calc strings are opaque to the formula lexer, so hand-written
+    code is preserved verbatim without unwanted rewrites.
     """
-    # Same rewrite path as sanitize; deep check died here after ~1h35m.
     # crosshair: off
-    return sanitize_inline_py_code(code).replace('"', '""')
+    return (code or "").replace('"', '""')
 
 
 def escape_code_for_excel_formula(code: str) -> str:
     """Quote-escape Python for Excel ``=PY("…")`` / OOXML — no Calc sanitizer rewrites."""
     # crosshair: off
-    # cover-all 33797534946 (~4.4h formula_edit module, 270 examples). Free-string quote doubling. Doable later with DEAL_MAX_SOURCE alphabet.
-    return (code or "").replace('"', '""')
+    return escape_code_for_formula(code)
 
 
+# Bugfix: rebuild previously hardcoded =PY( and ignored parts.prefix, rewriting
+# existing =PYTHON( or =py( cells to =PY(. Preserving parts.prefix keeps existing
+# cell tokens intact as intended.
 @deal.pre(lambda parts, new_code: isinstance(parts, PythonFormulaParts) and str_bounded(new_code, DEAL_MAX_SOURCE + 256))
-@deal.post(lambda result: isinstance(result, str) and result.startswith(f'={CALC_PYTHON_FN}("'))
-@deal.ensure(lambda parts, new_code, result: parts.data_suffix in result)
+@deal.post(lambda result: isinstance(result, str))
+@deal.ensure(lambda parts, new_code, result: parts.data_suffix in result and result.startswith(f'{parts.prefix}"'))
 def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
-    """Rebuild a formula from parsed parts and new inline code (preserves ``data_suffix``)."""
-    # Calls escape → sanitize → rewrite loop; same class as sanitize hang.
+    """Rebuild a formula from parsed parts and new inline code (preserves prefix and ``data_suffix``)."""
+    # Calls escape → quote doubling.
     # crosshair: off
     escaped = escape_code_for_formula(new_code)
-    return f'={CALC_PYTHON_FN}("{escaped}"{parts.data_suffix}'
+    prefix = parts.prefix if parts and parts.prefix else f"={CALC_PYTHON_FN}("
+    return f'{prefix}"{escaped}"{parts.data_suffix}'
 
 
 # A1 / range display: closed alphabet (``\\x1c`` control whitespace is ASCII).
@@ -525,29 +526,34 @@ def _sheet_needs_excel_quotes(s: str) -> bool:
 
 @deal.pre(lambda sheet, rest: _DEAL_SHEET_TOKEN(sheet, DEAL_MAX_TOKEN) and _DEAL_SHEET_TOKEN(rest, DEAL_MAX_TOKEN))
 def _quote_py_sheet(sheet: str, rest: str) -> str:
-    if _has_whitespace(sheet) or not _is_sheet_identifier(sheet):
-        return f"'{sheet}'.{rest}"
+    clean = sheet.replace("$", "")
+    if _has_whitespace(clean) or not _is_sheet_identifier(clean):
+        quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
+        return f"{quoted}.{rest}"
     return f"{sheet}.{rest}"
 
 
 def _format_py_data_range_body(range_addr: str) -> str:
     # crosshair: off
     # cover-all 35526755391 (~8m body as entry; wrapper format_py_data_range stay-on). Combinatoric sheet-quote paths. Doable later: closed A1 alphabet only.
+    # Bugfix: replace("$", "") previously stripped absolute ref markers from data
+    # arguments, turning e.g. $A$1:$B$5 into relative refs on Monaco save. $ is now
+    # preserved in emitted tokens and only ignored during sheet quoting / A1 detection.
     """Calc-style range quoting. No regex — relib TypeError on NUL in ``re.match``."""
-    addr = str(range_addr).strip().replace("$", "")
+    addr = str(range_addr).strip()
     if "!" in addr:
         sheet, _unused, rest = addr.partition("!")
         sheet = sheet.strip("'\"")
-        rest = rest.replace("$", "")
         return _quote_py_sheet(sheet, rest)
     if "." not in addr:
         return addr
     sheet, _unused, rest = addr.partition(".")
     if not sheet or not rest:
         return addr
-    if _is_a1_cell_prefix(sheet):
+    if _is_a1_cell_prefix(sheet.replace("$", "")):
         return addr
-    if _has_whitespace(sheet) or not _is_sheet_identifier(sheet):
+    clean_sheet = sheet.replace("$", "")
+    if _has_whitespace(clean_sheet) or not _is_sheet_identifier(clean_sheet):
         quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
         return f"{quoted}.{rest}"
     return f"{sheet}.{rest}"
@@ -556,19 +562,23 @@ def _format_py_data_range_body(range_addr: str) -> str:
 def _format_excel_data_range_body(range_addr: str) -> str:
     # crosshair: off
     # cover-all 35526755391 (~8m body as entry; wrapper format_excel_data_range stay-on). Combinatoric sheet-quote paths. Doable later: closed A1 alphabet only.
+    # Bugfix: replace("$", "") previously stripped absolute ref markers from data
+    # arguments, turning e.g. $A$1:$B$5 into relative refs on Monaco save. $ is now
+    # preserved in emitted tokens and only ignored during sheet quoting / A1 detection.
     """Excel ``Sheet!A1`` quoting. No regex — same relib TypeError class as PY format."""
-    addr = str(range_addr).strip().replace("$", "")
+    addr = str(range_addr).strip()
     # Calc-style Sheet.A1 → Sheet!A1
     if "!" not in addr and "." in addr:
         sheet, _unused, rest = addr.partition(".")
-        if sheet and rest and not _is_a1_cell_prefix(sheet):
+        if sheet and rest and not _is_a1_cell_prefix(sheet.replace("$", "")):
             addr = f"{sheet}!{rest}"
     if "!" in addr:
         sheet, _unused, rest = addr.partition("!")
         sheet = sheet.strip("'\"")
-        rest = rest.replace("$", "")
-        if _sheet_needs_excel_quotes(sheet):
-            return f"'{sheet}'!{rest}"
+        clean_sheet = sheet.replace("$", "")
+        if _sheet_needs_excel_quotes(clean_sheet):
+            quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
+            return f"{quoted}!{rest}"
         return f"{sheet}!{rest}"
     return addr
 
@@ -611,20 +621,24 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
 
 
 # code is Python source (Unicode-legal); ascii_bounded would reject café comments.
+# Bugfix: rebuild previously hardcoded =PY( and ignored parts.prefix, rewriting
+# existing =PYTHON( or =py( cells to =PY(. Preserving parts.prefix keeps existing
+# cell tokens intact as intended.
 @deal.pre(lambda code, data_args, *_unused, **__: str_bounded(code, DEAL_MAX_SOURCE + 256) and _deal_data_args_ok(data_args))
-@deal.post(lambda result: isinstance(result, str) and result.startswith(f"={CALC_PYTHON_FN}("))
+@deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
 def rebuild_python_formula_with_data(code: str, data_args: list[str], *, parts: PythonFormulaParts | None = None, separator: str = ";", excel_escape: bool = False) -> str:
     """Build ``=PY("…"; ranges…)`` from code and data arguments.
 
+    Preserves ``parts.prefix`` when provided; otherwise defaults to ``={CALC_PYTHON_FN}(``.
     Use ``separator=","`` and ``excel_escape=True`` when writing OOXML ``.xlsx``
     formulas so Excel/LibreOffice do not see Calc ``;`` separators or Calc-only
     source sanitization.
     """
-    # Non-excel path calls escape → sanitize → rewrite loop.
+    # Non-excel path calls escape → quote doubling.
     # crosshair: off
     escaped = escape_code_for_excel_formula(code) if excel_escape else escape_code_for_formula(code)
-    prefix = f"={CALC_PYTHON_FN}("
+    prefix = parts.prefix if parts is not None and parts.prefix else f"={CALC_PYTHON_FN}("
     return f'{prefix}"{escaped}"{build_data_suffix(data_args, separator=separator, excel_ranges=excel_escape or separator == ",")}'
 
 
@@ -648,8 +662,6 @@ def py_code_arg_is_cell_ref(code: str) -> bool:
     if not bare:
         return False
     # Probe only: long =PY source must not trip parse_address @deal.pre (DEAL_MAX_CELL_REF).
-    from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, ascii_bounded
-
     if not ascii_bounded(bare, DEAL_MAX_CELL_REF, min_len=1):
         return False
     try:
@@ -670,7 +682,7 @@ def py_formula_has_unquoted_code_ref(formula: str) -> bool:
     if parts is None or not py_code_arg_is_cell_ref(parts.code):
         return False
     raw = normalize_formula_string(formula)
-    start = _py_call_open_end(raw, require_equals=True)
+    start = py_call_open_end(raw, require_equals=True)
     if start is None:
         return False
     body = raw[start:]
@@ -698,10 +710,6 @@ def cell_looks_python_like(formula: str) -> bool:
     """True if *formula* appears to be a PY/PYTHON call (even if strict parse failed)."""
     # crosshair: off
     # cover-all 33797534946 (~4.4h formula_edit module, 201 examples). Thin parse/loose wrapper. Doable later with tiny PY alphabet.
-    if not formula:
-        return False
-    if parse_python_formula(formula) is not None:
-        return True
     return extract_python_code_loose(formula) is not None
 
 
@@ -709,7 +717,7 @@ def replace_python_code(formula: str, new_code: str) -> str | None:
     """Return a new formula with the first ``code`` string argument replaced."""
     # crosshair: off
     # cover-all 33797534946 (~4.4h formula_edit module, 136 examples). Thin parse+rebuild wrapper. Doable later with DEAL_MAX_SOURCE alphabet.
-    parts = parse_python_formula(normalize_formula_string(formula))
+    parts = parse_python_formula(formula)
     if parts is None:
         return None
     return rebuild_python_formula(parts, new_code)

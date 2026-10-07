@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import weakref
 from typing import Any
 
@@ -47,8 +48,9 @@ _LISTENERS: dict[str, "_CalcPythonUnloadListener"] = {}
 # Weak keys so a collected document cannot leave an id that a new object reuses.
 _LIFECYCLE_KEYS: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
 _LIFECYCLE_REFS_BY_KEY: dict[str, list[weakref.ReferenceType[Any]]] = {}
-# PyUNO objects often reject weakref. Those ids are dropped on unload.
-_LIFECYCLE_KEY_BY_DOC_ID: dict[int, str] = {}
+# PyUNO objects often reject weakref. Those ids are stored with a strong reference
+# to the object so Python cannot reuse the id for a different document before unload.
+_LIFECYCLE_KEY_BY_DOC_ID: dict[int, tuple[str, Any]] = {}
 _DOC_IDS_BY_LIFECYCLE_KEY: dict[str, set[int]] = {}
 
 
@@ -77,14 +79,18 @@ def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
                 _LIFECYCLE_KEYS[obj] = key
             except TypeError:
                 doc_id = id(obj)
-                previous = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
+                # Bugfix: when PyUNO objects reject weakref, id(obj) was stored without
+                # a strong reference, allowing Python to reuse the id for a different document
+                # and cancel the wrong spill timer. Storing (key, obj) keeps obj alive.
+                entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
+                previous = entry[0] if entry is not None else None
                 if previous and previous != key:
                     old_ids = _DOC_IDS_BY_LIFECYCLE_KEY.get(previous)
                     if old_ids is not None:
                         old_ids.discard(doc_id)
                         if not old_ids:
                             _DOC_IDS_BY_LIFECYCLE_KEY.pop(previous, None)
-                _LIFECYCLE_KEY_BY_DOC_ID[doc_id] = key
+                _LIFECYCLE_KEY_BY_DOC_ID[doc_id] = (key, obj)
                 _DOC_IDS_BY_LIFECYCLE_KEY.setdefault(key, set()).add(doc_id)
                 continue
             refs = _LIFECYCLE_REFS_BY_KEY.setdefault(key, [])
@@ -102,7 +108,8 @@ def _forget_doc_lifecycle_key(key: str) -> None:
             if obj is not None and _LIFECYCLE_KEYS.get(obj) == key:
                 _LIFECYCLE_KEYS.pop(obj, None)
         for doc_id in _DOC_IDS_BY_LIFECYCLE_KEY.pop(key, ()):
-            if _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id) == key:
+            entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
+            if entry is not None and entry[0] == key:
                 _LIFECYCLE_KEY_BY_DOC_ID.pop(doc_id, None)
 
 
@@ -122,7 +129,8 @@ def lifecycle_key_if_known(doc: Any | None) -> str:
             try:
                 found = _LIFECYCLE_KEYS.get(obj)
             except TypeError:
-                found = _LIFECYCLE_KEY_BY_DOC_ID.get(id(obj))
+                entry = _LIFECYCLE_KEY_BY_DOC_ID.get(id(obj))
+                found = entry[0] if entry is not None else None
             if found:
                 return found
     return ""
@@ -232,6 +240,25 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     def on_disposing(self, Source: Any) -> None:
         self._teardown()
 
+    def _retry_reset(self, sid: str) -> None:
+        """Retry resetting a worker session that returned WORKER_REENTRY."""
+        # Bugfix: do_retry previously slept up to 5s on the shared worker thread pool
+        # without dedicated=True, risking starvation of other background tasks. Running
+        # as a dedicated background worker avoids blocking the shared pool.
+        last_res: Any = None
+        for _ in range(10):
+            time.sleep(0.5)
+            try:
+                last_res = reset_python_session(self._ctx, sid)
+                if isinstance(last_res, dict) and last_res.get("status") == "error" and last_res.get("code") == "WORKER_REENTRY":
+                    continue
+                break
+            except Exception:
+                log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
+                break
+        if isinstance(last_res, dict) and last_res.get("status") == "error" and last_res.get("code") == "WORKER_REENTRY":
+            log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
+
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
         for sid in session_ids:
             if not sid:
@@ -239,20 +266,14 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             try:
                 res = reset_python_session(self._ctx, sid)
                 if isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY":
-                    # Fall back to doing it in the background if the worker is busy to avoid deadlocks.
-                    def do_retry(retry_sid: str = sid):
-                        import time
-                        for _ in range(10):
-                            time.sleep(0.5)
-                            try:
-                                res_retry = reset_python_session(self._ctx, retry_sid)
-                                if isinstance(res_retry, dict) and res_retry.get("status") == "error" and res_retry.get("code") == "WORKER_REENTRY":
-                                    continue
-                                break
-                            except Exception:
-                                break
                     from plugin.framework.worker_pool import run_in_background
-                    run_in_background(do_retry, name="reset_python_session_retry", daemon=True)
+
+                    # Bugfix: sleeping background jobs must use dedicated=True per AGENTS.md
+                    run_in_background(
+                        lambda s=sid: self._retry_reset(s),
+                        name="reset_python_session_retry",
+                        dedicated=True,
+                    )
                 elif isinstance(res, dict) and res.get("status") != "ok":
                     log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
             except Exception:
@@ -270,8 +291,15 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             try:
                 from plugin.calc.python.function import clear_in_memory_spill_state
 
-                for url in doc_urls:
-                    clear_in_memory_spill_state(doc_url=url, lifecycle_key=lifecycle_key)
+                # Deduplicate doc URLs and skip empty strings. Unsaved workbooks
+                # have doc_url="", so clear using lifecycle_key when no URLs exist.
+                # Note: clear_in_memory_spill_state already ends with clear_python_addin_cache().
+                clean_urls = {u for u in doc_urls if u}
+                if clean_urls:
+                    for url in clean_urls:
+                        clear_in_memory_spill_state(doc_url=url, lifecycle_key=lifecycle_key)
+                elif lifecycle_key:
+                    clear_in_memory_spill_state(doc_url="", lifecycle_key=lifecycle_key)
             except Exception:
                 log.debug("python_workbook_lifecycle: spill state clear failed", exc_info=True)
             try:
@@ -281,12 +309,6 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                     clear_in_memory_geometric_state(workbook_key=sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: geometric state clear failed", exc_info=True)
-            try:
-                from plugin.calc.python.function import clear_python_addin_cache
-
-                clear_python_addin_cache()
-            except Exception:
-                log.debug("python_workbook_lifecycle: add-in cache clear failed", exc_info=True)
         if reset_sessions:
             self._reset_sessions(session_ids)
 

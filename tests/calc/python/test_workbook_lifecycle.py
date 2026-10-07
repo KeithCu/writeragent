@@ -239,10 +239,63 @@ def test_unload_resets_worker_when_busy():
             listener.on_document_event(MagicMock(EventName="OnUnload"))
             # Initial call
             assert len(seen) == 1
-            # Ensure background fallback was scheduled
+            # Ensure background fallback was scheduled with dedicated=True
             mock_run_in_background.assert_called_once()
+            assert mock_run_in_background.call_args[1].get("dedicated") is True
             callback = mock_run_in_background.call_args[0][0]
             with patch("time.sleep"):
                 callback()
             assert len(seen) == 2
     assert listener._teardown_done is True
+
+
+def test_retry_reset_logs_warning_on_timeout():
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, "calc:wb-timeout", "key-timeout")
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "error", "code": "WORKER_REENTRY"}):
+        with patch("time.sleep"):
+            with patch("plugin.calc.python.workbook_lifecycle.log.warning") as mock_warn:
+                listener._retry_reset("calc:wb-timeout")
+                mock_warn.assert_called_once()
+                assert "WORKER_REENTRY" in mock_warn.call_args[0][0]
+
+
+def test_remember_doc_lifecycle_key_keeps_strong_reference():
+    """Objects rejecting weakref must be held strongly in id map until unload."""
+    import plugin.calc.python.workbook_lifecycle as lifecycle
+    from plugin.calc.python.workbook_lifecycle import _forget_doc_lifecycle_key, _remember_doc_lifecycle_key, lifecycle_key_if_known
+
+    class NoWeakRefDoc:
+        __slots__ = ()
+
+    doc = NoWeakRefDoc()
+    doc_id = id(doc)
+    _remember_doc_lifecycle_key(doc, "key-strong-ref")
+    assert lifecycle_key_if_known(doc) == "key-strong-ref"
+    assert doc_id in lifecycle._LIFECYCLE_KEY_BY_DOC_ID
+    entry = lifecycle._LIFECYCLE_KEY_BY_DOC_ID[doc_id]
+    assert entry[0] == "key-strong-ref"
+    assert entry[1] is doc
+
+    _forget_doc_lifecycle_key("key-strong-ref")
+    assert doc_id not in lifecycle._LIFECYCLE_KEY_BY_DOC_ID
+    assert lifecycle_key_if_known(doc) == ""
+
+
+def test_release_calc_state_dedupes_doc_urls():
+    """_release_calc_state dedupes URLs and skips empty strings."""
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener
+
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, "calc:wb-dedupe", "key-dedupe")
+    with patch("plugin.calc.python.function.clear_in_memory_spill_state") as mock_spill:
+        listener._release_calc_state(
+            ("calc:wb-dedupe",),
+            ("file:///a.ods", "", "file:///a.ods", ""),
+            "key-dedupe",
+            reset_sessions=False,
+        )
+        mock_spill.assert_called_once_with(doc_url="file:///a.ods", lifecycle_key="key-dedupe")
