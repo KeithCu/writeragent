@@ -229,3 +229,13 @@ def test_cancel_rec_when_not_recording_is_noop():
         tr = next_state(state, SendEvent(SendEventKind.CANCEL_REC_CLICKED))
         assert tr.state == state
         assert tr.effects == []
+
+
+def test_text_updated_while_busy_emits_no_ui_effects():
+    """Typing while busy (in flight or awaiting approval) records text but avoids UI effect clobber."""
+    state = SendButtonState(True, False, False, False, True)
+    tr = next_state(state, SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+    assert tr.state.is_busy is True
+    assert tr.state.has_text is True
+    assert tr.effects == []
+

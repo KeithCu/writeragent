@@ -1192,12 +1192,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.warning("mode_flags missing; wiring Send/Stop with default sidebar mode flags")
             mode_flags = SidebarModeFlags()
         from plugin.chatbot.panel import (
+            ActionHandlerButtonListener,
             ClearButtonListener,
             HamburgerButtonListener,
-            LatexButtonListener,
-            PythonButtonListener,
-            PythonCellButtonListener,
-            SearchButtonListener,
             SendButtonListener,
             SettingsButtonListener,
             StopButtonListener,
@@ -1215,14 +1212,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if third_kind == "python_cell":
             third_btn = (
                 "btn_latex",
-                PythonCellButtonListener(self.ctx),
+                ActionHandlerButtonListener("scripting.edit_python_cell", self.ctx),
                 _("Edit Python in Cell..."),
                 menu_icon_asset_rel("python_cell", ctx=self.ctx),
                 "",
             )
         elif third_kind == "latex":
             # Keep √x glyph; PNG toolbar icons use the DPI resolver.
-            third_btn = ("btn_latex", LatexButtonListener(self.ctx), _("Insert LaTeX Math..."), None, "√x")
+            third_btn = ("btn_latex", ActionHandlerButtonListener("writer.insert_latex_dialog", self.ctx), _("Insert LaTeX Math..."), None, "√x")
         else:
             third_btn = None
             latex_ctrl = controls.get("btn_latex")
@@ -1231,13 +1228,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         header_buttons: list[tuple[str, Any, Any, Any, Any]] = [
             ("btn_settings", SettingsButtonListener(self.ctx), _("Settings"), menu_icon_asset_rel("gear", ctx=self.ctx), ""),
-            ("btn_python", PythonButtonListener(self.ctx), _("Run Python Script..."), menu_icon_asset_rel("python", ctx=self.ctx), ""),
+            ("btn_python", ActionHandlerButtonListener("scripting.run_python_dialog", self.ctx), _("Run Python Script..."), menu_icon_asset_rel("python", ctx=self.ctx), ""),
         ]
         if third_btn is not None:
             header_buttons.append(third_btn)
         header_buttons.extend(
             (
-            ("btn_search", SearchButtonListener(self.ctx), _("Search Nearby Files..."), menu_icon_asset_rel("search", ctx=self.ctx), ""),
+            ("btn_search", ActionHandlerButtonListener("embeddings.search_dialog", self.ctx), _("Search Nearby Files..."), menu_icon_asset_rel("search", ctx=self.ctx), ""),
             # Hamburger stays ☰ — no shipped hamburger PNG yet.
             ("btn_hamburger", HamburgerButtonListener(self.ctx, self.xFrame), _("More actions..."), None, None),
             )

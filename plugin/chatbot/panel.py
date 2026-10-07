@@ -253,6 +253,23 @@ def _uno_model_probe_for_log(model: Any, *, cached_doc_type: str | None = None) 
     return "impl=%s" % impl
 
 
+def _stop_tts() -> None:
+    """Stop active speech synthesis, logging errors at debug level."""
+    try:
+        from plugin.audio.tts_service import stop_speech
+
+        stop_speech()
+    except Exception:
+        log.debug("stop_speech failed", exc_info=True)
+
+
+def _is_approval_pending(send_listener: Any) -> bool:
+    """True when web-search inline approval is waiting for user response."""
+    if send_listener is None:
+        return False
+    return getattr(send_listener, "_approval_event", None) is not None
+
+
 class QueryTextListener(BaseTextListener):
     send_listener: Any
 
@@ -265,6 +282,11 @@ class QueryTextListener(BaseTextListener):
         # late text event dispatched TEXT_UPDATED into a dead panel.
         # Why: ``is True`` so a MagicMock host (tests) is not treated as dead.
         if getattr(self.send_listener, "_panel_teardown", False) is True:
+            return
+        # What was wrong: typing during inline web-search approval emitted TEXT_UPDATED,
+        # which transitioned the FSM and relabeled/disabled the Accept button back to Send.
+        # Why this change: suppress TEXT_UPDATED dispatches while waiting for inline approval.
+        if _is_approval_pending(self.send_listener):
             return
         model = getattr(rEvent.Source, "Model", None)
         if not model:
@@ -371,6 +393,16 @@ class QueryKeyListener(BaseKeyListener):
         if not sc or not sc.getModel():
             return
         if not sc.getModel().Enabled:
+            return
+        from plugin.framework.i18n import _
+
+        # What was wrong: enter-to-send only checked that the button was Enabled,
+        # not its label. When the box was empty, the button read "Record", so pressing
+        # Enter unexpectedly started recording; or "Stop Rec" while recording stopped
+        # and sent; or "Accept" during web search approval.
+        # Why this change: Enter in the query box must only trigger a send when the
+        # button label is explicitly "Send".
+        if sc.getModel().Label != _("Send"):
             return
         with suppress_disposed("QueryKeyListener Consume", logger=log):
             if hasattr(e, "Consume"):
@@ -488,6 +520,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _turn: Any
     _last_mcp_turn: dict[str, Any]
     _last_mcp_req_id: int | str | None
+    _send_start_msg_count: int | None
+    _stop_mouse_listener: Any
+    _stop_mouse_control: Any
+    _record_mouse_listener: Any
+    _record_mouse_control: Any
 
     def clear_pending_audio_wav(self) -> None:
         """Clear and delete any un-sent audio recording."""
@@ -580,6 +617,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._dispatch_reenter: list[Any] | None = None
         self._extracted_peer_query = ""
         self._extracted_peer_already_appended = False
+        self._send_start_msg_count = None
+        self._stop_mouse_listener = None
+        self._stop_mouse_control = None
+        self._record_mouse_listener = None
+        self._record_mouse_control = None
         self.slash_popup = None
         self.clear_listener = None
         self.rich_text_widget = None
@@ -1331,12 +1373,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if step.start_timer:
             self._arm_record_hold_timer()
         if step.dispatch_record:
-            try:
-                from plugin.audio.tts_service import stop_speech
-
-                stop_speech()
-            except Exception:
-                log.debug("stop_speech before Record failed", exc_info=True)
+            _stop_tts()
             self.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
     def _arm_record_hold_timer(self) -> None:
@@ -1489,11 +1526,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case LogSidebarEffect():
                 log.debug("%s", effect.message)
             case UpdateUIEffect():
-                self._set_button_states(effect.send_enabled, effect.stop_enabled)
+                # What was wrong: web search approval replaces Send/Stop/Clear with Accept/Change/Reject,
+                # but late or concurrent UpdateUIEffects would overwrite Accept back to Send (disabled).
+                # Why this change: preserve button states and labels while approval is pending.
+                if not _is_approval_pending(self):
+                    self._set_button_states(effect.send_enabled, effect.stop_enabled)
 
-                if self.send_control and self.send_control.getModel():
-                    with suppress_disposed("relabel send_control", logger=log):
-                        _relabel_button(self.send_control, _(effect.send_label), self._mnemonic_cache())
+                    if self.send_control and self.send_control.getModel():
+                        with suppress_disposed("relabel send_control", logger=log):
+                            _relabel_button(self.send_control, _(effect.send_label), self._mnemonic_cache())
 
                 if effect.status_text is not None and effect.status_text != "":
                     # Sticky takes share the Record transition; only the status line differs.
@@ -1503,11 +1544,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(effect.status_text))
 
             case StartRecordingEffect():
-                try:
-                    from plugin.audio.tts_service import stop_speech
-                    stop_speech()
-                except Exception:
-                    pass
+                _stop_tts()
                 if not self.audio_recorder:
                     return
                 try:
@@ -1558,11 +1595,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     log.info("StartSend ignored while speech-to-text is running")
                     return
 
-                try:
-                    from plugin.audio.tts_service import stop_speech
-                    stop_speech()
-                except Exception:
-                    pass
+                _stop_tts()
 
                 self._stop_requested_fallback = False
                 self._terminal_status = "Ready"
@@ -1596,11 +1629,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # turn: the stop line is written onto the session, then the
                 # send drain forgets the controller.
                 abort_turn(self)
-                try:
-                    from plugin.audio.tts_service import stop_speech
-                    stop_speech()
-                except Exception:
-                    pass
+                _stop_tts()
                 scope = getattr(self, "_send_cancellation", None)
                 if scope is not None:
                     scope.cancel()
@@ -1641,14 +1670,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         if label == _("Record"):
-            from plugin.audio.tts_service import stop_speech
-            stop_speech()
+            _stop_tts()
             self.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
         elif label == _("Stop Rec"):
             self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
         elif label == _("Send"):
-            from plugin.audio.tts_service import stop_speech
-            stop_speech()
+            _stop_tts()
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
@@ -1694,6 +1721,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Another document's drain may still be open; this send must not
         # defer its completion onto it.
         clear_drain_capture()
+        sess = getattr(self, "session", None)
+        self._send_start_msg_count = len(sess.messages) if (sess and getattr(sess, "messages", None) is not None) else 0
         cm = agent_session(getattr(self, "_send_cancellation", None))
         entered = False
         exit_error: list[BaseException | None] = [None]
@@ -1705,6 +1734,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._send_cancellation = cancel_scope
             if cancel_scope.is_cancelled() or self._stop_requested_fallback:
                 log.info("Send drain skipped (Stop before drain started)")
+                # What was wrong: _terminal_status was left at "Ready", causing TTS to replay
+                # the previous answer when Stop was pressed before the drain began.
+                # Why this change: set terminal status to "Stopped" so completion and TTS skip it.
+                self._terminal_status = "Stopped"
                 # What was wrong: Stop Rec stored the take on audio_wav_path,
                 # Stop landed before this drain ran, and nothing consumed the
                 # WAV. The next typed Send then transcribed or attached it.
@@ -1770,9 +1803,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             from plugin.chatbot.tool_loop_actions import session_for_turn
 
                             spoken = session_for_turn(self)
+                            start_count = getattr(self, "_send_start_msg_count", None)
                             if spoken and spoken.messages:
                                 last_msg = spoken.messages[-1]
-                                if last_msg.get("role") == "assistant" and last_msg.get("content"):
+                                # What was wrong: whitespace-only queries or cancelled sends replayed
+                                # the previous turn's assistant message through TTS because the session's
+                                # last message was from the prior turn.
+                                # Why this change: only speak if an assistant message exists AND a new
+                                # message was actually appended during this send turn.
+                                has_new_assistant_msg = (
+                                    last_msg.get("role") == "assistant"
+                                    and bool(last_msg.get("content"))
+                                    and (start_count is None or len(spoken.messages) > start_count)
+                                )
+                                if has_new_assistant_msg:
                                     from plugin.chatbot.tool_loop_actions import _STOP_LINE
                                     content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
                                     if content_to_speak.strip():
@@ -1851,6 +1895,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
+            self._send_start_msg_count = None
 
     def _get_doc_type_str(self, model: Any) -> str:
         from plugin.doc.doc_type import doc_type_title_for_label
@@ -1930,7 +1975,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._terminal_status = "Error"
                 self._set_status(_("Error"))
                 return
-            self._terminal_status = ""
+            # What was wrong: an empty-query early return left _terminal_status as "",
+            # skipping _set_status in _finish_send_drain_ui so status remained "Getting document…".
+            # It also failed to prevent TTS from speaking the prior turn's reply.
+            # Why this change: mark the terminal status as "Ready" so the UI updates,
+            # and rely on message count tracking to suppress TTS when no new message was added.
+            self._terminal_status = "Ready"
             return
 
         if self.query_control and self.query_control.getModel():
@@ -2289,11 +2339,28 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
     def disposing(self, Source: Any = None) -> None:
-        try:
-            from plugin.audio.tts_service import stop_speech
-            stop_speech()
-        except Exception:
-            pass
+        _stop_tts()
+        # What was wrong: attach_stop_mouse_listener and attach_record_mouse_listener
+        # added mouse listeners that strongly held send_listener and were never removed.
+        # Why this change: detach both mouse listeners on dispose to prevent leaks.
+        stop_mouse = getattr(self, "_stop_mouse_listener", None)
+        stop_ctrl = getattr(self, "_stop_mouse_control", None) or self.stop_control
+        if stop_mouse is not None and stop_ctrl is not None:
+            self._stop_mouse_listener = None
+            self._stop_mouse_control = None
+            if hasattr(stop_ctrl, "removeMouseListener"):
+                with suppress_disposed("remove stop mouse listener on dispose", logger=log):
+                    stop_ctrl.removeMouseListener(stop_mouse)
+
+        rec_mouse = getattr(self, "_record_mouse_listener", None)
+        rec_ctrl = getattr(self, "_record_mouse_control", None) or self.send_control
+        if rec_mouse is not None and rec_ctrl is not None:
+            self._record_mouse_listener = None
+            self._record_mouse_control = None
+            if hasattr(rec_ctrl, "removeMouseListener"):
+                with suppress_disposed("remove record mouse listener on dispose", logger=log):
+                    rec_ctrl.removeMouseListener(rec_mouse)
+
         # Dispose can run on a later VCL turn while an event-driven drain
         # session is still open. Set the flag first so _finish_send_drain_ui
         # does not write status or start TTS after ctx is cleared. Cancel the
@@ -2382,9 +2449,9 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
         return
     if getattr(send_listener, "_approval_event", None) is not None:
         return
-    from plugin.audio.tts_service import is_speaking, stop_speech
+    from plugin.audio.tts_service import is_speaking
     if is_speaking():
-        stop_speech()
+        _stop_tts()
         if not getattr(send_listener, "_send_busy", False):
             # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
             # hands-free, or the TTS poll would arm the mic again.
@@ -2412,6 +2479,14 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
     except ImportError:
         return
 
+    # What was wrong: repeated attachments or stale sidebar instances retained
+    # previous mouse listeners strongly referencing the send_listener.
+    # Why this change: detach prior listener before attaching a new one.
+    prior = getattr(send_listener, "_stop_mouse_listener", None)
+    if prior is not None and hasattr(stop_control, "removeMouseListener"):
+        with suppress_disposed("remove prior stop mouse listener", logger=log):
+            stop_control.removeMouseListener(prior)
+
     class _StopMouse(unohelper.Base, XMouseListener):  # type: ignore[misc]
         def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
             return
@@ -2429,7 +2504,11 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
             return
 
     try:
-        stop_control.addMouseListener(_StopMouse())
+        listener = _StopMouse()
+        stop_control.addMouseListener(listener)
+        if send_listener is not None:
+            send_listener._stop_mouse_listener = listener
+            send_listener._stop_mouse_control = stop_control
     except Exception:
         log.exception("Stop mouse listener attach failed")
 
@@ -2471,6 +2550,14 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
     except ImportError:
         return
 
+    # What was wrong: repeated attachments or stale sidebar instances retained
+    # previous mouse listeners strongly referencing the send_listener.
+    # Why this change: detach prior listener before attaching a new one.
+    prior = getattr(send_listener, "_record_mouse_listener", None)
+    if prior is not None and hasattr(send_control, "removeMouseListener"):
+        with suppress_disposed("remove prior record mouse listener", logger=log):
+            send_control.removeMouseListener(prior)
+
     class _RecordMouse(unohelper.Base, XMouseListener):  # type: ignore[misc]
         def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
             return
@@ -2488,7 +2575,11 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
             return
 
     try:
-        send_control.addMouseListener(_RecordMouse())
+        listener = _RecordMouse()
+        send_control.addMouseListener(listener)
+        if send_listener is not None:
+            send_listener._record_mouse_listener = listener
+            send_listener._record_mouse_control = send_control
     except Exception:
         log.exception("Record mouse listener attach failed")
 
@@ -2519,9 +2610,9 @@ class StopButtonListener(BaseActionListener):
         if callable(take_stop) and take_stop() is True:
             return
         if self.send_listener:
-            from plugin.audio.tts_service import is_speaking, stop_speech
+            from plugin.audio.tts_service import is_speaking
             if is_speaking():
-                stop_speech()
+                _stop_tts()
                 if not getattr(self.send_listener, "_send_busy", False):
                     # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
                     # hands-free, or the TTS poll would arm the mic again.
@@ -2568,8 +2659,7 @@ class ClearButtonListener(BaseActionListener):
             self.greeting = greeting
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.audio.tts_service import stop_speech
-        stop_speech()
+        _stop_tts()
         if self.send_listener is not None:
             self.send_listener.exit_hands_free_record()
             self.send_listener._release_open_microphone()
@@ -2589,6 +2679,13 @@ class ClearButtonListener(BaseActionListener):
             # send; abort again when it was idle so a worker that outlived
             # the button cannot paint onto the new list.
             abort_turn(self.send_listener)
+            # What was wrong: Clear wiped session history but left the mode topics
+            # (_brainstorming_topic, _writing_plan_topic, _ppt_master_topic) intact.
+            # After Clear, _do_send reused the stale topic with an empty history.
+            # Why this change: resetting them to "" ensures the next prompt sets a fresh topic.
+            self.send_listener._brainstorming_topic = ""
+            self.send_listener._writing_plan_topic = ""
+            self.send_listener._ppt_master_topic = ""
         self.session.clear()
 
         greeting = self.greeting
@@ -2652,66 +2749,20 @@ class SettingsButtonListener(BaseActionListener):
         open_dialog_safely(settings_box, "Failed to open settings")
 
 
-class PythonButtonListener(BaseActionListener):
-    """Listener for the Run Python Script button in the Chat sidebar."""
+class ActionHandlerButtonListener(BaseActionListener):
+    """Generic listener that delegates to an action handler registered in get_action_handler."""
 
+    handler_id: str
     ctx: Any
 
-    def __init__(self, ctx: Any = None) -> None:
+    def __init__(self, handler_id: str, ctx: Any = None) -> None:
+        self.handler_id = handler_id
         self.ctx = ctx
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler
 
-        handler = get_action_handler("scripting.run_python_dialog")
-        if handler:
-            handler()
-
-
-class LatexButtonListener(BaseActionListener):
-    """Listener for the Insert LaTeX Math button in the Chat sidebar."""
-
-    ctx: Any
-
-    def __init__(self, ctx: Any = None) -> None:
-        self.ctx = ctx
-
-    def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.framework.main_shared import get_action_handler
-
-        handler = get_action_handler("writer.insert_latex_dialog")
-        if handler:
-            handler()
-
-
-class SearchButtonListener(BaseActionListener):
-    """Listener for the Search Nearby Files button in the Chat sidebar."""
-
-    ctx: Any
-
-    def __init__(self, ctx: Any = None) -> None:
-        self.ctx = ctx
-
-    def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.framework.main_shared import get_action_handler
-
-        handler = get_action_handler("embeddings.search_dialog")
-        if handler:
-            handler()
-
-
-class PythonCellButtonListener(BaseActionListener):
-    """Listener for the Edit Python in Cell button in the Calc Chat sidebar."""
-
-    ctx: Any
-
-    def __init__(self, ctx: Any = None) -> None:
-        self.ctx = ctx
-
-    def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.framework.main_shared import get_action_handler
-
-        handler = get_action_handler("scripting.edit_python_cell")
+        handler = get_action_handler(self.handler_id)
         if handler:
             handler()
 

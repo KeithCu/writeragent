@@ -599,7 +599,7 @@ class TestSendDispose:
         listener._append_response = MagicMock()
         with patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()):
             listener._do_send()
-        assert listener._terminal_status == ""
+        assert listener._terminal_status == "Ready"
         listener._append_response.assert_not_called()
 
     def test_stt_inflight_keeps_the_first_stop(self) -> None:
@@ -775,6 +775,7 @@ class TestSlashOverlayParked:
 
     def test_text_change_skips_overlay_and_still_dispatches(self, caplog) -> None:
         send_listener = MagicMock()
+        send_listener._approval_event = None
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), caplog.at_level(logging.DEBUG):
             listener.on_text_changed(_query_text_event("/he"))
@@ -788,6 +789,7 @@ class TestSlashOverlayParked:
 
     def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self, caplog) -> None:
         send_listener = MagicMock()
+        send_listener._approval_event = None
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True), \
              patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
@@ -799,6 +801,7 @@ class TestSlashOverlayParked:
 
     def test_enabled_plain_text_dispatches(self) -> None:
         send_listener = MagicMock()
+        send_listener._approval_event = None
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
             listener.on_text_changed(_query_text_event("hello"))
@@ -820,6 +823,7 @@ class TestSlashOverlayParked:
         send_listener.slash_popup.handle_key.return_value = True
         send_model = MagicMock()
         send_model.Enabled = True
+        send_model.Label = "Send"
         send_listener.send_control.getModel.return_value = send_model
         listener = QueryKeyListener(send_listener)
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
@@ -837,6 +841,7 @@ class TestQueryKeyListenerDispose:
         send_listener = MagicMock()
         send_model = MagicMock()
         send_model.Enabled = True
+        send_model.Label = "Send"
         send_listener.send_control.getModel.return_value = send_model
         listener = QueryKeyListener(send_listener)
         event = _ConsumeEvent()
@@ -1486,10 +1491,14 @@ class TestStoppedTTS:
         listener.sidebar_state.send.is_recording = False
 
         fake_session = MagicMock()
-        fake_session.messages = [{"role": "assistant", "content": "Spoken reply text."}]
+        fake_session.messages = []
+        listener.session = fake_session
+
+        def _simulate_do_send():
+            fake_session.messages.append({"role": "assistant", "content": "Spoken reply text."})
 
         with (
-            patch.object(listener, "_do_send"),
+            patch.object(listener, "_do_send", side_effect=_simulate_do_send),
             patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=fake_session),
             patch("plugin.framework.config.get_config_bool_safe", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
@@ -1611,3 +1620,147 @@ def test_ask_text_restored_on_post_clear_error() -> None:
             listener._do_send()
 
         mock_restore.assert_called_once_with("some text")
+
+
+class TestPanelR3Fixes:
+    """Targeted unit tests for Cursor review R3 panel fixes."""
+
+    def test_stop_before_drain_with_tts_skips_tts_and_sets_stopped(self) -> None:
+        listener = _make_send_listener()
+        listener.session.messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Prior assistant answer"},
+        ]
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.is_recording = False
+        listener._stop_requested_fallback = True
+
+        with (
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
+            patch.object(listener, "_do_send") as mock_do_send,
+        ):
+            listener._run_send_drain()
+            mock_do_send.assert_not_called()
+            mock_speak.assert_not_called()
+            assert listener._terminal_status == "Stopped"
+
+    def test_whitespace_send_skips_tts_and_sets_ready(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.audio_wav_path = None
+        listener.query_control = MagicMock()
+        listener.query_control.getModel.return_value = MagicMock()
+        listener.session.messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Prior assistant answer"},
+        ]
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener._append_response = MagicMock()
+        listener._set_status = MagicMock()
+
+        with (
+            patch("plugin.chatbot.dialogs.get_control_text", return_value="   \t\n  "),
+            patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
+        ):
+            listener._run_send_drain()
+            mock_speak.assert_not_called()
+            assert listener._terminal_status == "Ready"
+            listener._set_status.assert_called_with("Ready")
+
+    def test_enter_key_only_triggers_when_label_is_send(self) -> None:
+        send_listener = MagicMock()
+        send_model = MagicMock()
+        send_model.Enabled = True
+        send_listener.send_control.getModel.return_value = send_model
+        listener = QueryKeyListener(send_listener)
+        event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
+
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), \
+             patch("plugin.framework.config.get_config_bool", return_value=True):
+            for non_send_label in ("Record", "Stop Rec", "Accept", "Stop"):
+                send_model.Label = non_send_label
+                listener.on_key_pressed(event)
+                send_listener.on_action_performed.assert_not_called()
+
+            send_model.Label = "Send"
+            listener.on_key_pressed(event)
+            send_listener.on_action_performed.assert_called_once_with(event)
+
+    def test_typing_during_approval_preserves_accept_button(self) -> None:
+        import threading
+        listener = _make_send_listener()
+        listener._approval_event = threading.Event()
+        send_model = MagicMock()
+        send_model.Label = "Accept"
+        send_model.Enabled = True
+        listener.send_control.getModel.return_value = send_model
+
+        # 1. QueryTextListener skips dispatching TEXT_UPDATED during approval
+        text_listener = QueryTextListener(listener)
+        with patch.object(listener, "dispatch") as mock_dispatch:
+            text_listener.on_text_changed(_query_text_event("searching for something"))
+            mock_dispatch.assert_not_called()
+
+        # 2. UpdateUIEffect does not overwrite Accept or grey it out
+        from plugin.chatbot.send_state import UpdateUIEffect
+        listener._interpret_effect(
+            UpdateUIEffect(send_enabled=False, stop_enabled=True, send_label="Send", status_text="")
+        )
+        assert send_model.Label == "Accept"
+        assert send_model.Enabled is True
+
+    def test_clear_resets_mode_topics(self) -> None:
+        listener = _make_send_listener()
+        listener._brainstorming_topic = "Write a sci-fi outline"
+        listener._writing_plan_topic = "Plan chapter 1"
+        listener._ppt_master_topic = "Create keynote template"
+
+        clear = ClearButtonListener(listener.session, None, None, send_listener=listener)
+        clear.on_action_performed(MagicMock())
+
+        assert listener._brainstorming_topic == ""
+        assert listener._writing_plan_topic == ""
+        assert listener._ppt_master_topic == ""
+
+    def test_stop_tts_helper(self) -> None:
+        from plugin.chatbot.panel import _stop_tts
+
+        with patch("plugin.audio.tts_service.stop_speech") as mock_stop:
+            _stop_tts()
+            mock_stop.assert_called_once()
+
+        with patch("plugin.audio.tts_service.stop_speech", side_effect=RuntimeError("audio err")), \
+             patch("plugin.chatbot.panel.log.debug") as mock_log_debug:
+            _stop_tts()  # must not raise
+            mock_log_debug.assert_called_once()
+
+    def test_mouse_listeners_removed_on_dispose(self) -> None:
+        from plugin.chatbot.panel import attach_record_mouse_listener, attach_stop_mouse_listener
+
+        stop_ctrl = MagicMock()
+        send_ctrl = MagicMock()
+        listener = _make_send_listener()
+        listener.stop_control = stop_ctrl
+        listener.send_control = send_ctrl
+
+        attach_stop_mouse_listener(stop_ctrl, listener)
+        attach_record_mouse_listener(send_ctrl, listener)
+
+        stop_ctrl.addMouseListener.assert_called_once()
+        send_ctrl.addMouseListener.assert_called_once()
+
+        stop_mouse = stop_ctrl.addMouseListener.call_args[0][0]
+        rec_mouse = send_ctrl.addMouseListener.call_args[0][0]
+
+        listener.disposing(None)
+
+        stop_ctrl.removeMouseListener.assert_called_once_with(stop_mouse)
+        send_ctrl.removeMouseListener.assert_called_once_with(rec_mouse)
+

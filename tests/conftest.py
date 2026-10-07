@@ -161,6 +161,7 @@ setattr(awt, "Rectangle", MockRectangle)
 setattr(awt, "Size", MockSize)
 setattr(awt, "FontWeight", MockBase)
 setattr(awt, "FontSlant", MockBase)
+setattr(awt, "XMouseListener", MockBase)
 
 text = _create_mock_module("com.sun.star.text")
 sys.modules["com.sun.star.text"].__path__ = []
