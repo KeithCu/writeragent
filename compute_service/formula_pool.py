@@ -416,6 +416,7 @@ class FormulaProcessPool(BaseProcessPool):
                         abs(hash((session_id, w.worker_id))),
                     ),
                 )
+                # Reserve session->worker at pick time inside the same with self._cond!
                 proc = target_worker.process
                 pid = proc.pid if (proc is not None and proc.poll() is None) else None
                 self._sessions[session_id] = _Session(
@@ -438,6 +439,12 @@ class FormulaProcessPool(BaseProcessPool):
         decode_result: bool,
     ) -> dict[str, Any]:
         """Send execution payload to leased worker and format response."""
+        # The child used to get the original full timeout while this read
+        # used only the time left. signal.alarm never won, so a normal
+        # sleep became SIGKILL and dropped every shared session on that
+        # process. Give the child the remaining budget and wait at least
+        # alarm + grace so a cell finishing between them returns a clean
+        # timeout instead of a SIGKILL.
         child_budget = remaining_sec(deadline)
         child_alarm = max(1, int(child_budget))
         payload["timeout_sec"] = child_alarm
