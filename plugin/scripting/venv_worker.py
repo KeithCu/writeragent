@@ -1134,7 +1134,7 @@ class PythonWorkerManager:
                 from plugin.scripting.ipc import _read_bytes_with_timeout_win32
 
                 try:
-                    return _read_bytes_with_timeout_win32(stdout, nbytes, remaining, cmd=self.exe, stop_checker=stop_checker)
+                    return _read_bytes_with_timeout_win32(stdout, nbytes, time.monotonic() + remaining, timeout_sec, cmd=self.exe, stop_checker=stop_checker)
                 except subprocess.TimeoutExpired:
                     # ipc reports Stop as a timeout; the caller needs CANCELLED.
                     if stop_checker and stop_checker():
