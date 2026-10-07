@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
 
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 CODE_SHEET_PREFIX = "py_code_"
+BANK_REF_RE = re.compile(rf"^({re.escape(CODE_SHEET_PREFIX)}[^.!]+)[.!](\$?[A-Za-z]+\$?\d+)$", re.IGNORECASE)
 # Calc / Excel sheet title practical max.
 _CODE_SHEET_MAX_LEN = 31
 CODE_SHEET_NOTE_CELL = "ZZ1"
@@ -75,6 +76,26 @@ def normalize_bank_a1(cell: str) -> str:
     if not m:
         raise ValueError(f"invalid bank A1 address: {cell!r}")
     return f"{m.group(1).upper()}{m.group(2)}"
+
+
+def resolve_bank_cell_reference(
+    code: str,
+    lookup_fn: Callable[[str, str], str | None],
+) -> str | None:
+    """If *code* references a script bank cell (py_code_Sheet.A1), resolve via *lookup_fn(sheet, a1)*.
+
+    Shares bank reference pattern matching and A1 address normalization between
+    offline OOXML extraction and live UNO Calc snapshotting.
+    """
+    m = BANK_REF_RE.match((code or "").strip())
+    if not m:
+        return None
+    sheet = m.group(1)
+    try:
+        a1 = normalize_bank_a1(m.group(2))
+    except ValueError:
+        return None
+    return lookup_fn(sheet, a1)
 
 
 def _col_letters_to_index(col: str) -> int:

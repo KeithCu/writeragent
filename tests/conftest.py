@@ -187,6 +187,13 @@ sheet = _create_mock_module("com.sun.star.sheet")
 setattr(sheet, "ConditionOperator", MockBase)
 setattr(sheet, "ConditionOperator2", MockBase)
 
+
+class MockCellFlags:
+    FORMULA = 16
+
+
+setattr(sheet, "CellFlags", MockCellFlags)
+
 table = _create_mock_module("com.sun.star.table")
 
 lang = _create_mock_module("com.sun.star.lang")

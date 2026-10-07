@@ -469,36 +469,6 @@ def test_excel_deps_roundtrip_on_xlws_export():
     assert "tradeData[#All]" in c1.excel_formula
 
 
-@pytest.mark.slow
-def test_package_meta_helpers_when_enabled(tmp_path: Path):
-    """Package JSON helpers stay available; default path does not write them (USE_PACKAGE_META)."""
-    from plugin.calc.excel_py_convert.convert import (
-        PACKAGE_META_PART,
-        USE_PACKAGE_META,
-        convert_to_dag,
-        load_package_meta,
-        write_dag_formulas_xlsx,
-        write_package_meta,
-    )
-
-    assert USE_PACKAGE_META is False
-    samples = Path("PythonExcelSamples")
-    srcs = sorted(samples.glob("*Groupby.xlsx")) if samples.is_dir() else []
-    if not srcs:
-        pytest.skip("PythonExcelSamples not present")
-    src = srcs[0]
-    out = tmp_path / "dag.xlsx"
-    report = convert_to_dag(src)
-    assert report.ok
-    write_dag_formulas_xlsx(src, report, out)
-    # Default: no package meta part.
-    assert load_package_meta(out) == {}
-    with zipfile.ZipFile(out) as zf:
-        assert PACKAGE_META_PART not in zf.namelist()
-    # Helpers still work when called explicitly (future enablement).
-    write_package_meta(out, report)
-    meta = load_package_meta(out)
-    assert any(isinstance(v, dict) and v.get("excel_deps") for v in meta.values())
 
 
 def test_demo6_multi_range_and_headers_false():
@@ -1431,10 +1401,9 @@ def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
 
 
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
-    """Temporary files (.tmpmeta, .tmpstrip, .tmpexcelpy) must be cleaned up on exception."""
+    """Temporary files (.tmpstrip, .tmprewrite, .tmpexcelpy) must be cleaned up on exception."""
     from plugin.calc.excel_py_convert.convert import (
         _strip_python_in_excel_parts,
-        write_package_meta,
         write_excel_python_xlsx,
     )
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
@@ -1452,11 +1421,15 @@ def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
         _strip_python_in_excel_parts(src)
     assert not (src.with_suffix(src.suffix + ".tmpstrip")).exists()
 
-    # 2. Test .tmpmeta cleanup
-    report = ConversionReport(direction="dag", cells=[])
+    # 2. Test rewrite_zip cleanup
+    from plugin.calc.excel_py_convert.ooxml_util import rewrite_zip
+
+    def fail_transform(zin, zout):
+        raise RuntimeError("simulated transform error")
+
     with pytest.raises(RuntimeError):
-        write_package_meta(src, report)
-    assert not (src.with_suffix(src.suffix + ".tmpmeta")).exists()
+        rewrite_zip(src, src.with_suffix(src.suffix + ".out"), fail_transform, temp_suffix=".tmprewrite")
+    assert not (src.with_suffix(src.suffix + ".out.tmprewrite")).exists()
 
     # 3. Test .tmpexcelpy cleanup
     monkeypatch.undo()
@@ -1523,4 +1496,197 @@ def test_write_excel_python_xlsx_patched_empty_element(tmp_path: Path):
         }
         assert "_xlws.PY(0" in formulas.get("A1", "")
         assert "_xlws.PY(1" in formulas.get("A2", "")
+
+
+def test_single_line_content_types_with_mc_ignorable():
+    """Minified [Content_Types].xml with mc:Ignorable must preserve namespaces and ignorable prefixes."""
+    ct_data = (
+        b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types" '
+        b'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+        b'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" '
+        b'xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" '
+        b'mc:Ignorable="x14ac xr">'
+        b'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        b'<Default Extension="xml" ContentType="application/xml"/>'
+        b'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        b'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        b'<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
+        b'</Types>'
+    )
+    from plugin.calc.excel_py_convert.xlsx_write import _patch_content_types, _strip_content_types_python
+
+    # 1. Test stripping python parts
+    stripped = _strip_content_types_python(ct_data)
+    assert b"pythonScripts.xml" not in stripped
+    assert b'mc:Ignorable="x14ac xr"' in stripped
+    assert b'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"' in stripped
+    assert b'xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision"' in stripped
+
+    # 2. Test patching python parts
+    patched = _patch_content_types(stripped)
+    assert b"pythonScripts.xml" in patched
+    assert b'mc:Ignorable="x14ac xr"' in patched
+    assert b'xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"' in patched
+    assert b'xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision"' in patched
+
+
+def test_ensure_cell_missing_row_ordering():
+    """_ensure_cell must insert missing rows and cells in strictly ascending order, including when r is omitted."""
+    from xml.etree import ElementTree as ET
+
+    from plugin.calc.excel_py_convert.ooxml_util import local_name
+    from plugin.calc.excel_py_convert.xlsx_write import _ensure_cell, _ensure_sheet_data
+
+    # Worksheet with row 1 and row 5
+    xml = (
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row r="1"><c r="A1"/><c r="C1"/></row>'
+        '<row r="5"><c r="B5"/></row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+    ws = ET.fromstring(xml)
+
+    # Insert B1 in row 1: must be inserted between A1 and C1
+    _ensure_cell(ws, "B1")
+    sheet_data = _ensure_sheet_data(ws)
+    row1 = [r for r in sheet_data if r.attrib.get("r") == "1"][0]
+    col_order_1 = [c.attrib.get("r") for c in row1]
+    assert col_order_1 == ["A1", "B1", "C1"]
+
+    # Insert row 3 (A3): must be inserted between row 1 and row 5
+    _ensure_cell(ws, "A3")
+    row_order = [r.attrib.get("r") for r in sheet_data if local_name(r.tag) == "row"]
+    assert row_order == ["1", "3", "5"]
+
+    # Test rows with omitted 'r' attribute: row 1 (implicit 1), row 2 (implicit 2)
+    xml_no_r = (
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row><c><v>10</v></c></row>'
+        '<row><c><v>20</v></c></row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+    ws_no_r = ET.fromstring(xml_no_r)
+    # Ensure cell A2: should match second row (implicit 2) rather than creating a duplicate row
+    _c_a2 = _ensure_cell(ws_no_r, "A2")
+    sheet_data_no_r = _ensure_sheet_data(ws_no_r)
+    assert len(list(sheet_data_no_r)) == 2
+
+
+def test_shared_formula_vs_array_formula(tmp_path: Path):
+    """parse_excel_xlsx must only set array_ref for t='array', never for t='shared'."""
+    from plugin.calc.excel_py_convert.parse_excel_ooxml import parse_excel_xlsx
+
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        '</workbook>'
+    )
+    wb_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '</Relationships>'
+    )
+    # A1 is a shared-formula master with ref="A1:A5"
+    # B1 is an array-formula master with t="array" and ref="B1:B5"
+    ws_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row r="1">'
+        '<c r="A1"><f t="shared" ref="A1:A5" si="0">_xlfn._xlws.PY(0,0)</f></c>'
+        '<c r="B1"><f t="array" ref="B1:B5">_xlfn._xlws.PY(1,0)</f></c>'
+        '</row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+    scripts_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<pythonScripts xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript">'
+        '<pythonScript><code>x = 1</code></pythonScript>'
+        '<pythonScript><code>y = 2</code></pythonScript>'
+        '</pythonScripts>'
+    )
+
+    xlsx = tmp_path / "shared_vs_array.xlsx"
+    with zipfile.ZipFile(xlsx, "w") as zf:
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", ws_xml)
+        zf.writestr("xl/pythonScripts.xml", scripts_xml)
+
+    model = parse_excel_xlsx(xlsx)
+    cells_by_a1 = {c.cell: c for c in model.cells}
+    # Shared formula master A1 must NOT have array_ref populated
+    assert cells_by_a1["A1"].array_ref == ""
+    # Array formula master B1 MUST have array_ref populated
+    assert cells_by_a1["B1"].array_ref == "B1:B5"
+
+    # anchor_snapshots must NOT contain A1 / Sheet1!A1
+    assert "Sheet1!A1" not in model.anchor_snapshots
+    assert "A1" not in model.anchor_snapshots
+    # anchor_snapshots must contain B1
+    assert model.anchor_snapshots.get("Sheet1!B1") == "Sheet1!B1:B5"
+    assert model.anchor_snapshots.get("B1") == "B1:B5"
+
+
+def test_inline_string_bank_reading(tmp_path: Path):
+    """_cell_string_value and iter_dag_py_formulas_xlsx must read bank code stored as inlineStr."""
+    from plugin.calc.excel_py_convert.parse_dag_formulas import iter_dag_py_formulas_xlsx
+
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>'
+        '<sheet name="Data" sheetId="1" r:id="rId1"/>'
+        '<sheet name="py_code_Data" sheetId="2" r:id="rId2"/>'
+        '</sheets>'
+        '</workbook>'
+    )
+    wb_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
+        '</Relationships>'
+    )
+    # Sheet1 (Data): cell A1 references bank py_code_Data.A1
+    ws1_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row r="1"><c r="A1"><f>=PY(py_code_Data.A1)</f></c></row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+    # Sheet2 (py_code_Data): bank cell A1 uses inlineStr
+    ws2_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>df = xl("A1:B10")\ndf.describe()</t></is></c></row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+
+    xlsx = tmp_path / "inlinestr_bank.xlsx"
+    with zipfile.ZipFile(xlsx, "w") as zf:
+        zf.writestr("xl/workbook.xml", wb_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", ws1_xml)
+        zf.writestr("xl/worksheets/sheet2.xml", ws2_xml)
+
+    items = iter_dag_py_formulas_xlsx(xlsx)
+    assert len(items) == 1
+    sheet, a1, formula = items[0]
+    assert sheet == "Data"
+    assert a1 == "A1"
+    assert 'df = xl(""A1:B10"")' in formula
 

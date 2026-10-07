@@ -15,28 +15,27 @@ from typing import Any
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts; not network XML (Bandit B314)
 
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
+from plugin.calc.excel_py_convert.ooxml_util import (
+    find_all,
+    find_child,
+    local_name,
+    parse_rels,
+    parse_rels_with_types,
+    resolve_rel_target,
+    workbook_sheets,
+)
 
-_NS_OD_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+# Backwards-compatible aliases
+_local = local_name
+_findall = find_all
+_find_child = find_child
+_workbook_sheets = workbook_sheets
+_parse_rels = parse_rels
+_parse_rels_with_types = parse_rels_with_types
+_resolve_rel_target = resolve_rel_target
 
 _RE_A1_CELL = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
-
-
-def _local(tag: str) -> str:
-    if tag.startswith("{"):
-        return tag.rsplit("}", 1)[-1]
-    return tag
-
-
-def _findall(parent: ET.Element, name: str) -> list[ET.Element]:
-    return [el for el in parent.iter() if _local(el.tag) == name]
-
-
-def _find_child(parent: ET.Element, name: str) -> ET.Element | None:
-    for child in list(parent):
-        if _local(child.tag) == name:
-            return child
-    return None
 
 
 def _col_row(a1: str) -> tuple[int, int]:
@@ -118,136 +117,47 @@ def parse_xlws_py_formula(formula: str) -> tuple[int, int, list[str]] | None:
     return script_index, return_type, deps
 
 
-def _resolve_rel_target(rels_path: str, target: str) -> str:
-    """Resolve a Relationship Target to a package-relative path (forward slashes)."""
-    target = target.replace("\\", "/").lstrip("/")
-    if target.startswith("xl/") or target.startswith("[Content_Types"):
-        return target
-    # rels live next to the owning part: xl/worksheets/_rels/sheet1.xml.rels
-    # owning dir is parent of _rels: xl/worksheets
-    owning_dir = str(Path(rels_path).parent.parent).replace("\\", "/")
-    if owning_dir == ".":
-        owning_dir = ""
-    joined = f"{owning_dir}/{target}" if owning_dir else target
-    parts: list[str] = []
-    for p in joined.replace("\\", "/").split("/"):
-        if p == "..":
-            if parts:
-                parts.pop()
-        elif p and p != ".":
-            parts.append(p)
-    return "/".join(parts)
-
-
-def _parse_rels(zf: zipfile.ZipFile, rels_path: str) -> dict[str, str]:
-    """Return relationship Id → package-relative Target."""
-    out: dict[str, str] = {}
-    try:
-        root = ET.fromstring(zf.read(rels_path))
-    except KeyError:
-        return out
-    for rel in root:
-        if _local(rel.tag) != "Relationship":
-            continue
-        rid = rel.attrib.get("Id") or ""
-        target = rel.attrib.get("Target") or ""
-        if not rid or not target:
-            continue
-        out[rid] = _resolve_rel_target(rels_path, target)
-    return out
-
-
 def _rel_type_is_table(rel_type: str) -> bool:
     return rel_type.rstrip("/").endswith("table")
-
-
-def _parse_rels_with_types(zf: zipfile.ZipFile, rels_path: str) -> list[tuple[str, str, str]]:
-    """Return (Id, Type, Target) triples."""
-    out: list[tuple[str, str, str]] = []
-    try:
-        root = ET.fromstring(zf.read(rels_path))
-    except KeyError:
-        return out
-    for rel in root:
-        if _local(rel.tag) != "Relationship":
-            continue
-        rid = rel.attrib.get("Id") or ""
-        rtype = rel.attrib.get("Type") or ""
-        target = rel.attrib.get("Target") or ""
-        if not rid or not target:
-            continue
-        out.append((rid, rtype, _resolve_rel_target(rels_path, target)))
-    return out
-
-
-def _workbook_sheets(zf: zipfile.ZipFile) -> list[SheetInfo]:
-    """Map workbook sheet order/titles to worksheet part paths."""
-    wb = ET.fromstring(zf.read("xl/workbook.xml"))
-    rels = _parse_rels(zf, "xl/_rels/workbook.xml.rels")
-    sheets_el = None
-    for el in wb:
-        if _local(el.tag) == "sheets":
-            sheets_el = el
-            break
-    if sheets_el is None:
-        return []
-    out: list[SheetInfo] = []
-    for order, sh in enumerate(list(sheets_el)):
-        if _local(sh.tag) != "sheet":
-            continue
-        title = sh.attrib.get("name") or f"Sheet{order + 1}"
-        rid = sh.attrib.get(f"{{{_NS_OD_REL}}}id") or ""
-        if not rid:
-            for k, v in sh.attrib.items():
-                if k.endswith("}id") or k in ("r:id", "id"):
-                    rid = v
-                    break
-        part = rels.get(rid, "")
-        if part and not part.startswith("xl/"):
-            part = f"xl/{part}"
-        out.append(SheetInfo(title=title, order=order, part_name=part))
-    return out
 
 
 def _parse_python_scripts(zf: zipfile.ZipFile) -> list[str]:
     """Parse ``xl/pythonScripts.xml``.
 
-    Microsoft stores scripts as ordered ``<pythonScript><code>…</code></pythonScript>``
-    children (document order = script index). Some builds may also set an ``index`` attr.
+    Bugfix:
+    - What was wrong: if any sequential script was encountered, all indexed scripts were dropped.
+    - How it happened: 'if indexed and not sequential' dropped indexed scripts whenever sequential had items.
+    - Why this change fixes it: maps each script to its index (explicit attribute or document order) without discarding.
     """
     try:
         raw = zf.read("xl/pythonScripts.xml")
     except KeyError:
         return []
     root = ET.fromstring(raw)
-    # Direct pythonScript children in document order (ignore nested noise).
-    script_els = [el for el in list(root) if _local(el.tag) == "pythonScript"]
+    script_els = [el for el in list(root) if local_name(el.tag) == "pythonScript"]
     if not script_els:
-        script_els = [el for el in root.iter() if _local(el.tag) == "pythonScript"]
+        script_els = [el for el in root.iter() if local_name(el.tag) == "pythonScript"]
 
-    indexed: list[tuple[int, str]] = []
-    sequential: list[str] = []
-    for _order, el in enumerate(script_els):
-        code_el = _find_child(el, "code")
+    scripts_by_idx: dict[int, str] = {}
+    for order, el in enumerate(script_els):
+        code_el = find_child(el, "code")
         text = "".join(code_el.itertext()) if code_el is not None else "".join(el.itertext())
         idx_s = el.attrib.get("index") or el.attrib.get("scriptIndex") or ""
+        idx = order
         if idx_s != "":
             try:
-                indexed.append((int(idx_s), text))
-                continue
+                idx = int(idx_s)
             except ValueError:
                 pass
-        sequential.append(text)
+        scripts_by_idx[idx] = text
 
-    if indexed and not sequential:
-        indexed.sort(key=lambda t: t[0])
-        max_i = max(i for i, _unused in indexed)
-        out = [""] * (max_i + 1)
-        for i, body in indexed:
-            out[i] = body
-        return out
-    # Document order is the script bank index (Excel samples).
-    return sequential if sequential else [t[1] for t in sorted(indexed, key=lambda t: t[0])]
+    if not scripts_by_idx:
+        return []
+    max_i = max(scripts_by_idx.keys())
+    out = [""] * (max_i + 1)
+    for i, body in scripts_by_idx.items():
+        out[i] = body
+    return out
 
 
 def _sheet_rels_path(part_name: str) -> str:
@@ -280,12 +190,21 @@ def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str) -> 
 
 
 def _collect_array_refs(ws_root: ET.Element, sheet_title: str) -> dict[str, str]:
-    """Map Sheet!Anchor → full array ref range from worksheet formula/@ref."""
+    """Map Sheet!Anchor → full array ref range from worksheet formula/@ref.
+
+    Bugfix:
+    - What was wrong: took array_ref from any <f ref=...>, including shared-formula masters (<f t="shared" ref=... si=...>),
+      which caused shared formulas to be treated as spill ranges and cleared on export.
+    - How it happened: did not check f.attrib.get("t") == "array".
+    - Why this change fixes it: only formulas with t="array" are collected as array refs.
+    """
     out: dict[str, str] = {}
-    for c in _findall(ws_root, "c"):
+    for c in find_all(ws_root, "c"):
         cell_ref = c.attrib.get("r") or ""
-        f = _find_child(c, "f")
+        f = find_child(c, "f")
         if f is None or not cell_ref:
+            continue
+        if (f.attrib.get("t") or "") != "array":
             continue
         arr = (f.attrib.get("ref") or "").strip().replace("$", "")
         if not arr:
@@ -302,8 +221,8 @@ def _collect_array_refs(ws_root: ET.Element, sheet_title: str) -> dict[str, str]
 def _shared_formula_map(ws_root: ET.Element) -> dict[str, str]:
     """Resolve shared formula masters (si → formula text)."""
     masters: dict[str, str] = {}
-    for c in _findall(ws_root, "c"):
-        f = _find_child(c, "f")
+    for c in find_all(ws_root, "c"):
+        f = find_child(c, "f")
         if f is None:
             continue
         if (f.attrib.get("t") or "") != "shared":
@@ -321,9 +240,9 @@ def _shared_formula_map(ws_root: ET.Element) -> dict[str, str]:
 def _iter_py_cells(ws_root: ET.Element, sheet_title: str) -> list[ExcelPyCell]:
     masters = _shared_formula_map(ws_root)
     cells: list[ExcelPyCell] = []
-    for c in _findall(ws_root, "c"):
+    for c in find_all(ws_root, "c"):
         a1 = c.attrib.get("r") or ""
-        f = _find_child(c, "f")
+        f = find_child(c, "f")
         if f is None or not a1:
             continue
         body = "".join(f.itertext()).strip()
@@ -336,14 +255,19 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str) -> list[ExcelPyCell]:
         # How it happened: redundant _unescape_xml call on ET text which is already decoded.
         # Why this change fixes it: use body directly as decoded by ET.
         formula = body
-        if "_xlws.PY" not in formula and "_xlws.py" not in formula.lower():
+        if "_xlws.py" not in formula.lower():
             continue
         parsed = parse_xlws_py_formula(formula)
         if parsed is None:
             continue
         script_index, return_type, deps = parsed
         row, col = _col_row(a1)
-        cells.append(ExcelPyCell(sheet=sheet_title, cell=a1, script_index=script_index, return_type=return_type, deps=deps, formula_raw=formula if formula.startswith("=") else f"={formula}", array_ref=(f.attrib.get("ref") or "").replace("$", ""), row=row, col=col))
+        # Bugfix: what was wrong: array_ref was assigned from any formula with a 'ref' attribute,
+        # including shared-formula masters (<f t="shared" ref="A1:A10">), causing them to be treated as spill ranges.
+        # How it happened: read ref without checking if t == "array".
+        # Why this change fixes it: only formulas with t="array" receive an array_ref.
+        array_ref = (f.attrib.get("ref") or "").replace("$", "") if (f.attrib.get("t") or "") == "array" else ""
+        cells.append(ExcelPyCell(sheet=sheet_title, cell=a1, script_index=script_index, return_type=return_type, deps=deps, formula_raw=formula if formula.startswith("=") else f"={formula}", array_ref=array_ref, row=row, col=col))
     return cells
 
 
@@ -351,7 +275,7 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
     """Parse an ``.xlsx`` into scripts, PY cells, sheet map, tables, array anchors."""
     path = Path(path)
     with zipfile.ZipFile(path, "r") as zf:
-        sheets = _workbook_sheets(zf)
+        sheets = workbook_sheets(zf)
         scripts = _parse_python_scripts(zf)
         tables: dict[str, str] = {}
         anchors: dict[str, str] = {}
@@ -374,7 +298,7 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
                     anchors[k] = v
                 else:
                     anchors.setdefault(k, v)
-            for _rid, rtype, target in _parse_rels_with_types(zf, _sheet_rels_path(sh.part_name)):
+            for _rid, rtype, target in parse_rels_with_types(zf, _sheet_rels_path(sh.part_name)):
                 if not _rel_type_is_table(rtype) and "tables/table" not in target:
                     continue
                 parsed = _parse_table_ref(zf, target, sh.title)
@@ -385,29 +309,6 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
             if not c.row or not c.col:
                 c.row, c.col = _col_row(c.cell)
         return ExcelWorkbookModel(scripts=scripts, cells=cells, sheets=sheets, tables=tables, anchor_snapshots=anchors, source_path=str(path))
-
-
-def _enrich_anchors_openpyxl(model: ExcelWorkbookModel, path: Path) -> None:
-    try:
-        import openpyxl
-    except ImportError:
-        return
-    wb = openpyxl.load_workbook(path, data_only=False)
-    try:
-        for order, name in enumerate(wb.sheetnames):
-            if not any(s.title == name for s in model.sheets):
-                model.sheets.append(SheetInfo(title=name, order=order, part_name=""))
-            ws = wb[name]
-            af = getattr(ws, "array_formulae", None) or {}
-            for anchor, meta in af.items():
-                ref = getattr(meta, "ref", None) or str(meta)
-                if not ref:
-                    continue
-                cleaned = str(ref).replace("$", "")
-                model.anchor_snapshots[_qualify_sheet_ref(name, str(anchor))] = cleaned if "!" in cleaned else _qualify_sheet_ref(name, cleaned)
-                model.anchor_snapshots.setdefault(str(anchor), cleaned)
-    finally:
-        wb.close()
 
 
 def has_excel_python_xlsx(path: str | Path) -> bool:
@@ -436,7 +337,11 @@ def has_excel_python_xlsx(path: str | Path) -> bool:
 
 
 def load_excel_model(path: str | Path, *, prefer_openpyxl_anchors: bool = True) -> ExcelWorkbookModel:
-    """Load from ``.xlsx`` or a JSON fixture matching ``ExcelWorkbookModel.to_dict()``."""
+    """Load from ``.xlsx`` or a JSON fixture matching ``ExcelWorkbookModel.to_dict()``.
+
+    prefer_openpyxl_anchors is retained for backwards compatibility; openpyxl anchor enrichment
+    is dropped now that _collect_array_refs accurately handles t="array" formulas.
+    """
     path = Path(path)
     if path.suffix.lower() == ".json":
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -453,10 +358,7 @@ def load_excel_model(path: str | Path, *, prefer_openpyxl_anchors: bool = True) 
             if not c.row or not c.col:
                 c.row, c.col = _col_row(c.cell)
         return model
-    model = parse_excel_xlsx(path)
-    if prefer_openpyxl_anchors:
-        _enrich_anchors_openpyxl(model, path)
-    return model
+    return parse_excel_xlsx(path)
 
 
 def dump_model_json(model: ExcelWorkbookModel) -> dict[str, Any]:

@@ -35,6 +35,7 @@ class SheetInfo:
     title: str
     order: int
     part_name: str  # e.g. xl/worksheets/sheet1.xml
+    rel_id: str = ""  # relationship Id (r:id or Id) in workbook.xml
 
 
 @dataclass
@@ -87,7 +88,15 @@ class ExcelWorkbookModel:
             )
             for c in data.get("cells") or []
         ]
-        sheets = [SheetInfo(title=str(s["title"]), order=int(s["order"]), part_name=str(s.get("part_name") or "")) for s in data.get("sheets") or []]
+        sheets = [
+            SheetInfo(
+                title=str(s["title"]),
+                order=int(s["order"]),
+                part_name=str(s.get("part_name") or ""),
+                rel_id=str(s.get("rel_id") or ""),
+            )
+            for s in data.get("sheets") or []
+        ]
         return cls(
             scripts=[str(s) for s in data.get("scripts") or []],
             cells=cells,
