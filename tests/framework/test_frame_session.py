@@ -661,3 +661,53 @@ def test_frame_is_active_window_uses_uno_identity_for_new_wrappers():
         assert session.frame_is_active_window() is True
     mock_same.assert_called_once_with(wrapper, frame.getContainerWindow.return_value)
 
+
+def test_watch_frame_returns_false_if_disposing_fires_immediately():
+    frame = MagicMock()
+    def _add_listener(listener):
+        listener.disposing(None)
+    frame.addEventListener.side_effect = _add_listener
+    session = open_frame_session(frame, "doc-a")
+    assert session_for_frame(frame) is None
+    assert session._frame_listener is None
+    assert session._closed is True
+
+def test_install_bails_out_if_session_closed():
+    session = FrameSession(MagicMock(), "doc-a")
+    session.dispose()
+    query = MagicMock()
+    _install(session, query)
+    query.addFocusListener.assert_not_called()
+
+def test_rollback_leave_does_not_drop_unrelated_listeners_with_none_slots():
+    session = FrameSession(MagicMock(), "doc-a")
+    control1 = MagicMock()
+    focus_track1 = MagicMock()
+    session._leave.append((control1, None, focus_track1))
+
+    control2 = MagicMock()
+    mouse_track2 = MagicMock()
+    focus_track2 = MagicMock()
+    session._leave.append((control2, mouse_track2, focus_track2))
+
+    session._rollback_leave(control2, mouse_track2, focus_track2)
+    assert len(session._leave) == 1
+    assert session._leave[0][0] is control1
+
+def test_attach_leave_query_deduplicates_using_uno_identity():
+    session = FrameSession(MagicMock(), "doc-a")
+    leave1 = MagicMock(name="wrapper1")
+    leave2 = MagicMock(name="wrapper2")
+    query = MagicMock()
+
+    with patch("plugin.framework.uno_context.uno_same", return_value=True):
+        _install(session, query, leave1)
+        _install(session, query, leave2)
+
+    # First attach adds mouse listener and focus listener
+    leave1.addMouseListener.assert_called_once()
+    leave1.addFocusListener.assert_called_once()
+
+    # Second attach should not be called because uno_same returns True
+    leave2.addMouseListener.assert_not_called()
+    leave2.addFocusListener.assert_not_called()

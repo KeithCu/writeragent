@@ -181,6 +181,9 @@ class FrameSession:
         self._close_hooks: list[Callable[[], None]] = []
 
     def add_close_hook(self, hook: Callable[[], None]) -> None:
+        if self._closed:
+            hook()
+            return
         self._close_hooks.append(hook)
 
     def bind_panel(self, panel: Any) -> None:
@@ -307,6 +310,8 @@ class FrameSession:
         try:
             listener = _FrameClose()
             frame.addEventListener(listener)
+            if self._closed:
+                return False
             self._frame_listener = listener
         except Exception as exc:
             # Same guard as the focus/click attaches: a thread violation is
@@ -328,6 +333,8 @@ class FrameSession:
         if those listeners were installed. In-tree callers run on the main
         thread, where that guard does not fire.
         """
+        if self._closed:
+            return
         del ctx  # the frame, not Desktop, names the document
         self._attach_query_listener(query)
         for control in leave_query_controls or ():
@@ -423,7 +430,7 @@ class FrameSession:
         if self._closed:
             return
         self._closed = True
-        for hook in self._close_hooks:
+        for hook in list(self._close_hooks):
             try:
                 hook()
             except Exception:
@@ -474,7 +481,9 @@ class FrameSession:
             remover = getattr(control, method, None)
             if callable(remover):
                 remover(listener)
-        except Exception:
+        except Exception as exc:
+            if _is_attach_thread_violation(exc):
+                raise
             log.debug("frame session %s", method, exc_info=True)
 
     def _attach_query_listener(self, query: Any) -> None:
@@ -526,7 +535,7 @@ class FrameSession:
         if control is None:
             return
         for existing, _mouse, _focus in self._leave:
-            if existing is control:
+            if self._same_controller(existing, control):
                 return
         try:
             import unohelper
@@ -584,7 +593,7 @@ class FrameSession:
         self._remove(control, "removeMouseListener", mouse_track)
         self._drop_tracker(focus_track)
         self._drop_tracker(mouse_track)
-        self._leave = [row for row in self._leave if row[1] is not mouse_track and row[2] is not focus_track]
+        self._leave = [row for row in self._leave if not (row[0] is control and row[1] is mouse_track and row[2] is focus_track)]
 
     def _attach_click_handler(self) -> None:
         """Page click on this frame's controller calls :meth:`note_user_left_query`.
