@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
 
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 CODE_SHEET_PREFIX = "py_code_"
+BANK_REF_RE = re.compile(rf"^({re.escape(CODE_SHEET_PREFIX)}[^.!]+)[.!](\$?[A-Za-z]+\$?\d+)$", re.IGNORECASE)
 # Calc / Excel sheet title practical max.
 _CODE_SHEET_MAX_LEN = 31
 CODE_SHEET_NOTE_CELL = "ZZ1"
@@ -48,7 +49,12 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 
 
 def code_sheet_name_for(source_sheet: str) -> str:
-    """Bank sheet name for *source_sheet* (``Pivots`` → ``py_code_Pivots``)."""
+    """Bank sheet name for *source_sheet* (``Pivots`` → ``py_code_Pivots``).
+
+    Sanitizes non-word characters and truncates to 31 chars. Callers like
+    ``collect_script_bank`` detect collisions when distinct source sheets
+    map to the same bank sheet name.
+    """
     raw = (source_sheet or "Sheet1").strip() or "Sheet1"
     safe = _SAFE_SHEET.sub("_", raw).strip("_") or "Sheet"
     name = f"{CODE_SHEET_PREFIX}{safe}"
@@ -70,6 +76,26 @@ def normalize_bank_a1(cell: str) -> str:
     if not m:
         raise ValueError(f"invalid bank A1 address: {cell!r}")
     return f"{m.group(1).upper()}{m.group(2)}"
+
+
+def resolve_bank_cell_reference(
+    code: str,
+    lookup_fn: Callable[[str, str], str | None],
+) -> str | None:
+    """If *code* references a script bank cell (py_code_Sheet.A1), resolve via *lookup_fn(sheet, a1)*.
+
+    Shares bank reference pattern matching and A1 address normalization between
+    offline OOXML extraction and live UNO Calc snapshotting.
+    """
+    m = BANK_REF_RE.match((code or "").strip())
+    if not m:
+        return None
+    sheet = m.group(1)
+    try:
+        a1 = normalize_bank_a1(m.group(2))
+    except ValueError:
+        return None
+    return lookup_fn(sheet, a1)
 
 
 def _col_letters_to_index(col: str) -> int:
@@ -150,6 +176,7 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
     banks: dict[str, dict[str, str]] = {}
     owners: dict[tuple[str, str], str] = {}
     warnings: list[str] = []
+    code_sheet_sources: dict[str, str] = {}
     for cell in report.cells:
         if not cell.converted or not cell.converted_code or not cell.cell or not cell.sheet:
             continue
@@ -161,6 +188,17 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
             warnings.append(f"{cell.sheet}!{cell.cell}: {exc}")
             continue
         code_sheet = code_sheet_name_for(cell.sheet)
+        # Bugfix: what was wrong: two source sheets sanitizing/truncating to the same py_code_* bank
+        # name only logged a warning and kept the first script, silently corrupting or losing code.
+        # How it happened: collisions were only checked per cell coordinate and handled via warning.
+        # Why this change fixes it: track source sheet mappings per bank sheet and raise ValueError /
+        # record issue on collision so conversion fails closed.
+        existing_sheet = code_sheet_sources.setdefault(code_sheet, cell.sheet)
+        if existing_sheet != cell.sheet:
+            err = f"script-bank sheet name collision: {existing_sheet!r} and {cell.sheet!r} both map to {code_sheet!r}"
+            report.issues.append(err)
+            raise ValueError(err)
+
         bank = banks.setdefault(code_sheet, {})
         key = (code_sheet, a1)
         prev = bank.get(a1)
@@ -170,7 +208,9 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
             continue
         if prev == cell.converted_code:
             continue
-        warnings.append(f"script-bank collision at {code_sheet}!{a1}: {owners[key]} vs {cell.sheet}!{cell.cell} (keeping first)")
+        err = f"script-bank collision at {code_sheet}!{a1}: {owners[key]} vs {cell.sheet}!{cell.cell}"
+        report.issues.append(err)
+        raise ValueError(err)
     return banks, warnings
 
 

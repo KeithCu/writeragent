@@ -3,16 +3,19 @@
 
 from __future__ import annotations
 
-import re
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 
-from plugin.calc.excel_py_convert.parse_excel_ooxml import _findall, _find_child, _local, _unescape_xml, _workbook_sheets
-from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, normalize_bank_a1
+from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child, local_name, workbook_sheets
+from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.python.formula_edit import parse_python_formula
 
-BANK_REF_RE = re.compile(rf"^({re.escape(CODE_SHEET_PREFIX)}[^.!]+)[.!](\$?[A-Za-z]+\$?\d+)$", re.IGNORECASE)
+# Backwards-compatible aliases
+_local = local_name
+_findall = find_all
+_find_child = find_child
+_workbook_sheets = workbook_sheets
 
 
 def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
@@ -22,11 +25,11 @@ def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
         return []
     out: list[str] = []
     for si in list(root):
-        if _local(si.tag) != "si":
+        if local_name(si.tag) != "si":
             continue
         parts: list[str] = []
         for t in si.iter():
-            if _local(t.tag) == "t" and t.text:
+            if local_name(t.tag) == "t" and t.text:
                 parts.append(t.text)
         out.append("".join(parts))
     return out
@@ -34,17 +37,20 @@ def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
 
 def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
     """Read a cell's display/string value (shared string, inlineStr, or ``v``)."""
+    # Bugfix: what was wrong: t is lowercased but was compared to "inlineStr", which never matched.
+    # How it happened: case mismatch between .lower() and CamelCase string literal.
+    # Why this change fixes it: compare to "inlinestr" so inline-string bank cells are read.
     t = (c.attrib.get("t") or "").lower()
-    if t == "inlineStr":
-        is_el = _find_child(c, "is")
+    if t == "inlinestr":
+        is_el = find_child(c, "is")
         if is_el is None:
             return ""
         parts: list[str] = []
         for el in is_el.iter():
-            if _local(el.tag) == "t" and el.text:
+            if local_name(el.tag) == "t" and el.text:
                 parts.append(el.text)
         return "".join(parts)
-    v = _find_child(c, "v")
+    v = find_child(c, "v")
     if v is None or v.text is None:
         return ""
     raw = v.text
@@ -59,12 +65,16 @@ def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
 def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[str, str]]:
     """Map A1 → (formula_or_empty, string_value)."""
     out: dict[str, tuple[str, str]] = {}
-    for c in _findall(ws_root, "c"):
+    for c in find_all(ws_root, "c"):
         a1 = (c.attrib.get("r") or "").replace("$", "")
         if not a1:
             continue
-        f = _find_child(c, "f")
-        formula = _unescape_xml("".join(f.itertext()).strip()) if f is not None else ""
+        f = find_child(c, "f")
+        # Bugfix: what was wrong: ET already decodes XML entities; calling _unescape_xml
+        # unescaped twice, corrupting Python code containing literal &lt; or &amp;.
+        # How it happened: redundant manual unescape on already-decoded ElementTree text.
+        # Why this change fixes it: use itertext() directly without second unescape.
+        formula = "".join(f.itertext()).strip() if f is not None else ""
         if formula and not formula.startswith("="):
             formula = "=" + formula
         out[a1] = (formula, _cell_string_value(c, shared))
@@ -73,23 +83,17 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
 
 def resolve_code_bank_ref(code: str, sheet_cells: dict[str, dict[str, tuple[str, str]]]) -> str | None:
     """If *code* is ``py_code_Sheet.A1``, return that cell's string; else None."""
-    m = BANK_REF_RE.match((code or "").strip())
-    if not m:
-        return None
-    sheet = m.group(1)
-    try:
-        a1 = normalize_bank_a1(m.group(2))
-    except ValueError:
-        return None
-    cell_map = sheet_cells.get(sheet)
-    if cell_map is None:
-        # Case-insensitive sheet title match
-        lower = {k.lower(): v for k, v in sheet_cells.items()}
-        cell_map = lower.get(sheet.lower())
-    if not cell_map:
-        return None
-    _formula, value = cell_map.get(a1, ("", ""))
-    return value if value else None
+    def _lookup(sheet: str, a1: str) -> str | None:
+        cell_map = sheet_cells.get(sheet)
+        if cell_map is None:
+            lower = {k.lower(): v for k, v in sheet_cells.items()}
+            cell_map = lower.get(sheet.lower())
+        if not cell_map:
+            return None
+        _formula, value = cell_map.get(a1, ("", ""))
+        return value if value else None
+
+    return resolve_bank_cell_reference(code, _lookup)
 
 
 def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
@@ -101,7 +105,7 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
     path = Path(path)
     out: list[tuple[str, str, str]] = []
     with zipfile.ZipFile(path, "r") as zf:
-        sheets = _workbook_sheets(zf)
+        sheets = workbook_sheets(zf)
         shared = _shared_strings(zf)
         sheet_cells: dict[str, dict[str, tuple[str, str]]] = {}
         for sh in sheets:
