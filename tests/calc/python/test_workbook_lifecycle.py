@@ -104,7 +104,6 @@ def test_unload_clears_in_memory_geometric_state():
     from plugin.calc.python.geometric_recalc import (
         EvalIndexKey,
         GeometricRecord,
-        GEOMETRIC_LOADED,
         GEOMETRIC_RECORDS,
         clear_in_memory_geometric_state,
         current_geometric_strip_safe,
@@ -115,7 +114,6 @@ def test_unload_clears_in_memory_geometric_state():
     reset_geometric_runtime_for_tests()
     key = "calc:file:///gone-geo.ods"
     GEOMETRIC_RECORDS[(key, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
-    GEOMETRIC_LOADED.add(key)
     replace_geometric_strip_safe(key, frozenset({EvalIndexKey(key, "x", 2)}))
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, key, "key-geo", doc_url="file:///gone-geo.ods")
@@ -123,7 +121,6 @@ def test_unload_clears_in_memory_geometric_state():
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
     assert (key, "Sheet1", "A2") not in GEOMETRIC_RECORDS
-    assert key not in GEOMETRIC_LOADED
     assert current_geometric_strip_safe() == frozenset()
     clear_in_memory_geometric_state()
 

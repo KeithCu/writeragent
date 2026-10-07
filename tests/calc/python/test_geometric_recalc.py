@@ -655,14 +655,14 @@ def test_discovery_cap_hit_uses_truncated_flag():
 
 
 def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
-    notified: set[str] = set()
+    reset_geometric_runtime_for_tests()
     with (
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
-        assert notify_geometric_cap_hit("ctx", "Sheet1", already_notified=notified)
-        assert notify_geometric_cap_hit("ctx", "Sheet1", already_notified=notified) is False
-        assert notify_geometric_cap_hit("ctx", "Sheet2", already_notified=notified)
+        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test")
+        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test") is False
+        assert notify_geometric_cap_hit("ctx", "Sheet2", workbook_key="wb_test")
         assert mock_box.call_count == 2
         titles = [c.args[1] for c in mock_box.call_args_list]
         assert all("Geometric Recalc Order" in t and "Experimental" in t for t in titles)
@@ -672,7 +672,7 @@ def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
-        shown = notify_geometric_cap_hit("ctx", "Other", already_notified=set())
+        shown = notify_geometric_cap_hit("ctx", "Other", workbook_key="wb_test")
         assert shown is False
         mock_box.assert_not_called()
 
@@ -1569,3 +1569,125 @@ def test_ensure_listener_is_idempotent(monkeypatch):
     assert first is second
     assert len(sheet._modify_listeners) == 1
     SHEET_MODIFY_LISTENERS.clear()
+
+
+def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
+    """BUG 1: _repair_one_sheet must only keep records for patches actually applied."""
+    from plugin.calc.python.geometric_recalc import (
+        _repair_one_sheet,
+        records_for_sheet,
+        replace_records_for_sheet,
+        reset_geometric_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    reset_geometric_runtime_for_tests()
+    doc = CalcDocStub(url="file:///bug1-test.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("df = load()")')
+    sheet.getCellByPosition(0, 1).setFormula('=PY("df = clean(df)")')
+    wk = "calc:file:///bug1-test.ods"
+
+    # Scenario A: Append patch fails (e.g. setFormula throws on protected sheet).
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
+        lambda _sheet, _patches: set(),  # No patches applied
+    )
+    res, _cells = _repair_one_sheet("ctx", doc, sheet, wk, apply_patches=True)
+    # The append patch failed to land, so A2 must NOT be recorded with predecessor A1.
+    assert "A2" not in res.records
+    assert "A2" not in records_for_sheet(wk, "Sheet1")
+    assert not res.strip_safe
+
+    # Scenario B: Remove patch fails (e.g. stale cell).
+    # Pre-seed record: A2 was previously chained to A1.
+    replace_records_for_sheet(wk, "Sheet1", {"A2": GeometricRecord(predecessor="A1")})
+    # Now sheet has only A2 (A1 deleted), planning a remove action.
+    sheet.getCellByPosition(0, 0).setFormula("")  # clear A1
+    sheet.getCellByPosition(0, 1).setFormula('=PY("df = clean(df)"; A1)')
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
+        lambda _sheet, _patches: set(),  # Remove patch fails to apply
+    )
+    res2, _cells2 = _repair_one_sheet("ctx", doc, sheet, wk, apply_patches=True)
+    # The remove patch failed, so the incoming record for A2 must be kept in pre-patch state.
+    assert res2.records.get("A2") == GeometricRecord(predecessor="A1")
+    assert records_for_sheet(wk, "Sheet1").get("A2") == GeometricRecord(predecessor="A1")
+
+
+def test_compute_eval_index_requires_last_arg_equals_predecessor_bug2():
+    """BUG 2: compute_eval_index must require live formula last arg equals rec.predecessor."""
+    from plugin.calc.python.geometric_recalc import (
+        compute_eval_index,
+        maybe_strip_geometric_eval_args,
+        replace_geometric_strip_safe,
+        reset_geometric_runtime_for_tests,
+    )
+
+    reset_geometric_runtime_for_tests()
+    code = "np.mean(data)"
+    # A2 has a stale record claiming predecessor is A1.
+    records = {"A2": GeometricRecord(predecessor="A1")}
+
+    # Case 1: User replaced formula to pass their own data cell C5 instead of predecessor A1.
+    cells_user_cell = [GeometricCell("A2", f'=PY("{code}"; B1:B10; C5)', code)]
+    formulas_user_cell = {c.address: c.formula for c in cells_user_cell}
+    safe1 = compute_eval_index(cells_user_cell, formulas_user_cell, records, WB)
+    # Must NOT be marked strip-safe.
+    assert _key(code, 2) not in safe1
+    replace_geometric_strip_safe(WB, safe1)
+    col, user_val = _mean_range_and_pred()
+    assert maybe_strip_geometric_eval_args(code, [col, user_val], doc=_wb_doc()) == [col, user_val]
+
+    # Case 2: User formula has non-cell argument (e.g. range or string).
+    cells_range = [GeometricCell("A2", f'=PY("{code}"; B1:B10)', code)]
+    formulas_range = {c.address: c.formula for c in cells_range}
+    safe2 = compute_eval_index(cells_range, formulas_range, records, WB)
+    assert _key(code, 1) not in safe2
+
+    # Case 3: Live formula actually has predecessor A1.
+    cells_correct = [GeometricCell("A2", f'=PY("{code}"; B1:B10; A1)', code)]
+    formulas_correct = {c.address: c.formula for c in cells_correct}
+    safe3 = compute_eval_index(cells_correct, formulas_correct, records, WB)
+    assert _key(code, 2) in safe3
+    replace_geometric_strip_safe(WB, safe3)
+    assert maybe_strip_geometric_eval_args(code, [col, user_val], doc=_wb_doc()) == [col]
+
+    # Case 4: Workbook-wide sheet-scoped keys (Sheet1:A2).
+    scoped_cells = [GeometricCell("Sheet1:A2", f'=PY("{code}"; B1:B10; A1)', code)]
+    scoped_formulas = {"Sheet1:A2": f'=PY("{code}"; B1:B10; A1)'}
+    scoped_records = {"Sheet1:A2": GeometricRecord(predecessor="A1")}
+    safe4 = compute_eval_index(scoped_cells, scoped_formulas, scoped_records, WB)
+    assert _key(code, 2) in safe4
+
+
+def test_save_geometric_registry_skips_when_unchanged(monkeypatch):
+    """save_geometric_registry_for_doc should not call set_document_property when payload matches."""
+    import json
+    from plugin.calc.python.geometric_recalc import (
+        save_geometric_registry_for_doc,
+        replace_records_for_sheet,
+        reset_geometric_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    reset_geometric_runtime_for_tests()
+    doc = CalcDocStub(url="file:///save-noop.ods")
+    wk = "calc:file:///save-noop.ods"
+    replace_records_for_sheet(wk, "Sheet1", {"A2": GeometricRecord(predecessor="A1")})
+
+    expected_payload = json.dumps({"workbook_key": wk, "sheets": {"Sheet1": {"A2": "A1"}}})
+    set_calls = []
+
+    monkeypatch.setattr(
+        "plugin.doc.udprops.get_document_property",
+        lambda _doc, prop, default=None: expected_payload if prop == GEOMETRIC_REGISTRY_PROP else default,
+    )
+    monkeypatch.setattr(
+        "plugin.doc.udprops.set_document_property",
+        lambda _doc, prop, val: set_calls.append((prop, val)),
+    )
+
+    save_geometric_registry_for_doc(doc, wk)
+    assert set_calls == []  # Skipped because payload matches!
+
