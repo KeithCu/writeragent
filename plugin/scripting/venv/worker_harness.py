@@ -93,11 +93,11 @@ def _handle_trusted_action(
         # causing the worker to exit cleanly after EXEC_STARTED without a terminal frame,
         # triggering host worker restart.
         # Why this change fixes it: packing fails before any bytes are written to stdout,
-        # so the pipe remains in sync. Catching IpcFrameError allows sending a small
+        # so the pipe remains in sync. Catching IpcPayloadSizeError allows sending a small
         # capped error result frame so the host receives a valid terminal frame.
         try:
             write_result_frame(stdout, payload)
-        except IpcFrameError as exc:
+        except IpcPayloadSizeError as exc:
             err_payload = {
                 "id": req_id,
                 "status": "error",
