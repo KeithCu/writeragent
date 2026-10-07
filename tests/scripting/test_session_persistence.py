@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session
-from plugin.scripting.venv.worker_harness import _execute_request, _handle_request
+from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
+from plugin.scripting.venv.worker_harness import _handle_request
 
 
 @pytest.fixture(autouse=True)
@@ -23,10 +23,10 @@ def _clear_sessions():
 
 def test_shared_session_persists_variables():
     sid = "calc:test-wb-1"
-    r1 = _execute_request("x = 41\nresult = x + 1", None, session_id=sid)
+    r1 = run_sandboxed_code("x = 41\nresult = x + 1", None, session_id=sid)
     assert r1["status"] == "ok"
     assert r1["result"] == 42
-    r2 = _execute_request("result = x + 1", None, session_id=sid)
+    r2 = run_sandboxed_code("result = x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 42
 
@@ -34,36 +34,36 @@ def test_shared_session_persists_variables():
 def test_shared_kernel_persists_across_simulated_recalc():
     """Shared kernel keeps globals across separate execute calls (no reset between recalcs)."""
     sid = "calc:recalc-sim"
-    r1 = _execute_request("counter = 0\ncounter += 1\nresult = counter", None, session_id=sid)
+    r1 = run_sandboxed_code("counter = 0\ncounter += 1\nresult = counter", None, session_id=sid)
     assert r1["status"] == "ok"
     assert r1["result"] == 1
     # Second invocation simulates another recalc pass without reset_python_session.
-    r2 = _execute_request("counter += 1\nresult = counter", None, session_id=sid)
+    r2 = run_sandboxed_code("counter += 1\nresult = counter", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 2
-    r3 = _execute_request("result = counter", None, session_id=sid)
+    r3 = run_sandboxed_code("result = counter", None, session_id=sid)
     assert r3["status"] == "ok"
     assert r3["result"] == 2
 
 
 def test_isolated_default_fresh_namespace():
-    r1 = _execute_request("x = 41\nresult = x + 1", None)
+    r1 = run_sandboxed_code("x = 41\nresult = x + 1", None)
     assert r1["status"] == "ok"
-    r2 = _execute_request("result = x + 1", None)
+    r2 = run_sandboxed_code("result = x + 1", None)
     assert r2["status"] == "error"
 
 
 def test_cross_session_isolation():
-    _execute_request("x = 10", None, session_id="calc:a")
-    r = _execute_request("result = x", None, session_id="calc:b")
+    run_sandboxed_code("x = 10", None, session_id="calc:a")
+    r = run_sandboxed_code("result = x", None, session_id="calc:b")
     assert r["status"] == "error"
 
 
 def test_reset_session_clears_namespace():
     sid = "calc:reset-me"
-    _execute_request("x = 1", None, session_id=sid)
+    run_sandboxed_code("x = 1", None, session_id=sid)
     assert reset_sandbox_session(sid)["status"] == "ok"
-    r = _execute_request("result = x", None, session_id=sid)
+    r = run_sandboxed_code("result = x", None, session_id=sid)
     assert r["status"] == "error"
 
 
@@ -75,10 +75,10 @@ def test_reset_sandbox_session_idempotent():
 
 def test_handle_request_reset_session_action():
     sid = "calc:via-action"
-    _execute_request("x = 99", None, session_id=sid)
+    run_sandboxed_code("x = 99", None, session_id=sid)
     res = _handle_request({"action": "reset_session", "session_id": sid})
     assert res["status"] == "ok"
-    r = _execute_request("result = x", None, session_id=sid)
+    r = run_sandboxed_code("result = x", None, session_id=sid)
     assert r["status"] == "error"
 
 
@@ -99,32 +99,32 @@ def test_shared_session_result_does_not_hijack_subsequent_last_expression_cells(
     """Issue #388: result = ... in one cell must not hijack later cells relying on last-expression."""
     sid = "calc:test-issue-388"
     # Cell 1: B1
-    r1 = _execute_request("x = 10", None, session_id=sid)
+    r1 = run_sandboxed_code("x = 10", None, session_id=sid)
     assert r1["status"] == "ok"
     assert r1["result"] == 10
 
     # Cell 2: D1
-    r2 = _execute_request("x + 1", None, session_id=sid)
+    r2 = run_sandboxed_code("x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 11
 
     # Cell 3: D8 (KPI cell assigning explicit result)
-    r3 = _execute_request("result = 3900.5", None, session_id=sid)
+    r3 = run_sandboxed_code("result = 3900.5", None, session_id=sid)
     assert r3["status"] == "ok"
     assert r3["result"] == 3900.5
 
     # Re-evaluate Cell 1 (B1): must still return 10, not 3900.5
-    r4 = _execute_request("x = 10", None, session_id=sid)
+    r4 = run_sandboxed_code("x = 10", None, session_id=sid)
     assert r4["status"] == "ok"
     assert r4["result"] == 10
 
     # Re-evaluate Cell 2 (D1): must still return 11, not 3900.5
-    r5 = _execute_request("x + 1", None, session_id=sid)
+    r5 = run_sandboxed_code("x + 1", None, session_id=sid)
     assert r5["status"] == "ok"
     assert r5["result"] == 11
 
     # Later cell may still *use* result as a shared-kernel variable.
-    r6 = _execute_request("result * 2", None, session_id=sid)
+    r6 = run_sandboxed_code("result * 2", None, session_id=sid)
     assert r6["status"] == "ok"
     assert r6["result"] == 7801.0
 
@@ -133,22 +133,22 @@ def test_shared_session_failed_cell_does_not_poison_result():
     """A cell failing execution must not leave leftover result in state for next cell."""
     sid = "calc:test-error-path"
     # Cell assigning result
-    r1 = _execute_request("result = 500", None, session_id=sid)
+    r1 = run_sandboxed_code("result = 500", None, session_id=sid)
     assert r1["result"] == 500
 
     # Failed cell
-    r2 = _execute_request("1 / 0", None, session_id=sid)
+    r2 = run_sandboxed_code("1 / 0", None, session_id=sid)
     assert r2["status"] == "error"
 
     # Next cell relying on last-expression: must not see 500
-    r3 = _execute_request("y = 77", None, session_id=sid)
+    r3 = run_sandboxed_code("y = 77", None, session_id=sid)
     assert r3["status"] == "ok"
     assert r3["result"] == 77
 
     # Failed assignment in this cell must not stick; last successful result remains usable.
-    r4 = _execute_request("result = 1 / 0", None, session_id=sid)
+    r4 = run_sandboxed_code("result = 1 / 0", None, session_id=sid)
     assert r4["status"] == "error"
-    r5 = _execute_request("result * 2", None, session_id=sid)
+    r5 = run_sandboxed_code("result * 2", None, session_id=sid)
     assert r5["status"] == "ok"
     assert r5["result"] == 1000
 
@@ -157,12 +157,12 @@ def test_shared_session_data_and_ranges_isolation():
     """data and ranges must be reset when a cell does not pass data arguments."""
     sid = "calc:test-data-isolation"
     # Cell 1 passes data
-    r1 = _execute_request("result = len(ranges)", [[1.0, 2.0], [3.0, 4.0]], session_id=sid)
+    r1 = run_sandboxed_code("result = len(ranges)", [[1.0, 2.0], [3.0, 4.0]], session_id=sid)
     assert r1["status"] == "ok"
     assert r1["result"] == 1
 
     # Cell 2 passes no data: data must be None and ranges must be empty list
-    r2 = _execute_request("data is None and ranges == []", None, session_id=sid)
+    r2 = run_sandboxed_code("data is None and ranges == []", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] is True
 
@@ -170,10 +170,10 @@ def test_shared_session_data_and_ranges_isolation():
 def test_shared_session_multiple_explicit_result_assignments():
     """Explicit result assignments in sequence each return their own value."""
     sid = "calc:test-multi-result"
-    r1 = _execute_request("result = 42", None, session_id=sid)
+    r1 = run_sandboxed_code("result = 42", None, session_id=sid)
     assert r1["result"] == 42
-    r2 = _execute_request("result = 99", None, session_id=sid)
+    r2 = run_sandboxed_code("result = 99", None, session_id=sid)
     assert r2["result"] == 99
-    r3 = _execute_request("z = 123", None, session_id=sid)
+    r3 = run_sandboxed_code("z = 123", None, session_id=sid)
     assert r3["result"] == 123
 
