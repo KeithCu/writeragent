@@ -158,7 +158,12 @@ class OpenRouterShim(BaseProviderShim):
         # What was wrong: output_format was hardcoded to webp. Models such as
         # black-forest-labs/flux.2-klein-4b only accept png/jpeg and return HTTP 400.
         # png is the Images API default and is accepted by webp-capable models too.
-        data: dict[str, Any] = {"prompt": prompt, "model": model, "n": 1, "output_format": "png"}
+        # What was wrong: "model": None was included when model was None, which
+        # OpenRouter's /images endpoint rejected with HTTP 400.
+        # Why this change fixes it: only include "model" when truthy.
+        data: dict[str, Any] = {"prompt": prompt, "n": 1, "output_format": "png"}
+        if model:
+            data["model"] = model
         if width and height:
             # What was wrong: we sent explicit pixel size (512x512) and omitted
             # aspect_ratio. OpenRouter treats size as authoritative and 400s a

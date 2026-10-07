@@ -24,9 +24,12 @@ _LLAMA_SERVER_CRASH_MARKERS = ("llama-server process has terminated", "0xc000000
 
 def format_context_window_label(num_ctx: Any) -> str | None:
     """Human window size for the crash sentence (4096 → 4K). None if unknown."""
+    # What was wrong: float("inf") raised OverflowError: cannot convert float infinity
+    # to integer, which was not caught by (TypeError, ValueError).
+    # Why this change fixes it: catch OverflowError so infinite/overflowing values return None.
     try:
-        window = int(num_ctx)
-    except (TypeError, ValueError):
+        window = int(float(num_ctx))
+    except (TypeError, ValueError, OverflowError):
         return None
     if window <= 0:
         return None

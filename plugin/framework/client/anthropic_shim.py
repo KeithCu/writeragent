@@ -214,17 +214,30 @@ class AnthropicShim(BaseProviderShim):
                 for tc in tool_calls:
                     if not isinstance(tc, dict):
                         continue
+                    tc_id = tc.get("id")
                     raw_fn = tc.get("function")
                     fn = raw_fn if isinstance(raw_fn, dict) else {}
-                    # A missing arguments key used to become "{}" and send a
-                    # tool_use that looked like a real empty-object call.
+                    name = fn.get("name")
+                    # What was wrong: skipped tool_calls (non-dict, missing/empty name or id,
+                    # missing arguments, bad JSON) did not add their id to dropped_tool_ids
+                    # (PR #1384 regression), leaving matching role=="tool" results as orphans
+                    # that caused Anthropic HTTP 400 errors.
+                    # Why this change fixes it: validate that name and id are non-empty strings,
+                    # and ensure every skipped tool call records its id in dropped_tool_ids.
+                    if not isinstance(name, str) or not name:
+                        dropped_tool_ids.add(tc_id)
+                        continue
+                    if not isinstance(tc_id, str) or not tc_id:
+                        dropped_tool_ids.add(tc_id)
+                        continue
                     if "arguments" not in fn:
+                        dropped_tool_ids.add(tc_id)
                         continue
                     args_obj = _parse_tool_input(fn.get("arguments"))
                     if args_obj is _BAD_TOOL_INPUT:
-                        dropped_tool_ids.add(tc.get("id"))
+                        dropped_tool_ids.add(tc_id)
                         continue
-                    anth_content.append({"type": "tool_use", "id": tc.get("id"), "name": fn.get("name"), "input": args_obj})
+                    anth_content.append({"type": "tool_use", "id": tc_id, "name": name, "input": args_obj})
                 if anth_content:
                     converted.append({"role": "assistant", "content": anth_content})
                 continue
