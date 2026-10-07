@@ -12,15 +12,18 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.doc.doc_type import is_calc, is_writer
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
-from plugin.scripting.client import run_symbolic as client_run_symbolic
-from plugin.scripting.helper_domain import (
-    header_prefix,
-)
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
-
+from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
+from plugin.scripting.client import run_symbolic as client_run_symbolic
+from plugin.scripting.helper_domain import (
+    DomainFacadeConfig,
+    header_prefix,
+    is_status_helper_result,
+    make_template_api,
+    supports_calc_or_writer_manual,
+)
 
 MATH_HEADER_PREFIX = header_prefix("math")
 
@@ -56,9 +59,6 @@ install_lazy_dir(globals(), _SYMBOLIC_VENV_EXPORTS)
 
 # --- Templates ---
 
-from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
-
-
 _API = make_template_api(
     DomainFacadeConfig(
         tag="math",
@@ -78,14 +78,7 @@ parse_math_script_header = _API.parse_header
 
 # --- Runner ---
 
-def supports_symbolic_manual(doc: Any) -> bool:
-    """True when Run Python Script should expose Math Helpers for *doc*."""
-    if doc is None:
-        return False
-    try:
-        return is_writer(doc) or is_calc(doc)
-    except Exception:
-        return False
+supports_symbolic_manual = supports_calc_or_writer_manual
 
 
 def run_trusted_symbolic(
@@ -130,16 +123,12 @@ def run_trusted_symbolic(
 
 # --- Egress ---
 
+# What was wrong: is_symbolic_result accepted any dict with a truthy 'latex' key, even if not a symbolic helper result.
+# How: The fallback checked bool(value.get("latex")) instead of matching against known helper names or error codes.
+# Why: Use is_status_helper_result with HELPER_NAMES and SYMBOLIC_ERROR for exact schema conformance.
 def is_symbolic_result(value: Any) -> bool:
     """True when *value* matches the compact symbolic helper result contract."""
-    if not isinstance(value, dict):
-        return False
-    if "status" not in value:
-        return False
-    helper = value.get("helper")
-    if isinstance(helper, str) and helper in HELPER_NAMES:
-        return True
-    return bool(value.get("latex"))
+    return is_status_helper_result(value, HELPER_NAMES, frozenset({"SYMBOLIC_ERROR"}))
 
 
 def format_symbolic_for_calc(result: dict[str, Any]) -> list[list[Any]]:

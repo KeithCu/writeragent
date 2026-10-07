@@ -215,3 +215,137 @@ def test_is_quant_result_uses_helper_names_not_fetch_prefix():
     assert is_quant_result({"status": "ok", "helper": "fetch_not_a_helper"}) is False
     assert is_quant_result({"status": "error", "code": "QUANT_ERROR"}) is True
     assert is_quant_result({"status": "error", "code": "OTHER"}) is False
+
+
+def test_fetch_historical_data_empty_returns_no_data(monkeypatch):
+    import sys
+    import pandas as pd
+
+    fake_yf = MagicMock()
+    fake_yf.download.return_value = pd.DataFrame()
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+    result = venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["INVALID"]}})
+    assert result["status"] == "error"
+    assert result["code"] == "NO_DATA"
+    fake_yf.download.assert_called_once()
+    assert fake_yf.download.call_args[1]["progress"] is False
+    assert fake_yf.download.call_args[1]["multi_level_index"] is False
+
+
+def test_portfolio_tearsheet_bad_column(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "quantstats", MagicMock())
+    grid = [["Date", "AAPL", "MSFT"], ["2024-01-01", 0.01, 0.02]]
+    result = venv_run_quant(
+        {"helper": "portfolio_tearsheet", "params": {"column": "NonExistent"}},
+        data=grid,
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAMS"
+    assert "NonExistent" in result["message"]
+
+
+def test_portfolio_tearsheet_synthetic_dates_warning(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [["AAPL", "MSFT"], [0.01, 0.02], [0.02, -0.01]]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    assert "warning" in result
+    assert "synthetic" in result["warning"].lower()
+
+
+def test_portfolio_tearsheet_nat_dates_dropped(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [
+        ["Date", "AAPL"],
+        ["2024-01-01", 0.01],
+        ["not-a-date", 0.02],
+        ["2024-01-02", 0.03],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    passed_series = mock_qs.reports.metrics.call_args[0][0]
+    assert len(passed_series) == 2
+
+
+def test_technical_analysis_string_indicator_and_headers_false(monkeypatch):
+    import importlib
+
+    real_import = importlib.import_module
+
+    def _fake_import(name, package=None):
+        if name == "pandas_ta":
+            return object()
+        return real_import(name, package)
+
+    monkeypatch.setattr("plugin.scripting.venv.quant.importlib.import_module", _fake_import)
+
+    # String indicator is normalized to list and Close column works with headers=False
+    grid = [[100.0], [105.0], [110.0]]
+    # With headers=False and no column named Close, it reports MISSING_COLUMN instead of AttributeError on c.lower()
+    result = venv_run_quant(
+        {"helper": "technical_analysis", "params": {"indicators": "rsi"}, "headers": False},
+        data=grid,
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "MISSING_COLUMN"
+
+
+def test_technical_analysis_unknown_indicator(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "pandas_ta", object())
+    grid = [["Close"], [100.0]]
+    result = venv_run_quant(
+        {"helper": "technical_analysis", "params": {"indicators": ["rsi", "invalid_indicator"]}},
+        data=grid,
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAMS"
+    assert "invalid_indicator" in result["message"]
+
+
+def test_efficient_frontier_honors_params_and_case_insensitive_date(monkeypatch):
+    import sys
+
+    mock_pypfopt = MagicMock()
+    mock_ef_class = MagicMock()
+    mock_ef_inst = MagicMock()
+    mock_ef_class.return_value = mock_ef_inst
+    mock_ef_inst.clean_weights.return_value = {"A": 0.6, "B": 0.4}
+
+    monkeypatch.setitem(sys.modules, "pypfopt", mock_pypfopt)
+    monkeypatch.setitem(sys.modules, "pypfopt.efficient_frontier", MagicMock(EfficientFrontier=mock_ef_class))
+    monkeypatch.setitem(sys.modules, "pypfopt.expected_returns", MagicMock(mean_historical_return=MagicMock()))
+    monkeypatch.setitem(sys.modules, "pypfopt.risk_models", MagicMock(CovarianceShrinkage=MagicMock()))
+
+    grid = [
+        ["DATETIME", "A", "B"],
+        ["2024-01-01", 0.01, 0.02],
+        ["2024-01-02", 0.02, -0.01],
+    ]
+    result = venv_run_quant(
+        {
+            "helper": "efficient_frontier",
+            "params": {"risk_free_rate": 0.03, "weight_bounds": [0.1, 0.9]},
+        },
+        data=grid,
+    )
+    assert result["status"] == "ok"
+    mock_ef_class.assert_called_once()
+    assert mock_ef_class.call_args[1]["weight_bounds"] == (0.1, 0.9)
+    mock_ef_inst.max_sharpe.assert_called_once_with(risk_free_rate=0.03)
