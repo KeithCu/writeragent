@@ -46,7 +46,17 @@ class TestExcelXlShim:
         xl = make_xl((CalcRange([[1]]),))
         with pytest.raises(ValueError) as ctx:
             xl("%P9%")
-        assert ("no matching data binding") in (str(ctx.value))
+        err = str(ctx.value)
+        assert ("no matching data binding") in err
+        assert "ref 9" in err
+
+    def test_unbound_p1_reports_ref_1(self):
+        xl = make_xl((CalcRange([[1]]),))
+        with pytest.raises(ValueError) as ctx:
+            xl("%P1%")
+        err = str(ctx.value)
+        assert "no matching data binding" in err
+        assert "ref 1" in err
 
     def test_a1_literal_raises(self):
         xl = make_xl((CalcRange([[1]]),))

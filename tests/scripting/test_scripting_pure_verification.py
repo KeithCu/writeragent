@@ -35,9 +35,9 @@ from plugin.scripting.calc_range import (
     ensure_rectangular_2d,
     is_calc_range_payload,
     pack_calc_range_envelope,
-    _dedupe_column_names,
     CalcRange,
 )
+from plugin.scripting.venv.coerce import _dedupe_column_names
 
 
 @given(vals=st.lists(st.integers(), max_size=DEAL_MAX_SHAPE_DIM))

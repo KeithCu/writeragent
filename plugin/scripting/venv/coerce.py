@@ -17,7 +17,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, cast
 
-from plugin.scripting.calc_range import _dedupe_column_names, ensure_rectangular_2d
+from plugin.framework.deal_shim import deal
+from plugin.scripting.calc_range import ensure_rectangular_2d
 
 _NUMERIC_PROFILE_KEYS = (
     ("mean", "mean"),
@@ -59,21 +60,51 @@ class CoerceResult:
     metadata: dict[str, Any]
 
 
+@deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
+def _dedupe_column_names(names: list[str]) -> list[str]:
+    """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
+
+    The counter used to be stored only under the raw base. ``['a', 'a', 'a_1']``
+    therefore emitted ``a_1`` twice (the generated suffix and the later header),
+    and the uniqueness postcondition raised ``deal.PostContractError``. A suffix
+    is skipped when that label was already emitted.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in names:
+        base = (raw or "column").strip() or "column"
+        candidate = base
+        suffix = 1
+        while candidate in seen:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        seen.add(candidate)
+        out.append(candidate)
+    return out
+
+
 def is_missing_value(value: Any) -> bool:
     """Check if value represents a missing cell, blank string, error token, or NaN/None."""
     if value is None:
         return True
-    if isinstance(value, float):
-        import math
-        if math.isnan(value):
-            return True
     if isinstance(value, str):
         stripped = value.strip()
-        if stripped == "" or stripped in _LO_ERROR_TOKENS:
-            return True
+        return stripped == "" or stripped in _LO_ERROR_TOKENS
+    if isinstance(value, float):
+        import math
+
+        return math.isnan(value)
     try:
         import numpy as np
-        if isinstance(value, (np.floating, float)) and np.isnan(value):
+
+        if isinstance(value, np.floating) and np.isnan(value):
+            return True
+    except ImportError:
+        pass
+    try:
+        import pandas as pd
+
+        if value is pd.NA or value is pd.NaT:
             return True
     except ImportError:
         pass
