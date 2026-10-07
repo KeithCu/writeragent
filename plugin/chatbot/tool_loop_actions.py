@@ -12,7 +12,6 @@ import logging
 import os
 import threading
 import time
-import traceback
 from typing import Any, Callable, Protocol
 
 from plugin.chatbot.tool_loop_state import (
@@ -475,21 +474,11 @@ def build_tool_execute_fn(
     ) -> str:
         from plugin.main import get_tools as _get_tools
 
-        # NOTE: Experimental planning/TodoStore wiring is intentionally
-        # commented out. When enabling the hermes-style todo tool,
-        # you can attach a session-scoped TodoStore here and expose it
-        # via ToolContext.services, e.g.:
-        #
-        # from plugin.contrib.todo_store import TodoStore
-        # if not hasattr(host, "_todo_store"):
-        #     host._todo_store = TodoStore()
-        # services = dict(_get_tools()._services)
-        # services["todo_store"] = host._todo_store
-        #
-        # and then pass `services=services` into ToolContext below.
-
         approval_cb: Any = None
         chat_append_cb: Any = None
+        if not isinstance(args, dict) and args is not None:
+            err = ToolExecutionError("Tool arguments must be a dictionary", code="TOOL_ARGS_INVALID")
+            return json.dumps(format_error_payload(err), default=str)
         safe_args = args if isinstance(args, dict) else {}
         # The spawn passes the queue it already attached to the turn.
         # This worker must not install a different one.
@@ -516,14 +505,6 @@ def build_tool_execute_fn(
                 emit_turn, emit_q = _subagent_target()
                 if not put_for_turn(host, emit_turn, emit_q, (StreamQueueKind.CHUNK, text)):
                     return
-                cid = captured_call_id if captured_call_id is not None else getattr(host, "_current_tool_call_id", None)
-                streamed_session = emit_turn.session if isinstance(emit_turn, TurnController) else None
-                if cid and streamed_session is not None:
-                    if not hasattr(streamed_session, "tool_streamed_texts"):
-                        streamed_session.tool_streamed_texts = {}
-                    if cid not in streamed_session.tool_streamed_texts:
-                        streamed_session.tool_streamed_texts[cid] = []
-                    streamed_session.tool_streamed_texts[cid].append(text)
 
             chat_append_cb = _sub_agent_chat_append
 
@@ -606,18 +587,14 @@ def build_tool_execute_fn(
             send_cancellation=cancel_scope,
             uno_services_supported=getattr(host, "cached_uno_services", None),
         )
-        # What was wrong: safe_args is the model/peer JSON object, and
-        # ToolRegistry.execute binds keyword-only bypass_thread_guard from
-        # **safe_args before without_unknown_kwargs runs. A true value
-        # skipped execute_safe (no main-thread assert, no disposed-document
-        # probe) and ran the tool on the tool-sync worker.
-        # How: this spread the raw dict. MCP already pops the key and passes
-        # bypass_thread_guard=False. Why: copy so the stored tool-call dict
-        # stays intact, drop the key, and pass False. A chat argument must
-        # not set the eval-harness switch.
+        # What was wrong: ToolRegistry.execute binds keyword-only
+        # bypass_thread_guard (and ctx/tool_name) from **safe_args, so a model
+        # argument could skip execute_safe or collide with those parameters.
+        # Why: copy so the stored tool-call dict stays intact, drop the keys,
+        # and pass False. A chat argument must not set the eval-harness switch.
         call_args = safe_args
-        if "bypass_thread_guard" in call_args:
-            call_args = {key: value for key, value in call_args.items() if key != "bypass_thread_guard"}
+        if "bypass_thread_guard" in call_args or "ctx" in call_args or "tool_name" in call_args:
+            call_args = {key: value for key, value in call_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
         try:
             res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
             # What was wrong: execute_safe turns a disposed document into a
@@ -633,20 +610,17 @@ def build_tool_execute_fn(
         except (ToolExecutionError, UnoObjectError) as e:
             if is_tool_document_disposed(e, doc):
                 raise
-            tb = traceback.format_exc()
             log.exception("Tool execution failed")
             agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
             err_payload = format_error_payload(e)
             if "details" not in err_payload:
                 err_payload["details"] = {}
-            err_payload["details"]["traceback"] = tb
             return json.dumps(err_payload, default=str)
         except Exception as e:
             if is_tool_document_disposed(e, doc):
                 raise
             log.exception("Unexpected tool error")
-            tb = traceback.format_exc()
-            wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb})
+            wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__})
             return json.dumps(format_error_payload(wrapped_error), default=str)
 
     return execute_fn
@@ -671,8 +645,9 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, SpawnFinalStreamEffect):
             turn = running_turn(host)
             q = spawn_queue(turn) if turn is not None else None
-            if q is not None:
-                host._spawn_final_stream(q, host._active_client, host._active_max_tokens)
+            if q is None:
+                return True
+            host._spawn_final_stream(q, host._active_client, host._active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
             if self._refresh_document_context():
                 return True
@@ -686,7 +661,7 @@ class ToolLoopEffectInterpreter:
             turn = running_turn(host)
             q = spawn_queue(turn) if turn is not None else None
             if q is None:
-                return False
+                return True
             host._refresh_active_tools_for_session()
             host._spawn_llm_worker(q, host._active_client, host._active_max_tokens, host._active_tools, effect.round_num, query_text=host._active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
@@ -694,7 +669,8 @@ class ToolLoopEffectInterpreter:
         elif effect.__class__.__name__ == "CleanupAudioEffect":
             self._cleanup_audio()
         elif isinstance(effect, SpawnToolWorkerEffect):
-            self._spawn_tool_worker(effect)
+            if self._spawn_tool_worker(effect):
+                return True
         return False
 
     def _refresh_document_context(self) -> bool:
@@ -777,7 +753,7 @@ class ToolLoopEffectInterpreter:
             pass
         host.audio_wav_path = None
 
-    def _spawn_tool_worker(self, effect: SpawnToolWorkerEffect) -> None:
+    def _spawn_tool_worker(self, effect: SpawnToolWorkerEffect) -> bool:
         host = self.host
         func_name = effect.func_name
         func_args_str = effect.func_args_str
@@ -787,9 +763,9 @@ class ToolLoopEffectInterpreter:
         # The drain attached the queue and the document before this spawn.
         # A later send replaces the host's turn. This worker keeps the one
         # it captured and must not assign that turn's queue.
-        turn = current_turn(host)
+        turn = running_turn(host)
         if not isinstance(turn, TurnController):
-            return
+            return True
         worker_q = turn.queue
         model = turn.model
 
@@ -811,8 +787,9 @@ class ToolLoopEffectInterpreter:
         # panel field when the tool later runs.
         bound_scope, bound_stop = capture_send_stop(host)
 
-        image_model_override = host.image_model_selector.getText() if host.image_model_selector else None
-        if image_model_override and func_name == "image_generate":
+        image_model_override = execute_on_main_thread(lambda: host.image_model_selector.getText()) if host.image_model_selector else None
+        if image_model_override and func_name == "image_generate" and isinstance(func_args, dict):
+            func_args = dict(func_args)
             func_args["image_model"] = image_model_override
 
         def tool_status_callback(msg: str) -> None:
@@ -826,7 +803,7 @@ class ToolLoopEffectInterpreter:
             try:
                 # Stop can land after spawn and before this body. Do not start
                 # the tool; the drain's on_stopped path closes the turn.
-                if bound_stop():
+                if bound_stop() or not turn.alive:
                     emit((StreamQueueKind.STOPPED,))
                     return
 
@@ -861,3 +838,4 @@ class ToolLoopEffectInterpreter:
         # ToolRegistry.execute marshals it, and the drain pumps that queue.
         worker_name = f"tool-async-{func_name}" if effect.is_async else f"tool-sync-{func_name}"
         run_in_background(run_tool, name=worker_name, dedicated=True)
+        return False

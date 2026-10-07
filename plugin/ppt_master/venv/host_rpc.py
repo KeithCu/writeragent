@@ -27,9 +27,6 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     tools = payload.get("tools")
     model = payload.get("model")
     max_tokens = payload.get("max_tokens")
-    if max_tokens is None:
-        max_tokens = get_config_int("chat_max_tokens")
-
     stop_checker = payload.get("_stop_checker")
     if not callable(stop_checker):
         stop_checker = None
@@ -48,8 +45,11 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     # pickled to the child; dispatch attaches it on the way in, the same
     # way as _stop_checker.
     cancellation_scope = payload.get("_cancellation_scope")
-    client = LlmClient(get_api_config(), ctx, cancellation_scope=cancellation_scope)
     try:
+        if max_tokens is None:
+            max_tokens = get_config_int("chat_max_tokens")
+
+        client = LlmClient(get_api_config(), ctx, cancellation_scope=cancellation_scope)
         result = client.request_with_tools(
             messages,
             max_tokens=int(max_tokens),
@@ -58,6 +58,31 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
             prepend_dev_build_system_prefix=False,
             stop_checker=stop_checker,
         )
+        if not isinstance(result, dict):
+            raise TypeError("LLM response is not a dictionary")
+
+        is_stopped = client._stopped
+        if not is_stopped and stop_checker is not None:
+            try:
+                is_stopped = stop_checker()
+            except Exception:
+                log.exception("stop_checker raised in ppt_master handle_llm_request")
+                return {"status": "error", "message": "stop_checker raised exception"}
+
+        if is_stopped:
+            return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
+
+        return {
+            "status": "ok",
+            "result": {
+                "role": result.get("role", "assistant"),
+                "content": result.get("content") or "",
+                "tool_calls": result.get("tool_calls"),
+                "finish_reason": result.get("finish_reason"),
+                "usage": result.get("usage"),
+            },
+        }
+
     except ToolExecutionError as exc:
         # What was wrong: Stop raised USER_STOPPED and this handler turned it
         # into a generic error string. The child kept the turn going.
@@ -68,20 +93,6 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         log.exception("ppt-master llm_request failed")
         return {"status": "error", "message": str(exc)}
-
-    if client._stopped or (stop_checker and stop_checker()):
-        return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
-
-    return {
-        "status": "ok",
-        "result": {
-            "role": result.get("role", "assistant"),
-            "content": result.get("content") or "",
-            "tool_calls": result.get("tool_calls"),
-            "finish_reason": result.get("finish_reason"),
-            "usage": result.get("usage"),
-        },
-    }
 
 
 def dispatch_worker_response(
@@ -111,6 +122,8 @@ def dispatch_worker_response(
         payload = dict(response)
         payload.pop("type", None)
         payload.pop("id", None)
+        payload.pop("_stop_checker", None)
+        payload.pop("_cancellation_scope", None)
         if stop_checker is not None:
             payload["_stop_checker"] = stop_checker
         if cancellation_scope is not None:
@@ -139,7 +152,16 @@ def dispatch_worker_response(
                 {"status": "error", "id": call_id, "message": str(exc), "error": str(exc)},
                 max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             )
-        stdin_write(frame)
+        except Exception as exc:
+            # Unpicklable LLM reply.
+            frame = pack_pickle_frame(
+                {"status": "error", "id": call_id, "message": f"Result not serializable: {exc}", "error": f"Result not serializable: {exc}"},
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            )
+        try:
+            stdin_write(frame)
+        except (OSError, ValueError):
+            log.warning("venv llm_request reply failed (worker pipe closed)", exc_info=True)
         return True
 
     return False

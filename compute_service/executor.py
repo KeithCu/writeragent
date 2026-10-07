@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import hashlib
-import math
 import os
 import sys
 from typing import Any
@@ -19,61 +18,8 @@ if _PROJECT_ROOT not in sys.path:
 
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
-from compute_service.config import DEFAULT_SETTINGS
+from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
 from compute_service.json_egress import normalize_execute_response
-
-
-def clamp_timeout_sec(
-    timeout: Any,
-    *,
-    is_ms: bool = False,
-    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
-    max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec,
-) -> int:
-    """Normalize and clamp a timeout in seconds or milliseconds to integer seconds.
-
-    Rejects booleans, non-numeric values, and non-finite floats (inf/nan), falling
-    back to default_timeout_sec. When is_ms is True, rounds up to the next second.
-    When max_timeout_sec is None, upper-bound clamping is skipped so caller bounds
-    (e.g. host-configured max_timeout_sec=1800) are honored.
-    """
-    if timeout is None or isinstance(timeout, bool):
-        return default_timeout_sec
-    if not isinstance(timeout, (int, float)):
-        return default_timeout_sec
-    if isinstance(timeout, float) and not math.isfinite(timeout):
-        return default_timeout_sec
-
-    if is_ms:
-        if timeout <= 0:
-            return default_timeout_sec
-        # Round up so 1500ms -> 2s, not 1s
-        sec = (int(timeout) + 999) // 1000
-    else:
-        try:
-            sec = int(timeout)
-        except (TypeError, ValueError, OverflowError):
-            return default_timeout_sec
-
-    clamped = max(1, sec)
-    if max_timeout_sec is not None:
-        clamped = min(max_timeout_sec, clamped)
-    return clamped
-
-
-def timeout_ms_to_sec(
-    timeout_ms: Any,
-    *,
-    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
-    max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec,
-) -> int:
-    """Convert a millisecond timeout to clamped seconds (convenience alias)."""
-    return clamp_timeout_sec(
-        timeout_ms,
-        is_ms=True,
-        default_timeout_sec=default_timeout_sec,
-        max_timeout_sec=max_timeout_sec,
-    )
 
 
 def execute_code(
@@ -102,7 +48,10 @@ def execute_code(
     # Shared kernel only when explicitly requested *and* a session id is provided.
     use_session: str | None = None
     if mode == "shared" and isinstance(session_id, str) and session_id.strip():
-        use_session = session_id.strip()
+        sid = session_id.strip()
+        if sid.endswith(":init") or sid.startswith("isolated:"):
+            raise ValueError("Invalid session_id: cannot end with ':init' or start with 'isolated:'")
+        use_session = sid
 
     # Stable init_session_id so run_sandboxed_code runs init once per worker and
     # seeds later cells from that namespace (hash change replaces the snapshot).

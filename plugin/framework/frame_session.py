@@ -181,6 +181,9 @@ class FrameSession:
         self._close_hooks: list[Callable[[], None]] = []
 
     def add_close_hook(self, hook: Callable[[], None]) -> None:
+        if self._closed:
+            hook()
+            return
         self._close_hooks.append(hook)
 
     def bind_panel(self, panel: Any) -> None:
@@ -307,6 +310,8 @@ class FrameSession:
         try:
             listener = _FrameClose()
             frame.addEventListener(listener)
+            if self._closed:
+                return False
             self._frame_listener = listener
         except Exception as exc:
             # Same guard as the focus/click attaches: a thread violation is
@@ -328,6 +333,8 @@ class FrameSession:
         if those listeners were installed. In-tree callers run on the main
         thread, where that guard does not fire.
         """
+        if self._closed:
+            return
         del ctx  # the frame, not Desktop, names the document
         self._attach_query_listener(query)
         for control in leave_query_controls or ():
@@ -360,19 +367,32 @@ class FrameSession:
 
     def release_listeners(self) -> None:
         """Remove this session's listeners from controls that are still alive."""
+        first_exc = None
+
+        def _safe_remove(control: Any, method: str, listener: Any) -> None:
+            nonlocal first_exc
+            try:
+                self._remove(control, method, listener)
+            except Exception as exc:
+                if first_exc is None:
+                    first_exc = exc
+
         if self._query_listener is not None:
-            self._remove(self._query_control, "removeFocusListener", self._query_listener)
+            _safe_remove(self._query_control, "removeFocusListener", self._query_listener)
         for control, mouse, focus in list(self._leave):
-            self._remove(control, "removeMouseListener", mouse)
-            self._remove(control, "removeFocusListener", focus)
+            _safe_remove(control, "removeMouseListener", mouse)
+            _safe_remove(control, "removeFocusListener", focus)
         if self._click_handler is not None:
-            self._remove(self._click_controller, "removeMouseClickHandler", self._click_handler)
+            _safe_remove(self._click_controller, "removeMouseClickHandler", self._click_handler)
         self._query_listener = None
         self._query_control = None
         self._leave.clear()
         self._click_handler = None
         self._click_controller = None
         self._trackers.clear()
+
+        if first_exc is not None:
+            raise first_exc
 
     def release_panel(self, panel: Any, query_control: Any = None) -> None:
         """Sidebar gone. Drop this panel's pin and listeners only.
@@ -423,17 +443,19 @@ class FrameSession:
         if self._closed:
             return
         self._closed = True
-        for hook in self._close_hooks:
+        for hook in list(self._close_hooks):
             try:
                 hook()
             except Exception:
                 log.debug("Error in FrameSession close hook", exc_info=True)
         self._close_hooks.clear()
-        self.release_listeners()
-        self._frame_listener = None
-        self.focus_pin = None
-        self.panel = None
-        _forget(self)
+        try:
+            self.release_listeners()
+        finally:
+            self._frame_listener = None
+            self.focus_pin = None
+            self.panel = None
+            _forget(self)
 
     def _controller(self) -> Any:
         """Controller for this frame. Never ``Desktop.getCurrentComponent()``.
@@ -474,7 +496,9 @@ class FrameSession:
             remover = getattr(control, method, None)
             if callable(remover):
                 remover(listener)
-        except Exception:
+        except Exception as exc:
+            if _is_attach_thread_violation(exc):
+                raise
             log.debug("frame session %s", method, exc_info=True)
 
     def _attach_query_listener(self, query: Any) -> None:
@@ -526,7 +550,7 @@ class FrameSession:
         if control is None:
             return
         for existing, _mouse, _focus in self._leave:
-            if existing is control:
+            if self._same_controller(existing, control):
                 return
         try:
             import unohelper
@@ -580,11 +604,24 @@ class FrameSession:
             log.debug("leave-query listeners", exc_info=True)
 
     def _rollback_leave(self, control: Any, mouse_track: Any, focus_track: Any) -> None:
-        self._remove(control, "removeFocusListener", focus_track)
-        self._remove(control, "removeMouseListener", mouse_track)
+        first_exc = None
+
+        def _safe_remove(ctrl: Any, method: str, listener: Any) -> None:
+            nonlocal first_exc
+            try:
+                self._remove(ctrl, method, listener)
+            except Exception as exc:
+                if first_exc is None:
+                    first_exc = exc
+
+        _safe_remove(control, "removeFocusListener", focus_track)
+        _safe_remove(control, "removeMouseListener", mouse_track)
         self._drop_tracker(focus_track)
         self._drop_tracker(mouse_track)
-        self._leave = [row for row in self._leave if row[1] is not mouse_track and row[2] is not focus_track]
+        self._leave = [row for row in self._leave if not (row[0] is control and row[1] is mouse_track and row[2] is focus_track)]
+
+        if first_exc is not None:
+            raise first_exc
 
     def _attach_click_handler(self) -> None:
         """Page click on this frame's controller calls :meth:`note_user_left_query`.

@@ -326,7 +326,7 @@ def test_build_module_field_specs_voice_options_come_from_catalog():
             "tts_voice": {
                 "type": "string",
                 "widget": "select",
-                "options_provider": "plugin.audio.tts_service:settings_voice_options",
+                "options_provider": "plugin.audio.tts_voices:settings_voice_options",
                 "options": [{"value": "alloy", "label": "alloy (OpenAI Neutral)"}],
             }
         },
@@ -343,7 +343,7 @@ def test_build_module_field_specs_voice_options_come_from_catalog():
     with (
         patch("plugin._manifest.MODULES", [manifest]),
         patch("plugin.chatbot.settings_fields.get_config", side_effect=_cfg),
-        patch("plugin.audio.tts_service.get_config", side_effect=_cfg),
+        patch("plugin.audio.tts_voices.get_config", side_effect=_cfg),
         patch("plugin.framework.i18n.get_active_locale", return_value="de_DE"),
         patch("plugin.main.get_services", return_value=None),
     ):
@@ -363,7 +363,7 @@ def test_build_module_field_specs_options_provider_falls_back_to_yaml():
         "config": {
             "tts_voice": {
                 "type": "string",
-                "options_provider": "plugin.audio.tts_service:missing_voice_options",
+                "options_provider": "plugin.audio.tts_voices:missing_voice_options",
                 "options": [{"value": "default", "label": "default (System Default)"}],
             }
         },

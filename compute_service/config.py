@@ -21,7 +21,7 @@ import math
 import os
 import stat
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -123,7 +123,7 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
     prefixes = _allow_prefixes(allow_prefixes)
     if not ocr_path_is_allowed(file_path, prefixes):
         return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(os.path.expanduser(file_path.strip()), flags)
     except FileNotFoundError:
@@ -214,8 +214,9 @@ class ComputeSettings:
     def validate(self) -> None:
         if not (1 <= self.port <= 65535):
             raise ConfigError(f"Invalid port: {self.port}")
-        if self.max_body_bytes < 1024:
-            raise ConfigError("max_body_bytes must be at least 1024")
+        from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+        if self.max_body_bytes < 1024 or self.max_body_bytes > COMPUTE_MAX_PAYLOAD_BYTES - 1024:
+            raise ConfigError(f"max_body_bytes must be between 1024 and {COMPUTE_MAX_PAYLOAD_BYTES - 1024}")
         if self.default_timeout_sec < 1 or self.max_timeout_sec < 1:
             raise ConfigError("timeout bounds must be >= 1")
         if self.default_timeout_sec > self.max_timeout_sec:
@@ -258,6 +259,44 @@ class ComputeSettings:
 
 
 DEFAULT_SETTINGS = ComputeSettings()
+
+
+def clamp_timeout_sec(
+    timeout: Any,
+    *,
+    is_ms: bool = False,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec,
+) -> int:
+    """Normalize and clamp a timeout in seconds or milliseconds to integer seconds.
+
+    Rejects booleans, non-numeric values, and non-finite floats (inf/nan), falling
+    back to default_timeout_sec. When is_ms is True, rounds up to the next second.
+    When max_timeout_sec is None, upper-bound clamping is skipped so caller bounds
+    (e.g. host-configured max_timeout_sec=1800) are honored.
+    """
+    if timeout is None or isinstance(timeout, bool):
+        return default_timeout_sec
+    if not isinstance(timeout, (int, float)):
+        return default_timeout_sec
+    if isinstance(timeout, float) and not math.isfinite(timeout):
+        return default_timeout_sec
+
+    if is_ms:
+        if timeout <= 0:
+            return default_timeout_sec
+        # Round up so 1500ms -> 2s, not 1s
+        sec = (int(timeout) + 999) // 1000
+    else:
+        try:
+            sec = int(timeout)
+        except (TypeError, ValueError, OverflowError):
+            return default_timeout_sec
+
+    clamped = max(1, sec)
+    if max_timeout_sec is not None:
+        clamped = min(max_timeout_sec, clamped)
+    return clamped
 
 
 def _as_int(value: Any, *, field: str) -> int:
@@ -320,34 +359,10 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
     return raw
 
 
-# Keys load_settings understands. Anything else is a typo that used to be
-# dropped, so the process started on defaults and looked healthy.
-_TOP_LEVEL_KEYS = frozenset({
-    "host",
-    "port",
-    "api_key",
-    "api_key_file",
-    "max_body_bytes",
-    "default_timeout_sec",
-    "max_timeout_sec",
-    "workers",
-    "max_workers",
-    "worker_max_tasks",
-    "shared_kernel_ttl_sec",
-    "session_ttl_sec",
-    "idle_worker_ttl_sec",
-    "ocr_workers",
-    "ocr_timeout_sec",
-    "ocr_max_tasks",
-    "ocr_allow_paths",
-    "max_code_chars",
-    "log_level",
-    "listen",
-    "auth",
-    "limits",
-    "ocr",
-    "logging",
-})
+_FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings))
+_SECTION_KEYS = frozenset({"listen", "auth", "limits", "ocr", "logging"})
+_ALIASES = frozenset({"max_workers", "session_ttl_sec", "api_key_file"})
+_TOP_LEVEL_KEYS = _FIELD_NAMES | _SECTION_KEYS | _ALIASES
 _LISTEN_KEYS = frozenset({"host", "port"})
 _AUTH_KEYS = frozenset({"api_key", "api_key_file"})
 _LIMIT_KEYS = frozenset({
@@ -364,6 +379,29 @@ _LIMIT_KEYS = frozenset({
 })
 _OCR_KEYS = frozenset({"workers", "timeout_sec", "max_tasks", "allow_paths"})
 _LOGGING_KEYS = frozenset({"log_level", "level"})
+
+_INT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is int or f.type == "int")
+_FLOAT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is float or f.type == "float")
+
+_ENV_FIELD_MAP: tuple[tuple[str, str], ...] = (
+    ("PYTHON_COMPUTE_HOST", "host"),
+    ("PYTHON_COMPUTE_PORT", "port"),
+    ("PYTHON_COMPUTE_MAX_BODY_BYTES", "max_body_bytes"),
+    ("PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC", "default_timeout_sec"),
+    ("PYTHON_COMPUTE_MAX_TIMEOUT_SEC", "max_timeout_sec"),
+    ("PYTHON_COMPUTE_WORKERS", "workers"),
+    ("PYTHON_COMPUTE_MAX_WORKERS", "workers"),
+    ("PYTHON_COMPUTE_WORKER_MAX_TASKS", "worker_max_tasks"),
+    ("PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC", "shared_kernel_ttl_sec"),
+    ("PYTHON_COMPUTE_SESSION_TTL_SEC", "shared_kernel_ttl_sec"),
+    ("PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC", "idle_worker_ttl_sec"),
+    ("PYTHON_COMPUTE_OCR_WORKERS", "ocr_workers"),
+    ("PYTHON_COMPUTE_OCR_TIMEOUT_SEC", "ocr_timeout_sec"),
+    ("PYTHON_COMPUTE_OCR_MAX_TASKS", "ocr_max_tasks"),
+    ("PYTHON_COMPUTE_MAX_CODE_CHARS", "max_code_chars"),
+    ("PYTHON_COMPUTE_OCR_ALLOW_PATHS", "ocr_allow_paths"),
+    ("PYTHON_COMPUTE_LOG_LEVEL", "log_level"),
+)
 
 
 def _reject_unknown_keys(section: Mapping[str, Any], allowed: frozenset[str], label: str) -> None:
@@ -429,28 +467,7 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
     elif logging_cfg is not None:
         raise ConfigError("logging must be a JSON object")
 
-    # Top-level configuration fields (and supported aliases). Keep this tuple
-    # in sync with ComputeSettings dataclass fields when new options are added.
-    for key in (
-        "host",
-        "port",
-        "api_key_file",
-        "max_body_bytes",
-        "default_timeout_sec",
-        "max_timeout_sec",
-        "workers",
-        "max_workers",
-        "worker_max_tasks",
-        "shared_kernel_ttl_sec",
-        "session_ttl_sec",
-        "idle_worker_ttl_sec",
-        "ocr_workers",
-        "ocr_timeout_sec",
-        "ocr_max_tasks",
-        "ocr_allow_paths",
-        "max_code_chars",
-        "log_level",
-    ):
+    for key in _FIELD_NAMES | _ALIASES:
         if key in raw and key not in out:
             out[key] = raw[key]
 
@@ -487,44 +504,9 @@ def load_settings(
         values.update(_flatten_config_json(_load_json_file(resolved_config)))
 
     # Environment settings.
-    if env.get("PYTHON_COMPUTE_HOST"):
-        values["host"] = env["PYTHON_COMPUTE_HOST"]
-
-    if env.get("PYTHON_COMPUTE_PORT"):
-        values["port"] = env["PYTHON_COMPUTE_PORT"]
-
-    if env.get("PYTHON_COMPUTE_MAX_BODY_BYTES"):
-        values["max_body_bytes"] = env["PYTHON_COMPUTE_MAX_BODY_BYTES"]
-    if env.get("PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC"):
-        values["default_timeout_sec"] = env["PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC"]
-    if env.get("PYTHON_COMPUTE_MAX_TIMEOUT_SEC"):
-        values["max_timeout_sec"] = env["PYTHON_COMPUTE_MAX_TIMEOUT_SEC"]
-
-    if env.get("PYTHON_COMPUTE_WORKERS"):
-        values["workers"] = env["PYTHON_COMPUTE_WORKERS"]
-    elif env.get("PYTHON_COMPUTE_MAX_WORKERS"):
-        values["workers"] = env["PYTHON_COMPUTE_MAX_WORKERS"]
-
-    if env.get("PYTHON_COMPUTE_WORKER_MAX_TASKS"):
-        values["worker_max_tasks"] = env["PYTHON_COMPUTE_WORKER_MAX_TASKS"]
-    if env.get("PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC"):
-        values["shared_kernel_ttl_sec"] = env["PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC"]
-    elif env.get("PYTHON_COMPUTE_SESSION_TTL_SEC"):
-        values["shared_kernel_ttl_sec"] = env["PYTHON_COMPUTE_SESSION_TTL_SEC"]
-    if env.get("PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"):
-        values["idle_worker_ttl_sec"] = env["PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"]
-    if env.get("PYTHON_COMPUTE_OCR_WORKERS"):
-        values["ocr_workers"] = env["PYTHON_COMPUTE_OCR_WORKERS"]
-    if env.get("PYTHON_COMPUTE_OCR_TIMEOUT_SEC"):
-        values["ocr_timeout_sec"] = env["PYTHON_COMPUTE_OCR_TIMEOUT_SEC"]
-    if env.get("PYTHON_COMPUTE_OCR_MAX_TASKS"):
-        values["ocr_max_tasks"] = env["PYTHON_COMPUTE_OCR_MAX_TASKS"]
-    if env.get("PYTHON_COMPUTE_MAX_CODE_CHARS"):
-        values["max_code_chars"] = env["PYTHON_COMPUTE_MAX_CODE_CHARS"]
-    if env.get("PYTHON_COMPUTE_OCR_ALLOW_PATHS"):
-        values["ocr_allow_paths"] = env["PYTHON_COMPUTE_OCR_ALLOW_PATHS"]
-    if env.get("PYTHON_COMPUTE_LOG_LEVEL"):
-        values["log_level"] = env["PYTHON_COMPUTE_LOG_LEVEL"]
+    for env_name, field_name in _ENV_FIELD_MAP:
+        if env.get(env_name) and field_name not in values:
+            values[field_name] = env[env_name]
 
     # Do not strip. _read_key_file keeps leading and trailing spaces (it
     # removes one trailing newline only). strip() here made " secret "
@@ -564,11 +546,11 @@ def load_settings(
     elif chosen_key_file:
         values["api_key"] = _read_key_file(chosen_key_file)
 
-    for int_field in ("port", "max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "worker_max_tasks", "ocr_workers", "ocr_timeout_sec", "ocr_max_tasks", "max_code_chars"):
+    for int_field in _INT_FIELDS:
         if int_field in values:
             values[int_field] = _as_int(values[int_field], field=int_field)
 
-    for float_field in ("shared_kernel_ttl_sec", "idle_worker_ttl_sec"):
+    for float_field in _FLOAT_FIELDS:
         if float_field in values:
             values[float_field] = _as_float(values[float_field], field=float_field)
 

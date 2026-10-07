@@ -609,9 +609,9 @@ class LlmClient:
         messages.append({"role": "user", "content": prompt})
         return self.make_chat_request(messages, max_tokens=max_tokens, stream=True)
 
-    def extract_content_from_response(self, chunk: Any) -> Any:
+    def extract_content_from_response(self, chunk: Any, stream_state: dict[str, Any] | None = None) -> Any:
         """Extract text content and optional thinking from response chunk (provider-aware)."""
-        return self._get_shim().parse_response_chunk(chunk)
+        return self._get_shim().parse_response_chunk(chunk, stream_state)
 
     def make_chat_request(self, messages: list[Any], max_tokens: int = 512, tools: Any = None, stream: bool = False, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> tuple[str, str, Any, dict[str, str]]:
         """Build a chat completions request from a full messages array (provider-aware)."""
@@ -916,6 +916,7 @@ class LlmClient:
                     requested_model = request_model_from_body(body)
                     used_model = None
                     retry_outer = False
+                    stream_state: dict[str, Any] = {}
 
                     for payload in iterate_sse(response):
                         if payload == "[DONE]":
@@ -1006,7 +1007,7 @@ class LlmClient:
                                 on_delta({"usage": usage_obj})
                             continue
 
-                        content, finish_reason, thinking, delta = self.extract_content_from_response(chunk)
+                        content, finish_reason, thinking, delta = self.extract_content_from_response(chunk, stream_state)
 
                         # Keep the provider's parsed SSE shape before normalization. Some
                         # OpenAI-compatible routes have appeared to continue one function's

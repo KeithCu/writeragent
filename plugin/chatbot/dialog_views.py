@@ -1002,16 +1002,16 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
             return
         self._syncing = True
         try:
-            from plugin.audio.tts_service import (
+            from plugin.audio.tts_voices import (
                 _preferred_harvested_voice,
                 clean_provider_name,
                 clean_voice_name,
-                get_config,
                 get_default_voice_for_locale,
                 get_voice_family,
                 voice_choice_to_id,
                 voice_options_for_provider,
             )
+            from plugin.audio.tts_voices import get_config
 
             prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
             model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
@@ -1290,10 +1290,10 @@ class TtsTestVoiceListener(BaseActionListener):
         return ""
 
     def _speak_sample(self) -> None:
-        from plugin.audio.tts_service import (
+        from plugin.audio.tts_service import speak_text_async
+        from plugin.audio.tts_voices import (
             clean_provider_name,
             parse_tts_speed,
-            speak_text_async,
             tts_test_sample,
             voice_choice_to_id,
             voice_options_for_provider,

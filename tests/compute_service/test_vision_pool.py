@@ -124,6 +124,14 @@ def test_vision_file_read_is_capped(tmp_path) -> None:
 
 
 class TestVisionPoolSupervisor:
+
+    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="No mkfifo on this platform")
+    def test_open_allowed_file_fifo(self, tmp_path) -> None:
+        fifo_path = os.path.join(tmp_path, "my_fifo")
+        os.mkfifo(fifo_path)
+        val, err = read_allowlisted_file(fifo_path, allow_prefixes=(str(tmp_path),), max_bytes=100)
+        assert err is not None
+        assert err["code"] == "NOT_A_FILE"
     def test_default_pool_uses_config_defaults(self) -> None:
         pool = VisionProcessPool()
         try:

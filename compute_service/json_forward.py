@@ -49,6 +49,12 @@ VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 class ExecuteRequestError(ValueError):
     """Raised when an execute request or response does not match the one schema."""
 
+    code: str | None
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
 
 def _reject_json_constant(token: str) -> None:
     """``json.loads`` accepts NaN/Infinity. The peel walker does not.
@@ -66,8 +72,15 @@ def _reject_nonfinite_number(value: Any) -> None:
     ``parse_constant``. The HTTP 400 path then echoed that ``id`` through
     ``allow_nan=False`` and the WSGI callable crashed.
     """
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ExecuteRequestError("non-finite JSON number")
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ExecuteRequestError("non-finite JSON number")
+    elif isinstance(value, list):
+        for item in value:
+            _reject_nonfinite_number(item)
+    elif isinstance(value, dict):
+        for _k, v in value.items():
+            _reject_nonfinite_number(v)
 
 
 def require_execute_mode(mode: Any) -> str:
@@ -561,7 +574,11 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
         if key in obj:
             raise ExecuteRequestError(f"meta part must not include a {key!r} field")
     req_id = obj.get("id")
+    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
+        raise ExecuteRequestError("id must be a scalar")
     timeout_ms = obj.get("timeout_ms")
+    if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
+        raise ExecuteRequestError("timeout_ms must be a scalar")
     # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
     # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
     _reject_nonfinite_number(req_id)

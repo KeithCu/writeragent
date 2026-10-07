@@ -92,7 +92,6 @@ class ChatSession:
     document_context: str
     active_specialized_domain: str | None
     python_tool_domain: str | None
-    tool_streamed_texts: dict[str, list[str]]
     compaction: Any
 
     def __init__(self, system_prompt: str | None = None, session_id: str | None = None) -> None:
@@ -104,7 +103,6 @@ class ChatSession:
 
         self.active_specialized_domain = None
         self.python_tool_domain = None
-        self.tool_streamed_texts = {}
         # Cached compact view (CompactionState). Duck-typed by compaction.py;
         # never persisted. New chat / clear() must drop it or the next send
         # would keep summarizing against a stale first_kept_index.
@@ -210,7 +208,6 @@ class ChatSession:
         # previous delegate set meant Clear still offered that domain.
         self.active_specialized_domain = None
         self.python_tool_domain = None
-        self.tool_streamed_texts = {}
         if self.db:
             self.db.clear()
             
@@ -369,7 +366,7 @@ class QueryKeyListener(BaseKeyListener):
             if not get_config_bool(_DOC_CHAT_ENTER_SENDS):
                 return
         except Exception:
-            pass
+            return
         sc = self.send_listener.send_control
         if not sc or not sc.getModel():
             return
@@ -928,6 +925,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _on_grammar_status(self, **data: Any) -> None:
         """Show native grammar proofreader progress in the sidebar status field."""
+        if getattr(self, "_panel_teardown", False) or self.ctx is None:
+            return
         # grammar:status is process-global. A Writer proofreader pass used to
         # paint "Grammar: …" on every open sidebar, including Calc and Draw.
         if getattr(self, "cached_doc_type", None) != "writer":
@@ -945,7 +944,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 post_to_main_thread(self._set_status, text)
         except Exception as e:
             log.debug("_on_grammar_status: post_to_main_thread failed: %s", e)
-            self._set_status(text)
+            return
 
     def _scroll_response_to_bottom(self) -> None:
         """Scroll the response area to show the bottom (newest content).
@@ -1010,6 +1009,18 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self.render_session_messages(turn.session)
             return
         self._append_response(text)
+
+    def _start_local_error_turn(self, text: str) -> None:
+        from plugin.chatbot.tool_loop_actions import begin_send_turn, drop_turn, running_turn
+
+        # A live send owns the response area: append to it rather than abort it.
+        if running_turn(self) is not None:
+            self._append_response(text)
+            return
+        begin_send_turn(self, "")
+        self._append_response(text)
+        self._terminal_status = "Error"
+        drop_turn(self)
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
         """Project ``text`` onto the session, then draw that list.
@@ -1132,10 +1143,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         try:
-            self._last_mcp_req_id = kwargs.get("req_id")
+
             from plugin.chatbot.tool_loop_actions import current_turn
 
             rid = str(kwargs.get("req_id", ""))
+            self._last_mcp_turn = {k: v for k, v in self._last_mcp_turn.items() if getattr(v, "alive", False)}
             self._last_mcp_turn[rid] = current_turn(self)
             from plugin.framework.logging import format_tool_call_for_display
 
@@ -1454,7 +1466,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         recorder = self.audio_recorder
         if recorder is not None:
             recorder.apply_stdout_error(msg)
-        self._append_response("\n[Audio error: %s]\n" % msg)
+        self._start_local_error_turn("\n[Audio error: %s]\n" % msg)
         self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
         self.sync_audio_slice()
 
@@ -1501,7 +1513,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 try:
                     self.audio_recorder.start_recording()
                 except RuntimeError as re:
-                    self._append_response("\n[Audio error: %s]\n" % str(re))
+                    self._start_local_error_turn("\n[Audio error: %s]\n" % str(re))
                     pending = getattr(self, "_dispatch_reenter", None)
                     if pending is not None:
                         pending.append(SendEvent(SendEventKind.ERROR_OCCURRED))
@@ -1936,170 +1948,175 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             except Exception as e:
                 log.debug("query setFocus after send: %s", e)
 
-        from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
+        try:
 
-        sync_sidebar_text_model(self.ctx, self.model_selector)
+            from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 
-        # Transcription Fallback check
-        if self.audio_wav_path:
-            from plugin.audio.stt_service import uses_local_stt
-            from plugin.framework.client.model_fetcher import get_stt_model, get_text_model, has_native_audio
-            from plugin.framework.config import get_current_endpoint
+            sync_sidebar_text_model(self.ctx, self.model_selector)
 
-            current_model = get_text_model()
-            current_endpoint = get_current_endpoint()
+            # Transcription Fallback check
+            if self.audio_wav_path:
+                from plugin.audio.stt_service import uses_local_stt
+                from plugin.framework.client.model_fetcher import get_stt_model, get_text_model, has_native_audio
+                from plugin.framework.config import get_current_endpoint
 
-            # Local Whisper is the user's STT choice: transcribe in the venv and
-            # send text, including when the chat model could take input_audio.
-            # Endpoint STT still waits until the chat model cannot take audio.
-            local_stt = uses_local_stt()
-            if local_stt or has_native_audio(current_model, current_endpoint) is False:
-                stt_model = get_stt_model()
-                if local_stt or stt_model:
-                    if local_stt:
-                        log.info("_do_send: local Whisper STT (chat model %s)" % current_model)
-                    else:
-                        log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
-                    try:
-                        transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
-                        if self._terminal_status == "Stopped":
-                            new_text = (query_text + "\n" + transcript).strip() if (query_text and transcript) else (transcript or query_text)
-                            self._restore_query_text(new_text)
-                            self._sync_has_text_from_query()
-                            return
-                        if transcript:
-                            self._empty_take_count = 0
-                            query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
-                    except Exception as e:
-                        from plugin.framework.errors import NetworkError
+                current_model = get_text_model()
+                current_endpoint = get_current_endpoint()
 
-                        if isinstance(e, NetworkError):
-                            log.exception("NetworkError during STT fallback")
+                # Local Whisper is the user's STT choice: transcribe in the venv and
+                # send text, including when the chat model could take input_audio.
+                # Endpoint STT still waits until the chat model cannot take audio.
+                local_stt = uses_local_stt()
+                if local_stt or has_native_audio(current_model, current_endpoint) is False:
+                    stt_model = get_stt_model()
+                    if local_stt or stt_model:
+                        if local_stt:
+                            log.info("_do_send: local Whisper STT (chat model %s)" % current_model)
                         else:
-                            log.exception("Error during STT fallback")
+                            log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
+                        try:
+                            transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
+                            if self._terminal_status == "Stopped":
+                                new_text = (query_text + "\n" + transcript).strip() if (query_text and transcript) else (transcript or query_text)
+                                self._restore_query_text(new_text)
+                                self._sync_has_text_from_query()
+                                return
+                            if transcript:
+                                self._empty_take_count = 0
+                                query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
+                        except Exception as e:
+                            from plugin.framework.errors import NetworkError
+
+                            if isinstance(e, NetworkError):
+                                log.exception("NetworkError during STT fallback")
+                            else:
+                                log.exception("Error during STT fallback")
+                            self._terminal_status = "Error"
+                            self._restore_query_text(query_text)
+                            return
+                        # WAV is deleted in _transcribe_audio finally. Empty STT must not
+                        # fall through into a chat POST with a blank user message (G27).
+                        if not query_text.strip():
+                            self._append_response("\n" + _("[No speech detected.]") + "\n")
+                            self._terminal_status = "Stopped"
+                            # What was wrong: an empty take finishes as Stopped, not
+                            # Error, so sticky re-armed Record. Noise that trips
+                            # silence auto-stop then looped empty takes forever.
+                            # Why: end hands-free after EMPTY_TAKES_EXIT in a row.
+                            gesture = getattr(self, "_record_gesture", None)
+                            if gesture is not None and gesture.sticky:
+                                self._empty_take_count = getattr(self, "_empty_take_count", 0) + 1
+                                if self._empty_take_count >= EMPTY_TAKES_EXIT:
+                                    log.info("Hands-free off after %d empty takes", self._empty_take_count)
+                                    self.exit_hands_free_record()
+                                    self._append_response(_("[Hands-free off: no speech heard.]") + "\n")
+                            return
+                    else:
+                        err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
+                        self._append_response("\n%s\n" % err_msg)
                         self._terminal_status = "Error"
+                        self._set_status(_("Error"))
                         self._restore_query_text(query_text)
                         return
-                    # WAV is deleted in _transcribe_audio finally. Empty STT must not
-                    # fall through into a chat POST with a blank user message (G27).
-                    if not query_text.strip():
-                        self._append_response("\n" + _("[No speech detected.]") + "\n")
-                        self._terminal_status = "Stopped"
-                        # What was wrong: an empty take finishes as Stopped, not
-                        # Error, so sticky re-armed Record. Noise that trips
-                        # silence auto-stop then looped empty takes forever.
-                        # Why: end hands-free after EMPTY_TAKES_EXIT in a row.
-                        gesture = getattr(self, "_record_gesture", None)
-                        if gesture is not None and gesture.sticky:
-                            self._empty_take_count = getattr(self, "_empty_take_count", 0) + 1
-                            if self._empty_take_count >= EMPTY_TAKES_EXIT:
-                                log.info("Hands-free off after %d empty takes", self._empty_take_count)
-                                self.exit_hands_free_record()
-                                self._append_response(_("[Hands-free off: no speech heard.]") + "\n")
-                        return
                 else:
-                    err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
-                    self._append_response("\n%s\n" % err_msg)
-                    self._terminal_status = "Error"
-                    self._set_status(_("Error"))
-                    self._restore_query_text(query_text)
-                    return
-            else:
-                log.debug("_do_send: model %s supports native audio, proceeding" % current_model)
-                if self._terminal_status == "Stopped":
-                    self._restore_query_text(query_text)
-                    return
+                    log.debug("_do_send: model %s supports native audio, proceeding" % current_model)
+                    if self._terminal_status == "Stopped":
+                        self._restore_query_text(query_text)
+                        return
 
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_BRAINSTORMING,
-            CHAT_MODE_DEEP_RESEARCH,
-            CHAT_MODE_IMAGE,
-            CHAT_MODE_LIBRARIAN,
-            CHAT_MODE_PPT_MASTER,
-            CHAT_MODE_WEB_RESEARCH,
-            CHAT_MODE_WRITING_PLAN,
-            mode_from_selector_with_flags,
-            sidebar_mode_flags_for_doc_type,
-        )
+            from plugin.chatbot.chat_sidebar_mode import (
+                CHAT_MODE_BRAINSTORMING,
+                CHAT_MODE_DEEP_RESEARCH,
+                CHAT_MODE_IMAGE,
+                CHAT_MODE_LIBRARIAN,
+                CHAT_MODE_PPT_MASTER,
+                CHAT_MODE_WEB_RESEARCH,
+                CHAT_MODE_WRITING_PLAN,
+                mode_from_selector_with_flags,
+                sidebar_mode_flags_for_doc_type,
+            )
 
-        flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
-        sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
-        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+            flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
+            sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
+            from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
-        # Mode and the document are arguments of the turn already started.
-        # A later dropdown change aborts it; it does not retarget the turn.
-        started = current_turn(self)
-        if isinstance(started, TurnController):
-            started.mode = str(sidebar_mode or "")
-            started.model = model
+            # Mode and the document are arguments of the turn already started.
+            # A later dropdown change aborts it; it does not retarget the turn.
+            started = current_turn(self)
+            if isinstance(started, TurnController):
+                started.mode = str(sidebar_mode or "")
+                started.model = model
 
-        if sidebar_mode == CHAT_MODE_LIBRARIAN:
-            log.info("_do_send: using librarian onboarding agent")
-            self._run_librarian(query_text, model)
-            return
-
-        if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
-            log.info("_do_send: using web research sub-agent — skip chat model and direct image")
-            self._run_web_research(query_text, model)
-            return
-
-        if sidebar_mode == CHAT_MODE_DEEP_RESEARCH:
-            log.info("_do_send: using deep web research sub-agent — skip chat model and direct image")
-            self._run_deep_web_research(query_text, model)
-            return
-
-        if sidebar_mode == CHAT_MODE_IMAGE:
-            log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
-            self._do_send_direct_image(query_text, model)
-            return
-
-        if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
-            if not self._brainstorming_topic:
-                self._brainstorming_topic = query_text
-            log.info("_do_send: using brainstorming sub-agent")
-            self._run_brainstorming(query_text, model)
-            return
-
-        if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
-            if not getattr(self, "_writing_plan_topic", None):
-                self._writing_plan_topic = query_text
-            log.info("_do_send: using writing plan sub-agent")
-            self._run_writing_plan(query_text, model)
-            return
-
-        if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
-            if not getattr(self, "_ppt_master_topic", None):
-                self._ppt_master_topic = query_text
-            log.info("_do_send: using PPT-Master sub-agent")
-            self._run_ppt_master(query_text, model)
-            return
-
-        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
-        # What was wrong: `_do_send_via_agent_backend` sat in this try. The except
-        # only logged, then execution fell through to `_do_send_chat_with_tools`,
-        # so one Send started a second builtin turn. The handler documents no
-        # builtin fallback. Show the error and end the send here.
-        try:
-            from plugin.framework.config import get_config
-            from plugin.acp.registry import normalize_backend_id
-
-            agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
-            if agent_backend_id and agent_backend_id != "builtin":
-                log.info("_do_send: using agent backend %s" % agent_backend_id)
-                self._do_send_via_agent_backend(query_text, model, doc_type_label)
+            if sidebar_mode == CHAT_MODE_LIBRARIAN:
+                log.info("_do_send: using librarian onboarding agent")
+                self._run_librarian(query_text, model)
                 return
-        except Exception as exc:
-            log.exception("_do_send: agent backend check failed")
-            self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
-            self._terminal_status = "Error"
-            self._set_status(_("Error"))
+
+            if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
+                log.info("_do_send: using web research sub-agent — skip chat model and direct image")
+                self._run_web_research(query_text, model)
+                return
+
+            if sidebar_mode == CHAT_MODE_DEEP_RESEARCH:
+                log.info("_do_send: using deep web research sub-agent — skip chat model and direct image")
+                self._run_deep_web_research(query_text, model)
+                return
+
+            if sidebar_mode == CHAT_MODE_IMAGE:
+                log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
+                self._do_send_direct_image(query_text, model)
+                return
+
+            if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
+                if not self._brainstorming_topic:
+                    self._brainstorming_topic = query_text
+                log.info("_do_send: using brainstorming sub-agent")
+                self._run_brainstorming(query_text, model)
+                return
+
+            if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
+                if not getattr(self, "_writing_plan_topic", None):
+                    self._writing_plan_topic = query_text
+                log.info("_do_send: using writing plan sub-agent")
+                self._run_writing_plan(query_text, model)
+                return
+
+            if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
+                if not getattr(self, "_ppt_master_topic", None):
+                    self._ppt_master_topic = query_text
+                log.info("_do_send: using PPT-Master sub-agent")
+                self._run_ppt_master(query_text, model)
+                return
+
+            # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
+            # What was wrong: `_do_send_via_agent_backend` sat in this try. The except
+            # only logged, then execution fell through to `_do_send_chat_with_tools`,
+            # so one Send started a second builtin turn. The handler documents no
+            # builtin fallback. Show the error and end the send here.
+            try:
+                from plugin.framework.config import get_config
+                from plugin.acp.registry import normalize_backend_id
+
+                agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
+                if agent_backend_id and agent_backend_id != "builtin":
+                    log.info("_do_send: using agent backend %s" % agent_backend_id)
+                    self._do_send_via_agent_backend(query_text, model, doc_type_label)
+                    return
+            except Exception as exc:
+                log.exception("_do_send: agent backend check failed")
+                self._append_response("\n" + _("[Agent backend error: {0}]").format(str(exc)) + "\n")
+                self._terminal_status = "Error"
+                self._set_status(_("Error"))
+                self._restore_query_text(query_text)
+                return
+
+            # Regular Chat with Tools or Streams
+            # Cast to Any to satisfy ty since SendButtonListener mixes in multiple protocol hosts
+            getattr(self, "_do_send_chat_with_tools")(query_text, model, doc_type_label)
+
+        except Exception:
             self._restore_query_text(query_text)
-            return
-
-        # Regular Chat with Tools or Streams
-        # Cast to Any to satisfy ty since SendButtonListener mixes in multiple protocol hosts
-        getattr(self, "_do_send_chat_with_tools")(query_text, model, doc_type_label)
-
+            raise
     def start_extracted_peer_send(self, query_text: str, *, already_appended: bool) -> bool:
         """Start a peer-injected turn. Caller must not hold a drain owner.
 

@@ -19,8 +19,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from compute_service.config import ComputeSettings, ConfigError, load_settings
-from compute_service.executor import clamp_timeout_sec, execute_code, timeout_ms_to_sec
+from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_sec, load_settings
+from compute_service.executor import execute_code
 from compute_service.formula_pool import shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from compute_service.server import create_wsgi_app
@@ -206,11 +206,11 @@ class TestJsonEgressUnit:
 
 class TestTimeoutHelpers:
     def test_timeout_ms_rounds_up(self) -> None:
-        assert timeout_ms_to_sec(1500) == 2
-        assert timeout_ms_to_sec(1000) == 1
-        assert timeout_ms_to_sec(0) == 30
-        assert timeout_ms_to_sec(float("inf")) == 30
-        assert timeout_ms_to_sec(float("-inf")) == 30
+        assert clamp_timeout_sec(1500, is_ms=True) == 2
+        assert clamp_timeout_sec(1000, is_ms=True) == 1
+        assert clamp_timeout_sec(0, is_ms=True) == 30
+        assert clamp_timeout_sec(float("inf"), is_ms=True) == 30
+        assert clamp_timeout_sec(float("-inf"), is_ms=True) == 30
         assert clamp_timeout_sec(99999) == 600
 
     def test_max_timeout_sec_1800_honored(self) -> None:
@@ -1007,7 +1007,8 @@ class TestComputeSettings:
     def test_compute_settings_rejects_nonfinite_ttl(self, field: str, value: float) -> None:
         """Direct construction skips _as_float. validate() still rejects non-finite TTLs."""
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
-            ComputeSettings(**{field: value})
+            kwargs: dict[str, Any] = {field: value}
+            ComputeSettings(**kwargs)
 
     def test_non_utf8_key_and_config_files_are_config_errors(self, tmp_path) -> None:
         """Binary key and config files raise ConfigError, not UnicodeDecodeError."""
@@ -1025,7 +1026,8 @@ class TestComputeSettings:
 
     def test_compute_settings_none_worker_counts(self) -> None:
         """Verify ComputeSettings handles None for workers and ocr_workers gracefully."""
-        s = ComputeSettings(workers=None, ocr_workers=None)
+        kwargs: dict[str, Any] = {"workers": None, "ocr_workers": None}
+        s = ComputeSettings(**kwargs)
         assert s.workers == 2
         assert s.ocr_workers == 0
         assert s.threads == 2
@@ -1132,9 +1134,19 @@ class TestBearerAuthHttp:
 
     def test_malformed_bearer(self, auth_server) -> None:
         url, executed, _reset_calls = auth_server
-        status, _body = self._post(url, {"Authorization": "bearer correct-secret"})
+        status, _body = self._post(url, {"Authorization": "Token correct-secret"})
         assert status == 401
         assert executed == []
+
+    def test_bearer_case_insensitive(self, auth_server) -> None:
+        url, executed, _reset_calls = auth_server
+        status_lower, body_lower = self._post(url, {"Authorization": "bearer correct-secret"})
+        assert status_lower == 200
+        assert body_lower.get("status") == "ok"
+        status_upper, body_upper = self._post(url, {"Authorization": "BEARER correct-secret"})
+        assert status_upper == 200
+        assert body_upper.get("status") == "ok"
+        assert len(executed) == 2
 
     def test_www_authenticate_header(self, auth_server) -> None:
         url, _executed, _reset_calls = auth_server
@@ -1938,18 +1950,32 @@ print("ok")
 
 def _run_docker_entrypoint(tmp_path, extra: dict[str, str]):
     import subprocess
+    import sys
     from pathlib import Path
 
     bindir = tmp_path / "bin"
     bindir.mkdir()
     marker = tmp_path / "ran"
     fake = bindir / "python"
-    fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$FAKE_OUT"\n', encoding="utf-8")
+    repo_root = Path(__file__).resolve().parents[2]
+    fake_script = (
+        '#!/bin/sh\n'
+        'export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"\n'
+        '"$REAL_PYTHON" -c "from compute_service.config import load_settings; s = load_settings(); s.validate()" || exit 1\n'
+        'printf \'%s\\n\' "$@" > "$FAKE_OUT"\n'
+    )
+    fake.write_text(fake_script, encoding="utf-8")
     fake.chmod(0o755)
     # /bin stays on PATH so /bin/sh can run; the fake python is first.
-    env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(tmp_path), "FAKE_OUT": str(marker)}
+    env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "FAKE_OUT": str(marker),
+        "REAL_PYTHON": sys.executable,
+        "REPO_ROOT": str(repo_root),
+    }
     env.update(extra)
-    script = Path(__file__).resolve().parents[2] / "compute_service" / "docker-entrypoint.sh"
+    script = repo_root / "compute_service" / "docker-entrypoint.sh"
     proc = subprocess.run(["/bin/sh", str(script)], env=env, capture_output=True, text=True, check=False)
     ran = marker.read_text(encoding="utf-8") if marker.exists() else ""
     return proc, ran
@@ -2341,22 +2367,21 @@ def test_clamp_timeout_sec_boolean() -> None:
 
 
 def test_source_text_from_part_unicode_chars() -> None:
-    """_source_text_from_part must count characters, not bytes, for UTF-8 code parts."""
-    from compute_service.server import _source_text_from_part
+    """_validate_source_text must count characters, not bytes, for UTF-8 code parts."""
+    from compute_service.server import _validate_source_text
+    from compute_service.json_forward import ExecuteRequestError
 
     # 10 Greek letters (each 2 bytes in UTF-8 = 20 bytes total)
     greek_code = "αβγδεζηθικ".encode("utf-8")
     assert len(greek_code) == 20
     # With limit=10, 10 characters should pass even though byte length is 20
-    text, err = _source_text_from_part(greek_code, limit=10, label="code", required=True)
-    assert err is None
+    text = _validate_source_text(greek_code, limit=10, label="code", required=True)
     assert text == "αβγδεζηθικ"
 
     # With limit=9, 10 characters should be rejected
-    text, err = _source_text_from_part(greek_code, limit=9, label="code", required=True)
-    assert text is None
-    assert err is not None
-    assert err.get("code") == "CODE_TOO_LARGE"
+    with pytest.raises(ExecuteRequestError) as exc_info:
+        _validate_source_text(greek_code, limit=9, label="code", required=True)
+    assert exc_info.value.code == "CODE_TOO_LARGE"
 
 
 def test_log_level_cli_arg() -> None:
@@ -2470,3 +2495,117 @@ def test_real_socket_queue_timeout() -> None:
         server.server_close()
 
 
+def test_bearer_scheme_case_insensitive() -> None:
+    """RFC 7235: Bearer auth scheme prefix is case-insensitive."""
+    settings = ComputeSettings(api_key="my-secret-key")
+    app = create_wsgi_app(settings, execute_fn=lambda **kwargs: {"status": "ok", "result": 1})
+
+    for header_val in ("Bearer my-secret-key", "bearer my-secret-key", "BEARER my-secret-key", "BeArEr my-secret-key"):
+        status, headers, parsed = _wsgi_post(
+            app,
+            b'{"code": "result = 1"}',
+            path="/v1/execute",
+            headers={"Authorization": header_val, "Content-Type": "application/json"},
+        )
+        assert status == "200 OK", f"Failed for header: {header_val}"
+        assert parsed.get("status") == "ok"
+
+    # Malformed prefix fails
+    status, headers, parsed = _wsgi_post(
+        app,
+        b'{"code": "result = 1"}',
+        path="/v1/execute",
+        headers={"Authorization": "Token my-secret-key", "Content-Type": "application/json"},
+    )
+    assert status == "401 Unauthorized"
+
+
+def test_session_reset_worker_error_returns_500() -> None:
+    """Worker-side reset failure is server fault and returns HTTP 500 (not 400)."""
+    settings = ComputeSettings()
+
+    def fake_reset(sid: str) -> dict[str, Any]:
+        return {"status": "error", "error": "Worker failed to clear namespace"}
+
+    app = create_wsgi_app(settings, reset_fn=fake_reset)
+    status, headers, parsed = _wsgi_post(
+        app,
+        b'{"id": "test-reset"}',
+        path="/v1/session/reset",
+        query="session_id=s123",
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == "500 Internal Server Error"
+    assert parsed.get("status") == "error"
+    assert parsed.get("id") == "test-reset"
+
+
+def test_session_reset_infra_error_returns_503() -> None:
+    """Infrastructure failure during reset returns HTTP 503."""
+    settings = ComputeSettings()
+
+    def fake_reset(sid: str) -> dict[str, Any]:
+        return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Pool busy"}
+
+    app = create_wsgi_app(settings, reset_fn=fake_reset)
+    status, headers, parsed = _wsgi_post(
+        app,
+        b'{"id": "test-reset"}',
+        path="/v1/session/reset",
+        query="session_id=s123",
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == "503 Service Unavailable"
+    assert parsed.get("code") == "WORKER_POOL_BUSY"
+
+
+def test_result_too_large_maps_to_413() -> None:
+    """Worker returning RESULT_TOO_LARGE maps to HTTP 413 Payload Too Large."""
+    settings = ComputeSettings()
+
+    def fake_execute(**kwargs: Any) -> dict[str, Any]:
+        return {"id": kwargs.get("req_id"), "status": "error", "code": "RESULT_TOO_LARGE", "error": "IPC frame exceeded 33 MiB"}
+
+    app = create_wsgi_app(settings, execute_fn=fake_execute)
+    status, headers, parsed = _wsgi_post(
+        app,
+        b'{"code": "result = ' + b"x" * 100 + b'"}',
+        path="/v1/execute",
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == "413 Payload Too Large"
+    assert parsed.get("code") == "RESULT_TOO_LARGE"
+
+
+def test_session_id_reserved_namespace_rejected() -> None:
+    """Session IDs ending in :init or starting with isolated: are rejected with HTTP 400."""
+    settings = ComputeSettings()
+    app = create_wsgi_app(settings, execute_fn=lambda **kwargs: {"status": "ok"})
+
+    for reserved_sid in ("user-session:init", "isolated:abc123"):
+        status, headers, parsed = _wsgi_post(
+            app,
+            b'{"code": "result = 1", "mode": "shared"}',
+            path="/v1/execute",
+            query=f"session_id={reserved_sid}",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status == "400 Bad Request"
+        assert parsed.get("code") == "INVALID_SESSION_ID"
+
+
+
+
+
+
+
+def test_empty_multi_data_result() -> None:
+    payload = {
+        "status": "ok",
+        "result": {
+            "__wa_payload__": "multi_data",
+            "items": []
+        }
+    }
+    out = normalize_execute_response(payload)
+    assert out["result"] == []

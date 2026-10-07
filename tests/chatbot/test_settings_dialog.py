@@ -227,7 +227,7 @@ def test_apply_settings_result_tts_provider_and_voice():
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.audio.tts_service.set_config") as tts_set:
+         patch("plugin.audio.tts_voices.set_config") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Kokoro (Local Neural, ONNX CPU)",
             "audio__tts_voice": "af_bella (Kokoro US Female - Bella)",
@@ -265,7 +265,7 @@ def test_apply_settings_voice_display_label_stores_id_for_that_provider():
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.audio.tts_service.set_config") as tts_set:
+         patch("plugin.audio.tts_voices.set_config") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Piper (Local Fast Neural, CPU)",
             "audio__tts_voice": "French Female - Siwis",
@@ -424,7 +424,7 @@ def test_apply_settings_result_one_batch_no_extra_emit():
          patch("plugin.chatbot.config_ui_helpers.update_lru_history", side_effect=lambda *args: order.append("lru")) as lru, \
          patch("plugin.framework.event_bus.global_event_bus.emit") as emit, \
          patch("plugin.framework.config.set_config") as single, \
-         patch("plugin.audio.tts_service.set_config") as tts_set:
+         patch("plugin.audio.tts_voices.set_config") as tts_set:
         apply_settings_result(MagicMock(), {
             "endpoint": raw_endpoint,
             "text_model": "new-model",

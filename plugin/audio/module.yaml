@@ -104,7 +104,7 @@ config:
     # so Voice's right edge no longer matched Provider/Model/Speed. inline
     # keeps the next control (Test voice) on this row without narrowing it.
     inline: true
-    options_provider: plugin.audio.tts_service:settings_voice_options
+    options_provider: plugin.audio.tts_voices:settings_voice_options
     options:
       - value: "alloy"
         label: "alloy (OpenAI Neutral)"

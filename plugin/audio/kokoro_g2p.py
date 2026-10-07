@@ -167,7 +167,7 @@ def _build_kokoro_onnx_script() -> str:
         "from kokoro_onnx import Kokoro\n"
         "import soundfile as sf\n"
         "\n"
-        "text = sys.argv[1]\n"
+        "text = sys.stdin.read() if sys.argv[1] == '-' else sys.argv[1]\n"
         "requested = sys.argv[2]\n"
         "speed = float(sys.argv[3])\n"
         "out_path = sys.argv[4]\n"
@@ -249,11 +249,16 @@ def _run_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]
         return None
 
 
-def _venv_probe_ok(py_exe: str, lang: str) -> bool:
+def _venv_probe_ok(
+    py_exe: str,
+    lang: str,
+    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
+) -> bool:
     code = kokoro_misaki_probe_code(lang)
     if not code:
         return True
-    completed = _run_cmd([py_exe, "-c", code], _PROBE_TIMEOUT_SEC)
+    runner = run_cmd or _run_cmd
+    completed = runner([py_exe, "-c", code], _PROBE_TIMEOUT_SEC)
     if completed is None or completed.returncode != 0:
         detail = ""
         if completed is not None:
@@ -264,14 +269,19 @@ def _venv_probe_ok(py_exe: str, lang: str) -> bool:
     return True
 
 
-def _pip_install(py_exe: str, packages: tuple[str, ...]) -> bool:
+def _pip_install(
+    py_exe: str,
+    packages: tuple[str, ...],
+    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
+) -> bool:
     uv = shutil.which("uv")
     if uv:
         cmd = [uv, "pip", "install", "--python", py_exe, *packages]
     else:
         cmd = [py_exe, "-m", "pip", "install", *packages]
     log.info("Installing Kokoro phonemizer: %s", " ".join(cmd))
-    completed = _run_cmd(cmd, _PIP_TIMEOUT_SEC)
+    runner = run_cmd or _run_cmd
+    completed = runner(cmd, _PIP_TIMEOUT_SEC)
     if completed is None or completed.returncode != 0:
         detail = ""
         if completed is not None:
@@ -281,9 +291,13 @@ def _pip_install(py_exe: str, packages: tuple[str, ...]) -> bool:
     return True
 
 
-def _download_unidic(py_exe: str) -> bool:
+def _download_unidic(
+    py_exe: str,
+    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
+) -> bool:
     """``misaki[ja]`` depends on the unidic package, which does not include the dictionary."""
-    completed = _run_cmd([py_exe, "-m", "unidic", "download"], _UNIDIC_TIMEOUT_SEC)
+    runner = run_cmd or _run_cmd
+    completed = runner([py_exe, "-m", "unidic", "download"], _UNIDIC_TIMEOUT_SEC)
     if completed is None or completed.returncode != 0:
         detail = ""
         if completed is not None:
@@ -298,6 +312,7 @@ def ensure_kokoro_misaki(
     lang: str,
     on_status: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    run_cmd: Callable[[list[str], float], subprocess.CompletedProcess[str] | None] | None = None,
 ) -> bool | None:
     """Install the Misaki extra for ``lang`` when the venv cannot import it.
 
@@ -311,13 +326,13 @@ def ensure_kokoro_misaki(
     packages = kokoro_misaki_packages(lang)
     if not packages:
         return True
-    if _venv_probe_ok(py_exe, lang):
+    if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
         return True
     if _cancelled(cancelled):
         return None
 
     _emit(on_status, _("Installing Kokoro phonemizer…"))
-    if not _pip_install(py_exe, packages):
+    if not _pip_install(py_exe, packages, run_cmd=run_cmd):
         _emit(
             on_status,
             _("Couldn't install the Kokoro phonemizer; this language may be misread. Install with: {0}").format(
@@ -327,14 +342,14 @@ def ensure_kokoro_misaki(
         return False
     if _cancelled(cancelled):
         return None
-    if _venv_probe_ok(py_exe, lang):
+    if _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
         return True
 
     # fugashi's default dictionary is not in the wheel. Without this download,
     # JAG2P() raises and Japanese falls back to espeak ("chinese letter").
     if lang == "ja":
         _emit(on_status, _("Downloading Japanese phonemizer dictionary…"))
-        if _download_unidic(py_exe) and _venv_probe_ok(py_exe, lang):
+        if _download_unidic(py_exe, run_cmd=run_cmd) and _venv_probe_ok(py_exe, lang, run_cmd=run_cmd):
             return True
 
     _emit(

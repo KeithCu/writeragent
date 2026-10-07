@@ -732,8 +732,8 @@ def test_cdp_visit_uses_a_private_target(monkeypatch):
 
     monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.browser_cdp", fake_cdp)
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
-    assert "body text" in VisitWebpageCdpTool("ws://local").forward("https://a.test")
-    assert "body text" in VisitWebpageCdpTool("ws://local").forward("https://b.test")
+    assert "body text" in VisitWebpageCdpTool("ws://local", stop_checker=None).forward("https://a.test")
+    assert "body text" in VisitWebpageCdpTool("ws://local", stop_checker=None).forward("https://b.test")
     assert [method for method, _target in calls if method == "Target.getTargets"] == []
     assert [target for method, target in calls if method == "Page.navigate"] == ["tab-a", "tab-b"]
     assert [target for method, target in calls if method == "Target.closeTarget"] == ["tab-a", "tab-b"]
@@ -1533,6 +1533,20 @@ def test_web_search_does_not_cache_empty_parse(tmp_path):
     assert "No results found" in result
     assert _web_cache_get(db_file, "search", _search_cache_key("nothing here", None), max_age_days=30) is None
 
+
+def test_visit_webpage_rejects_non_http_urls(tmp_path):
+    from plugin.contrib.smolagents.default_tools import VisitWebpageTool
+    tool = VisitWebpageTool(cache_max_age_days=30, cache_path=str(tmp_path / "writeragent_web_cache.db"), cache_max_mb=10)
+    assert "Error fetching the webpage" in tool.forward("file:///etc/passwd")
+    assert "Error fetching the webpage" in tool.forward("chrome://version")
+    assert "Error fetching the webpage" in tool.forward("javascript:alert(1)")
+
+def test_cdp_visit_rejects_non_http_urls():
+    from plugin.chatbot.web_research import VisitWebpageCdpTool
+    tool = VisitWebpageCdpTool("ws://local")
+    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("file:///etc/passwd")
+    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("chrome://version")
+    assert "Error visiting webpage via CDP: URL must use http or https scheme." in tool.forward("javascript:alert(1)")
 
 def test_visit_webpage_does_not_cache_fetch_errors(tmp_path):
     """Transient fetch failures must not poison the page cache."""

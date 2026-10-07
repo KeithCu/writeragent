@@ -56,6 +56,7 @@ def test_aborted_turn_prevents_reply_save():
 def test_release_live_sidebar_called_twice_is_noop():
     panel = MagicMock()
     panel._live_panel_uid = "doc1"
+    panel._released = False
     panel.frame_session = MagicMock()
     listener = MagicMock()
     panel.send_listener = listener
@@ -66,5 +67,6 @@ def test_release_live_sidebar_called_twice_is_noop():
 
     release_live_sidebar(panel, None)
     # A second release (frame close hook, then element dispose) must not raise.
-    assert listener.disposing.call_count == 2
-    assert panel.frame_session.release_panel.call_count == 2
+    # It now short-circuits due to the _released flag.
+    assert listener.disposing.call_count == 1
+    assert panel.frame_session.release_panel.call_count == 1

@@ -136,6 +136,9 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
     lost its panel. It also cleared the focus pin even when another sidebar
     owned it. The uid stored at register time is the slot this panel owns.
     """
+    if getattr(panel, "_released", False):
+        return
+    panel._released = True
     unregister_debug_live_panel(panel)
     try:
         from plugin.doc.live_panels import unregister_live_panel
@@ -238,7 +241,11 @@ def _initialize_extension_paths(ctx: Any) -> None:
             return
         try:
             ext_path = get_extension_path(ctx)
-            if ext_path and ext_path not in sys.path:
+            if not ext_path:
+                log.warning("_initialize_extension_paths: get_extension_path returned falsy value, skipping path setup")
+                return
+
+            if ext_path not in sys.path:
                 sys.path.insert(0, ext_path)
 
             contrib_dir = os.path.join(ext_path, "contrib")
@@ -253,6 +260,7 @@ def _initialize_extension_paths(ctx: Any) -> None:
                 ensure_writeragent_proofreader_configured(ctx)
             except Exception as e:
                 log.warning("[grammar] sidebar init: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
+            # Only after success: a falsy path or an exception retries on the next sidebar.
             _paths_initialized = True
         except Exception:
             init_logging(ctx)
@@ -331,7 +339,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         min_w = self.getMinimalWidth()
         eff_w = sidebar_column_width(deck_w, parent_w, min_w=min_w)
 
-        log.info("getHeightForWidth deck_hint=%s parent=%sx%s current_root=%s eff_W=%s" % (deck_w, parent_w, parent_h, "%sx%s" % (before.Width, before.Height) if before else None, eff_w))
+        log.debug("getHeightForWidth deck_hint=%s parent=%sx%s current_root=%s eff_W=%s" % (deck_w, parent_w, parent_h, "%sx%s" % (before.Width, before.Height) if before else None, eff_w))
         rl = getattr(self, "resize_listener", None)
         if rl is not None and hasattr(rl, "note_width_negotiated"):
             with suppress_disposed("getHeightForWidth note_width_negotiated", logger=log):
@@ -490,6 +498,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # getControl failure left the half-built panel latched, so the
                 # next getRealInterface returned it and never retried.
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
+                with suppress_disposed("frame session release on getRealInterface fail", logger=log):
+                    release_live_sidebar(self)
+                    root = getattr(self, "m_panelRootWindow", None)
+                    rl = getattr(self.toolpanel, "resize_listener", None) if self.toolpanel else None
+                    if rl and root and hasattr(root, "removeWindowListener"):
+                        root.removeWindowListener(rl)
                 self.toolpanel = None
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
@@ -838,12 +852,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 def on_item_state_changed(self, rEvent: Any) -> None:
                     if getattr(self.panel, "_in_refresh_controls", False):
                         return
-                    txt = image_model_selector.getText()
-                    if not txt:
-                        return
-                    if txt == str(get_config("image_model") or "").strip():
-                        return
-                    set_image_model(txt, update_lru=False)
+                    from plugin.chatbot.config_ui_helpers import sync_sidebar_image_model
+
+                    sync_sidebar_image_model(image_model_selector, update_lru=True)
 
             class ImageModelTextSyncListener(BaseTextListener):
                 panel: Any
@@ -854,17 +865,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self.ctx = ctx
 
                 def on_text_changed(self, rEvent: Any) -> None:
-                    # List selection and typing do not share one event. Without
-                    # this, a typed image id never reached set_image_model, and
-                    # the next config refresh painted the old id back.
                     if getattr(self.panel, "_in_refresh_controls", False):
                         return
-                    txt = image_model_selector.getText()
-                    if not txt:
-                        return
-                    if txt == str(get_config("image_model") or "").strip():
-                        return
-                    set_image_model(txt, update_lru=False)
+                    from plugin.chatbot.config_ui_helpers import sync_sidebar_image_model
+
+                    sync_sidebar_image_model(image_model_selector, update_lru=False)
 
             if hasattr(image_model_selector, "addItemListener"):
                 image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
