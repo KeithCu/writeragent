@@ -136,3 +136,17 @@ def test_writeragent_sys_is_not_the_sys_module():
     except (InterpreterError, AttributeError):
         return
     raise AssertionError("writeragent.sys must not resolve to a live sys module")
+
+
+def test_evaluate_import_does_not_dump_allowlist():
+    """Executor import failure must not dump the allowlist or expose duckdb."""
+    import pytest
+
+    executor = LocalPythonExecutor(additional_authorized_imports=["duckdb"])
+    executor.send_tools({})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import os")
+    msg = str(exc_info.value)
+    assert msg == "Import of os is not allowed."
+    assert "duckdb" not in msg
+    assert "Authorized imports" not in msg

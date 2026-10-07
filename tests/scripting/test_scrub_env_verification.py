@@ -18,15 +18,18 @@ from hypothesis import strategies as st
 
 import deal
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH
-from plugin.scripting.sandbox import _env_name_is_credential, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.scripting.sandbox import (
+    _BLOCKED_ENV_EXACT as _BLOCKED_EXACT,
+    _env_name_is_credential,
+    scrub_subprocess_env,
+    wrap_command_for_sandbox,
+)
 from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.scripting.sandbox.scrub_subprocess_env"
 _CROSSHAIR_TARGET_WRAP = "plugin.scripting.sandbox.wrap_command_for_sandbox"
-
-_BLOCKED_EXACT = {"PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH"}
 
 
 def _find_crosshair() -> str | None:
@@ -48,9 +51,12 @@ def _assert_scrubbed(out: dict[str, str]) -> None:
         assert not _env_name_is_credential(k)
 
 
-def test_none_and_empty_return_empty() -> None:
+def test_none_returns_empty_and_empty_applies_overrides() -> None:
     assert scrub_subprocess_env(None) == {}
-    assert scrub_subprocess_env({}) == {}
+    out = scrub_subprocess_env({})
+    assert out.get("PYTHONUTF8") == "1"
+    assert out.get("PYTHONIOENCODING") == "utf-8"
+    assert out.get("PYTHONDONTWRITEBYTECODE") == "1"
 
 
 def test_wrap_command_for_sandbox_basic() -> None:

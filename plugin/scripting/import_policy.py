@@ -21,40 +21,21 @@ from plugin.scripting.sandbox import (
     CALC_AUTHORIZED_IMPORTS,
     DANGEROUS_MODULES,
     VENV_AUTHORIZED_IMPORTS,
+    _VENV_STDLIB,
 )
 
 from plugin.framework.deal_shim import UNDER_CROSSHAIR, ascii_bounded, deal
 
 # Stdlib roots from VENV_AUTHORIZED_IMPORTS beyond BASE_BUILTIN_MODULES.
-_VENV_STDLIB_EXTRA: frozenset[str] = frozenset(
-    {
-        "copy",
-        "csv",
-        "dataclasses",
-        "decimal",
-        "enum",
-        "fractions",
-        "functools",
-        "json",
-        "operator",
-        "platform",
-        "pprint",
-        "string",
-        "textwrap",
-        "typing",
-    }
-)
+_VENV_STDLIB_EXTRA: frozenset[str] = frozenset(_VENV_STDLIB)
 
 # Dropped from the LLM allowed-packages line (substring, so a future
 # plugin.scripting.duckdb_sql entry would stay out too). Still importable:
 # session_duckdb() is the guarded helper; raw import duckdb is unguarded.
 _PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = ("duckdb",)
 
-# Compact blurb "networking" list. socket is blocked via DANGEROUS_MODULES
-# and is not a member of _VENV_COMMON_BLOCKED, so it is listed here explicitly
-# instead of being prepended with a string check after the fact.
-_PROMPT_NETWORK_BLOCKED: tuple[str, ...] = (
-    "socket",
+# Compact blurb "networking" list and common blocked modules.
+_NETWORK_BLOCKED_COMMON: tuple[str, ...] = (
     "requests",
     "urllib",
     "urllib3",
@@ -63,14 +44,11 @@ _PROMPT_NETWORK_BLOCKED: tuple[str, ...] = (
     "ssl",
 )
 
+# socket is blocked via DANGEROUS_MODULES and is listed here explicitly.
+_PROMPT_NETWORK_BLOCKED: tuple[str, ...] = ("socket",) + _NETWORK_BLOCKED_COMMON
+
 # Not whitelisted — common LLM mistakes (guidance only; blocked at import check).
-_VENV_COMMON_BLOCKED: tuple[str, ...] = (
-    "requests",
-    "urllib",
-    "urllib3",
-    "http",
-    "httpx",
-    "ssl",
+_VENV_COMMON_BLOCKED: tuple[str, ...] = _NETWORK_BLOCKED_COMMON + (
     "pickle",
     "sqlite3",
     "logging",
@@ -97,12 +75,14 @@ INPROCESS_SANDBOX_CONTEXT_PREFIX = (
 @deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def venv_authorized_top_level_modules() -> tuple[str, ...]:
     """Top-level module names allowed in the venv worker sandbox."""
+    # Bugfix: return real top-level module names instead of dotted paths (e.g. plugin.scripting.*).
+    # Intermediate internal nodes like 'plugin' are not authorized top-level imports and are omitted.
     roots: set[str] = set(BASE_BUILTIN_MODULES)
     for entry in VENV_AUTHORIZED_IMPORTS:
-        if entry.endswith(".*"):
-            roots.add(entry[:-2])
-        else:
-            roots.add(entry)
+        if entry.startswith("plugin."):
+            continue
+        top = entry.split(".", 1)[0]
+        roots.add(top)
     return tuple(sorted(roots))
 
 
@@ -132,6 +112,15 @@ def _venv_package_modules() -> tuple[str, ...]:
     return tuple(sorted(m for m in venv_authorized_top_level_modules() if m not in stdlib))
 
 
+def _venv_writeragent_helpers() -> tuple[str, ...]:
+    """WriterAgent scripting helpers exposed to sandbox code."""
+    helpers: set[str] = set()
+    for entry in VENV_AUTHORIZED_IMPORTS:
+        if entry.startswith("writeragent.") and not entry.endswith(".*"):
+            helpers.add(entry)
+    return tuple(sorted(helpers))
+
+
 def _omit_from_prompt_packages(name: str) -> bool:
     """True when an importable package must not appear in the =PY blurb."""
     lowered = name.lower()
@@ -147,16 +136,17 @@ def venv_blocked_modules() -> tuple[str, ...]:
 @deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def inprocess_authorized_modules() -> tuple[str, ...]:
     """Modules allowed in LO embedded execute_python_script sandbox."""
-    return tuple(sorted(set(BASE_BUILTIN_MODULES) | set(CALC_AUTHORIZED_IMPORTS)))
+    return CALC_AUTHORIZED_IMPORTS
 
 
 def _join_modules(modules: tuple[str, ...]) -> str:
     return ", ".join(modules)
 
 
-# AUTO_IMPORTS keys/values fit these (longest key 31, longest stmt 46). Pytest
-# stays wide; CrossHair stays tiny vs unbounded str (cover-all 33451622787:
-# _auto_import_alias 1465s module / 3614 examples).
+# _DEAL_ALIAS_MOD and _DEAL_ALIAS_STMT constrain string lengths of module names
+# and import statements passed into _auto_import_alias during formal contract
+# verification to avoid exponential SMT exploration while accommodating all
+# AUTO_IMPORTS entries.
 _DEAL_ALIAS_MOD = 32 if UNDER_CROSSHAIR else 64
 _DEAL_ALIAS_STMT = 48 if UNDER_CROSSHAIR else 128
 
@@ -218,9 +208,10 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         stdlib = _join_modules(_venv_stdlib_modules())
         # duckdb stays on VENV_AUTHORIZED_IMPORTS. Listing it here would steer
         # default chat toward raw import duckdb instead of session_duckdb().
-        packages = _join_modules(
-            tuple(m for m in _venv_package_modules() if not _omit_from_prompt_packages(m))
-        )
+        packages_list = [m for m in _venv_package_modules() if not _omit_from_prompt_packages(m)]
+        # Bugfix: show writeragent.scripting helpers once (excluding plugin.* twins).
+        helpers = [h for h in _venv_writeragent_helpers() if not _omit_from_prompt_packages(h)]
+        packages = _join_modules(tuple(sorted(set(packages_list) | set(helpers))))
         common = _join_modules(_VENV_COMMON_BLOCKED)
         parts.append(f"Allowed stdlib in this sandbox: {stdlib}.")
         parts.append(f"Allowed packages in this sandbox (+ submodules where applicable): {packages}.")
