@@ -258,7 +258,13 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
 
 
 def _parse_bound_names(code_str: str) -> set[str]:
-    """Return names bound (assigned, defined, or imported) in *code_str*."""
+    """Return names bound (assigned, defined, or imported) in *code_str*.
+
+    Known edge case: ast.walk also sees names bound inside function bodies,
+    lambdas and comprehensions, so ``def f(): dt = 1`` skips the ``dt``
+    auto-import even when top-level code uses ``dt``. Conservative on purpose
+    (never shadows user names); a scope-aware visitor could fix it later.
+    """
     try:
         tree = ast.parse(code_str)
     except SyntaxError:
@@ -694,6 +700,9 @@ def _serialize_result_impl(obj: Any) -> Any:
             elif isinstance(obj, list):
                 return [serialize_result(v) for v in obj]
             elif isinstance(obj, set):
+                # Known edge case: a hashable custom object (e.g. a matplotlib
+                # Figure) serializes to a dict payload, which is unhashable, so
+                # this raises TypeError. Could fall back to a list if it matters.
                 return {serialize_result(v) for v in obj}
             elif isinstance(obj, frozenset):
                 return frozenset(serialize_result(v) for v in obj)
