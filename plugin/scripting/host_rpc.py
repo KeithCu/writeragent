@@ -61,6 +61,15 @@ def _domain_tools_map() -> dict[str, list[str]] | None:
     return DOMAIN_TOOLS
 
 
+def singularize_domain(domain: str) -> str:
+    """Singularize a domain name (indexes -> index, footnotes -> footnote, shapes -> shape)."""
+    if domain == "indexes":
+        return "index"
+    if domain.endswith("s") and domain not in ("images", "styles", "forms"):
+        return domain[:-1]
+    return domain
+
+
 def domain_proxy_namespace(python_tool_domain: str, tools: dict[str, list[str]]) -> str | None:
     """``DOMAIN_TOOLS`` key for one specialized domain name.
 
@@ -70,12 +79,7 @@ def domain_proxy_namespace(python_tool_domain: str, tools: dict[str, list[str]])
     """
     if python_tool_domain in tools:
         return python_tool_domain
-    if python_tool_domain == "indexes":
-        singular = "index"
-    elif python_tool_domain.endswith("s") and python_tool_domain not in ("images", "styles", "forms"):
-        singular = python_tool_domain[:-1]
-    else:
-        singular = python_tool_domain
+    singular = singularize_domain(python_tool_domain)
     if singular in tools:
         return singular
     return None
@@ -223,8 +227,19 @@ def _proxy_methods_by_tool(tools: dict[str, list[str]]) -> dict[str, Any] | None
     except ImportError:
         return None
 
-    known = frozenset(name for names in tools.values() for name in names)
     found: dict[str, Any] = {}
+    tool_methods = getattr(api, "TOOL_METHODS", None)
+    if isinstance(tool_methods, dict):
+        for tool_name, (namespace, method_name) in tool_methods.items():
+            proxy = getattr(api, namespace, None)
+            if proxy is None:
+                continue
+            method = getattr(proxy, method_name, None)
+            if callable(method):
+                found[tool_name] = method
+        return found
+
+    known = frozenset(name for names in tools.values() for name in names)
     for namespace in tools:
         proxy = getattr(api, namespace, None)
         if proxy is None:

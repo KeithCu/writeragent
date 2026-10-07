@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import os
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting.ipc import read_pickle_frame
@@ -570,3 +571,78 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     # execute_on_main_thread should only be called once, for `_run`
     mock_exec_main.assert_called_once()
     assert mock_exec_main.call_args[0][0].__name__ == "_run"
+
+
+def test_singularize_domain():
+    from plugin.scripting.host_rpc import singularize_domain
+
+    assert singularize_domain("footnotes") == "footnote"
+    assert singularize_domain("bookmarks") == "bookmark"
+    assert singularize_domain("indexes") == "index"
+    assert singularize_domain("images") == "images"
+    assert singularize_domain("styles") == "styles"
+    assert singularize_domain("forms") == "forms"
+    assert singularize_domain("shapes") == "shape"
+    assert singularize_domain("core") == "core"
+
+
+def test_proxy_methods_by_tool_uses_tool_methods():
+    from plugin.scripting.host_rpc import _proxy_methods_by_tool
+    import plugin.scripting.writeragent_api as api
+
+    methods = _proxy_methods_by_tool(api.DOMAIN_TOOLS)
+    assert methods is not None
+    assert "shape_upsert" in methods
+    assert methods["shape_upsert"] == api.shape.upsert
+    assert "list_open_documents" in methods
+    assert methods["list_open_documents"] == api.core.list_open_documents
+
+
+def test_writeragent_api_in_process_rpc_call_preserves_error_code():
+    import plugin.scripting.writeragent_api as api
+
+    # 1. execute_tool raises exception with code attribute (e.g. USER_STOPPED)
+    class StoppedError(Exception):
+        code = "USER_STOPPED"
+
+    with (
+        patch.object(api, "IS_WORKER", False),
+        patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0"}),
+    ):
+        with patch(
+            "plugin.scripting.host_rpc.execute_tool",
+            side_effect=StoppedError("operation stopped"),
+        ):
+            try:
+                api._rpc_call("test_tool")
+            except RuntimeError as exc:
+                assert "operation stopped" in str(exc)
+                assert getattr(exc, "code", None) == "USER_STOPPED"
+            else:
+                raise AssertionError("Expected RuntimeError")
+
+        class CustomError(Exception):
+            code = "PERMISSION_DENIED"
+
+        with patch("plugin.scripting.host_rpc.execute_tool", side_effect=CustomError("denied")):
+            try:
+                api._rpc_call("test_tool")
+            except RuntimeError as exc:
+                assert "denied" in str(exc)
+                assert getattr(exc, "code", None) == "PERMISSION_DENIED"
+            else:
+                raise AssertionError("Expected RuntimeError")
+
+
+def test_writeragent_api_exports_and_tool_methods():
+    import plugin.scripting.writeragent_api as api
+
+    assert hasattr(api, "TOOL_METHODS")
+    assert isinstance(api.TOOL_METHODS, dict)
+    assert api.TOOL_METHODS["shape_upsert"] == ("shape", "upsert")
+    assert hasattr(api, "__all__")
+    assert "shape" in api.__all__
+    assert "core" in api.__all__
+    # Builtin range should not be in __all__ so star-import does not clobber it
+    assert "range" not in api.__all__
+    assert "math" in api.__all__

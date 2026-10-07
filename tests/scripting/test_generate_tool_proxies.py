@@ -1,7 +1,7 @@
 import sys
 import os
 import pytest
-from typing import cast
+from typing import Any, cast
 
 from plugin.framework.tool import ToolBase
 
@@ -427,3 +427,20 @@ def test_indexes_domain_becomes_index():
     compile(code, "<generated>", "exec")
     assert "class _IndexProxy:" in code
     assert "index = _IndexProxy()" in code
+
+
+def test_tool_methods_and_all_in_generated_code():
+    tools = [
+        _as_tool(MockTool("shape_upsert", "Upsert shape.", {}, specialized_domain="shapes")),
+        _as_tool(MockTool("read_cell_range", "Read cell range.", {}, specialized_domain="ranges")),
+    ]
+    code = generate_module(tools)
+    ns: dict[str, Any] = {}
+    exec(code, ns)
+    assert "TOOL_METHODS" in ns
+    assert ns["TOOL_METHODS"]["shape_upsert"] == ("shape", "upsert")
+    assert "__all__ = [" in code
+    assert "shape" in ns["__all__"]
+    # Builtins like range must not be in __all__
+    assert "range" not in ns["__all__"]
+

@@ -439,6 +439,27 @@ def test_exchange_tool_call_plain_error_stays_runtime_error(monkeypatch):
         ipc.exchange_tool_call("apply_document_content", {})
 
 
+def test_exchange_tool_call_preserves_error_code(monkeypatch):
+    """RPC error responses with a code field attach .code to the raised RuntimeError."""
+    from plugin.scripting import ipc
+
+    written: dict[str, object] = {}
+
+    def _write(stream, message, **kwargs):
+        written["message"] = message
+
+    def _read(stream, **kwargs):
+        message = written["message"]
+        assert isinstance(message, dict)
+        return {"status": "error", "id": message["id"], "code": "CUSTOM_ERROR", "message": "custom failure"}
+
+    monkeypatch.setattr(ipc, "write_pickle_frame", _write)
+    monkeypatch.setattr(ipc, "read_pickle_frame", _read)
+    with pytest.raises(RuntimeError, match="custom failure") as exc_info:
+        ipc.exchange_tool_call("apply_document_content", {})
+    assert getattr(exc_info.value, "code", None) == "CUSTOM_ERROR"
+
+
 def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
     from plugin.scripting import ipc
 
