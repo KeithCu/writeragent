@@ -151,3 +151,129 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
     named["base_size_input"].setVisible.assert_called_with(False)
     named["base_size_label"].setVisible.assert_called_with(False)
     named["model_label"].setVisible.assert_called_with(True)
+
+
+def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
+    """A failure in _wire_model_selectors must not skip _wire_chat_mode_ui."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    custom_flags = SidebarModeFlags(include_brainstorming=True)
+    custom_toggle = MagicMock()
+    mode_ui_called = False
+
+    class _Host:
+        ctx = object()
+        send_listener = None
+        frame_session = None
+        toolpanel = None
+        m_panelRootWindow = None
+
+        def _get_document_model(self) -> object:
+            return object()
+
+        def _wire_model_selectors(self, *_args: object) -> None:
+            raise RuntimeError("model selector failed")
+
+        def _wire_chat_mode_ui(self, *_args: object, **_kwargs: object) -> tuple[str, SidebarModeFlags, object]:
+            nonlocal mode_ui_called
+            mode_ui_called = True
+            return ("web", custom_flags, custom_toggle)
+
+        def _setup_sessions(self, *_args: object) -> None:
+            return None
+
+        def _wire_buttons(self, controls: object, model: object, initial_mode: str, mode_flags: object, toggle_image_ui: object) -> None:
+            self.captured = (controls, model, initial_mode, mode_flags, toggle_image_ui)
+
+        def _update_backend_indicator(self, _root: object) -> None:
+            return None
+
+        def _on_config_changed(self, *_args: object) -> None:
+            return None
+
+    named: dict[str, MagicMock] = {}
+
+    def _ctrl(name: str) -> MagicMock:
+        if name not in named:
+            ctrl = MagicMock(name=name)
+            rect = MagicMock()
+            rect.X = 0
+            rect.Y = 0
+            rect.Width = 10
+            rect.Height = 10
+            ctrl.getPosSize.return_value = rect
+            named[name] = ctrl
+        return named[name]
+
+    root = MagicMock()
+    root_rect = MagicMock()
+    root_rect.Width = 400
+    root_rect.Height = 600
+    root.getPosSize.return_value = root_rect
+    root.getControl.side_effect = _ctrl
+
+    host = _Host()
+    with (
+        patch("plugin.chatbot.panel_wiring.translate_dialog"),
+        patch("plugin.chatbot.panel_wiring.get_optional_control", side_effect=lambda _root, name: _ctrl(name)),
+        patch("plugin.chatbot.panel_wiring.get_config", return_value=""),
+        patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
+        patch("plugin.chatbot.panel_wiring.global_event_bus.subscribe"),
+        patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
+        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
+    ):
+        _wireControls(host, root, False, lambda _ctx: None)
+
+    assert mode_ui_called is True
+    _controls, _model, initial_mode, mode_flags, toggle = host.captured
+    assert initial_mode == "web"
+    assert mode_flags is custom_flags
+    assert toggle is custom_toggle
+
+
+def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
+    """make_toggle_image_ui toggles text vs image controls and invokes resize relayout."""
+    from plugin.chatbot.panel_wiring import make_toggle_image_ui
+
+    panel = MagicMock()
+    root = MagicMock()
+    panel.m_panelRootWindow = root
+    panel.toolpanel = MagicMock()
+    rl = MagicMock()
+    panel.toolpanel.resize_listener = rl
+
+    controls = {
+        "model_label": MagicMock(),
+        "model_selector": MagicMock(),
+        "image_model_selector": MagicMock(),
+        "aspect_ratio_selector": MagicMock(),
+        "base_size_input": MagicMock(),
+        "base_size_label": MagicMock(),
+    }
+
+    toggle = make_toggle_image_ui(panel, controls)
+
+    # Image mode = True
+    toggle(True)
+    controls["model_label"].setVisible.assert_called_with(False)
+    controls["model_selector"].setVisible.assert_called_with(False)
+    controls["image_model_selector"].setVisible.assert_called_with(True)
+    controls["aspect_ratio_selector"].setVisible.assert_called_with(True)
+    controls["base_size_input"].setVisible.assert_called_with(True)
+    controls["base_size_label"].setVisible.assert_called_with(True)
+    rl.relayout_now.assert_called_with(root)
+
+    # Image mode = False
+    rl.relayout_now.reset_mock()
+    toggle(False)
+    controls["model_label"].setVisible.assert_called_with(True)
+    controls["model_selector"].setVisible.assert_called_with(True)
+    controls["image_model_selector"].setVisible.assert_called_with(False)
+    controls["aspect_ratio_selector"].setVisible.assert_called_with(False)
+    controls["base_size_input"].setVisible.assert_called_with(False)
+    controls["base_size_label"].setVisible.assert_called_with(False)
+    rl.relayout_now.assert_called_with(root)
+

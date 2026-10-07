@@ -61,7 +61,7 @@ except ImportError:
     HAS_RECORDING = False
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
-from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
+from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled
 from plugin.framework.uno_context import get_extension_url, get_extension_path
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
@@ -440,6 +440,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     m_panelRootWindow: Any
     rich_text_widget: Any
     _in_refresh_controls: bool
+    _released: bool
+    _current_mode: str
     doc_session: Any
     web_session: Any
     librarian_session: Any
@@ -457,6 +459,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.toolpanel = None
         self.m_panelRootWindow = None
         self.session: Any = None  # Created in _wireControls
+        self._released = False
+        self._current_mode = ""
+        self._in_refresh_controls = False
         # Document id from the frame session, not from whichever component is current.
         self.frame_session = frame_session
         self._live_panel_uid = ""
@@ -472,6 +477,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         from plugin.framework.thread_guard import on_main_thread
         from plugin.framework.queue_executor import post_to_main_thread
 
+        if getattr(self, "_released", False):
+            return
         if not on_main_thread():
             post_to_main_thread(self._refresh_controls_from_config)
             return
@@ -484,6 +491,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # Dummy-N URP getRealInterface: hop path init + window/wiring
                 # (get_extension_url and later @main_thread_only getters) to VCL.
                 def _create_panel() -> None:
+                    # What was wrong: a failed getRealInterface called release_live_sidebar,
+                    # which set _released = True. A subsequent retry would rebuild the panel,
+                    # but on eventual disposal release_live_sidebar returned early because
+                    # _released remained True, skipping cleanup and leaking listeners.
+                    # How: _released was never reset when re-creating the panel.
+                    # Why: reset _released = False so the newly created panel's lifecycle is tracked.
+                    self._released = False
                     # Ensure extension on path early so _wireControls imports work
                     _initialize_extension_paths(self.ctx)
                     root_window = self._getOrCreatePanelRootWindow()
@@ -638,6 +652,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         emit('config_changed') -> _refresh_controls_from_config in an infinite synchronous
         recursion loop on the main UI thread that freezes LibreOffice.
         """
+        # What was wrong: a config refresh queued by _on_config_changed could run
+        # after teardown and touch disposed controls. Why: no-op once released.
+        if getattr(self, "_released", False):
+            return
         if getattr(self, "_in_refresh_controls", False):
             return
         self._in_refresh_controls = True
@@ -917,6 +935,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         model_selector: Any,
         image_model_selector: Any,
         model: Any,
+        toggle_image_ui: Callable[[bool], None] | None = None,
     ) -> tuple[str, SidebarModeFlags, Callable[[bool], None]]:
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, is_image_mode, librarian_default_mode, mark_librarian_invoked, populate_mode_selector_with_flags, set_selector_mode_with_flags
@@ -970,22 +989,20 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 aspect_ratio_selector.addItemListener(AspectListener())
 
-        # We now use the global set_control_enabled and set_control_visible from plugin.chatbot.dialogs
+        if toggle_image_ui is None:
+            from plugin.chatbot.panel_wiring import make_toggle_image_ui
 
-        def toggle_image_ui(is_image_mode: bool) -> None:
-            set_control_visible(model_label, not is_image_mode)
-            set_control_visible(model_selector, not is_image_mode)
-            set_control_visible(image_model_selector, is_image_mode)
-            set_control_visible(aspect_ratio_selector, is_image_mode)
-            set_control_visible(base_size_input, is_image_mode)
-            set_control_visible(base_size_label, is_image_mode)
-            # Visibility swap changes vertical cluster; reflow so combos keep correct width.
-            tp = getattr(self, "toolpanel", None)
-            root = getattr(self, "m_panelRootWindow", None)
-            rl = getattr(tp, "resize_listener", None) if tp else None
-            if rl and root:
-                with suppress_disposed("relayout after toggling image UI", logger=log):
-                    rl.relayout_now(root)
+            toggle_image_ui = make_toggle_image_ui(
+                self,
+                {
+                    "model_label": model_label,
+                    "model_selector": model_selector,
+                    "image_model_selector": image_model_selector,
+                    "aspect_ratio_selector": aspect_ratio_selector,
+                    "base_size_input": base_size_input,
+                    "base_size_label": base_size_label,
+                },
+            )
 
         mode_flags = self._sidebar_mode_flags(model)
         initial_mode = librarian_default_mode(self.ctx)
@@ -1027,6 +1044,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if mode != CHAT_MODE_LIBRARIAN and send_listener:
             # Flag only — librarian ChatSession history is global and must survive mode switches.
             clear_librarian_session(send_listener)
+        self._current_mode = mode
         if mode == CHAT_MODE_LIBRARIAN:
             self.session = self.librarian_session
         elif mode in (CHAT_MODE_WEB_RESEARCH, CHAT_MODE_DEEP_RESEARCH):
@@ -1071,6 +1089,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             selector: Any
             mode_flags: Any
             apply_target: Any
+            _in_revert: bool
 
             def __init__(self, panel: Any, ctx: Any, selector: Any, flags: Any, apply_target: Any) -> None:
                 self.panel = panel
@@ -1078,8 +1097,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 self.selector = selector
                 self.mode_flags = flags
                 self.apply_target = apply_target
+                self._in_revert = False
 
             def on_item_state_changed(self, rEvent: Any) -> None:
+                if self._in_revert:
+                    return
                 # Settings refresh rebuilds this combo. Model/image listeners
                 # already ignore that; without the same guard, removeItems
                 # applies Chat and render_session_history clears the transcript.
@@ -1091,6 +1113,19 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # only this combo listener is ignored.
                 send_state = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
                 if send_state is not None and send_state.is_busy:
+                    # What was wrong: returning early left the dropdown visually changed
+                    # while self.session and UI stayed on the old mode, causing desync on next send.
+                    # How: the early return ignored the event after the combobox had already updated.
+                    # Why: revert the selector back to the active applied mode under a re-entrancy guard.
+                    applied_mode = getattr(self.panel, "_current_mode", None)
+                    if applied_mode and self.selector:
+                        self._in_revert = True
+                        try:
+                            from plugin.chatbot.chat_sidebar_mode import set_selector_mode_with_flags
+
+                            set_selector_mode_with_flags(self.selector, applied_mode, self.mode_flags)
+                        finally:
+                            self._in_revert = False
                     return
                 mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
                 self.apply_target(mode)
@@ -1306,21 +1341,39 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
 
 
-            from plugin.doc.doc_type import doc_type_label_for_enum, doc_type_title_for_label, get_document_type, get_document_uno_services
+            try:
+                from plugin.doc.doc_type import (
+                    doc_type_label_for_enum,
+                    doc_type_title_for_label,
+                    get_document_type,
+                    get_document_uno_services,
+                )
 
-            doc_type = get_document_type(model)
-            send_listener.cached_doc_type = doc_type_label_for_enum(doc_type)
-            send_listener.initial_doc_type = doc_type_title_for_label(send_listener.cached_doc_type)
-            send_listener.cached_uno_services = get_document_uno_services(model)
-            send_listener.sidebar_include_brainstorming = send_listener.cached_doc_type == "writer"
+                doc_type = get_document_type(model)
+                send_listener.cached_doc_type = doc_type_label_for_enum(doc_type)
+                send_listener.initial_doc_type = doc_type_title_for_label(send_listener.cached_doc_type)
+                send_listener.cached_uno_services = get_document_uno_services(model)
+                send_listener.sidebar_include_brainstorming = send_listener.cached_doc_type == "writer"
+            except Exception as e:
+                # What was wrong: an exception querying document uno services or doc type
+                # aborted the entire try block, skipping Send/Stop button listener attachment.
+                # How: doc service introspection was inside the monolithic try block before addActionListener.
+                # Why: isolate document service query so Send and Stop listeners are still attached.
+                log.exception("Failed to query document type / UNO services for Send listener: %s", e)
+                send_listener.cached_uno_services = frozenset()
+                if not getattr(send_listener, "cached_doc_type", None):
+                    send_listener.cached_doc_type = "writer"
+                    send_listener.initial_doc_type = "Writer"
+                    send_listener.sidebar_include_brainstorming = True
+
             send_listener.sidebar_mode_flags = mode_flags
 
-            if controls["send"]:
+            if controls.get("send"):
                 controls["send"].addActionListener(send_listener)
                 attach_record_mouse_listener(controls["send"], send_listener)
-            start_watchdog_thread(self.ctx, controls["status"])
+            start_watchdog_thread(self.ctx, controls.get("status"))
 
-            if controls["stop"]:
+            if controls.get("stop"):
                 controls["stop"].addActionListener(StopButtonListener(send_listener))
                 attach_stop_mouse_listener(controls["stop"], send_listener)
             send_listener._set_button_states(send_enabled=True, stop_enabled=False)
@@ -1330,7 +1383,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 ("send", _("Send. Record: click to record one message, hold 2 seconds for hands-free. Stop Rec: send the recording (hands-free keeps listening).")),
                 ("stop", _("Stop the reply or speech (also ends hands-free). While recording: the first click leaves hands-free, the next click cancels the recording.")),
             ):
-                btn_model = controls[btn_id].getModel() if controls.get(btn_id) and hasattr(controls[btn_id], "getModel") else None
+                ctrl = controls.get(btn_id)
+                btn_model = ctrl.getModel() if ctrl and hasattr(ctrl, "getModel") else None
                 if btn_model is not None and hasattr(btn_model, "HelpText"):
                     btn_model.HelpText = tip
         except Exception:
