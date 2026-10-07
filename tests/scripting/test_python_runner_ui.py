@@ -9,6 +9,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.scripting import python_runner_ui as ui
 
 
@@ -264,6 +266,23 @@ def test_start_native_script_run_reports_venv_failure():
     mock_finish.assert_not_called()
     assert seen and seen[0]["ok"] is False
     assert "venv down" in seen[0]["message"]
+
+
+def test_start_native_script_run_scheduling_failure_delivers_outcome_and_raises():
+    ctx = MagicMock()
+    doc = MagicMock()
+    seen = []
+
+    with (
+        _deliver_posted_native_run(),
+        patch.object(ui, "run_in_background", side_effect=RuntimeError("thread pool full")),
+    ):
+        with pytest.raises(RuntimeError, match="thread pool full"):
+            ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+
+    assert seen and seen[0]["ok"] is False
+    assert "thread pool full" in seen[0]["message"]
+
 
 
 def test_report_run_outcome_shows_stdout_alongside_result():
