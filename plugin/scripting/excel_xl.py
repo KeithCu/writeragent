@@ -22,11 +22,13 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 _HEADERS_OMIT = object()
 
 
+_FIRST_BINDING = 2
+
+
 @deal.pre(
     lambda ranges: ranges is None
     or (isinstance(ranges, (list, tuple)) and len(ranges) <= DEAL_MAX_SHAPE_DIM)
 )
-@deal.post(lambda result: callable(result))
 def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
     """Return an Excel-shaped ``xl(ref, headers=…)`` closed over *ranges*."""
     # Avoid `ranges or ()` — CrossHair returns SymbolicBool from __bool__ on empty tuples.
@@ -44,22 +46,20 @@ def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
                 "xl() only resolves formula bindings like '%P2%'; "
                 f"got {ref!r} (no live sheet reads)"
             )
-        idx = int(m.group(1)) - 2
+        ref_num = int(m.group(1))
+        idx = ref_num - _FIRST_BINDING
         if idx < 0 or idx >= len(bound):
             raise ValueError(
                 f"xl({ref!r}) has no matching data binding "
-                f"(need index {idx}, have {len(bound)} ranges)"
+                f"(ref {ref_num}, have {len(bound)} ranges)"
             )
         rng = bound[idx]
         if headers is _HEADERS_OMIT:
             return rng
-        to_pandas = getattr(rng, "to_pandas", None)
-        if not callable(to_pandas):
-            raise TypeError(f"xl() binding is not a CalcRange with to_pandas(): {type(rng).__name__}")
         if headers is True:
-            return to_pandas()
+            return rng.to_pandas()
         if headers is False:
-            return to_pandas(header_row=None)
+            return rng.to_pandas(header_row=None)
         raise ValueError(f"xl() headers must be True or False; got {headers!r}")
 
     return xl

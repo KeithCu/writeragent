@@ -230,8 +230,10 @@ def test_calc_range_1x1_string_and_blank():
     assert str(s) == "hello"
 
     blank = CalcRange([[None]])
-    with pytest.raises(TypeError):
-        _ = blank + 3
+    import math
+
+    assert math.isnan(blank + 3)
+    assert math.isnan(3 + blank)
     with pytest.raises(TypeError):
         _ = float(blank)
     with pytest.raises(TypeError):
@@ -331,4 +333,96 @@ def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
         raise
     except TypeError:
         return
+
+
+def test_calc_range_init_from_ndarray_and_dataframe():
+    """CalcRange initialized from ndarray or DataFrame must preserve shape and values."""
+    np = pytest.importorskip("numpy")
+    pd = pytest.importorskip("pandas")
+
+    arr = np.array([[10, 20], [30, 40]])
+    cr = CalcRange(arr)
+    assert cr.shape == (2, 2)
+    assert cr.values == [[10, 20], [30, 40]]
+
+    df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
+    cr_df = CalcRange(df)
+    assert cr_df.shape == (2, 2)
+    assert cr_df.values == [[1, 3], [2, 4]]
+
+
+def test_ensure_rectangular_2d_non_sequence_row():
+    """Non-sequence row items (e.g. int) become a single cell [row] instead of raising TypeError."""
+    from plugin.scripting.calc_range import ensure_rectangular_2d
+
+    assert ensure_rectangular_2d([[1, 2], 3]) == [[1, 2], [3, None]]
+    assert ensure_rectangular_2d([[1, 2], 3, [4, 5, 6]]) == [[1, 2, None], [3, None, None], [4, 5, 6]]
+
+
+def test_array_protocol_copy_parameter():
+    """np.array(CalcRange, copy=...) must support copy=True and copy=None without error."""
+    np = pytest.importorskip("numpy")
+    cr = CalcRange([[1, 2], [3, 4]])
+    arr_copy = np.array(cr, copy=True)
+    assert arr_copy.shape == (2, 2)
+    arr_none = np.array(cr, copy=None)
+    assert arr_none.shape == (2, 2)
+
+
+def test_to_numpy_no_unwanted_string_or_bool_coercion():
+    """to_numpy() uses float64 only when cells are real numbers/None; strings and bools stay object array."""
+    np = pytest.importorskip("numpy")
+
+    # String numbers must remain strings in an object array, not coerced to float
+    cr_str = CalcRange([["1.5"]])
+    arr_str = cr_str.to_numpy()
+    assert arr_str.dtype == object
+    assert arr_str[0, 0] == "1.5"
+
+    # Booleans must remain booleans in an object array, not coerced to float 1.0
+    cr_bool = CalcRange([[True]])
+    arr_bool = cr_bool.to_numpy()
+    assert arr_bool.dtype == object
+    assert arr_bool[0, 0] is True
+
+    # Numeric and None cells become float64 with nan
+    cr_num = CalcRange([[1, None, 2.5]])
+    arr_num = cr_num.to_numpy()
+    assert arr_num.dtype == np.float64
+    assert arr_num[0, 0] == 1.0
+    assert np.isnan(arr_num[0, 1])
+    assert arr_num[0, 2] == 2.5
+
+
+def test_calc_range_1x1_none_arithmetic_produces_nan():
+    """1x1 None arithmetic produces nan matching multi-cell behavior, while preserving equality."""
+    import math
+
+    blank = CalcRange([[None]])
+    assert math.isnan(blank + 10)
+    assert math.isnan(10 + blank)
+    assert math.isnan(blank - 5)
+    assert math.isnan(5 - blank)
+    assert math.isnan(blank * 2)
+    assert math.isnan(2 * blank)
+    assert math.isnan(blank / 2)
+    assert math.isnan(2 / blank)
+    assert math.isnan(-blank)
+
+    # Equality checks with None are preserved
+    assert (blank == None) is True  # noqa: E711
+    assert (blank != None) is False  # noqa: E711
+    assert (blank == 5) is False
+    assert (blank != 5) is True
+
+
+def test_materialize_calc_range_address_strip():
+    """materialize_calc_range strips whitespace from address hints."""
+    from plugin.scripting.calc_range import materialize_calc_range, pack_calc_range_envelope
+
+    r1 = materialize_calc_range(pack_calc_range_envelope([[1]], address="  Sheet1.A1  "))
+    assert r1.address == "Sheet1.A1"
+    r2 = materialize_calc_range(pack_calc_range_envelope([[1]], address="   "))
+    assert r2.address is None
+
 

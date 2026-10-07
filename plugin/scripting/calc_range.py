@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import operator
-from typing import Any, ClassVar, Iterator, cast
+from typing import Any, Callable, ClassVar, Iterator, cast
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
@@ -28,15 +28,20 @@ _DEAL_CELL_STR_LEN = 1 if UNDER_CROSSHAIR else 4
 _DEAL_COL_NAME_LEN = _DEAL_CELL_STR_LEN if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 
 
+def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:
+    """Select CrossHair vs pytest contract predicate."""
+    return crosshair_fn if UNDER_CROSSHAIR else pytest_fn
+
+
 def _cells_of_row(row: Any) -> list[Any]:
-    """One logical row. ``str`` and ``bytes`` are a single cell.
+    """One logical row. Non-sequence objects, ``str``, and ``bytes`` are a single cell.
 
     Once the first row is a real sequence, every later row used to go through
-    ``list(row)``. ``list("cd")`` is ``['c', 'd']`` and ``list(b"cd")`` is
-    integer ordinals, so ``[['a', 'b'], 'cd']`` silently became a row of
-    letters. Keep those values as one cell and let the width pad do the rest.
+    ``list(row)``.
     """
-    if isinstance(row, (str, bytes)):
+    # What was wrong: Non-iterable row items (e.g. ints) raised TypeError when passed to list(row).
+    # Why this change: Treat any non-list/tuple object (including str and bytes) as a single cell [row].
+    if not isinstance(row, (list, tuple)) or isinstance(row, (str, bytes)):
         return [row]
     return list(row)
 
@@ -67,19 +72,8 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     return [list(grid)]
 
 
-def _deal_column_vector_ok_pytest(values: object) -> bool:
-    # A sheet column longer than DEAL_MAX_SHAPE_DIM is a normal vector.
-    # The old cap raised PreContractError before the N×1 wrap. CrossHair
-    # keeps a 1-long list. ``values`` is unused on this profile.
-    return True
-
-
-def _deal_column_vector_ok_crosshair(values: object) -> bool:
-    return isinstance(values, list) and len(values) <= _DEAL_GRID_DIM
-
-
-_deal_column_vector_ok = (
-    _deal_column_vector_ok_crosshair if UNDER_CROSSHAIR else _deal_column_vector_ok_pytest
+_deal_column_vector_ok = _profile(
+    lambda values: isinstance(values, list) and len(values) <= _DEAL_GRID_DIM
 )
 
 
@@ -118,48 +112,6 @@ def pack_calc_range_envelope(
     return envelope
 
 
-def _deal_column_names_ok_pytest(names: object) -> bool:
-    # Wide sheets and long headers are real. The 256-name / token-length
-    # cap raised PreContractError inside to_pandas. The body dedupes any
-    # list of strings. CrossHair keeps the short list.
-    return True
-
-
-def _deal_column_names_ok_crosshair(names: object) -> bool:
-    return (
-        isinstance(names, list)
-        and len(names) <= _DEAL_GRID_DIM
-        and all(str_bounded(x, _DEAL_COL_NAME_LEN) for x in names)
-    )
-
-
-_deal_column_names_ok = _deal_column_names_ok_crosshair if UNDER_CROSSHAIR else _deal_column_names_ok_pytest
-
-
-@deal.pre(lambda names: _deal_column_names_ok(names))
-@deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
-def _dedupe_column_names(names: list[str]) -> list[str]:
-    """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
-
-    The counter used to be stored only under the raw base. ``['a', 'a', 'a_1']``
-    therefore emitted ``a_1`` twice (the generated suffix and the later header),
-    and the uniqueness postcondition raised ``deal.PostContractError``. A suffix
-    is skipped when that label was already emitted.
-    """
-    seen: set[str] = set()
-    out: list[str] = []
-    for raw in names:
-        base = (raw or "column").strip() or "column"
-        candidate = base
-        suffix = 1
-        while candidate in seen:
-            candidate = f"{base}_{suffix}"
-            suffix += 1
-        seen.add(candidate)
-        out.append(candidate)
-    return out
-
-
 def _deal_grid_values_ok(values: object) -> bool:
     return (
         isinstance(values, list)
@@ -171,12 +123,6 @@ def _deal_grid_values_ok(values: object) -> bool:
             for row in values
         )
     )
-
-
-def _deal_calc_range_other_ok_pytest(other: object) -> bool:
-    if other is None or isinstance(other, (bool, int, float, str)):
-        return True
-    return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
 
 
 def _deal_calc_range_other_ok_crosshair(other: object) -> bool:
@@ -193,24 +139,30 @@ def _deal_calc_range_other_ok_crosshair(other: object) -> bool:
     return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
 
 
-_deal_calc_range_other_ok = (
-    _deal_calc_range_other_ok_crosshair if UNDER_CROSSHAIR else _deal_calc_range_other_ok_pytest
+def _deal_calc_range_other_ok_pytest(other: object) -> bool:
+    if other is None or isinstance(other, (bool, int, float, str)):
+        return True
+    return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
+
+
+_deal_calc_range_other_ok = _profile(
+    _deal_calc_range_other_ok_crosshair,
+    _deal_calc_range_other_ok_pytest,
+)
+
+_deal_binary_op_pre = _profile(
+    lambda self, other: _deal_grid_values_ok(self._values) and _deal_calc_range_other_ok(other)
 )
 
 
-def _deal_binary_op_pre_pytest(self: Any, other: object) -> bool:
-    # CalcRange.__init__ accepts a full sheet. Arithmetic then hit
-    # _deal_grid_values_ok (256 rows, scalar cells) and raised
-    # PreContractError. The body already does the operation. CrossHair
-    # keeps the 1×1 domain. ``self`` and ``other`` are unused here.
-    return True
+def _binop(op: Any, reverse: bool = False) -> Any:
+    """Factory for binary operator dunders delegating to _binary_op."""
+    @deal.pre(_deal_binary_op_pre)
+    def method(self: Any, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op; doable later (cover-all 33258921875)
+        return self._binary_op(other, op, is_reverse=reverse)
 
-
-def _deal_binary_op_pre_crosshair(self: Any, other: object) -> bool:
-    return _deal_grid_values_ok(self._values) and _deal_calc_range_other_ok(other)
-
-
-_deal_binary_op_pre = _deal_binary_op_pre_crosshair if UNDER_CROSSHAIR else _deal_binary_op_pre_pytest
+    return method
 
 
 class CalcRange:
@@ -228,8 +180,11 @@ class CalcRange:
 
     def __init__(self, values: Any, *, address: str | None = None) -> None:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
-        self._values = ensure_rectangular_2d(values)
+        # What was wrong: CalcRange(np.ndarray) or CalcRange(DataFrame) built a 1x1 range
+        # because ensure_rectangular_2d treats non-list/tuple objects as a scalar.
+        # Why this change: Route values through _materialize_inner_grid to unpack ndarrays,
+        # DataFrames, and nested structures into a rectangular 2D list.
+        self._values = _materialize_inner_grid(values)
         self._address = address
 
     @property
@@ -288,17 +243,13 @@ class CalcRange:
         """Row access (``data[0]``) or slice of rows — not cell flattening."""
         return self._values[key]
 
-    def __array__(self, dtype: Any = None) -> Any:
+    def __array__(self, dtype: Any = None, copy: bool | None = None) -> Any:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
-        """NumPy array protocol — enables ``np.mean(data)`` without flattening.
+        # What was wrong: __array__ had no copy parameter, causing DeprecationWarning on numpy 2.
+        # Why this change: Accept copy parameter and pass through to to_numpy per NumPy 2 protocol.
+        return self.to_numpy(dtype=dtype, copy=copy)
 
-        ``None`` cells become ``nan`` when a numeric dtype is used so ``np.sum`` /
-        ``np.mean`` match the historic ndarray ingress behavior.
-        """
-        return self.to_numpy(dtype=dtype)
-
-    def to_numpy(self, *, dtype: Any = None) -> Any:
+    def to_numpy(self, *, dtype: Any = None, copy: bool | None = None) -> Any:
         # crosshair: off
         # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         """Explicit NumPy conversion (same as ``np.asarray(range)``)."""
@@ -310,13 +261,24 @@ class CalcRange:
             return v
 
         grid = [[_cell(v) for v in row] for row in self._values]
+        kwargs: dict[str, Any] = {}
+        if copy is not None:
+            kwargs["copy"] = copy
+
         if dtype is not None:
-            return np.asarray(grid, dtype=dtype)
-        try:
-            return np.asarray(grid, dtype=np.float64)
-        except (TypeError, ValueError):
-            # Mixed / string cells — keep object array with original values (None restored).
-            return np.asarray(self._values, dtype=object)
+            return np.array(grid, dtype=dtype, **kwargs)
+
+        # What was wrong: np.asarray(grid, dtype=float64) silently converted string numbers
+        # like "1.5" to 1.5 and True to 1.0, breaking parse_strings=False expectations.
+        # Why this change: Use float64 only when every cell is a real number (int/float, not bool) or None.
+        is_numeric = all(
+            cell is None or (not isinstance(cell, bool) and isinstance(cell, (int, float)))
+            for row in self._values
+            for cell in row
+        )
+        if is_numeric:
+            return np.array(grid, dtype=np.float64, **kwargs)
+        return np.array(self._values, dtype=object, **kwargs)
 
     def to_pandas(
         self,
@@ -431,18 +393,26 @@ class CalcRange:
     # Dispatchers
     def _binary_op(self, other: Any, op: Any, *, is_reverse: bool = False) -> Any:
         # crosshair: off
-        # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
+        # What was wrong: 1x1 range with None raised TypeError on arithmetic (None + 1),
+        # while multi-cell ranges mapped None to nan.
+        # Why this change: Map None to nan in the 1x1 numeric path for non-equality operations.
         if self.shape == (1, 1):
             val = self._values[0][0]
+            if val is None and op not in (operator.eq, operator.ne):
+                val = math.nan
             if isinstance(other, CalcRange):
                 if other.shape == (1, 1):
                     other_val = other._values[0][0]
+                    if other_val is None and op not in (operator.eq, operator.ne):
+                        other_val = math.nan
                     return op(other_val, val) if is_reverse else op(val, other_val)
                 try:
                     other_arr = other.to_numpy()
                 except Exception as exc:
                     raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
                 return op(other_arr, val) if is_reverse else op(val, other_arr)
+            if other is None and op not in (operator.eq, operator.ne):
+                other = math.nan
             return op(other, val) if is_reverse else op(val, other)
 
         try:
@@ -450,133 +420,63 @@ class CalcRange:
         except Exception as exc:
             raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
         if isinstance(other, CalcRange):
-            other = other._values[0][0] if other.shape == (1, 1) else other.to_numpy()
+            other_val = other._values[0][0] if other.shape == (1, 1) else other.to_numpy()
+            if other.shape == (1, 1) and other_val is None and op not in (operator.eq, operator.ne):
+                other_val = math.nan
+            other = other_val
+        elif other is None and op not in (operator.eq, operator.ne):
+            other = math.nan
         return op(other, self_arr) if is_reverse else op(self_arr, other)
 
     def _unary_op(self, op: Any) -> Any:
         # crosshair: off
         # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         if self.shape == (1, 1):
-            return op(self._values[0][0])
+            val = self._values[0][0]
+            if val is None:
+                val = math.nan
+            return op(val)
         try:
             return op(self.to_numpy())
         except Exception as exc:
             raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
 
     # Binary arithmetic
-    @deal.pre(_deal_binary_op_pre)
-    def __add__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.add)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __radd__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.add, is_reverse=True)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __sub__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.sub)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __rsub__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.sub, is_reverse=True)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __mul__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.mul)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __rmul__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.mul, is_reverse=True)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __truediv__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.truediv)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __rtruediv__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.truediv, is_reverse=True)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __floordiv__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.floordiv)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __rfloordiv__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.floordiv, is_reverse=True)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __mod__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.mod)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __rmod__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.mod, is_reverse=True)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __pow__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.pow)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __rpow__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.pow, is_reverse=True)
+    __add__: Callable[..., Any] = _binop(operator.add)
+    __radd__: Callable[..., Any] = _binop(operator.add, reverse=True)
+    __sub__: Callable[..., Any] = _binop(operator.sub)
+    __rsub__: Callable[..., Any] = _binop(operator.sub, reverse=True)
+    __mul__: Callable[..., Any] = _binop(operator.mul)
+    __rmul__: Callable[..., Any] = _binop(operator.mul, reverse=True)
+    __truediv__: Callable[..., Any] = _binop(operator.truediv)
+    __rtruediv__: Callable[..., Any] = _binop(operator.truediv, reverse=True)
+    __floordiv__: Callable[..., Any] = _binop(operator.floordiv)
+    __rfloordiv__: Callable[..., Any] = _binop(operator.floordiv, reverse=True)
+    __mod__: Callable[..., Any] = _binop(operator.mod)
+    __rmod__: Callable[..., Any] = _binop(operator.mod, reverse=True)
+    __pow__: Callable[..., Any] = _binop(operator.pow)
+    __rpow__: Callable[..., Any] = _binop(operator.pow, reverse=True)
 
     # Unary
     def __neg__(self) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
+        # crosshair: off  # thin wrapper around _unary_op; doable later (cover-all 33258921875)
         return self._unary_op(operator.neg)
 
     def __pos__(self) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
+        # crosshair: off  # thin wrapper around _unary_op; doable later (cover-all 33258921875)
         return self._unary_op(operator.pos)
 
     def __abs__(self) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
+        # crosshair: off  # thin wrapper around _unary_op; doable later (cover-all 33258921875)
         return self._unary_op(operator.abs)
 
     # Rich comparisons (aligned through _binary_op: 1x1 returns bool; multi-cell returns bool ndarray)
-    @deal.pre(_deal_binary_op_pre)
-    def __eq__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.eq)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __ne__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.ne)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __lt__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.lt)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __le__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.le)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __gt__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.gt)
-
-    @deal.pre(_deal_binary_op_pre)
-    def __ge__(self, other: Any) -> Any:
-        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
-        return self._binary_op(other, operator.ge)
+    __eq__: Callable[..., Any] = _binop(operator.eq)
+    __ne__: Callable[..., Any] = _binop(operator.ne)
+    __lt__: Callable[..., Any] = _binop(operator.lt)
+    __le__: Callable[..., Any] = _binop(operator.le)
+    __gt__: Callable[..., Any] = _binop(operator.gt)
+    __ge__: Callable[..., Any] = _binop(operator.ge)
 
 
 def materialize_calc_range(wire: Any) -> CalcRange:
@@ -585,43 +485,23 @@ def materialize_calc_range(wire: Any) -> CalcRange:
     if isinstance(wire, CalcRange):
         return wire
     if is_calc_range_payload(wire):
-
         inner = wire.get("data")
         address = wire.get("address")
-        if isinstance(address, str) and not address.strip():
-            address = None
-        addr = address if isinstance(address, str) else None
+        addr = address.strip() if isinstance(address, str) and address.strip() else None
         return CalcRange(_materialize_inner_grid(inner), address=addr)
 
     # Legacy / test wires: bare split_grid or nested list (no calc_range wrapper).
     return CalcRange(_materialize_inner_grid(wire))
 
 
-def _deal_inner_grid_cell_ok_pytest(c: object) -> bool:
-    return isinstance(c, (str, int, float, bool, type(None))) or hasattr(c, "dtype")
-
-
-def _deal_inner_grid_cell_ok_crosshair(c: object) -> bool:
-    # Unbounded cells exploded dunders; keep {None, 0, 1-char ascii}.
-    if c is None:
-        return True
-    if isinstance(c, int):
-        return -_DEAL_CELL_INT_ABS <= c <= _DEAL_CELL_INT_ABS
-    if isinstance(c, str):
-        return ascii_bounded(c, _DEAL_CELL_STR_LEN)
-    return False
-
-
-_deal_inner_grid_cell_ok = _deal_inner_grid_cell_ok_crosshair if UNDER_CROSSHAIR else _deal_inner_grid_cell_ok_pytest
-
-
-def _deal_json_list_of_grids_arg_ok_pytest(obj: object) -> bool:
-    # materialize_inputs asks this before treating a wire as one range.
-    # A 257-row sheet is a list longer than DEAL_MAX_SHAPE_DIM. The old
-    # cap raised PreContractError instead of returning False (scalar cells
-    # are not a list of grids). CrossHair keeps the nested size cap.
-    # ``obj`` is unused.
-    return True
+_deal_inner_grid_cell_ok = _profile(
+    lambda c: (
+        c is None
+        or (-_DEAL_CELL_INT_ABS <= c <= _DEAL_CELL_INT_ABS if isinstance(c, int) else False)
+        or (ascii_bounded(c, _DEAL_CELL_STR_LEN) if isinstance(c, str) else False)
+    ),
+    pytest_fn=lambda c: isinstance(c, (str, int, float, bool, type(None))) or hasattr(c, "dtype"),
+)
 
 
 def _deal_json_list_of_grids_arg_ok_crosshair(obj: object) -> bool:
@@ -641,17 +521,7 @@ def _deal_json_list_of_grids_arg_ok_crosshair(obj: object) -> bool:
     return True
 
 
-_deal_json_list_of_grids_arg_ok = (
-    _deal_json_list_of_grids_arg_ok_crosshair if UNDER_CROSSHAIR else _deal_json_list_of_grids_arg_ok_pytest
-)
-
-
-def _deal_materialize_inner_ok_pytest(inner: object) -> bool:
-    # Worker grids are taller than DEAL_MAX_SHAPE_DIM and cells are not
-    # only str/int/float. The cap raised PreContractError inside
-    # materialize_calc_range. The body unpacks and rectangularizes.
-    # CrossHair keeps the 1×1 scalar domain. ``inner`` is unused.
-    return True
+_deal_json_list_of_grids_arg_ok = _profile(_deal_json_list_of_grids_arg_ok_crosshair)
 
 
 def _deal_materialize_inner_ok_crosshair(inner: object) -> bool:
@@ -668,31 +538,44 @@ def _deal_materialize_inner_ok_crosshair(inner: object) -> bool:
     )
 
 
-_deal_materialize_inner_ok = (
-    _deal_materialize_inner_ok_crosshair if UNDER_CROSSHAIR else _deal_materialize_inner_ok_pytest
-)
+_deal_materialize_inner_ok = _profile(_deal_materialize_inner_ok_crosshair)
 
 
 @deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
-    """Unpack split_grid / ndarray / nested lists to a rectangular ``list[list]``."""
+    """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``."""
     # crosshair: off  # Any/numpy/split_grid combinatorics; tiny list domain later (cover-all 33258921875: 575k lines)
     from plugin.scripting.payload_codec import child_unpack_data, is_split_grid
+
+    if isinstance(inner, CalcRange):
+        return [list(row) for row in inner.values]
 
     if is_split_grid(inner):
         unpacked = child_unpack_data(inner)
     else:
         unpacked = inner
 
+    if hasattr(unpacked, "to_numpy") and callable(unpacked.to_numpy):
+        try:
+            unpacked = unpacked.to_numpy()
+        except Exception:
+            pass
+
     try:
         import numpy as np
 
         if isinstance(unpacked, np.ndarray):
             if unpacked.ndim == 0:
-                return [[_scalar(unpacked.item())]]
+                val = unpacked.item()
+                return [[_scalar(val) if unpacked.dtype == object else val]]
+            # What was wrong: _scalar imported numpy on every cell even for non-object arrays.
+            # Why this change: tolist() already returns native Python values for non-object arrays.
+            if unpacked.dtype != object:
+                raw_list = unpacked.tolist()
+                if unpacked.ndim == 1:
+                    return [raw_list]
+                return raw_list
             if unpacked.ndim == 1:
-                # 1D ndarray → single row (preserve length); callers that need N×1
-                # already pack rectangular 2D before the wire.
                 return [[_scalar(v) for v in unpacked.tolist()]]
             return [[_scalar(c) for c in row] for row in unpacked.tolist()]
     except ImportError:
@@ -709,7 +592,7 @@ def _scalar(v: Any) -> Any:
 
         if isinstance(v, np.generic):
             return v.item()
-    except Exception:
+    except (TypeError, ValueError, AttributeError):
         pass
     return v
 
@@ -756,12 +639,6 @@ def _is_json_list_of_grids(obj: Any) -> bool:
     return any(item and isinstance(item[0], (list, tuple)) and not isinstance(item[0], (str, bytes)) for item in obj)
 
 
-def _deal_labeled_grid_ok_pytest(columns: object, data: object = None, include_header: object = True) -> bool:
-    # =PY dataframe egress is an arbitrary frame, not a 256-square of
-    # scalars. The cap raised PreContractError before the header row was
-    # built. CrossHair keeps the short grid. Arguments are unused.
-    return True
-
 
 def _deal_labeled_grid_ok_crosshair(
     columns: object, data: object = None, include_header: object = True
@@ -791,9 +668,7 @@ def _deal_labeled_grid_ok_crosshair(
     )
 
 
-_deal_labeled_grid_ok = (
-    _deal_labeled_grid_ok_crosshair if UNDER_CROSSHAIR else _deal_labeled_grid_ok_pytest
-)
+_deal_labeled_grid_ok = _profile(_deal_labeled_grid_ok_crosshair)
 
 
 @deal.pre(lambda columns, data=None, include_header=True, **__: _deal_labeled_grid_ok(columns, data, include_header))
@@ -838,5 +713,4 @@ __all__ = [
     "materialize_calc_range",
     "materialize_inputs",
     "pack_calc_range_envelope",
-    "_dedupe_column_names",
 ]

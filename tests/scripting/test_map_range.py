@@ -200,3 +200,76 @@ def test_map_over_range_numpy_pandas_input():
     # Pandas Series
     s = pd.Series([2, 3, 4])
     assert map_over_range(square, s) == [4, 9, 16]
+
+
+def test_map_over_range_vector_not_first_arg_handles_blanks():
+    """Missing cell in non-first vector arg produces blank output, not #VALUE!."""
+    def scale(factor: int, x: Any) -> int:
+        return factor * int(x)
+
+    res = map_over_range(scale, 2, CalcRange([[1], [None], [3]]))
+    assert res == [[2], [""], [6]]
+
+
+def test_map_over_range_blank_scalar_first_arg_does_not_blank_all():
+    """A scalar None first argument must not blank all output rows when mapping a vector."""
+    def concat(prefix: Any, val: Any) -> str:
+        return f"{prefix}:{val}"
+
+    res = map_over_range(concat, None, CalcRange([[1], [2], [3]]))
+    assert res == [["None:1"], ["None:2"], ["None:3"]]
+
+
+def test_map_over_range_pandas_dataframe_input():
+    """Pandas DataFrame input is unwrapped into nested lists and mapped elementwise."""
+    pd = pytest.importorskip("pandas")
+
+    def square(x: int) -> int:
+        return x * x
+
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    res = map_over_range(square, df)
+    # DataFrame columns 'a'=[1,2], 'b'=[3,4] form rows [1,3], [2,4]
+    assert res == [[1, 9], [4, 16]]
+
+
+def test_broadcast_args_equal_shape_grids():
+    """Two M×N grids with identical shape can be broadcast elementwise."""
+    grid1 = CalcRange([[1, 2], [3, 4]])
+    grid2 = CalcRange([[10, 20], [30, 40]])
+    primary, b_args, _ = broadcast_args(grid1, grid2)
+    assert primary.nrows == 2
+    assert primary.ncols == 2
+    assert b_args[0] == [1, 2, 3, 4]
+    assert b_args[1] == [10, 20, 30, 40]
+
+    res = map_over_range(lambda a, b: a + b, grid1, grid2)
+    assert res == [[11, 22], [33, 44]]
+
+
+def test_broadcast_args_orientation_mismatch_raises():
+    """Row vector (1×N) and column vector (N×1) must raise an orientation mismatch error."""
+    row_vec = CalcRange([[1, 2, 3]])
+    col_vec = CalcRange([[1], [2], [3]])
+    with pytest.raises(ValueError, match="orientation mismatch"):
+        broadcast_args(row_vec, col_vec)
+
+
+def test_map_over_range_zero_division_error():
+    """ZeroDivisionError produces #DIV/0! when return_errors=True, and raises when False."""
+    def div(a: int, b: int) -> float:
+        return a / b
+
+    res = map_over_range(div, [10, 20], [2, 0])
+    assert res == [5.0, "#DIV/0!"]
+
+    with pytest.raises(ZeroDivisionError):
+        map_over_range(div, 10, 0, return_errors=False)
+
+
+def test_broadcast_args_records_vectors():
+    """broadcast_args tracks vector argument indices and keyword keys."""
+    res = broadcast_args(5, [1, 2], step=10, factor=[2, 3])
+    assert res.vector_arg_indices == [1]
+    assert res.vector_kwarg_keys == ["factor"]
+
