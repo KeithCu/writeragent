@@ -12,7 +12,6 @@ import logging
 import os
 import threading
 import time
-import traceback
 from typing import Any, Callable, Protocol
 
 from plugin.chatbot.tool_loop_state import (
@@ -588,7 +587,11 @@ def build_tool_execute_fn(
             send_cancellation=cancel_scope,
             uno_services_supported=getattr(host, "cached_uno_services", None),
         )
-        # Copy so the stored tool-call dict stays intact, drop the key, and pass False.
+        # What was wrong: ToolRegistry.execute binds keyword-only
+        # bypass_thread_guard (and ctx/tool_name) from **safe_args, so a model
+        # argument could skip execute_safe or collide with those parameters.
+        # Why: copy so the stored tool-call dict stays intact, drop the keys,
+        # and pass False. A chat argument must not set the eval-harness switch.
         call_args = safe_args
         if "bypass_thread_guard" in call_args or "ctx" in call_args or "tool_name" in call_args:
             call_args = {key: value for key, value in call_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}

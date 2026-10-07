@@ -1033,7 +1033,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
         from plugin.chatbot.tool_loop_actions import begin_send_turn
         host._active_model = Mock(name="new-doc")
         host._active_q = queue.Queue()
-        new_turn = begin_send_turn(host, "chat")
+        begin_send_turn(host, "chat")
 
         if ctx.chat_append_callback:
             ctx.chat_append_callback("research line" if name == "web_research" else "opened doc")
