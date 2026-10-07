@@ -5,8 +5,6 @@
 """Translate P1 Calc formulas to ``=PY()`` Python source via vendored AST."""
 
 from __future__ import annotations
-
-import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -17,9 +15,31 @@ from plugin.contrib.calc_formula_parser import FunctionNode, OperandNode, Operat
 from plugin.calc.python.formula_edit import sanitize_inline_py_code
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.calc.address_utils import parse_address, parse_range_string
+from plugin.calc.address_utils import parse_address, parse_range_string, split_sheet_prefix
 
-_CROSS_SHEET_RE = re.compile(r"[!']")
+
+class TranslationError(ValueError):
+    """Base error for formula translation failures."""
+
+    reason: str = "PARSE_ERROR"
+
+
+class UnsupportedFunction(TranslationError):
+    """Raised when encountering a function with no Python translation."""
+
+    reason: str = "UNSUPPORTED_FUNCTION"
+
+
+class BadArity(TranslationError):
+    """Raised when a function receives too few or too many arguments."""
+
+    reason: str = "UNSUPPORTED_ARITY"
+
+
+class UnsupportedRef(TranslationError):
+    """Raised when encountering an unsupported reference structure."""
+
+    reason: str = "UNSUPPORTED_FUNCTION"
 
 
 @dataclass
@@ -42,7 +62,27 @@ class _CodegenState:
 
 
 def _canonical_range(addr: str) -> str:
-    return str(addr).replace("$", "").upper()
+    s = str(addr).strip()
+    # Bugfix: keep quotes on quoted sheet names ('My Sheet'!A1) through tokenize/emit.
+    # What was wrong: _canonical_range stripped quotes and uppercased sheet names ('My Sheet'.A1 -> MY SHEET.A1).
+    # How: str(addr).replace('$', '').upper() stripped quotes and lost case.
+    # Why: preserve quotes and sheet case while stripping $ from references and uppercasing cell address.
+    sheet, cell = split_sheet_prefix(s)
+    if sheet is not None:
+        clean_s = s.lstrip("$")
+        if clean_s.startswith("'"):
+            end_quote = clean_s.find("'", 1)
+            while end_quote != -1 and end_quote + 1 < len(clean_s) and clean_s[end_quote + 1] == "'":
+                end_quote = clean_s.find("'", end_quote + 2)
+            if end_quote != -1:
+                quoted_sheet = clean_s[:end_quote + 1]
+                rest = clean_s[end_quote + 1:].lstrip()
+                sep = rest[0] if rest and rest[0] in (".", "!") else "."
+                cell_part = rest[1:].strip().replace("$", "").upper()
+                return f"{quoted_sheet}{sep}{cell_part}"
+        sep = "!" if "!" in s else "."
+        return f"{sheet.upper()}{sep}{cell.replace('$', '').upper()}"
+    return s.replace("$", "").upper()
 
 
 def _walk_ranges(node: Any, state: _CodegenState) -> None:
@@ -64,7 +104,7 @@ def _emit_operand(node: OperandNode) -> str:
     if node.tsubtype == "text":
         return repr(str(node.tvalue))
     if node.tsubtype == "error":
-        raise ValueError("error literal")
+        raise TranslationError("error literal")
     # number or none
     text = str(node.tvalue)
     if text.upper() in ("TRUE", "FALSE"):
@@ -87,7 +127,7 @@ def _emit_expr(node: Any, state: _CodegenState, cell_addr: str | None = None) ->
         return _emit_operator(node, state, cell_addr)
     if isinstance(node, FunctionNode):
         return _emit_function(node, state, cell_addr)
-    raise ValueError(f"unknown node {type(node)}")
+    raise TranslationError(f"unknown node {type(node)}")
 
 
 def _emit_operator(node: OperatorNode, state: _CodegenState, cell_addr: str | None = None) -> str:
@@ -97,9 +137,18 @@ def _emit_operator(node: OperatorNode, state: _CodegenState, cell_addr: str | No
             return f"(-{rhs})"
         if node.tvalue == "+":
             return rhs
-        raise ValueError("unsupported prefix op")
+        raise TranslationError("unsupported prefix op")
+    if node.ttype == "operator-postfix":
+        # Bugfix: Postfix % must bind with Excel precedence (tighter than ^ and * /; check -50% and 2^50%).
+        # What was wrong: operator-postfix was rejected with 'unsupported operator type'.
+        # How: tokenizer previously converted % to multiplication, but parser now creates a postfix OperatorNode.
+        # Why: emitting ({expr} * 0.01) with parenthesis ensures correct mathematical binding.
+        if node.tvalue == "%":
+            expr = _emit_expr(node.left, state, cell_addr)
+            return f"({expr} * 0.01)"
+        raise TranslationError(f"unsupported postfix op {node.tvalue}")
     if node.ttype != "operator-infix":
-        raise ValueError("unsupported operator type")
+        raise TranslationError("unsupported operator type")
     left = _emit_expr(node.left, state, cell_addr)
     right = _emit_expr(node.right, state, cell_addr)
     op = node.tvalue
@@ -114,81 +163,67 @@ def _emit_operator(node: OperatorNode, state: _CodegenState, cell_addr: str | No
     return f"({left} {op} {right})"
 
 
-def _emit_row_func(node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
-    if not node.args:
-        if cell_addr:
+def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
+    """Consolidated emitter for ROW/COLUMN (is_count=False) and ROWS/COLUMNS (is_count=True)."""
+    if is_count:
+        if not node.args:
+            raise BadArity("ROWS/COLUMNS requires 1 argument")
+        arg = node.args[0]
+        if isinstance(arg, RangeNode):
+            _sheet, bare = split_sheet_prefix(arg.address)
+            clean_ref = bare.replace("$", "")
             try:
-                _unused, r = parse_address(cell_addr)
-                return f"float({r + 1})"
+                (sc, sr), (ec, er) = parse_range_string(clean_ref)
+                return f"float({abs(er - sr) + 1})" if axis == 0 else f"float({abs(ec - sc) + 1})"
             except ValueError:
                 pass
-        return "float(1)"
-    arg = node.args[0]
-    if isinstance(arg, RangeNode):
-        try:
-            (_sc, sr), (_ec, er) = parse_range_string(arg.address)
-            if sr == er:
-                return f"float({sr + 1})"
-            rows = [float(r) for r in range(sr + 1, er + 2)]
-            return f"np.array({rows}, dtype=float)"
-        except ValueError:
-            pass
-    return "float(1)"
+        expr = _emit_expr(arg, state, cell_addr)
+        return f"float(np.asarray({expr}).shape[{axis}])"
 
-
-def _emit_col_func(node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
+    # ROW / COLUMN:
     if not node.args:
-        if cell_addr:
-            try:
-                c, _unused = parse_address(cell_addr)
-                return f"float({c + 1})"
-            except ValueError:
-                pass
-        return "float(1)"
-    arg = node.args[0]
-    if isinstance(arg, RangeNode):
+        if not cell_addr:
+            # Bugfix: ROW() and COLUMN() silently defaulted to float(1) when cell_addr was None.
+            # What was wrong: missing cell_addr fell through to "float(1)".
+            # How: without cell_addr, fallback 1 was returned and counted as successful translation.
+            # Why: without cell address, the formula cannot determine its row/column. Fail as unsupported.
+            raise UnsupportedRef("ROW/COLUMN without reference requires cell_addr")
         try:
-            (sc, _sr), (ec, _er) = parse_range_string(arg.address)
-            if sc == ec:
-                return f"float({sc + 1})"
-            cols = [float(c) for c in range(sc + 1, ec + 2)]
-            return f"np.array({cols}, dtype=float)"
-        except ValueError:
-            pass
-    return "float(1)"
+            col_idx, row_idx = parse_address(cell_addr.replace("$", ""))
+            return f"float({row_idx + 1})" if axis == 0 else f"float({col_idx + 1})"
+        except ValueError as exc:
+            raise UnsupportedRef(f"Cannot parse cell address {cell_addr}") from exc
 
-
-def _emit_rows_func(node: FunctionNode, state: _CodegenState) -> str:
-    if not node.args:
-        raise ValueError("ROWS arity")
     arg = node.args[0]
-    if isinstance(arg, RangeNode):
-        try:
-            (_sc, sr), (_ec, er) = parse_range_string(arg.address)
-            return f"float({abs(er - sr) + 1})"
-        except ValueError:
-            pass
-    expr = _emit_expr(arg, state)
-    return f"float(np.asarray({expr}).shape[0])"
+    if not isinstance(arg, RangeNode):
+        raise UnsupportedRef("ROW/COLUMN argument must be a range")
 
+    # Bugfix: $ and sheet prefixes caused parse_range_string to fail and silently fall back to float(1).
+    # What was wrong: =ROW($A$5) and =ROW(Sheet2.A1:A3) emitted (1)+0.0 instead of actual row numbers.
+    # How: parse_range_string rejects prefixes and $, triggering except ValueError -> return "float(1)".
+    # Why: strip sheet prefix and $ so parse_range_string extracts valid coordinates; anything else raises UnsupportedRef.
+    _sheet, bare = split_sheet_prefix(arg.address)
+    clean_ref = bare.replace("$", "")
+    try:
+        (sc, sr), (ec, er) = parse_range_string(clean_ref)
+    except ValueError as exc:
+        raise UnsupportedRef(f"Invalid range in ROW/COLUMN: {arg.address}") from exc
 
-def _emit_columns_func(node: FunctionNode, state: _CodegenState) -> str:
-    if not node.args:
-        raise ValueError("COLUMNS arity")
-    arg = node.args[0]
-    if isinstance(arg, RangeNode):
-        try:
-            (sc, _sr), (ec, _er) = parse_range_string(arg.address)
-            return f"float({abs(ec - sc) + 1})"
-        except ValueError:
-            pass
-    expr = _emit_expr(arg, state)
-    return f"float(np.asarray({expr}).shape[1])" if "np.asarray" in expr or "data" in expr else "float(1.0)"
+    if axis == 0:
+        if sr == er:
+            return f"float({sr + 1})"
+        rows = [float(r) for r in range(sr + 1, er + 2)]
+        return f"np.array({rows}, dtype=float)"
+    else:
+        if sc == ec:
+            return f"float({sc + 1})"
+        cols = [float(c) for c in range(sc + 1, ec + 2)]
+        return f"np.array({cols}, dtype=float)"
 
 
 def _emit_switch(args: list[str]) -> str:
     if len(args) < 2:
-        raise ValueError("SWITCH arity")
+        raise BadArity("SWITCH arity")
     expr = args[0]
     pairs = args[1:]
     if len(pairs) % 2 == 1:
@@ -207,7 +242,7 @@ def _emit_switch(args: list[str]) -> str:
 
 def _emit_ifs(args: list[str]) -> str:
     if len(args) < 2 or len(args) % 2 != 0:
-        raise ValueError("IFS arity")
+        raise BadArity("IFS arity")
     res = "None"
     for i in range(len(args) - 2, -1, -2):
         cond = args[i]
@@ -216,188 +251,16 @@ def _emit_ifs(args: list[str]) -> str:
     return res
 
 
-# Functions that return arbitrary types — skip scalar float() wrap in translate_formula.
-_NO_SCALAR_WRAP_FUNCTIONS = frozenset({"TRUE", "FALSE", "IF", "IFS", "SWITCH", "AND", "OR", "NOT", "ISBLANK", "ISNUMBER", "ISNA", "ISERROR", "ISTEXT", "ISLOGICAL", "ISERR", "ISNONTEXT", "ISFORMULA", "ISREF", "LINEST", "LOGEST", "MINVERSE", "MMULT", "MTRANS", "MUNIT", "TREND"})
-
-# Helpers and array-returning emitters — skip scalar float() wrap.
-_NO_FLOAT_WRAP_PREFIXES = (
-    "calc.iferror(",
-    "calc.ifna(",
-    "calc.sumif(",
-    "calc.sumifs(",
-    "calc.countif(",
-    "calc.countifs(",
-    "calc.averageif(",
-    "calc.averageifs(",
-    "calc.xlookup(",
-    "calc.textjoin(",
-    "calc.eomonth(",
-    "calc.networkdays(",
-    "calc.regex(",
-    "calc.subtotal(",
-    "calc.lookup(",
-    "calc.edate(",
-    "calc.datedif(",
-    "calc.sumproduct(",
-    "calc.averagea(",
-    "calc.fmt(",
-    "calc.bahttext(",
-    "calc.clean(",
-    "calc.dollar(",
-    "calc.encodeurl(",
-    "calc.fixed(",
-    "calc.jis(",
-    "calc.numbervalue(",
-    "calc.t(",
-    "calc.textafter(",
-    "calc.textbefore(",
-    "calc.textsplit(",
-    "calc.unichar(",
-    "calc.unicode(",
-    "calc.besseli(",
-    "calc.besselj(",
-    "calc.xmatch(",
-    "calc.workday(",
-    "calc.filter(",
-    "calc.sort(",
-    "calc.unique(",
-    "calc.sortby(",
-    "calc.rank(",
-    "calc.large(",
-    "calc.small(",
-    "calc.mode(",
-    "calc.choose(",
-    "calc.address(",
-    "calc.char(",
-    "calc.xor(",
-    "calc.areas(",
-    "calc.code(",
-    "calc.yearfrac(",
-    "calc.days360(",
-    "calc.networkdays_intl(",
-    "calc.workday_intl(",
-    "calc.daverage(",
-    "calc.dcount(",
-    "calc.dcounta(",
-    "calc.dget(",
-    "calc.dmax(",
-    "calc.dmin(",
-    "calc.dproduct(",
-    "calc.dstdev(",
-    "calc.dstdevp(",
-    "calc.dsum(",
-    "calc.dvar(",
-    "calc.dvarp(",
-    "calc.isoweeknum(",
-    "calc.factdouble(",
-    "calc.combina(",
-    "calc.avedev(",
-    "calc.geomean(",
-    "calc.harmean(",
-    "calc.npv(",
-    "calc.irr(",
-    "calc.devsq(",
-    "calc.kurt(",
-    "calc.skew(",
-    "calc.slope(",
-    "calc.intercept(",
-    "calc.rsq(",
-    "calc.steyx(",
-    "calc.acot(",
-    "calc.acoth(",
-    "calc.cot(",
-    "calc.coth(",
-    "calc.csc(",
-    "calc.csch(",
-    "calc.sec(",
-    "calc.sech(",
-    "calc.stdeva(",
-    "calc.stdevpa(",
-    "calc.vara(",
-    "calc.varpa(",
-    "calc.maxa(",
-    "calc.mina(",
-    "calc.erf(",
-    "calc.erfc(",
-    "calc.delta(",
-    "calc.gestep(",
-    "calc.sqrtpi(",
-    "calc.bitand(",
-    "calc.bitor(",
-    "calc.bitxor(",
-    "calc.bitlshift(",
-    "calc.bitrshift(",
-    "calc.complex(",
-    "calc.imabs(",
-    "calc.imaginary(",
-    "calc.imargument(",
-    "calc.imconjugate(",
-    "calc.imcos(",
-    "calc.imdiv(",
-    "calc.imexp(",
-    "calc.imln(",
-    "calc.imlog10(",
-    "calc.imlog2(",
-    "calc.impower(",
-    "calc.improduct(",
-    "calc.imreal(",
-    "calc.imsin(",
-    "calc.besselk(",
-    "calc.bessely(",
-    "calc.euroconvert(",
-    "calc.imcosh(",
-    "calc.imcot(",
-    "calc.imcsc(",
-    "calc.imcsch(",
-    "calc.imsec(",
-    "calc.imsech(",
-    "calc.imsinh(",
-    "calc.imsqrt(",
-    "calc.imsub(",
-    "calc.imsum(",
-    "calc.imtan(",
-    "calc.imtanh(",
-    "calc.xirr(",
-    "calc.xnpv(",
-    "calc.yield_calc(",
-    "calc.yielddisc(",
-    "calc.yieldmat(",
-    "calc.na(",
-    "calc.aggregate(",
-    "calc.base(",
-    "calc.decimal(",
-    "calc.multinomial(",
-    "calc.seriessum(",
-    "calc.frequency(",
-    "calc.growth(",
-    "calc.norminv(",
-    "calc.normsdist(",
-    "calc.normsinv(",
-    "calc.pearson(",
-    "calc.percentrank(",
-    "calc.permut(",
-    "calc.poisson(",
-    "calc.prob(",
-    "calc.standardize(",
-    "calc.tdist(",
-    "calc.tinv(",
-    "calc.ttest(",
-    "calc.weibull(",
-    "calc.ztest(",
-    "calc.asc(",
-)
-
-
 def _emit_function(node: FunctionNode, state: _CodegenState, cell_addr: str | None = None) -> str:
     name = str(node.tvalue).upper().replace("_XLFN.", "")
     if name == "ROW":
-        return _emit_row_func(node, state, cell_addr)
+        return _emit_row_col(0, False, node, state, cell_addr)
     if name == "COLUMN":
-        return _emit_col_func(node, state, cell_addr)
+        return _emit_row_col(1, False, node, state, cell_addr)
     if name == "ROWS":
-        return _emit_rows_func(node, state)
+        return _emit_row_col(0, True, node, state, cell_addr)
     if name == "COLUMNS":
-        return _emit_columns_func(node, state)
+        return _emit_row_col(1, True, node, state, cell_addr)
     args = [_emit_expr(arg, state, cell_addr) for arg in (node.args or [])]
     if name == "SWITCH":
         return _emit_switch(args)
@@ -405,386 +268,412 @@ def _emit_function(node: FunctionNode, state: _CodegenState, cell_addr: str | No
         return _emit_ifs(args)
     emitted = _P1_FUNCTION_EMITTERS.get(name)
     if emitted is None:
-        raise ValueError(f"unsupported function {name}")
-    return emitted(args)
+        raise UnsupportedFunction(f"unsupported function {name}")
+    try:
+        return emitted(args)
+    except IndexError as exc:
+        # Bugfix: catch IndexError when a function gets too few args and report an unsupported/arity error instead of crashing.
+        # What was wrong: indexing missing args crashed out of translate_formula.
+        # How: custom lambdas indexed args directly without length checks.
+        # Why: catch IndexError and raise BadArity to report UNSUPPORTED_ARITY gracefully.
+        raise BadArity(f"insufficient arguments for {name}") from exc
 
 
 def _emit_if(args: list[str]) -> str:
-    if len(args) != 3:
-        raise ValueError("IF arity")
-    return f"({args[1]} if {args[0]} else {args[2]})"
+    # Bugfix: IF with 2 arguments (no else branch) was rejected with ValueError.
+    # What was wrong: _emit_if required len(args) == 3, reporting legal IF(cond; val) as PARSE_ERROR.
+    # How: len(args) != 3 raised ValueError("IF arity").
+    # Why: Excel and Calc return FALSE when the condition is false and the else branch is omitted.
+    if len(args) == 2:
+        return f"({args[1]} if {args[0]} else False)"
+    if len(args) == 3:
+        return f"({args[1]} if {args[0]} else {args[2]})"
+    raise BadArity("IF expects 2 or 3 arguments")
+
+
+def _bad_arity(name: str, expected: int | str, got: int) -> str:
+    raise BadArity(f"{name} expects {expected} args, got {got}")
+
+
+def _calc(name: str, min_args: int = 1, max_args: int | None = None) -> Callable[[list[str]], str]:
+    def emitter(args: list[str]) -> str:
+        if len(args) < min_args or (max_args is not None and len(args) > max_args):
+            expected = str(min_args) if max_args == min_args else f"{min_args}-{max_args}" if max_args is not None else f">={min_args}"
+            _bad_arity(name, expected, len(args))
+        return f"calc.{name}({', '.join(args)})"
+
+    return emitter
 
 
 # P1 function emitters: args are already Python sub-expressions using data[i].
 _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
-    "ACCRINT": lambda a: f"calc.accrint({', '.join(a)})",
-    "ACCRINTM": lambda a: f"calc.accrintm({', '.join(a)})",
-    "AMORDEGRC": lambda a: f"calc.amordegrc({', '.join(a)})",
-    "AMORLINC": lambda a: f"calc.amorlinc({', '.join(a)})",
-    "COUPDAYBS": lambda a: f"calc.coupdaybs({', '.join(a)})",
-    "COUPDAYS": lambda a: f"calc.coupdays({', '.join(a)})",
-    "COUPDAYSNC": lambda a: f"calc.coupdaysnc({', '.join(a)})",
-    "COUPNCD": lambda a: f"calc.coupncd({', '.join(a)})",
-    "COUPNUM": lambda a: f"calc.coupnum({', '.join(a)})",
-    "COUPPCD": lambda a: f"calc.couppcd({', '.join(a)})",
-    "CUMIPMT": lambda a: f"calc.cumipmt({', '.join(a)})",
-    "CUMPRINC": lambda a: f"calc.cumprinc({', '.join(a)})",
-    "DB": lambda a: f"calc.db({', '.join(a)})",
-    "DDB": lambda a: f"calc.ddb({', '.join(a)})",
-    "DISC": lambda a: f"calc.disc({', '.join(a)})",
+    "ACCRINT": _calc("accrint", 6, 8),
+    "ACCRINTM": _calc("accrintm", 4, 6),
+    "AMORDEGRC": _calc("amordegrc", 6, 7),
+    "AMORLINC": _calc("amorlinc", 6, 7),
+    "COUPDAYBS": _calc("coupdaybs", 3, 4),
+    "COUPDAYS": _calc("coupdays", 3, 4),
+    "COUPDAYSNC": _calc("coupdaysnc", 3, 4),
+    "COUPNCD": _calc("coupncd", 3, 4),
+    "COUPNUM": _calc("coupnum", 3, 4),
+    "COUPPCD": _calc("couppcd", 3, 4),
+    "CUMIPMT": _calc("cumipmt", 6, 6),
+    "CUMPRINC": _calc("cumprinc", 6, 6),
+    "DB": _calc("db", 4, 5),
+    "DDB": _calc("ddb", 4, 5),
+    "DISC": _calc("disc", 4, 5),
     # SUM: not translated — keep native =SUM(); inline np.sum(data) is lexer-safe but blank/text semantics differ from Calc.
-    "AVERAGE": lambda a: f"np.mean({a[0]})" if len(a) == 1 else f"np.mean(np.concatenate([np.asarray(x).ravel() for x in [{', '.join(a)}]]))",
-    "PRODUCT": lambda a: f"np.prod({a[0]})" if len(a) == 1 else f"np.prod([np.prod(x) for x in [{', '.join(a)}]])",
-    "MAX": lambda a: f"np.nanmax({a[0]})" if len(a) == 1 else f"np.nanmax([np.nanmax(x) for x in [{', '.join(a)}]])",
-    "MIN": lambda a: f"np.nanmin({a[0]})" if len(a) == 1 else f"np.nanmin([np.nanmin(x) for x in [{', '.join(a)}]])",
-    "COUNT": lambda a: f"np.sum(np.isfinite(np.asarray({a[0]}, dtype=float).ravel()))" if len(a) == 1 else f"sum(np.sum(np.isfinite(np.asarray(x, dtype=float).ravel())) for x in [{', '.join(a)}])",
-    "COUNTA": lambda a: f"sum(1 for x in np.asarray({a[0]}).ravel() if x is not None and str(x) != '')" if len(a) == 1 else f"sum(sum(1 for val in np.asarray(x).ravel() if val is not None and str(val) != '') for x in [{', '.join(a)}])",
-    "ABS": lambda a: f"np.abs({a[0]})",
-    "SQRT": lambda a: f"np.sqrt({a[0]})",
-    "SIGN": lambda a: f"np.sign({a[0]})",
-    "INT": lambda a: f"np.floor({a[0]})",
-    "TRUNC": lambda a: f"np.trunc({a[0]})",
-    "EXP": lambda a: f"np.exp({a[0]})",
-    "LN": lambda a: f"np.log({a[0]})",
-    "LOG10": lambda a: f"np.log10({a[0]})",
-    "MOD": lambda a: f"{a[0]} % {a[1]}",
-    "POWER": lambda a: f"{a[0]} ** {a[1]}",
-    "ROUND": lambda a: f"np.round({a[0]}, {a[1]})" if len(a) > 1 else f"np.round({a[0]})",
-    "SIN": lambda a: f"np.sin({a[0]})",
-    "COS": lambda a: f"np.cos({a[0]})",
-    "TAN": lambda a: f"np.tan({a[0]})",
-    "NOT": lambda a: f"(not {a[0]})",
+    "AVERAGE": lambda a: (f"np.mean({a[0]})" if len(a) == 1 else f"np.mean(np.concatenate([np.asarray(x).ravel() for x in [{', '.join(a)}]]))") if len(a) >= 1 else _bad_arity("AVERAGE", ">=1", 0),
+    "PRODUCT": lambda a: (f"np.prod({a[0]})" if len(a) == 1 else f"np.prod([np.prod(x) for x in [{', '.join(a)}]])") if len(a) >= 1 else _bad_arity("PRODUCT", ">=1", 0),
+    "MAX": lambda a: (f"np.nanmax({a[0]})" if len(a) == 1 else f"np.nanmax([np.nanmax(x) for x in [{', '.join(a)}]])") if len(a) >= 1 else _bad_arity("MAX", ">=1", 0),
+    "MIN": lambda a: (f"np.nanmin({a[0]})" if len(a) == 1 else f"np.nanmin([np.nanmin(x) for x in [{', '.join(a)}]])") if len(a) >= 1 else _bad_arity("MIN", ">=1", 0),
+    "COUNT": lambda a: (f"np.sum(np.isfinite(np.asarray({a[0]}, dtype=float).ravel()))" if len(a) == 1 else f"sum(np.sum(np.isfinite(np.asarray(x, dtype=float).ravel())) for x in [{', '.join(a)}])") if len(a) >= 1 else _bad_arity("COUNT", ">=1", 0),
+    "COUNTA": lambda a: (f"sum(1 for x in np.asarray({a[0]}).ravel() if x is not None and str(x) != '')" if len(a) == 1 else f"sum(sum(1 for val in np.asarray(x).ravel() if val is not None and str(val) != '') for x in [{', '.join(a)}])") if len(a) >= 1 else _bad_arity("COUNTA", ">=1", 0),
+    "ABS": lambda a: f"np.abs({a[0]})" if len(a) == 1 else _bad_arity("ABS", 1, len(a)),
+    "SQRT": lambda a: f"np.sqrt({a[0]})" if len(a) == 1 else _bad_arity("SQRT", 1, len(a)),
+    "SIGN": lambda a: f"np.sign({a[0]})" if len(a) == 1 else _bad_arity("SIGN", 1, len(a)),
+    "INT": lambda a: f"np.floor({a[0]})" if len(a) == 1 else _bad_arity("INT", 1, len(a)),
+    "TRUNC": lambda a: f"np.trunc({a[0]})" if len(a) == 1 else _bad_arity("TRUNC", 1, len(a)),
+    "EXP": lambda a: f"np.exp({a[0]})" if len(a) == 1 else _bad_arity("EXP", 1, len(a)),
+    "LN": lambda a: f"np.log({a[0]})" if len(a) == 1 else _bad_arity("LN", 1, len(a)),
+    "LOG10": lambda a: f"np.log10({a[0]})" if len(a) == 1 else _bad_arity("LOG10", 1, len(a)),
+    # Bugfix: parenthesize infix emitter expressions (MOD, POWER, QUOTIENT, etc.) to preserve operator precedence when nested.
+    # What was wrong: =2*MOD(A1;B1) emitted (2 * a % b) evaluating as (2*a)%b, and 1/LOG(...) evaluated as (1/np.log(a)/np.log(b)).
+    # How: expressions lacked outer parentheses in the emitted strings.
+    # Why: wrapping every compound/infix emitter in parentheses ensures Python evaluates with correct Calc formula semantics.
+    "MOD": lambda a: f"({a[0]} % {a[1]})" if len(a) == 2 else _bad_arity("MOD", 2, len(a)),
+    "POWER": lambda a: f"({a[0]} ** {a[1]})" if len(a) == 2 else _bad_arity("POWER", 2, len(a)),
+    "ROUND": lambda a: (f"np.round({a[0]}, {a[1]})" if len(a) > 1 else f"np.round({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("ROUND", "1-2", len(a)),
+    "SIN": lambda a: f"np.sin({a[0]})" if len(a) == 1 else _bad_arity("SIN", 1, len(a)),
+    "COS": lambda a: f"np.cos({a[0]})" if len(a) == 1 else _bad_arity("COS", 1, len(a)),
+    "TAN": lambda a: f"np.tan({a[0]})" if len(a) == 1 else _bad_arity("TAN", 1, len(a)),
+    "NOT": lambda a: f"(not {a[0]})" if len(a) == 1 else _bad_arity("NOT", 1, len(a)),
     "TRUE": lambda _a: "True",
     "FALSE": lambda _a: "False",
     "PI": lambda _a: "math.pi",
     "IF": _emit_if,
-    "AND": lambda a: f"all([{', '.join(a)}])",
-    "OR": lambda a: f"any([{', '.join(a)}])",
+    "AND": lambda a: f"all([{', '.join(a)}])" if len(a) >= 1 else _bad_arity("AND", ">=1", 0),
+    "OR": lambda a: f"any([{', '.join(a)}])" if len(a) >= 1 else _bad_arity("OR", ">=1", 0),
     # Text (P2)
     "CONCATENATE": lambda a: f'"".join(str(x) for x in [{", ".join(a)}])',
     "CONCAT": lambda a: f'"".join(str(x) for x in np.asarray([{", ".join(a)}]).ravel())',
-    "LEFT": lambda a: f"str({a[0]})[:int({a[1]})]" if len(a) > 1 else f"str({a[0]})[:1]",
-    "RIGHT": lambda a: f"str({a[0]})[-int({a[1]}):]" if len(a) > 1 else f"str({a[0]})[-1:]",
-    "MID": lambda a: f"str({a[0]})[max(0, int({a[1]})-1) : max(0, int({a[1]})-1) + int({a[2]})]",
-    "LEN": lambda a: f"float(len(str({a[0]})))",
-    "LOWER": lambda a: f"str({a[0]}).lower()",
-    "UPPER": lambda a: f"str({a[0]}).upper()",
-    "PROPER": lambda a: f"str({a[0]}).title()",
-    "TRIM": lambda a: f"str({a[0]}).strip()",
-    "SUBSTITUTE": lambda a: f"str({a[0]}).replace(str({a[1]}), str({a[2]}))" if len(a) > 2 else f'str({a[0]}).replace(str({a[1]}), "")',
-    "REPLACE": lambda a: f"str({a[0]})[:max(0, int({a[1]})-1)] + str({a[3]}) + str({a[0]})[max(0, int({a[1]})-1) + int({a[2]}):]",
-    "FIND": lambda a: f"float(str({a[1]}).find(str({a[0]})) + 1)",
-    "SEARCH": lambda a: f"float(str({a[1]}).lower().find(str({a[0]}).lower()) + 1)",
-    "VALUE": lambda a: f"float({a[0]})",
+    "LEFT": lambda a: (f"str({a[0]})[:int({a[1]})]" if len(a) > 1 else f"str({a[0]})[:1]") if 1 <= len(a) <= 2 else _bad_arity("LEFT", "1-2", len(a)),
+    "RIGHT": lambda a: (f"str({a[0]})[-int({a[1]}):]" if len(a) > 1 else f"str({a[0]})[-1:]") if 1 <= len(a) <= 2 else _bad_arity("RIGHT", "1-2", len(a)),
+    "MID": lambda a: f"str({a[0]})[max(0, int({a[1]})-1) : max(0, int({a[1]})-1) + int({a[2]})]" if len(a) == 3 else _bad_arity("MID", 3, len(a)),
+    "LEN": lambda a: f"float(len(str({a[0]})))" if len(a) == 1 else _bad_arity("LEN", 1, len(a)),
+    "LOWER": lambda a: f"str({a[0]}).lower()" if len(a) == 1 else _bad_arity("LOWER", 1, len(a)),
+    "UPPER": lambda a: f"str({a[0]}).upper()" if len(a) == 1 else _bad_arity("UPPER", 1, len(a)),
+    "PROPER": lambda a: f"str({a[0]}).title()" if len(a) == 1 else _bad_arity("PROPER", 1, len(a)),
+    "TRIM": lambda a: f"str({a[0]}).strip()" if len(a) == 1 else _bad_arity("TRIM", 1, len(a)),
+    "SUBSTITUTE": lambda a: (f"str({a[0]}).replace(str({a[1]}), str({a[2]}))" if len(a) > 2 else f'str({a[0]}).replace(str({a[1]}), "")') if 2 <= len(a) <= 4 else _bad_arity("SUBSTITUTE", "2-4", len(a)),
+    "REPLACE": lambda a: f"(str({a[0]})[:max(0, int({a[1]})-1)] + str({a[3]}) + str({a[0]})[max(0, int({a[1]})-1) + int({a[2]}):])" if len(a) == 4 else _bad_arity("REPLACE", 4, len(a)),
+    "FIND": lambda a: f"float(str({a[1]}).find(str({a[0]})) + 1)" if 2 <= len(a) <= 3 else _bad_arity("FIND", "2-3", len(a)),
+    "SEARCH": lambda a: f"float(str({a[1]}).lower().find(str({a[0]}).lower()) + 1)" if 2 <= len(a) <= 3 else _bad_arity("SEARCH", "2-3", len(a)),
+    "VALUE": lambda a: f"float({a[0]})" if len(a) == 1 else _bad_arity("VALUE", 1, len(a)),
     # Date & Time (P2) — use auto-imported ``dt`` (datetime as dt)
     "TODAY": lambda _a: "float(dt.date.today().toordinal() - 693594)",
     "NOW": lambda _a: "float(dt.datetime.now().toordinal() - 693594)",
-    "YEAR": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).year)",
-    "MONTH": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).month)",
-    "DAY": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).day)",
+    "YEAR": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).year)" if len(a) == 1 else _bad_arity("YEAR", 1, len(a)),
+    "MONTH": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).month)" if len(a) == 1 else _bad_arity("MONTH", 1, len(a)),
+    "DAY": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).day)" if len(a) == 1 else _bad_arity("DAY", 1, len(a)),
     # Statistical (P2)
-    "STDEV": lambda a: f"np.std({a[0]}, ddof=1)",
-    "STDEVP": lambda a: f"np.std({a[0]}, ddof=0)",
-    "VAR": lambda a: f"np.var({a[0]}, ddof=1)",
-    "VARP": lambda a: f"np.var({a[0]}, ddof=0)",
-    "TRANSPOSE": lambda a: f"np.asarray({a[0]}).T.tolist()",
+    "STDEV": lambda a: f"np.std({a[0]}, ddof=1)" if len(a) >= 1 else _bad_arity("STDEV", ">=1", 0),
+    "STDEVP": lambda a: f"np.std({a[0]}, ddof=0)" if len(a) >= 1 else _bad_arity("STDEVP", ">=1", 0),
+    "VAR": lambda a: f"np.var({a[0]}, ddof=1)" if len(a) >= 1 else _bad_arity("VAR", ">=1", 0),
+    "VARP": lambda a: f"np.var({a[0]}, ddof=0)" if len(a) >= 1 else _bad_arity("VARP", ">=1", 0),
+    "TRANSPOSE": lambda a: f"np.asarray({a[0]}).T.tolist()" if len(a) == 1 else _bad_arity("TRANSPOSE", 1, len(a)),
     # Lookup & Reference (P2)
-    "VLOOKUP": lambda a: f"next((r[int({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)",
-    "HLOOKUP": lambda a: f"next((np.asarray({a[1]})[int({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)",
-    "INDEX": lambda a: f"np.asarray({a[0]})[int({a[1]})-1, int({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[int({a[1]})-1]",
-    "MATCH": lambda a: f"float(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))",
+    "VLOOKUP": lambda a: f"next((r[int({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)" if 3 <= len(a) <= 4 else _bad_arity("VLOOKUP", "3-4", len(a)),
+    "HLOOKUP": lambda a: f"next((np.asarray({a[1]})[int({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)" if 3 <= len(a) <= 4 else _bad_arity("HLOOKUP", "3-4", len(a)),
+    "INDEX": lambda a: (f"np.asarray({a[0]})[int({a[1]})-1, int({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[int({a[1]})-1]") if 2 <= len(a) <= 4 else _bad_arity("INDEX", "2-4", len(a)),
+    "MATCH": lambda a: f"float(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))" if 2 <= len(a) <= 3 else _bad_arity("MATCH", "2-3", len(a)),
     # Logical (P2)
-    "IFERROR": lambda a: f"calc.iferror(lambda: {a[0]}, {a[1]})",
-    "IFNA": lambda a: f"calc.ifna(lambda: {a[0]}, {a[1]})",
+    "IFERROR": lambda a: f"calc.iferror(lambda: {a[0]}, {a[1]})" if len(a) == 2 else _bad_arity("IFERROR", 2, len(a)),
+    "IFNA": lambda a: f"calc.ifna(lambda: {a[0]}, {a[1]})" if len(a) == 2 else _bad_arity("IFNA", 2, len(a)),
     # Math & Trig (P2)
-    "ASIN": lambda a: f"np.arcsin({a[0]})",
-    "ACOS": lambda a: f"np.arccos({a[0]})",
-    "ATAN": lambda a: f"np.arctan({a[0]})",
-    "ATAN2": lambda a: f"np.arctan2({a[1]}, {a[0]})",
-    "ACOSH": lambda a: f"np.arccosh({a[0]})",
-    "ASINH": lambda a: f"np.arcsinh({a[0]})",
-    "ATANH": lambda a: f"np.arctanh({a[0]})",
-    "COSH": lambda a: f"np.cosh({a[0]})",
-    "SINH": lambda a: f"np.sinh({a[0]})",
-    "TANH": lambda a: f"np.tanh({a[0]})",
-    "DEGREES": lambda a: f"np.degrees({a[0]})",
-    "RADIANS": lambda a: f"np.radians({a[0]})",
-    "GCD": lambda a: f"math.gcd({', '.join(a)})" if len(a) > 1 else f"math.gcd({a[0]}, 0)",
-    "LCM": lambda a: f"math.lcm({', '.join(a)})" if len(a) > 1 else f"int({a[0]})",
-    "FACT": lambda a: f"calc.fact({a[0]})",
-    "COMBIN": lambda a: f"calc.combin({a[0]}, {a[1]})",
-    "REPT": lambda a: f"calc.rept({a[0]}, {a[1]})",
-    "EXACT": lambda a: f"(str({a[0]}) == str({a[1]}))",
-    "ARABIC": lambda a: f"calc.arabic({a[0]})",
-    "BAHTTEXT": lambda a: f"calc.bahttext({a[0]})",
-    "CLEAN": lambda a: f"calc.clean({a[0]})",
-    "DOLLAR": lambda a: f"calc.dollar({', '.join(a)})",
-    "ENCODEURL": lambda a: f"calc.encodeurl({a[0]})",
-    "FIXED": lambda a: f"calc.fixed({', '.join(a)})",
-    "JIS": lambda a: f"calc.jis({a[0]})",
-    "NUMBERVALUE": lambda a: f"calc.numbervalue({', '.join(a)})",
-    "T": lambda a: f"calc.t({a[0]})",
-    "TEXTAFTER": lambda a: f"calc.textafter({', '.join(a)})",
-    "TEXTBEFORE": lambda a: f"calc.textbefore({', '.join(a)})",
-    "TEXTSPLIT": lambda a: f"calc.textsplit({', '.join(a)})",
-    "UNICHAR": lambda a: f"calc.unichar({a[0]})",
-    "UNICODE": lambda a: f"calc.unicode({a[0]})",
-    "BESSELI": lambda a: f"calc.besseli({', '.join(a)})",
-    "BESSELJ": lambda a: f"calc.besselj({', '.join(a)})",
+    "ASIN": lambda a: f"np.arcsin({a[0]})" if len(a) == 1 else _bad_arity("ASIN", 1, len(a)),
+    "ACOS": lambda a: f"np.arccos({a[0]})" if len(a) == 1 else _bad_arity("ACOS", 1, len(a)),
+    "ATAN": lambda a: f"np.arctan({a[0]})" if len(a) == 1 else _bad_arity("ATAN", 1, len(a)),
+    "ATAN2": lambda a: f"np.arctan2({a[1]}, {a[0]})" if len(a) == 2 else _bad_arity("ATAN2", 2, len(a)),
+    "ACOSH": lambda a: f"np.arccosh({a[0]})" if len(a) == 1 else _bad_arity("ACOSH", 1, len(a)),
+    "ASINH": lambda a: f"np.arcsinh({a[0]})" if len(a) == 1 else _bad_arity("ASINH", 1, len(a)),
+    "ATANH": lambda a: f"np.arctanh({a[0]})" if len(a) == 1 else _bad_arity("ATANH", 1, len(a)),
+    "COSH": lambda a: f"np.cosh({a[0]})" if len(a) == 1 else _bad_arity("COSH", 1, len(a)),
+    "SINH": lambda a: f"np.sinh({a[0]})" if len(a) == 1 else _bad_arity("SINH", 1, len(a)),
+    "TANH": lambda a: f"np.tanh({a[0]})" if len(a) == 1 else _bad_arity("TANH", 1, len(a)),
+    "DEGREES": lambda a: f"np.degrees({a[0]})" if len(a) == 1 else _bad_arity("DEGREES", 1, len(a)),
+    "RADIANS": lambda a: f"np.radians({a[0]})" if len(a) == 1 else _bad_arity("RADIANS", 1, len(a)),
+    "GCD": lambda a: f"math.gcd({', '.join(a)})" if len(a) > 1 else (f"math.gcd({a[0]}, 0)" if len(a) == 1 else _bad_arity("GCD", ">=1", 0)),
+    "LCM": lambda a: f"math.lcm({', '.join(a)})" if len(a) > 1 else (f"int({a[0]})" if len(a) == 1 else _bad_arity("LCM", ">=1", 0)),
+    "FACT": _calc("fact", 1, 1),
+    "COMBIN": _calc("combin", 2, 2),
+    "REPT": _calc("rept", 2, 2),
+    "EXACT": lambda a: f"(str({a[0]}) == str({a[1]}))" if len(a) == 2 else _bad_arity("EXACT", 2, len(a)),
+    "ARABIC": _calc("arabic", 1, 1),
+    "BAHTTEXT": _calc("bahttext", 1, 1),
+    "CLEAN": _calc("clean", 1, 1),
+    "DOLLAR": _calc("dollar", 1, 2),
+    "ENCODEURL": _calc("encodeurl", 1, 1),
+    "FIXED": _calc("fixed", 1, 3),
+    "JIS": _calc("jis", 1, 1),
+    "NUMBERVALUE": _calc("numbervalue", 1, 3),
+    "T": _calc("t", 1, 1),
+    "TEXTAFTER": _calc("textafter", 2, 6),
+    "TEXTBEFORE": _calc("textbefore", 2, 6),
+    "TEXTSPLIT": _calc("textsplit", 2, 6),
+    "UNICHAR": _calc("unichar", 1, 1),
+    "UNICODE": _calc("unicode", 1, 1),
+    "BESSELI": _calc("besseli", 2, 2),
+    "BESSELJ": _calc("besselj", 2, 2),
     # Date & Time (P2)
-    "DATE": lambda a: f"float(dt.date(int({a[0]}), int({a[1]}), int({a[2]})).toordinal() - 693594)",
-    "HOUR": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).hour)",
-    "MINUTE": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).minute)",
-    "SECOND": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).second)",
-    "DATEVALUE": lambda a: f"calc.datevalue({a[0]})",
-    "TIMEVALUE": lambda a: f"calc.timevalue({a[0]})",
+    "DATE": lambda a: f"float(dt.date(int({a[0]}), int({a[1]}), int({a[2]})).toordinal() - 693594)" if len(a) == 3 else _bad_arity("DATE", 3, len(a)),
+    "HOUR": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).hour)" if len(a) == 1 else _bad_arity("HOUR", 1, len(a)),
+    "MINUTE": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).minute)" if len(a) == 1 else _bad_arity("MINUTE", 1, len(a)),
+    "SECOND": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).second)" if len(a) == 1 else _bad_arity("SECOND", 1, len(a)),
+    "DATEVALUE": _calc("datevalue", 1, 1),
+    "TIMEVALUE": _calc("timevalue", 1, 1),
     # Conditional Aggregates
-    "SUMIF": lambda a: f"calc.sumif({a[0]}, {a[1]}, {a[2]})" if len(a) > 2 else f"calc.sumif({a[0]}, {a[1]})",
-    "SUMIFS": lambda a: f"calc.sumifs({a[0]}, {', '.join(a[1:])})",
-    "COUNTIF": lambda a: f"calc.countif({a[0]}, {a[1]})",
-    "COUNTIFS": lambda a: f"calc.countifs({', '.join(a)})",
-    "AVERAGEIF": lambda a: f"calc.averageif({a[0]}, {a[1]}, {a[2]})" if len(a) > 2 else f"calc.averageif({a[0]}, {a[1]})",
-    "AVERAGEIFS": lambda a: f"calc.averageifs({a[0]}, {', '.join(a[1:])})",
-    "N": lambda a: f"calc.n({a[0]})",
-    "TYPE": lambda a: f"calc.type({a[0]})",
+    "SUMIF": _calc("sumif", 2, 3),
+    "SUMIFS": _calc("sumifs", 3),
+    "COUNTIF": _calc("countif", 2, 2),
+    "COUNTIFS": _calc("countifs", 2),
+    "AVERAGEIF": _calc("averageif", 2, 3),
+    "AVERAGEIFS": _calc("averageifs", 3),
+    "N": _calc("n", 1, 1),
+    "TYPE": _calc("type", 1, 1),
     # Lookup & Reference (XLOOKUP)
-    "XLOOKUP": lambda a: f"calc.xlookup({', '.join(a)})",
+    "XLOOKUP": _calc("xlookup", 3, 6),
     # Text (TEXTJOIN, REGEX)
-    "TEXTJOIN": lambda a: f"calc.textjoin({', '.join(a)})",
-    "REGEX": lambda a: f"calc.regex({', '.join(a)})",
+    "TEXTJOIN": _calc("textjoin", 3),
+    "REGEX": _calc("regex", 2, 4),
     # Date & Time (EOMONTH, NETWORKDAYS)
-    "EOMONTH": lambda a: f"calc.eomonth({a[0]}, {a[1]})",
-    "NETWORKDAYS": lambda a: f"calc.networkdays({', '.join(a)})",
+    "EOMONTH": _calc("eomonth", 2, 2),
+    "NETWORKDAYS": _calc("networkdays", 2, 3),
     # Tier A — high-frequency gaps
-    "SUBTOTAL": lambda a: f"calc.subtotal({a[0]}, {a[1]})" if len(a) > 1 else f"calc.subtotal(9, {a[0]})",
-    "ISBLANK": lambda a: f"calc.isblank({a[0]})",
-    "ISNUMBER": lambda a: f"calc.isnumber({a[0]})",
-    "ISNA": lambda a: f"calc.isna({a[0]})",
-    "ISERROR": lambda a: f"calc.iserror({a[0]})",
-    "LOOKUP": lambda a: f"calc.lookup({', '.join(a)})",
-    "MEDIAN": lambda a: f"np.median({a[0]})",
-    "COUNTBLANK": lambda a: f"sum(1 for x in np.asarray({a[0]}).ravel() if x is None or x == '')",
-    "ROUNDUP": lambda a: f"np.ceil({a[0]} * 10**int({a[1]})) / 10**int({a[1]})" if len(a) > 1 else f"np.ceil({a[0]})",
-    "ROUNDDOWN": lambda a: f"np.floor({a[0]} * 10**int({a[1]})) / 10**int({a[1]})" if len(a) > 1 else f"np.floor({a[0]})",
-    "CEILING": lambda a: f"np.ceil({a[0]})" if len(a) == 1 else f"np.ceil({a[0]} / {a[1]}) * {a[1]}",
-    "FLOOR": lambda a: f"np.floor({a[0]})" if len(a) == 1 else f"np.floor({a[0]} / {a[1]}) * {a[1]}",
-    "LOG": lambda a: f"np.log({a[0]}) / np.log({a[1]})" if len(a) > 1 else f"np.log10({a[0]})",
-    "QUOTIENT": lambda a: f"{a[0]} // {a[1]}",
-    "EDATE": lambda a: f"calc.edate({a[0]}, {a[1]})",
-    "DATEDIF": lambda a: f"calc.datedif({', '.join(a)})",
-    "SUMPRODUCT": lambda a: f"calc.sumproduct({', '.join(a)})",
+    "SUBTOTAL": lambda a: (f"calc.subtotal({a[0]}, {a[1]})" if len(a) > 1 else f"calc.subtotal(9, {a[0]})") if 1 <= len(a) <= 2 else _bad_arity("SUBTOTAL", "1-2", len(a)),
+    "ISBLANK": _calc("isblank", 1, 1),
+    "ISNUMBER": _calc("isnumber", 1, 1),
+    "ISNA": _calc("isna", 1, 1),
+    "ISERROR": _calc("iserror", 1, 1),
+    "LOOKUP": _calc("lookup", 2, 3),
+    "MEDIAN": lambda a: f"np.median({a[0]})" if len(a) >= 1 else _bad_arity("MEDIAN", ">=1", 0),
+    "COUNTBLANK": lambda a: f"sum(1 for x in np.asarray({a[0]}).ravel() if x is None or x == '')" if len(a) == 1 else _bad_arity("COUNTBLANK", 1, len(a)),
+    "ROUNDUP": lambda a: (f"(np.ceil({a[0]} * 10**int({a[1]})) / 10**int({a[1]}))" if len(a) > 1 else f"np.ceil({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("ROUNDUP", "1-2", len(a)),
+    "ROUNDDOWN": lambda a: (f"(np.floor({a[0]} * 10**int({a[1]})) / 10**int({a[1]}))" if len(a) > 1 else f"np.floor({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("ROUNDDOWN", "1-2", len(a)),
+    "CEILING": lambda a: (f"np.ceil({a[0]})" if len(a) == 1 else f"(np.ceil({a[0]} / {a[1]}) * {a[1]})") if 1 <= len(a) <= 2 else _bad_arity("CEILING", "1-2", len(a)),
+    "FLOOR": lambda a: (f"np.floor({a[0]})" if len(a) == 1 else f"(np.floor({a[0]} / {a[1]}) * {a[1]})") if 1 <= len(a) <= 2 else _bad_arity("FLOOR", "1-2", len(a)),
+    "LOG": lambda a: (f"(np.log({a[0]}) / np.log({a[1]}))" if len(a) > 1 else f"np.log10({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("LOG", "1-2", len(a)),
+    "QUOTIENT": lambda a: f"({a[0]} // {a[1]})" if len(a) == 2 else _bad_arity("QUOTIENT", 2, len(a)),
+    "EDATE": _calc("edate", 2, 2),
+    "DATEDIF": _calc("datedif", 3, 3),
+    "SUMPRODUCT": _calc("sumproduct", 1),
     # Tier B — info, stats, text, misc
-    "ISTEXT": lambda a: f"calc.istext({a[0]})",
-    "ISLOGICAL": lambda a: f"calc.islogical({a[0]})",
-    "ISERR": lambda a: f"calc.iserr({a[0]})",
-    "ISNONTEXT": lambda a: f"calc.isnontext({a[0]})",
-    "PERCENTILE": lambda a: f"np.percentile(np.asarray({a[0]}, dtype=float).ravel(), float({a[1]}) * 100)",
-    "QUARTILE": lambda a: f"calc.quartile({a[0]}, {a[1]})",
-    "RANK": lambda a: f"calc.rank({', '.join(a)})",
-    "LARGE": lambda a: f"calc.large({a[0]}, {a[1]})",
-    "SMALL": lambda a: f"calc.small({a[0]}, {a[1]})",
-    "CORREL": lambda a: f"np.corrcoef(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]",
-    "COVAR": lambda a: f"np.cov(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]",
-    "MODE": lambda a: f"calc.mode({a[0]})",
-    "AVERAGEA": lambda a: f"calc.averagea({a[0]})",
-    "TEXT": lambda a: f"calc.fmt({a[0]}, {a[1]})" if len(a) > 1 else f"calc.py_str({a[0]})",
-    "EVEN": lambda a: f"calc.even({a[0]})",
-    "ODD": lambda a: f"calc.odd({a[0]})",
+    "ISTEXT": _calc("istext", 1, 1),
+    "ISLOGICAL": _calc("islogical", 1, 1),
+    "ISERR": _calc("iserr", 1, 1),
+    "ISNONTEXT": _calc("isnontext", 1, 1),
+    "PERCENTILE": lambda a: f"np.percentile(np.asarray({a[0]}, dtype=float).ravel(), float({a[1]}) * 100)" if len(a) == 2 else _bad_arity("PERCENTILE", 2, len(a)),
+    "QUARTILE": _calc("quartile", 2, 2),
+    "RANK": _calc("rank", 2, 3),
+    "LARGE": _calc("large", 2, 2),
+    "SMALL": _calc("small", 2, 2),
+    "CORREL": lambda a: f"np.corrcoef(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]" if len(a) == 2 else _bad_arity("CORREL", 2, len(a)),
+    "COVAR": lambda a: f"np.cov(np.asarray({a[0]}).ravel(), np.asarray({a[1]}).ravel())[0, 1]" if len(a) == 2 else _bad_arity("COVAR", 2, len(a)),
+    "MODE": _calc("mode", 1),
+    "AVERAGEA": _calc("averagea", 1),
+    "TEXT": lambda a: (f"calc.fmt({a[0]}, {a[1]})" if len(a) > 1 else f"calc.py_str({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("TEXT", "1-2", len(a)),
+    "EVEN": _calc("even", 1, 1),
+    "ODD": _calc("odd", 1, 1),
     "RAND": lambda _a: "float(np.random.random())",
-    "RANDBETWEEN": lambda a: f"float(np.random.randint(int({a[0]}), int({a[1]}) + 1))",
-    "XMATCH": lambda a: f"calc.xmatch({', '.join(a)})",
-    "WEEKDAY": lambda a: f"calc.weekday({a[0]})" if len(a) == 1 else f"calc.weekday({a[0]}, {a[1]})",
-    "WEEKNUM": lambda a: f"calc.weeknum({', '.join(a)})",
-    "WORKDAY": lambda a: f"calc.workday({', '.join(a)})",
+    "RANDBETWEEN": lambda a: f"float(np.random.randint(int({a[0]}), int({a[1]}) + 1))" if len(a) == 2 else _bad_arity("RANDBETWEEN", 2, len(a)),
+    "XMATCH": _calc("xmatch", 2, 4),
+    "WEEKDAY": _calc("weekday", 1, 2),
+    "WEEKNUM": _calc("weeknum", 1, 2),
+    "WORKDAY": _calc("workday", 2, 3),
     # Group B — Financial 2
-    "DOLLARDE": lambda a: f"calc.dollarde({a[0]}, {a[1]})",
-    "DOLLARFR": lambda a: f"calc.dollarfr({a[0]}, {a[1]})",
-    "DURATION": lambda a: f"calc.duration({', '.join(a)})",
-    "EFFECT": lambda a: f"calc.effect({a[0]}, {a[1]})",
-    "FVSCHEDULE": lambda a: f"calc.fvschedule({a[0]}, {a[1]})",
-    "INTRATE": lambda a: f"calc.intrate({', '.join(a)})",
-    "IPMT": lambda a: f"calc.ipmt({', '.join(a)})",
-    "ISPMT": lambda a: f"calc.ispmt({', '.join(a)})",
-    "MDURATION": lambda a: f"calc.mduration({', '.join(a)})",
-    "MIRR": lambda a: f"calc.mirr({', '.join(a)})",
-    "NOMINAL": lambda a: f"calc.nominal({a[0]}, {a[1]})",
-    "NPER": lambda a: f"calc.nper({', '.join(a)})",
-    "ODDFPRICE": lambda a: f"calc.oddfprice({', '.join(a)})",
-    "ODDFYIELD": lambda a: f"calc.oddfyield({', '.join(a)})",
-    "ODDLPRICE": lambda a: f"calc.oddlprice({', '.join(a)})",
-    # ODDLYIELD, PDURATION, PPMT, PRICE, PRICEDISC, PRICEMAT, RATE, RECEIVED,
-    # RRI, SLN, SYD, TBILLEQ, TBILLPRICE, TBILLYIELD, and VDB are not implemented
-    # on the calc facade. Emitting calc.<name>(...) made translate return ok and
-    # import write =PY() that AttributeError'd at recalc. Leave them unsupported
-    # until a helper with a Calc-correct contract exists.
+    "DOLLARDE": _calc("dollarde", 2, 2),
+    "DOLLARFR": _calc("dollarfr", 2, 2),
+    "DURATION": _calc("duration", 5, 6),
+    "EFFECT": _calc("effect", 2, 2),
+    "FVSCHEDULE": _calc("fvschedule", 2, 2),
+    "INTRATE": _calc("intrate", 4, 5),
+    "IPMT": _calc("ipmt", 4, 6),
+    "ISPMT": _calc("ispmt", 4, 4),
+    "MDURATION": _calc("mduration", 5, 6),
+    "MIRR": _calc("mirr", 3, 3),
+    "NOMINAL": _calc("nominal", 2, 2),
+    "NPER": _calc("nper", 3, 5),
+    "ODDFPRICE": _calc("oddfprice", 8, 9),
+    "ODDFYIELD": _calc("oddfyield", 8, 9),
+    "ODDLPRICE": _calc("oddlprice", 7, 8),
     # Tier C — dynamic array helpers (LO 24.8+)
-    "FILTER": lambda a: f"calc.filter({', '.join(a)})",
-    "SORT": lambda a: f"calc.sort({', '.join(a)})",
-    "UNIQUE": lambda a: f"calc.unique({', '.join(a)})",
-    "SORTBY": lambda a: f"calc.sortby({', '.join(a)})",
-    "PMT": lambda a: f"calc.pmt({', '.join(a)})",
-    "FV": lambda a: f"calc.fv({', '.join(a)})",
-    "PV": lambda a: f"calc.pv({', '.join(a)})",
-    "MROUND": lambda a: f"calc.mround({a[0]}, {a[1]})",
-    "SUMSQ": lambda a: f"calc.sumsq({', '.join(a)})",
-    "ISEVEN": lambda a: f"calc.iseven({a[0]})",
-    "ISODD": lambda a: f"calc.isodd({a[0]})",
-    "DAYS": lambda a: f"calc.days({a[0]}, {a[1]})",
-    "TIME": lambda a: f"calc.time({a[0]}, {a[1]}, {a[2]})",
-    "TRIMMEAN": lambda a: f"calc.trimmean({a[0]}, {a[1]})",
-    "FORECAST": lambda a: f"calc.forecast({a[0]}, {a[1]}, {a[2]})",
-    "CHOOSE": lambda a: f"calc.choose({a[0]}, {', '.join(a[1:])})",
-    "ADDRESS": lambda a: f"calc.address({', '.join(a)})",
-    "YEARFRAC": lambda a: f"calc.yearfrac({', '.join(a)})",
-    "DAYS360": lambda a: f"calc.days360({', '.join(a)})",
-    "NETWORKDAYS.INTL": lambda a: f"calc.networkdays_intl({', '.join(a)})",
-    "WORKDAY.INTL": lambda a: f"calc.workday_intl({', '.join(a)})",
-    "XOR": lambda a: f"calc.xor({', '.join(a)})",
-    "XIRR": lambda a: f"calc.xirr({a[0]}, {a[1]})" if len(a) == 2 else f"calc.xirr({a[0]}, {a[1]}, {a[2]})",
-    "XNPV": lambda a: f"calc.xnpv({a[0]}, {a[1]}, {a[2]})",
-    "YIELD": lambda a: f"calc.yield_calc({', '.join(a)})",
-    "YIELDDISC": lambda a: f"calc.yielddisc({', '.join(a)})",
-    "YIELDMAT": lambda a: f"calc.yieldmat({', '.join(a)})",
-    "ISFORMULA": lambda a: f"calc.isformula({a[0]})",
-    "ISREF": lambda a: f"calc.isref({a[0]})",
+    "FILTER": _calc("filter", 2, 3),
+    "SORT": _calc("sort", 1, 3),
+    "UNIQUE": _calc("unique", 1, 3),
+    "SORTBY": _calc("sortby", 2),
+    "PMT": _calc("pmt", 3, 5),
+    "FV": _calc("fv", 3, 5),
+    "PV": _calc("pv", 3, 5),
+    "MROUND": _calc("mround", 2, 2),
+    "SUMSQ": _calc("sumsq", 1),
+    "ISEVEN": _calc("iseven", 1, 1),
+    "ISODD": _calc("isodd", 1, 1),
+    "DAYS": _calc("days", 2, 2),
+    "TIME": _calc("time", 3, 3),
+    "TRIMMEAN": _calc("trimmean", 2, 2),
+    "FORECAST": _calc("forecast", 3, 3),
+    "CHOOSE": _calc("choose", 2),
+    "ADDRESS": _calc("address", 2, 5),
+    "YEARFRAC": _calc("yearfrac", 2, 3),
+    "DAYS360": _calc("days360", 2, 3),
+    "NETWORKDAYS.INTL": _calc("networkdays_intl", 2, 4),
+    "WORKDAY.INTL": _calc("workday_intl", 2, 4),
+    "XOR": _calc("xor", 1),
+    "XIRR": _calc("xirr", 2, 3),
+    "XNPV": _calc("xnpv", 3, 3),
+    "YIELD": _calc("yield_calc", 6, 7),
+    "YIELDDISC": _calc("yielddisc", 4, 5),
+    "YIELDMAT": _calc("yieldmat", 5, 6),
+    "ISFORMULA": _calc("isformula", 1, 1),
+    "ISREF": _calc("isref", 1, 1),
     "NA": lambda _a: "calc.na()",
-    "AGGREGATE": lambda a: f"calc.aggregate({a[0]}, {a[1]}, {', '.join(a[2:])})",
-    "BASE": lambda a: f"calc.base({', '.join(a)})",
-    "DECIMAL": lambda a: f"calc.decimal({a[0]}, {a[1]})",
-    "MULTINOMIAL": lambda a: f"calc.multinomial({', '.join(a)})",
-    "SERIESSUM": lambda a: f"calc.seriessum({a[0]}, {a[1]}, {a[2]}, {a[3]})",
-    "FREQUENCY": lambda a: f"calc.frequency({a[0]}, {a[1]})",
-    "GROWTH": lambda a: f"calc.growth({', '.join(a)})",
-    "AREAS": lambda a: f"calc.areas({a[0]})",
-    "CHAR": lambda a: f"calc.char({a[0]})",
-    "CODE": lambda a: f"calc.code({a[0]})",
-    "DAVERAGE": lambda a: f"calc.daverage({a[0]}, {a[1]}, {a[2]})",
-    "DCOUNT": lambda a: f"calc.dcount({a[0]}, {a[1]}, {a[2]})",
-    "DMAX": lambda a: f"calc.dmax({a[0]}, {a[1]}, {a[2]})",
-    "DMIN": lambda a: f"calc.dmin({a[0]}, {a[1]}, {a[2]})",
-    "DSUM": lambda a: f"calc.dsum({a[0]}, {a[1]}, {a[2]})",
-    "DCOUNTA": lambda a: f"calc.dcounta({a[0]}, {a[1]}, {a[2]})",
-    "DGET": lambda a: f"calc.dget({a[0]}, {a[1]}, {a[2]})",
-    "DPRODUCT": lambda a: f"calc.dproduct({a[0]}, {a[1]}, {a[2]})",
-    "DSTDEV": lambda a: f"calc.dstdev({a[0]}, {a[1]}, {a[2]})",
-    "DSTDEVP": lambda a: f"calc.dstdevp({a[0]}, {a[1]}, {a[2]})",
-    "DVAR": lambda a: f"calc.dvar({a[0]}, {a[1]}, {a[2]})",
-    "DVARP": lambda a: f"calc.dvarp({a[0]}, {a[1]}, {a[2]})",
-    "ISOWEEKNUM": lambda a: f"calc.isoweeknum({a[0]})",
-    "FACTDOUBLE": lambda a: f"calc.factdouble({a[0]})",
-    "COMBINA": lambda a: f"calc.combina({a[0]}, {a[1]})",
-    "AVEDEV": lambda a: f"calc.avedev({a[0]})",
-    "GEOMEAN": lambda a: f"calc.geomean({a[0]})",
-    "HARMEAN": lambda a: f"calc.harmean({a[0]})",
-    "NPV": lambda a: f"calc.npv({a[0]}, {', '.join(a[1:])})",
-    "IRR": lambda a: f"calc.irr({a[0]})" if len(a) == 1 else f"calc.irr({a[0]}, {a[1]})",
-    "DEVSQ": lambda a: f"calc.devsq({', '.join(a)})",
-    "KURT": lambda a: f"calc.kurt({', '.join(a)})",
-    "SKEW": lambda a: f"calc.skew({', '.join(a)})",
-    "SLOPE": lambda a: f"calc.slope({a[0]}, {a[1]})",
-    "INTERCEPT": lambda a: f"calc.intercept({a[0]}, {a[1]})",
-    "RSQ": lambda a: f"calc.rsq({a[0]}, {a[1]})",
-    "STEYX": lambda a: f"calc.steyx({a[0]}, {a[1]})",
-    "ACOT": lambda a: f"calc.acot({a[0]})",
-    "ACOTH": lambda a: f"calc.acoth({a[0]})",
-    "COT": lambda a: f"calc.cot({a[0]})",
-    "COTH": lambda a: f"calc.coth({a[0]})",
-    "CSC": lambda a: f"calc.csc({a[0]})",
-    "CSCH": lambda a: f"calc.csch({a[0]})",
-    "SEC": lambda a: f"calc.sec({a[0]})",
-    "SECH": lambda a: f"calc.sech({a[0]})",
-    "STDEVA": lambda a: f"calc.stdeva({', '.join(a)})",
-    "STDEVPA": lambda a: f"calc.stdevpa({', '.join(a)})",
-    "VARA": lambda a: f"calc.vara({', '.join(a)})",
-    "VARPA": lambda a: f"calc.varpa({', '.join(a)})",
-    "MAXA": lambda a: f"calc.maxa({', '.join(a)})",
-    "MINA": lambda a: f"calc.mina({', '.join(a)})",
-    "EXPONDIST": lambda a: f"calc.expondist({', '.join(a)})",
-    "FDIST": lambda a: f"calc.fdist({', '.join(a)})",
-    "FINV": lambda a: f"calc.finv({', '.join(a)})",
-    "FISHER": lambda a: f"calc.fisher({a[0]})",
-    "FISHERINV": lambda a: f"calc.fisherinv({a[0]})",
-    "GAMMA": lambda a: f"calc.gamma({a[0]})",
-    "GAMMADIST": lambda a: f"calc.gammadist({', '.join(a)})",
-    "GAMMAINV": lambda a: f"calc.gammainv({', '.join(a)})",
-    "GAMMALN": lambda a: f"calc.gammaln({a[0]})",
-    "GAUSS": lambda a: f"calc.gauss({a[0]})",
-    "HYPGEOMDIST": lambda a: f"calc.hypgeomdist({', '.join(a)})",
-    "LOGINV": lambda a: f"calc.loginv({', '.join(a)})",
-    "LOGNORMDIST": lambda a: f"calc.lognormdist({', '.join(a)})",
-    "NEGBINOMDIST": lambda a: f"calc.negbinomdist({', '.join(a)})",
-    "NORMDIST": lambda a: f"calc.normdist({', '.join(a)})",
-    "ERF": lambda a: f"calc.erf({', '.join(a)})",
-    "ERFC": lambda a: f"calc.erfc({a[0]})",
-    "DELTA": lambda a: f"calc.delta({', '.join(a)})",
-    "GESTEP": lambda a: f"calc.gestep({', '.join(a)})",
-    "SQRTPI": lambda a: f"calc.sqrtpi({a[0]})",
-    "BITAND": lambda a: f"calc.bitand({a[0]}, {a[1]})",
-    "BITOR": lambda a: f"calc.bitor({a[0]}, {a[1]})",
-    "BITXOR": lambda a: f"calc.bitxor({a[0]}, {a[1]})",
-    "BITLSHIFT": lambda a: f"calc.bitlshift({a[0]}, {a[1]})",
-    "BITRSHIFT": lambda a: f"calc.bitrshift({a[0]}, {a[1]})",
-    "COMPLEX": lambda a: f"calc.complex({', '.join(a)})",
-    "IMABS": lambda a: f"calc.imabs({a[0]})",
-    "IMAGINARY": lambda a: f"calc.imaginary({a[0]})",
-    "IMARGUMENT": lambda a: f"calc.imargument({a[0]})",
-    "IMCONJUGATE": lambda a: f"calc.imconjugate({a[0]})",
-    "IMCOS": lambda a: f"calc.imcos({a[0]})",
-    "IMDIV": lambda a: f"calc.imdiv({a[0]}, {a[1]})",
-    "IMEXP": lambda a: f"calc.imexp({a[0]})",
-    "IMLN": lambda a: f"calc.imln({a[0]})",
-    "IMLOG10": lambda a: f"calc.imlog10({a[0]})",
-    "IMLOG2": lambda a: f"calc.imlog2({a[0]})",
-    "IMPOWER": lambda a: f"calc.impower({a[0]}, {a[1]})",
-    "IMPRODUCT": lambda a: f"calc.improduct({', '.join(a)})",
-    "IMREAL": lambda a: f"calc.imreal({a[0]})",
-    "IMSIN": lambda a: f"calc.imsin({a[0]})",
-    "BESSELK": lambda a: f"calc.besselk({a[0]}, {a[1]})",
-    "BESSELY": lambda a: f"calc.bessely({a[0]}, {a[1]})",
-    "EUROCONVERT": lambda a: f"calc.euroconvert({', '.join(a)})",
-    "IMCOSH": lambda a: f"calc.imcosh({a[0]})",
-    "IMCOT": lambda a: f"calc.imcot({a[0]})",
-    "IMCSC": lambda a: f"calc.imcsc({a[0]})",
-    "IMCSCH": lambda a: f"calc.imcsch({a[0]})",
-    "IMSEC": lambda a: f"calc.imsec({a[0]})",
-    "IMSECH": lambda a: f"calc.imsech({a[0]})",
-    "IMSINH": lambda a: f"calc.imsinh({a[0]})",
-    "IMSQRT": lambda a: f"calc.imsqrt({a[0]})",
-    "IMSUB": lambda a: f"calc.imsub({a[0]}, {a[1]})",
-    "IMSUM": lambda a: f"calc.imsum({', '.join(a)})",
-    "IMTAN": lambda a: f"calc.imtan({a[0]})",
-    "IMTANH": lambda a: f"calc.imtanh({a[0]})",
+    "AGGREGATE": _calc("aggregate", 3),
+    "BASE": _calc("base", 2, 3),
+    "DECIMAL": _calc("decimal", 2, 2),
+    "MULTINOMIAL": _calc("multinomial", 1),
+    "SERIESSUM": _calc("seriessum", 4, 4),
+    "FREQUENCY": _calc("frequency", 2, 2),
+    "GROWTH": _calc("growth", 1, 4),
+    "AREAS": _calc("areas", 1, 1),
+    "CHAR": _calc("char", 1, 1),
+    "CODE": _calc("code", 1, 1),
+    "DAVERAGE": _calc("daverage", 3, 3),
+    "DCOUNT": _calc("dcount", 3, 3),
+    "DMAX": _calc("dmax", 3, 3),
+    "DMIN": _calc("dmin", 3, 3),
+    "DSUM": _calc("dsum", 3, 3),
+    "DCOUNTA": _calc("dcounta", 3, 3),
+    "DGET": _calc("dget", 3, 3),
+    "DPRODUCT": _calc("dproduct", 3, 3),
+    "DSTDEV": _calc("dstdev", 3, 3),
+    "DSTDEVP": _calc("dstdevp", 3, 3),
+    "DVAR": _calc("dvar", 3, 3),
+    "DVARP": _calc("dvarp", 3, 3),
+    "ISOWEEKNUM": _calc("isoweeknum", 1, 1),
+    "FACTDOUBLE": _calc("factdouble", 1, 1),
+    "COMBINA": _calc("combina", 2, 2),
+    "AVEDEV": _calc("avedev", 1),
+    "GEOMEAN": _calc("geomean", 1),
+    "HARMEAN": _calc("harmean", 1),
+    "NPV": _calc("npv", 2),
+    "IRR": _calc("irr", 1, 2),
+    "DEVSQ": _calc("devsq", 1),
+    "KURT": _calc("kurt", 1),
+    "SKEW": _calc("skew", 1),
+    "SLOPE": _calc("slope", 2, 2),
+    "INTERCEPT": _calc("intercept", 2, 2),
+    "RSQ": _calc("rsq", 2, 2),
+    "STEYX": _calc("steyx", 2, 2),
+    "ACOT": _calc("acot", 1, 1),
+    "ACOTH": _calc("acoth", 1, 1),
+    "COT": _calc("cot", 1, 1),
+    "COTH": _calc("coth", 1, 1),
+    "CSC": _calc("csc", 1, 1),
+    "CSCH": _calc("csch", 1, 1),
+    "SEC": _calc("sec", 1, 1),
+    "SECH": _calc("sech", 1, 1),
+    "STDEVA": _calc("stdeva", 1),
+    "STDEVPA": _calc("stdevpa", 1),
+    "VARA": _calc("vara", 1),
+    "VARPA": _calc("varpa", 1),
+    "MAXA": _calc("maxa", 1),
+    "MINA": _calc("mina", 1),
+    "EXPONDIST": _calc("expondist", 2, 3),
+    "FDIST": _calc("fdist", 3, 3),
+    "FINV": _calc("finv", 3, 3),
+    "FISHER": _calc("fisher", 1, 1),
+    "FISHERINV": _calc("fisherinv", 1, 1),
+    "GAMMA": _calc("gamma", 1, 1),
+    "GAMMADIST": _calc("gammadist", 3, 4),
+    "GAMMAINV": _calc("gammainv", 3, 3),
+    "GAMMALN": _calc("gammaln", 1, 1),
+    "GAUSS": _calc("gauss", 1, 1),
+    "HYPGEOMDIST": _calc("hypgeomdist", 4, 4),
+    "LOGINV": _calc("loginv", 3, 3),
+    "LOGNORMDIST": _calc("lognormdist", 3, 4),
+    "NEGBINOMDIST": _calc("negbinomdist", 3, 3),
+    "NORMDIST": _calc("normdist", 3, 4),
+    "ERF": _calc("erf", 1, 2),
+    "ERFC": _calc("erfc", 1, 1),
+    "DELTA": _calc("delta", 1, 2),
+    "GESTEP": _calc("gestep", 1, 2),
+    "SQRTPI": _calc("sqrtpi", 1, 1),
+    "BITAND": _calc("bitand", 2, 2),
+    "BITOR": _calc("bitor", 2, 2),
+    "BITXOR": _calc("bitxor", 2, 2),
+    "BITLSHIFT": _calc("bitlshift", 2, 2),
+    "BITRSHIFT": _calc("bitrshift", 2, 2),
+    "COMPLEX": _calc("complex", 2, 3),
+    "IMABS": _calc("imabs", 1, 1),
+    "IMAGINARY": _calc("imaginary", 1, 1),
+    "IMARGUMENT": _calc("imargument", 1, 1),
+    "IMCONJUGATE": _calc("imconjugate", 1, 1),
+    "IMCOS": _calc("imcos", 1, 1),
+    "IMDIV": _calc("imdiv", 2, 2),
+    "IMEXP": _calc("imexp", 1, 1),
+    "IMLN": _calc("imln", 1, 1),
+    "IMLOG10": _calc("imlog10", 1, 1),
+    "IMLOG2": _calc("imlog2", 1, 1),
+    "IMPOWER": _calc("impower", 2, 2),
+    "IMPRODUCT": _calc("improduct", 1),
+    "IMREAL": _calc("imreal", 1, 1),
+    "IMSIN": _calc("imsin", 1, 1),
+    "BESSELK": _calc("besselk", 2, 2),
+    "BESSELY": _calc("bessely", 2, 2),
+    "EUROCONVERT": _calc("euroconvert", 3, 5),
+    "IMCOSH": _calc("imcosh", 1, 1),
+    "IMCOT": _calc("imcot", 1, 1),
+    "IMCSC": _calc("imcsc", 1, 1),
+    "IMCSCH": _calc("imcsch", 1, 1),
+    "IMSEC": _calc("imsec", 1, 1),
+    "IMSECH": _calc("imsech", 1, 1),
+    "IMSINH": _calc("imsinh", 1, 1),
+    "IMSQRT": _calc("imsqrt", 1, 1),
+    "IMSUB": _calc("imsub", 2, 2),
+    "IMSUM": _calc("imsum", 1),
+    "IMTAN": _calc("imtan", 1, 1),
+    "IMTANH": _calc("imtanh", 1, 1),
     # Group E
-    "LINEST": lambda a: f"calc.linest({', '.join(a)})",
-    "LOGEST": lambda a: f"calc.logest({', '.join(a)})",
-    "MDETERM": lambda a: f"calc.mdeterm({a[0]})",
-    "MINVERSE": lambda a: f"calc.minverse({a[0]})",
-    "MMULT": lambda a: f"calc.mmult({a[0]}, {a[1]})",
-    "MTRANS": lambda a: f"calc.mtrans({a[0]})",
-    "MUNIT": lambda a: f"calc.munit({a[0]})",
-    "TREND": lambda a: f"calc.trend({', '.join(a)})",
-    "BETADIST": lambda a: f"calc.betadist({', '.join(a)})",
-    "BETAINV": lambda a: f"calc.betainv({', '.join(a)})",
-    "BINOMDIST": lambda a: f"calc.binomdist({', '.join(a)})",
-    "CHIDIST": lambda a: f"calc.chidist({a[0]}, {a[1]})",
-    "CHIINV": lambda a: f"calc.chiinv({a[0]}, {a[1]})",
-    "CONFIDENCE": lambda a: f"calc.confidence({a[0]}, {a[1]}, {a[2]})",
-    "CRITBINOM": lambda a: f"calc.critbinom({a[0]}, {a[1]}, {a[2]})",
-    "NORMINV": lambda a: f"calc.norminv({a[0]}, {a[1]}, {a[2]})",
-    "NORMSDIST": lambda a: f"calc.normsdist({a[0]})",
-    "NORMSINV": lambda a: f"calc.normsinv({a[0]})",
-    "PEARSON": lambda a: f"calc.pearson({a[0]}, {a[1]})",
-    "PERCENTRANK": lambda a: f"calc.percentrank({a[0]}, {a[1]}{', ' + a[2] if len(a) > 2 else ''})",
-    "PERMUT": lambda a: f"calc.permut({a[0]}, {a[1]})",
-    "POISSON": lambda a: f"calc.poisson({a[0]}, {a[1]}, {a[2] if len(a) > 2 else 'False'})",
-    "PROB": lambda a: f"calc.prob({a[0]}, {a[1]}, {a[2]}{', ' + a[3] if len(a) > 3 else ''})",
-    "STANDARDIZE": lambda a: f"calc.standardize({a[0]}, {a[1]}, {a[2]})",
-    "TDIST": lambda a: f"calc.tdist({a[0]}, {a[1]}, {a[2]})",
-    "TINV": lambda a: f"calc.tinv({a[0]}, {a[1]})",
-    "TTEST": lambda a: f"calc.ttest({a[0]}, {a[1]}, {a[2]}, {a[3]})",
-    "WEIBULL": lambda a: f"calc.weibull({a[0]}, {a[1]}, {a[2]}{', ' + a[3] if len(a) > 3 else ''})",
-    "ZTEST": lambda a: f"calc.ztest({a[0]}, {a[1]}{', ' + a[2] if len(a) > 2 else ''})",
-    "ASC": lambda a: f"calc.asc({a[0]})",
+    "LINEST": _calc("linest", 1, 4),
+    "LOGEST": _calc("logest", 1, 4),
+    "MDETERM": _calc("mdeterm", 1, 1),
+    "MINVERSE": _calc("minverse", 1, 1),
+    "MMULT": _calc("mmult", 2, 2),
+    "MTRANS": _calc("mtrans", 1, 1),
+    "MUNIT": _calc("munit", 1, 1),
+    "TREND": _calc("trend", 1, 4),
+    "BETADIST": _calc("betadist", 3, 5),
+    "BETAINV": _calc("betainv", 3, 5),
+    "BINOMDIST": _calc("binomdist", 4, 4),
+    "CHIDIST": _calc("chidist", 2, 2),
+    "CHIINV": _calc("chiinv", 2, 2),
+    "CONFIDENCE": _calc("confidence", 3, 3),
+    "CRITBINOM": _calc("critbinom", 3, 3),
+    "NORMINV": _calc("norminv", 3, 3),
+    "NORMSDIST": _calc("normsdist", 1, 1),
+    "NORMSINV": _calc("normsinv", 1, 1),
+    "PEARSON": _calc("pearson", 2, 2),
+    "PERCENTRANK": _calc("percentrank", 2, 3),
+    "PERMUT": _calc("permut", 2, 2),
+    "POISSON": lambda a: (f"calc.poisson({a[0]}, {a[1]}, {a[2] if len(a) > 2 else 'False'})") if 2 <= len(a) <= 3 else _bad_arity("POISSON", "2-3", len(a)),
+    "PROB": _calc("prob", 3, 4),
+    "STANDARDIZE": _calc("standardize", 3, 3),
+    "TDIST": _calc("tdist", 3, 3),
+    "TINV": _calc("tinv", 2, 2),
+    "TTEST": _calc("ttest", 4, 4),
+    "WEIBULL": _calc("weibull", 3, 4),
+    "ZTEST": _calc("ztest", 2, 3),
+    "ASC": _calc("asc", 1, 1),
 }
 
 
@@ -803,12 +692,11 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
     try:
         _walk_ranges(ast, state)
         body = _emit_expr(ast, state, cell_addr)
-    except ValueError as exc:
-        msg = str(exc)
-        if "cross-sheet" in msg:
-            return TranslationResult(ok=False, reason="CROSS_SHEET_REF")
-        if msg.startswith("unsupported function"):
-            return TranslationResult(ok=False, reason="UNSUPPORTED_FUNCTION")
+    except TranslationError as exc:
+        return TranslationResult(ok=False, reason=exc.reason)
+    except IndexError:
+        return TranslationResult(ok=False, reason="UNSUPPORTED_ARITY")
+    except (ValueError, TypeError):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
     return TranslationResult(ok=True, code=sanitize_inline_py_code(body), data_ranges=list(state.ranges))

@@ -7,20 +7,22 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from plugin.contrib.calc_formula_parser import ast_nodes, tokenizer
 
 
-class Operator:
-    def __init__(self, value: str, precedence: int, associativity: str) -> None:
-        self.value = value
-        self.precedence = precedence
-        self.associativity = associativity
+class Operator(NamedTuple):
+    value: str
+    precedence: int
+    associativity: str
 
 
 # Excel operator precedence (Microsoft docs).
 OPERATORS = {
     ":": Operator(":", 8, "left"),
     "": Operator(" ", 8, "left"),
+    "intersect": Operator(" ", 8, "left"),
     ",": Operator(",", 8, "left"),
     "u-": Operator("u-", 7, "right"),
     "%": Operator("%", 6, "left"),
@@ -82,58 +84,70 @@ class FormulaParser:
         new_tokens: list = []
 
         if not tokenize_range:
-            for index, token in enumerate(tokens):
-                new_tokens.append(token)
+            index = 0
+            while index < len(tokens):
+                token = tokens[index]
                 if not isinstance(token.tvalue, str):
+                    new_tokens.append(token)
+                    index += 1
                     continue
                 if token.tvalue.startswith(":"):
                     depth = 0
                     expr = ""
-                    rev = reversed(tokens[:index])
-                    for reversed_token in rev:
-                        if reversed_token.tsubtype == "stop":
+                    while new_tokens:
+                        t = new_tokens.pop()
+                        if t.tsubtype == "stop":
                             depth += 1
-                        elif depth > 0 and reversed_token.tsubtype == "start":
+                        elif depth > 0 and t.tsubtype == "start":
                             depth -= 1
-                        expr = reversed_token.tvalue + expr
-                        new_tokens.pop()
+                        val = f'"{t.tvalue}"' if t.tsubtype == "text" else str(t.tvalue)
+                        expr = val + expr
                         if depth == 0:
-                            new_tokens.pop()
-                            new_tokens.pop()
-                            expr = rev.__next__().tvalue + expr
                             break
                     expr += token.tvalue
                     depth = 0
-                    if token.tvalue[1:] in ("OFFSET", "INDEX"):
-                        for t in tokens[(index + 1) :]:
+                    index += 1
+                    fn_name = token.tvalue[1:].upper()
+                    if fn_name in ("OFFSET", "INDEX", "INDIRECT", "CHOOSE"):
+                        while index < len(tokens):
+                            t = tokens[index]
+                            index += 1
                             if t.tsubtype == "start":
                                 depth += 1
                             elif depth > 0 and t.tsubtype == "stop":
                                 depth -= 1
-                            expr += t.tvalue
-                            tokens.remove(t)
+                            val = f'"{t.tvalue}"' if t.tsubtype == "text" else str(t.tvalue)
+                            expr += val
                             if depth == 0:
                                 break
                     new_tokens.append(tokenizer.f_token(expr, "operand", "pointer"))
-                elif ":OFFSET" in token.tvalue or ":INDEX" in token.tvalue:
+                elif any(f":{fn}" in token.tvalue.upper() for fn in ("OFFSET", "INDEX", "INDIRECT", "CHOOSE")):
                     depth = 0
                     expr = token.tvalue
-                    for t in tokens[(index + 1) :]:
+                    index += 1
+                    while index < len(tokens):
+                        t = tokens[index]
+                        index += 1
                         if t.tsubtype == "start":
                             depth += 1
                         elif t.tsubtype == "stop":
                             depth -= 1
-                        expr += t.tvalue
-                        tokens.remove(t)
+                        val = f'"{t.tvalue}"' if t.tsubtype == "text" else str(t.tvalue)
+                        expr += val
                         if depth == 0:
-                            new_tokens.pop()
                             break
                     new_tokens.append(tokenizer.f_token(expr, "operand", "pointer"))
+                else:
+                    new_tokens.append(token)
+                    index += 1
 
         tokens = new_tokens if new_tokens else tokens
 
         for token in tokens:
-            if token.ttype == "operand":
+            if token.ttype == "unknown":
+                # Bugfix: unknown tokens previously vanished silently in shunting_yard with no error.
+                raise ValueError(f"Unknown or invalid token in formula: {token.tvalue!r}")
+            elif token.ttype == "operand":
                 output.append(self.create_node(token))
                 if were_values:
                     were_values.pop()
@@ -148,21 +162,37 @@ class FormulaParser:
             elif token.ttype == "argument":
                 while stack and stack[-1].tsubtype != "start":
                     output.append(self.create_node(stack.pop()))
-                if were_values.pop():
+                if not stack:
+                    raise SyntaxError("Mismatched or misplaced parentheses")
+                if were_values and were_values.pop():
                     arg_count[-1] += 1
                 were_values.append(False)
-                if not stack:
-                    raise ValueError("Mismatched or misplaced parentheses")
-            elif token.ttype.startswith("operator"):
-                if token.ttype.endswith("-prefix") and token.tvalue == "-":
-                    o1 = OPERATORS["u-"]
-                else:
-                    o1 = OPERATORS[token.tvalue]
+            elif token.ttype.endswith("-prefix"):
+                # Bugfix: prefix operators (e.g. u-) have no left operand and must never pop
+                # pending operators off the stack (e.g. in '(A1,-B1)' union ',' was popped prematurely).
+                # What was wrong: u- went through the same pop loop as infix operators.
+                # How: infix pop logic compared precedence without distinguishing prefix operators.
+                # Why: prefix operators wait for their operand and do not consume operators to their left.
+                stack.append(token)
+            elif token.ttype.endswith("-postfix"):
+                # Bugfix: postfix % binds with Excel operator precedence (precedence 6).
+                # What was wrong: % was previously rewritten as * 0.01 with precedence 4.
+                # How: tokenizer emitted multiplication instead of postfix operator.
+                # Why: postfix % binds tighter than ^ (5) and * / (4). We pop tighter operators, then push %.
+                o1 = OPERATORS[token.tvalue]
                 while stack and stack[-1].ttype.startswith("operator"):
-                    if stack[-1].ttype.endswith("-prefix") and stack[-1].tvalue == "-":
-                        o2 = OPERATORS["u-"]
+                    o2 = OPERATORS["u-"] if (stack[-1].ttype.endswith("-prefix") and stack[-1].tvalue == "-") else OPERATORS[stack[-1].tvalue]
+                    if (o1.associativity == "left" and o1.precedence <= o2.precedence) or (
+                        o1.associativity == "right" and o1.precedence < o2.precedence
+                    ):
+                        output.append(self.create_node(stack.pop()))
                     else:
-                        o2 = OPERATORS[stack[-1].tvalue]
+                        break
+                stack.append(token)
+            elif token.ttype.startswith("operator"):
+                o1 = OPERATORS[token.tvalue]
+                while stack and stack[-1].ttype.startswith("operator"):
+                    o2 = OPERATORS["u-"] if (stack[-1].ttype.endswith("-prefix") and stack[-1].tvalue == "-") else OPERATORS[stack[-1].tvalue]
                     if (o1.associativity == "left" and o1.precedence <= o2.precedence) or (
                         o1.associativity == "right" and o1.precedence < o2.precedence
                     ):
@@ -210,12 +240,25 @@ class FormulaParser:
         for node in nodes:
             if isinstance(node, ast_nodes.OperatorNode):
                 if node.ttype == "operator-infix":
+                    if len(stack) < 2:
+                        raise SyntaxError(f"Infix operator {node.tvalue} missing operands")
                     node.right = stack.pop()
                     node.left = stack.pop()
+                elif node.ttype == "operator-postfix":
+                    # Bugfix: postfix operators take the preceding operand on stack as left child.
+                    if not stack:
+                        raise SyntaxError(f"Postfix operator {node.tvalue} missing operand")
+                    node.left = stack.pop()
                 else:
+                    if not stack:
+                        raise SyntaxError(f"Prefix operator {node.tvalue} missing operand")
                     node.right = stack.pop()
             elif isinstance(node, ast_nodes.FunctionNode):
+                if len(stack) < node.num_args:
+                    raise SyntaxError(f"Function {node.tvalue} missing arguments in AST")
                 args = [stack.pop() for _ in range(node.num_args)]
                 node.args = list(reversed(args))
             stack.append(node)
+        if len(stack) != 1:
+            raise SyntaxError("Invalid formula structure: unconsumed nodes in stack")
         return stack.pop()

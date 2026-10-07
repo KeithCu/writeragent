@@ -44,9 +44,9 @@ class ASTNode:
 class OperandNode(ASTNode):
     def __str__(self) -> str:
         if self.tsubtype == "logical":
-            return self.tvalue.title()
+            return str(self.tvalue).upper()
         if self.tsubtype == "text":
-            return '"' + str(self.tvalue).replace('"', '\\"') + '"'
+            return '"' + str(self.tvalue).replace('"', '""') + '"'
         return str(self.tvalue)
 
 
@@ -65,6 +65,8 @@ class OperatorNode(ASTNode):
         self.right = None
 
     def __str__(self) -> str:
+        if self.ttype == "operator-postfix":
+            return f"({self.left}){self.tvalue}"
         left = f"({self.left}) " if self.left is not None else ""
         right = f" ({self.right})" if self.right is not None else ""
         return f"{left}{self.tvalue}{right}"

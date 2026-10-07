@@ -25,38 +25,7 @@
 # ========================================================================
 
 import re
-from dataclasses import dataclass, field
-import uuid
-from string import ascii_uppercase
-
-
-def col2num(col):
-    if not col:
-        raise Exception("Column may not be empty")
-
-    tot = 0
-    for i, c in enumerate([c for c in col[::-1] if c != "$"]):
-        if c == '$':
-            continue
-        tot += (ord(c) - 64) * 26 ** i
-
-    return tot
-
-
-def num2col(num):
-    if num < 1:
-        raise Exception("Number must be larger than 0: %s" % num)
-
-    s = ''
-    q = num
-    while q > 0:
-        (q, r) = divmod(q, 26)
-        if r == 0:
-            q = q - 1
-            r = 26
-        s = ascii_uppercase[r - 1] + s
-
-    return s
+from dataclasses import dataclass
 
 
 # ========================================================================
@@ -93,11 +62,6 @@ class ExcelParserTokens(object):
     TOK_SUBTYPE_NONE = "none"
 
 
-def init_uuid():
-    """Default factory to initialise Formula.ranges."""
-    return uuid.uuid4()
-
-
 # ========================================================================
 #        Class: f_token
 #  Description: Encapsulate a formula token
@@ -108,15 +72,12 @@ def init_uuid():
 #
 #      Methods: f_token  - __init__()
 # ========================================================================
-@dataclass
+@dataclass(slots=True)
 class f_token:
 
     tvalue: str
     ttype: str
     tsubtype: str
-    unique_identifier: uuid = field(
-        init=False, default_factory=init_uuid, compare=True, hash=True,
-        repr=True)
 
     def __repr__(self):
         return "<{} tvalue: {} ttype: {} tsubtype: {}>".format(
@@ -184,6 +145,12 @@ class f_tokens(object):
 
     def __next__(self):
         if self.EOF():
+            raise StopIteration
+        self.index += 1
+        return self.items[self.index]
+
+    def peek(self):
+        if self.EOF():
             return None
         return self.items[self.index + 1]
 
@@ -226,28 +193,25 @@ class f_tokenStack(ExcelParserTokens):
         self.items.append(token)
 
     def pop(self):
+        if not self.items:
+            raise SyntaxError("Unmatched closing parenthesis or bracket")
         token = self.items.pop()
         return f_token("", token.ttype, self.TOK_SUBTYPE_STOP)
 
     def token(self):
-        # Note: this uses Pythons and/or "hack" to emulate C's ternary
-        # operator (i.e. cond ? exp1 : exp2)
-        return (
-            (
-                (len(self.items) > 0)
-                and [self.items[len(self.items) - 1]]
-                or [None]
-            )[0]
-        )
+        return self.items[-1] if self.items else None
 
     def value(self):
-        return ((self.token()) and [(self.token()).tvalue] or [""])[0]
+        tok = self.token()
+        return tok.tvalue if tok else ""
 
     def type(self):
-        return ((self.token()) and [(self.token()).ttype] or [""])[0]
+        tok = self.token()
+        return tok.ttype if tok else ""
 
     def subtype(self):
-        return ((self.token()) and [(self.token()).tsubtype] or [""])[0]
+        tok = self.token()
+        return tok.tsubtype if tok else ""
 
 
 # ========================================================================
@@ -269,20 +233,13 @@ class ExcelParser(ExcelParserTokens):
     def getTokens(self, formula):
 
         def currentChar():
-            return formula[offset]
+            return formula[offset] if offset < len(formula) else ""
 
         def doubleChar():
             return formula[offset:offset + 2]
 
         def nextChar():
-            # JavaScript returns an empty string if the index is out of bounds,
-            # Python throws an IndexError.  We mimic this behaviour here.
-            try:
-                formula[offset + 1]
-            except IndexError:
-                return ""
-            else:
-                return formula[offset + 1]
+            return formula[offset + 1] if offset + 1 < len(formula) else ""
 
         def EOF():
             return offset >= len(formula)
@@ -296,14 +253,12 @@ class ExcelParser(ExcelParserTokens):
         inRange = False
         inError = False
 
-        while (len(formula) > 0):
-            if (formula[0] in (" ", "\n")):
-                formula = formula[1:]
-
-            else:
-                if (formula[0] == "="):
-                    formula = formula[1:]
-                break
+        while len(formula) > 0 and formula[0] in (" ", "\n", "\t", "\r"):
+            formula = formula[1:]
+        if len(formula) > 0 and formula[0] == "=":
+            formula = formula[1:]
+        while len(formula) > 0 and formula[0] in (" ", "\n", "\t", "\r"):
+            formula = formula[1:]
 
         # state-dependent character evaluation (order is important)
         while not EOF():
@@ -328,18 +283,22 @@ class ExcelParser(ExcelParserTokens):
                 offset += 1
                 continue
 
-            # single-quoted strings (links)
+            # single-quoted strings (sheet references / external paths)
             # embeds are double
             # end does not mark a token
+            # Bugfix: keep quotes on quoted sheet names ('My Sheet'!A1) through tokenize/emit.
+            # What was wrong: opening and closing single quotes were stripped from sheet names, and $'Sheet' emitted '$' as unknown.
+            # How: inPath state did not append "'" to token, and non-empty token before "'" was emitted as TOK_TYPE_UNKNOWN.
+            # Why: preserving quotes and allowing '$' prefix retains valid Calc/Excel sheet references.
             if inPath:
                 if currentChar() == "'":
                     if nextChar() == "'":
-                        token += "'"
-                        offset += 1
-
+                        token += "''"
+                        offset += 2
+                        continue
                     else:
                         inPath = False
-
+                        token += "'"
                 else:
                     token += currentChar()
                 offset += 1
@@ -366,16 +325,23 @@ class ExcelParser(ExcelParserTokens):
                     tokens.add(
                         token, self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_ERROR)
                     token = ""
+                elif currentChar() in (" ", "\n", "\t", "\r", ",", ")", "}", "+", "-", "*", "/", "^", "&", "=", "<", ">"):
+                    inError = False
+                    tokens.add(token, self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_ERROR)
+                    token = ""
                 continue
 
             # scientific notation check
-            regexSN = r'^[1-9]{1}(\.[0-9]+)?[eE]{1}$'
-            if (("+-").find(currentChar()) != -1):
-                if len(token) > 1:
-                    if re.match(regexSN, token):
-                        token += currentChar()
-                        offset += 1
-                        continue
+            # Bugfix: support scientific notation with signed exponents (e.g. 0.5E+3, 10E+3, 1.E+3, 12e-3).
+            # What was wrong: regex '^[1-9]{1}(\.[0-9]+)?[eE]{1}$' rejected leading zero mantissas (0.5E+3) or multi-digit (10E+3).
+            # How: the mantissa pattern was strictly restricted to a single digit 1-9.
+            # Why: matching any valid mantissa (digits with optional dot or starting with dot) followed by e/E keeps the signed exponent in the number token.
+            regexSN = r'^([0-9]+(\.[0-9]*)?|\.[0-9]+)[eE]$'
+            if currentChar() in "+-":
+                if len(token) > 1 and re.match(regexSN, token, re.IGNORECASE):
+                    token += currentChar()
+                    offset += 1
+                    continue
 
             # independent character evaulation (order not important)
             #
@@ -390,11 +356,12 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             if currentChar() == "'":
-                if len(token) > 0:
+                if len(token) > 0 and token != "$":
                     # not expected
                     tokens.add(token, self.TOK_TYPE_UNKNOWN)
                     token = ""
                 inPath = True
+                token += "'"
                 offset += 1
                 continue
 
@@ -451,13 +418,17 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             # trim white-space
-            if (currentChar() in (" ", "\n")):
-                if (len(token) > 0):
+            # Bugfix: check not EOF() before currentChar() to avoid IndexError on trailing whitespace.
+            # What was wrong: currentChar() ran before not EOF(), raising IndexError on trailing whitespace (e.g. '=A1 ').
+            # How: formula[offset] indexed past the end of the string.
+            # Why: checking not EOF() first and including \t/\r ensures clean loop exit at end of string.
+            if currentChar() in (" ", "\n", "\t", "\r"):
+                if len(token) > 0:
                     tokens.add(token, self.TOK_TYPE_OPERAND)
                     token = ""
                 tokens.add("", self.TOK_TYPE_WSPACE)
                 offset += 1
-                while ((currentChar() in (" ", "\n")) and (not EOF())):
+                while not EOF() and currentChar() in (" ", "\n", "\t", "\r"):
                     offset += 1
                 continue
 
@@ -482,14 +453,15 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             # standard postfix operators
-            if ("%".find(currentChar()) != -1):
-                if (len(token) > 0):
-                    tokens.add(float(token) / 100, self.TOK_TYPE_OPERAND)
+            # Bugfix: Postfix % must bind with Excel postfix operator precedence (tighter than ^ and * /).
+            # What was wrong: % was rewritten as '* 0.01' or evaluated as float(token)/100, which crashed on cell refs (A1%) and had wrong precedence.
+            # How: % was not emitted as TOK_TYPE_OP_POST.
+            # Why: Emitting TOK_TYPE_OP_POST allows parser shunting-yard to apply precedence 6.
+            if currentChar() == "%":
+                if len(token) > 0:
+                    tokens.add(token, self.TOK_TYPE_OPERAND)
                     token = ""
-                else:
-                    tokens.add('*', self.TOK_TYPE_OP_IN)
-                    tokens.add(0.01, self.TOK_TYPE_OPERAND)
-                # tokens.add(currentChar(), self.TOK_TYPE_OP_POST)
+                tokens.add(currentChar(), self.TOK_TYPE_OP_POST)
                 offset += 1
                 continue
 
@@ -506,21 +478,28 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             # function, subexpression, array parameters
-            if (currentChar() == ","):
-                if (len(token) > 0):
+            # Bugfix: empty function arguments (e.g. F(,1) or F(1,)) were miscounted because None operand was only emitted for ',,'.
+            # What was wrong: F(,1) and F(1,) counted 1 argument instead of 2.
+            # How: arguments before the first comma or after the last comma lacked an operand token.
+            # Why: check if preceded by '(' or followed by ')' / ',' to emit a None operand.
+            if currentChar() == ",":
+                if len(token) > 0:
                     tokens.add(token, self.TOK_TYPE_OPERAND)
                     token = ""
-                if (not (tokenStack.type() == self.TOK_TYPE_FUNCTION)):
-                    tokens.add(
-                        currentChar(),
-                        self.TOK_TYPE_OP_IN, self.TOK_SUBTYPE_UNION)
+                if tokenStack.type() != self.TOK_TYPE_FUNCTION:
+                    tokens.add(currentChar(), self.TOK_TYPE_OP_IN, self.TOK_SUBTYPE_UNION)
                 else:
+                    prev = tokens.items[-1] if tokens.items else None
+                    if prev and prev.ttype == self.TOK_TYPE_FUNCTION and prev.tsubtype == self.TOK_SUBTYPE_START:
+                        tokens.add("None", self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_NONE)
                     tokens.add(currentChar(), self.TOK_TYPE_ARGUMENT)
                 offset += 1
-                if (currentChar() == ","):
-                    tokens.add(
-                        'None',
-                        self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_NONE)
+                # Bugfix: check not EOF() before currentChar() to avoid IndexError on trailing comma.
+                if not EOF() and currentChar() == ",":
+                    tokens.add("None", self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_NONE)
+                    token = ""
+                elif not EOF() and currentChar() == ")":
+                    tokens.add("None", self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_NONE)
                     token = ""
                 continue
 
@@ -659,18 +638,28 @@ class ExcelParser(ExcelParserTokens):
 
                 continue
 
-            if ((token.ttype == self.TOK_TYPE_OPERAND)
-                    and (len(token.tsubtype) == 0)):
-                try:
-                    float(token.tvalue)
-
-                except ValueError:
-                    if ((token.tvalue == 'TRUE') or (token.tvalue == 'FALSE')):
-                        token.tsubtype = self.TOK_SUBTYPE_LOGICAL
-                    else:
-                        token.tsubtype = self.TOK_SUBTYPE_RANGE
-                else:
+            if token.ttype == self.TOK_TYPE_OPERAND and len(token.tsubtype) == 0:
+                str_val = str(token.tvalue).strip()
+                is_num = False
+                # Bugfix: exclude nan, inf, and identifiers with underscores from being misclassified as numbers.
+                # What was wrong: float("nan") or float("inf") succeeded in Python 3, tagging range/identifier tokens as numbers.
+                # How: bare float(token.tvalue) was called without checking for identifier characters or special floats.
+                # Why: filtering out nan/inf and strings with '_' ensures valid Excel range/name identification.
+                if str_val.lower() not in ("nan", "inf", "-inf", "+inf") and "_" not in str_val:
+                    try:
+                        float(str_val)
+                        is_num = True
+                    except ValueError:
+                        pass
+                if is_num:
                     token.tsubtype = self.TOK_SUBTYPE_NUMBER
+                elif str_val.upper() in ("TRUE", "FALSE"):
+                    # Bugfix: case-insensitive boolean literal classification
+                    token.tsubtype = self.TOK_SUBTYPE_LOGICAL
+                elif str_val == "None":
+                    token.tsubtype = self.TOK_SUBTYPE_NONE
+                else:
+                    token.tsubtype = self.TOK_SUBTYPE_RANGE
 
                 continue
 
