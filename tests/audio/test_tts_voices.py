@@ -529,3 +529,17 @@ def test_preferred_harvested_voice_prefers_aoede_for_gemini():
         cfg._tts_supported_voices.pop(gemini, None)
         cfg._tts_supported_voices.pop(grok, None)
         cfg._tts_supported_voices.pop(folded, None)
+
+
+def test_all_writeragent_locales_have_piper_model_mapping():
+    import os
+
+    from plugin.audio.tts_voices import get_default_voice_for_locale
+    from plugin.audio.voice_catalog import PIPER_VOICE_MODELS
+
+    locales_dir = os.path.join(os.path.dirname(__file__), "..", "..", "locales")
+    locale_dirs = [d for d in os.listdir(locales_dir) if os.path.isdir(os.path.join(locales_dir, d))]
+
+    for loc in locale_dirs:
+        voice = get_default_voice_for_locale("piper", loc)
+        assert voice in PIPER_VOICE_MODELS, f"Locale {loc} resolved to unmapped voice {voice}"
