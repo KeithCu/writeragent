@@ -40,10 +40,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
         parse_python_formula,
         py_formula_has_unquoted_code_ref,
     )
-    from plugin.calc.python.geometric_recalc import (
-        formula_data_args,
-        rebuild_formula_with_data_args,
-    )
+    from plugin.calc.python.geometric_recalc_core import formula_data_args, rebuild_formula_with_data_args
 
     sheet = doc.getSheets().getByIndex(0)
     a1 = sheet.getCellByPosition(0, 0)
@@ -132,7 +129,8 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
 
 def _pred(formula: str) -> str | None:
-    from plugin.calc.python.geometric_recalc import formula_data_args, local_a1
+    from plugin.calc.python.geometric_recalc import local_a1
+    from plugin.calc.python.geometric_recalc_core import formula_data_args
 
     args = formula_data_args(formula)
     if not args:
@@ -798,7 +796,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
 def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
     """§10 re-entrancy: repair ``setFormula`` must not nest a second repair.
 
-    ``_GEOMETRIC_REPAIRING`` is the mechanism. A modify listener (and an
+    ``_RUNTIME.repairing`` is the mechanism. A modify listener (and an
     explicit nested ``reconcile_geometric_sheet``) during apply must no-op.
     Call reconcile directly so ``_DISPATCHING`` is not the thing that
     prevents the nest — the geometric flag is.
@@ -873,7 +871,7 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
         assert probe.nested_apply_growth == 0
         # setFormula during apply should have seen the flag. If Classic
         # swallowed the listener, the explicit nest inside _counting_apply
-        # still proved _GEOMETRIC_REPAIRING.
+        # still proved _RUNTIME.repairing.
         if probe.repairing_hits == 0:
             _progress(
                 "geometric reenter: modify listener saw 0 repairing hits; "
