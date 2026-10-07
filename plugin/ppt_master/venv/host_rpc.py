@@ -34,11 +34,6 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError
     from plugin.framework.queue_executor import execute_on_main_thread
 
-    # Bugfix: handle_llm_request is called on a background worker thread.
-    # get_ctx() is decorated with @main_thread_only, so calling it directly
-    # triggers a thread safety violation. Wrapping it in execute_on_main_thread
-    # marshals it safely to the main thread.
-    ctx = execute_on_main_thread(get_ctx)
     # What was wrong: this client was built with no cancellation scope, so
     # sidebar Stop closed the send worker's client and left the PPT-Master
     # call reading. The scope registers the live client and must not be
@@ -46,6 +41,14 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     # way as _stop_checker.
     cancellation_scope = payload.get("_cancellation_scope")
     try:
+        # What was wrong: execute_on_main_thread(get_ctx) ran outside the try block.
+        # If it raised, the exception escaped dispatch_worker_response and the read loop,
+        # leaving the child waiting until timeout without receiving a reply.
+        # Why this works: moving it inside the try block ensures any failure is caught
+        # and reported back to the child as an RPC error response.
+        # Note: get_ctx() is @main_thread_only, so marshaling via execute_on_main_thread
+        # is required from background worker threads.
+        ctx = execute_on_main_thread(get_ctx)
         if max_tokens is None:
             max_tokens = get_config_int("chat_max_tokens")
 
