@@ -784,3 +784,72 @@ def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
     assert action == "stop"
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
     assert any("Connection closed by user stop" in r.message for r in caplog.records)
+
+
+def test_transport_get_connection_disables_auto_open():
+    """get_connection() must set auto_open = 0 so closed sockets do not auto-reconnect."""
+    transport_https = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    conn_https = transport_https.get_connection()
+    assert getattr(conn_https, "auto_open", None) == 0
+
+    transport_http = LlmHttpTransport(lambda: "http://localhost:11434", lambda: 30)
+    conn_http = transport_http.get_connection()
+    assert getattr(conn_http, "auto_open", None) == 0
+
+
+def test_transport_auto_open_zero_prevents_silent_reconnect_on_closed_connection():
+    """When Stop closes a connection before request() is sent, auto_open=0 causes NotConnected rather than auto-reconnecting."""
+    conn = http.client.HTTPConnection("127.0.0.1", 9)
+    conn.auto_open = 0
+    conn.close()
+    assert conn.sock is None
+    # auto_open=0 ensures putrequest raises NotConnected instead of calling connect()
+    with pytest.raises(http.client.NotConnected):
+        conn.request("POST", "/v1/chat/completions", body=b"{}")
+
+
+def test_transport_send_sets_auto_open_zero():
+    """send() ensures conn.auto_open is set to 0 even if supplied via a custom connection_getter."""
+    transport = LlmHttpTransport(lambda: "http://127.0.0.1:9", lambda: 30)
+    transport._pacer.min_interval_sec = 0
+    conn = MagicMock()
+    conn.auto_open = 1
+    conn.sock = None
+    with patch.object(transport, "_connect_abortable"):
+        conn.sock = MagicMock()
+        transport.send("POST", "/v1/test", b"{}", {}, connection_getter=lambda: conn)
+    assert conn.auto_open == 0
+
+
+def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect():
+    """_apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
+    from plugin.framework.client.http_transport import _SECRET_HEADER_NAMES, _apply_redirect
+
+    assert "cookie" in _SECRET_HEADER_NAMES
+    assert "proxy-authorization" in _SECRET_HEADER_NAMES
+
+    headers = {
+        "Authorization": "Bearer secret-token",
+        "Cookie": "session=abc123xyz",
+        "Proxy-Authorization": "Basic proxycreds",
+        "X-Custom-Header": "keep-me",
+    }
+    # Cross-origin redirect
+    result = _apply_redirect("POST", b"{}", headers, "https://source.com/api", 302, "https://target.com/api")
+    assert result is not None
+    _, _, new_headers, origin, _ = result
+    assert origin == "https://target.com"
+    lower_keys = {k.lower() for k in new_headers}
+    assert "cookie" not in lower_keys
+    assert "proxy-authorization" not in lower_keys
+    assert "authorization" not in lower_keys
+    assert new_headers.get("X-Custom-Header") == "keep-me"
+
+    # Same-origin redirect preserves Cookie and Proxy-Authorization
+    same_result = _apply_redirect("GET", None, headers, "https://source.com/api", 302, "/new-path")
+    assert same_result is not None
+    _, _, same_headers, same_origin, _ = same_result
+    assert same_origin == "https://source.com"
+    assert "Cookie" in same_headers
+    assert "Proxy-Authorization" in same_headers
+
