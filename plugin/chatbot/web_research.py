@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -293,7 +294,6 @@ def _cdp_run_enter() -> None:
     a Chrome process that is about to be killed.
     """
     global _cdp_runs
-    import time
     with _cdp_visits_cond:
         start_wait = time.monotonic()
         while _cdp_closing:
@@ -345,7 +345,6 @@ def _finish_cdp_browser() -> None:
         if _cdp_runs > 0:
             return
         _cdp_closing = True
-        import time
         start_wait = time.monotonic()
         while _cdp_visits_inflight > 0:
             _cdp_visits_cond.wait(1.0)
@@ -380,7 +379,6 @@ class VisitWebpageCdpTool(Tool):
     def forward(self, url: str) -> str:
         from plugin.contrib.cdp.browser_cdp_tool import browser_cdp
         import json
-        import time
 
         lower_url = str(url).strip().lower()
         if not (lower_url.startswith("http://") or lower_url.startswith("https://")):
