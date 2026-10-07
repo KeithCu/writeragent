@@ -868,6 +868,29 @@ class TestComputeSettings:
         assert s.host == "127.0.0.1"
         assert not s.auth_required
 
+    def test_env_overrides_json_config(self, tmp_path) -> None:
+        """Environment variables must take precedence over JSON config values (#1365)."""
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(
+            json.dumps({
+                "port": 8000,
+                "limits": {"default_timeout_sec": 15, "workers": 3},
+            }),
+            encoding="utf-8",
+        )
+        s = load_settings(
+            config_path=cfg,
+            environ={
+                "PYTHON_COMPUTE_HOST": "127.0.0.1",
+                "PYTHON_COMPUTE_PORT": "9000",
+                "PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC": "25",
+                "PYTHON_COMPUTE_WORKERS": "4",
+            },
+        )
+        assert s.port == 9000
+        assert s.default_timeout_sec == 25
+        assert s.workers == 4
+
     def test_workers_default(self) -> None:
         s = load_settings(environ={})
         assert s.workers == 2
@@ -894,6 +917,29 @@ class TestComputeSettings:
         cfg.write_text(json.dumps({"limits": {"threads": 24, "max_threads": 12, "workers": 4}}), encoding="utf-8")
         with pytest.raises(ConfigError, match="threads"):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        # Top-level threads must be rejected with ConfigError, not crash with TypeError (#1365).
+        top_cfg = tmp_path / "top_threads.json"
+        top_cfg.write_text(json.dumps({"threads": 16}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="threads"):
+            load_settings(config_path=top_cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+    def test_ocr_timeout_exceeding_max_timeout_rejected(self) -> None:
+        """ocr_timeout_sec cannot exceed max_timeout_sec (#1365)."""
+        with pytest.raises(ConfigError, match="ocr_timeout_sec cannot exceed max_timeout_sec"):
+            ComputeSettings(ocr_timeout_sec=700, max_timeout_sec=600)
+        with pytest.raises(ConfigError, match="ocr_timeout_sec cannot exceed max_timeout_sec"):
+            # When max_timeout_sec is lower than default ocr_timeout_sec (60)
+            ComputeSettings(max_timeout_sec=30)
+        with pytest.raises(ConfigError, match="ocr_timeout_sec cannot exceed max_timeout_sec"):
+            load_settings(
+                environ={
+                    "PYTHON_COMPUTE_HOST": "127.0.0.1",
+                    "PYTHON_COMPUTE_MAX_TIMEOUT_SEC": "30",
+                }
+            )
+        s = ComputeSettings(ocr_timeout_sec=20, max_timeout_sec=30)
+        assert s.ocr_timeout_sec == 20
+        assert s.max_timeout_sec == 30
 
     def test_inflight_keys_are_rejected(self, tmp_path) -> None:
         ignored = load_settings(environ={"PYTHON_COMPUTE_MAX_INFLIGHT": "9", "PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION": "3", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
