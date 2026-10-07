@@ -298,6 +298,7 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     daemon_threads: bool = True
     allow_reuse_address: bool = os.name != "nt"
     route_registry: HttpRouteRegistry | None = None
+    bind_host: str | None = None
     ssl_ctx: ssl.SSLContext | None = None
 
     def get_request(self) -> tuple[Any, Any]:
@@ -452,6 +453,9 @@ class HttpServer:
         try:
             self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
             self._server.route_registry = self.route_registry
+            # The configured bind host (e.g. a LAN name) is an allowed Host header
+            # alongside loopback and the tunnel host (DNS-rebinding check).
+            self._server.bind_host = self.host
             # Before the accept thread exists, so request handlers share this state.
             _sse_state(self._server)
         except OSError:

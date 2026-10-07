@@ -348,11 +348,11 @@ def get_configured_tunnel_host() -> str | None:
                 parsed = urlparse(pub_url if "://" in pub_url else f"http://{pub_url}")
                 return parsed.hostname
     except Exception:
-        pass
+        log.debug("tunnel host lookup for Host check failed", exc_info=True)
     return None
 
 
-def is_safe_host(host_header: str | None, tunnel_host: str | None = None) -> bool:
+def is_safe_host(host_header: str | None, tunnel_host: str | None = None, bind_host: str | None = None) -> bool:
     """DNS-rebinding protection: True when Host is localhost / 127.0.0.1 / [::1] (optional port) or tunnel host."""
     if not host_header:
         return False
@@ -377,6 +377,8 @@ def is_safe_host(host_header: str | None, tunnel_host: str | None = None) -> boo
 
     if host in _SAFE_LOOPBACK_HOSTS or (host.startswith("[") and host[1:-1] in _SAFE_LOOPBACK_HOSTS):
         return True
+    if bind_host and bind_host.strip().lower() not in ("", "0.0.0.0", "::") and host.strip("[]") == bind_host.strip().strip("[]").lower():
+        return True
 
     active_tunnel = tunnel_host or get_configured_tunnel_host()
     if active_tunnel:
@@ -397,7 +399,7 @@ def is_safe_host(host_header: str | None, tunnel_host: str | None = None) -> boo
 def reject_forbidden_host(handler: Any) -> bool:
     """If Host header is missing or unsafe (DNS rebinding), write 403 and return True."""
     host_header = handler.headers.get("Host") if hasattr(handler, "headers") and handler.headers else None
-    if is_safe_host(host_header):
+    if is_safe_host(host_header, bind_host=getattr(getattr(handler, "server", None), "bind_host", None)):
         return False
     log.warning("Rejecting request with forbidden Host header: %r", host_header)
     handler._response_started = True
