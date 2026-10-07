@@ -87,7 +87,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
         elif key == "session_id":
             has_session_id = True
             fields[key] = _loads_small(value_slice)
-        else:
+        elif key in ("id", "code", "mode", "timeout_ms", "init_script"):
             fields[key] = _loads_small(value_slice)
 
         i = _skip_ws(buf, i)
@@ -106,11 +106,18 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
         if nxt < len(buf) and buf[nxt] == 0x7D:
             raise ExecuteRequestError("Trailing comma in JSON object")
 
+    req_id = fields.get("id")
+    if req_id is not None and not isinstance(req_id, (str, int)):
+        raise ExecuteRequestError("id must be a scalar")
+    timeout_ms = fields.get("timeout_ms")
+    if timeout_ms is not None and not isinstance(timeout_ms, (int, float)):
+        raise ExecuteRequestError("timeout_ms must be a scalar")
+
     return ExecuteRequestParts(
-        req_id=fields.get("id"),
+        req_id=req_id,
         code=fields.get("code"),
         mode=fields.get("mode"),
-        timeout_ms=fields.get("timeout_ms"),
+        timeout_ms=timeout_ms,
         init_script=fields.get("init_script"),
         data_json=data_json,
         has_session_id=has_session_id,
@@ -166,6 +173,10 @@ def _skip_string(buf: bytes, i: int) -> int:
                 i += 1
                 if i + 4 > n:
                     raise ExecuteRequestError("Invalid unicode escape")
+                for j in range(4):
+                    c_hex = buf[i + j]
+                    if not (0x30 <= c_hex <= 0x39 or 0x41 <= c_hex <= 0x46 or 0x61 <= c_hex <= 0x66):
+                        raise ExecuteRequestError("Invalid unicode escape")
                 i += 4
             else:
                 i += 1

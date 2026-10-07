@@ -66,8 +66,15 @@ def _reject_nonfinite_number(value: Any) -> None:
     ``parse_constant``. The HTTP 400 path then echoed that ``id`` through
     ``allow_nan=False`` and the WSGI callable crashed.
     """
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ExecuteRequestError("non-finite JSON number")
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ExecuteRequestError("non-finite JSON number")
+    elif isinstance(value, list):
+        for item in value:
+            _reject_nonfinite_number(item)
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            _reject_nonfinite_number(v)
 
 
 def require_execute_mode(mode: Any) -> str:
@@ -208,9 +215,9 @@ def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestPar
     if not isinstance(body, (bytes, bytearray)):
         raise ExecuteRequestError("Request body must be bytes")
     boundary = _boundary_from_content_type(content_type)
-    named = _scan_multipart_parts(bytes(body), boundary)
-    req_id, mode, timeout_ms, has_session_id = _parse_meta_object(named["meta"])
-    return ExecuteRequestParts(req_id=req_id, code=named.get("code"), mode=mode, timeout_ms=timeout_ms, init_script=named.get("init_script"), data_json=named.get("data"), has_session_id=has_session_id)
+    named = _scan_multipart_parts(memoryview(body), boundary)
+    req_id, mode, timeout_ms, has_session_id = _parse_meta_object(bytes(named["meta"]))
+    return ExecuteRequestParts(req_id=req_id, code=bytes(named["code"]) if "code" in named else None, mode=mode, timeout_ms=timeout_ms, init_script=bytes(named["init_script"]) if "init_script" in named else None, data_json=bytes(named["data"]) if "data" in named else None, has_session_id=has_session_id)
 
 
 def _as_source_bytes(value: str | bytes, *, label: str) -> bytes:
@@ -322,7 +329,7 @@ def _unquote_param(value: str) -> str:
     return value
 
 
-def _scan_multipart_parts(body: bytes, boundary: bytes) -> dict[str, bytes]:
+def _scan_multipart_parts(body: bytes | memoryview, boundary: bytes) -> dict[str, bytes | memoryview]:
     """Slice named parts by boundary.
 
     ``email.parser.BytesParser`` built a message tree and walked every part,
@@ -336,7 +343,7 @@ def _scan_multipart_parts(body: bytes, boundary: bytes) -> dict[str, bytes]:
     if found is None:
         raise ExecuteRequestError("missing multipart boundary")
     pos, kind = found
-    parts: dict[str, bytes] = {}
+    parts: dict[str, bytes | memoryview] = {}
     while kind == "open":
         if len(parts) >= _MAX_MULTIPART_PARTS:
             raise ExecuteRequestError("too many multipart parts")
@@ -373,9 +380,20 @@ def _scan_multipart_parts(body: bytes, boundary: bytes) -> dict[str, bytes]:
     return parts
 
 
-def _next_delimiter(body: bytes, start: int, delim: bytes) -> tuple[int, str] | None:
+def _next_delimiter(body: bytes | memoryview, start: int, delim: bytes) -> tuple[int, str] | None:
     i = start
     n = len(body)
+    if isinstance(body, memoryview):
+        b_obj = body.obj if hasattr(body, "obj") and isinstance(body.obj, bytes) else bytes(body)
+        while i < n:
+            j = b_obj.find(delim, i)
+            if j < 0:
+                return None
+            kind = _classify_delimiter(body, j, delim)
+            if kind is not None:
+                return j, kind
+            i = j + 1
+        return None
     while i < n:
         j = body.find(delim, i)
         if j < 0:
@@ -387,7 +405,7 @@ def _next_delimiter(body: bytes, start: int, delim: bytes) -> tuple[int, str] | 
     return None
 
 
-def _classify_delimiter(body: bytes, i: int, delim: bytes) -> str | None:
+def _classify_delimiter(body: bytes | memoryview, i: int, delim: bytes) -> str | None:
     """Return ``open`` or ``close`` when ``body[i:]`` is a real delimiter line.
 
     A hit has to sit at the start of the body or immediately after LF, and the
@@ -412,7 +430,7 @@ def _classify_delimiter(body: bytes, i: int, delim: bytes) -> str | None:
     return None
 
 
-def _skip_delimiter_line(body: bytes, dash_at: int, delim: bytes, kind: str) -> int:
+def _skip_delimiter_line(body: bytes | memoryview, dash_at: int, delim: bytes, kind: str) -> int:
     j = dash_at + len(delim)
     if kind == "close":
         j += 2
@@ -429,7 +447,7 @@ def _skip_delimiter_line(body: bytes, dash_at: int, delim: bytes, kind: str) -> 
     raise ExecuteRequestError("malformed multipart delimiter")
 
 
-def _payload_end_before_delimiter(body: bytes, dash_at: int) -> int:
+def _payload_end_before_delimiter(body: bytes | memoryview, dash_at: int) -> int:
     """Index where the part body ends: the introducing linebreak is the delimiter's.
 
     ``\\r\\n--boundary`` drops both bytes. A lone ``\\n`` drops one, which is
@@ -445,9 +463,20 @@ def _payload_end_before_delimiter(body: bytes, dash_at: int) -> int:
     raise ExecuteRequestError("malformed multipart delimiter")
 
 
-def _read_header_block(body: bytes, start: int) -> tuple[int, bytes]:
+def _read_header_block(body: bytes | memoryview, start: int) -> tuple[int, bytes]:
     limit = min(len(body), start + _MAX_PART_HEADERS)
     i = start
+    if isinstance(body, memoryview):
+        b_obj = body.obj if hasattr(body, "obj") and isinstance(body.obj, bytes) else bytes(body)
+        while i < limit:
+            nl = b_obj.find(b"\n", i, limit)
+            if nl < 0:
+                raise ExecuteRequestError("unterminated multipart headers")
+            content_end = nl - 1 if nl > i and b_obj[nl - 1] == 0x0D else nl
+            if content_end == i:
+                return nl + 1, bytes(body[start:i])
+            i = nl + 1
+        raise ExecuteRequestError("multipart headers exceed cap")
     while i < limit:
         nl = body.find(b"\n", i, limit)
         if nl < 0:
@@ -561,7 +590,11 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
         if key in obj:
             raise ExecuteRequestError(f"meta part must not include a {key!r} field")
     req_id = obj.get("id")
+    if req_id is not None and not isinstance(req_id, (str, int)):
+        raise ExecuteRequestError("id must be a scalar")
     timeout_ms = obj.get("timeout_ms")
+    if timeout_ms is not None and not isinstance(timeout_ms, (int, float)):
+        raise ExecuteRequestError("timeout_ms must be a scalar")
     # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
     # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
     _reject_nonfinite_number(req_id)
