@@ -76,10 +76,6 @@ def _basename_is_uno_helper(name: str) -> bool:
     return os.path.basename(name).strip().lower() in _UNO_HELPER_BASENAMES
 
 
-def _tokens_have_singleaccept(tokens: list[str]) -> bool:
-    return any(token == "--singleaccept" or token.startswith("--singleaccept=") for token in tokens)
-
-
 def _linux_process_tokens() -> tuple[str, str, list[str]]:
     """Real process image and args. pythonloader may rewrite ``sys.argv`` (#768)."""
     exe = ""
