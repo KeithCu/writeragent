@@ -1886,7 +1886,7 @@ def test_lint_with_client_maps_diagnostics_against_normalized_text() -> None:
         with harper_module._HARPER_LOCK:
             out = harper_module._lint_with_client(client, raw_text, "en-US", restart=False)
 
-        mock_diag.assert_called_once_with(normalized_text, [mock_diagnostic])
+        mock_diag.assert_called_once_with(raw_text, [mock_diagnostic], normalized_text)
 
     assert len(out["errors"]) == 1
     assert out["errors"][0]["wrong"] == "teh"

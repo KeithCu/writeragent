@@ -765,7 +765,13 @@ def warn_if_harper_result_slow(
     return True
 
 
-def _diagnostics_to_errors(lint_text: str, results: list[Any]) -> dict[str, Any]:
+def _diagnostics_to_errors(text: str, results: list[Any], lint_text: str | None = None) -> dict[str, Any]:
+    """Map LSP ranges against *lint_text* (what Harper saw); slice "wrong" from *text*.
+
+    normalize_spaces_1to1 keeps offsets 1:1, so the original text shows the user's characters.
+    """
+    if lint_text is None:
+        lint_text = text
     errors = []
     for item in results:
         diag = item["diagnostic"]
@@ -784,7 +790,7 @@ def _diagnostics_to_errors(lint_text: str, results: list[Any]) -> dict[str, Any]
 
         errors.append(
             {
-                "wrong": lint_text[start_offset:end_offset] if length else "",
+                "wrong": text[start_offset:end_offset] if length else "",
                 "correct": suggestions[0] if suggestions else "",
                 "n_error_start": start_offset,
                 "n_error_length": length,
@@ -877,7 +883,7 @@ def _run_lint_off_caller_thread(
             try:
                 client.close()
             except Exception:
-                pass
+                log.debug("[harper] close after cancelled lint timeout failed", exc_info=True)
     if "exc" in box:
         raise box["exc"]
     result = box.get("result")
@@ -970,7 +976,7 @@ def _lint_with_client(
         # instead of `lint_text` (which was the text actually sent to Harper).
         # How it happened: `text` was passed to `_diagnostics_to_errors` instead of `lint_text`.
         # Why this change fixes it: passing `lint_text` ensures offsets and line mappings align.
-        out = _diagnostics_to_errors(lint_text, results)
+        out = _diagnostics_to_errors(text, results, lint_text)
         error_count = len(out.get("errors") or [])
         return out
     finally:
