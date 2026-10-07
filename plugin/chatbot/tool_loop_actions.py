@@ -17,6 +17,7 @@ from typing import Any, Callable, Protocol
 from plugin.chatbot.tool_loop_state import (
     DELEGATE_GATEWAY_TOOL_NAMES,
     AddMessageEffect,
+    CleanupAudioEffect,
     ExitLoopEffect,
     LogAgentEffect,
     SpawnFinalStreamEffect,
@@ -28,9 +29,9 @@ from plugin.chatbot.tool_loop_state import (
     UpdateDocumentContextEffect,
 )
 from plugin.framework.async_stream import StreamQueueKind
-from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
+from plugin.framework.client.model_fetcher import set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
-from plugin.framework.config import get_config_bool, get_current_endpoint
+from plugin.framework.config import get_config_bool
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, is_tool_document_disposed
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import capture_send_stop, execute_on_main_thread
@@ -72,27 +73,39 @@ class TurnController:
     queue: Any
     batcher: Any
     model: Any
+    text_model: str | None
+    endpoint: str | None
     stripper: StreamingHTMLStripper | None
     _alive: bool
     _stop_banner_appended: bool
     _stop_partial_text: str | None
+    closed_by_document: bool
     _overflow_compact_attempts: int
     _last_compact_reason: str | None
     _last_compact_tokens_before: int | None
     _last_compact_tokens_after: int | None
 
-    def __init__(self, session: Any, mode: str, model: Any = None) -> None:
+    def __init__(
+        self,
+        session: Any,
+        mode: str,
+        model: Any = None,
+        text_model: str | None = None,
+        endpoint: str | None = None,
+    ) -> None:
         self.mode = str(mode or "")
         self.session = session
         self.messages = getattr(session, "messages", None) if session is not None else None
         self.queue = None
         self.batcher = None
         self.model = model
+        self.text_model = text_model
+        self.endpoint = endpoint
         self.stripper = StreamingHTMLStripper()
         self._alive = True
         self._stop_banner_appended = False
         self._stop_partial_text = None
-        self.closed_by_document: bool = False
+        self.closed_by_document = False
         self._overflow_compact_attempts = 0
         self._last_compact_reason = None
         self._last_compact_tokens_before = None
@@ -323,12 +336,15 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
 
     The row is inserted with that assistant message's other tool rows so
     the pair stays adjacent. ``tool_calls`` on the assistant message stay.
+
+    What was wrong: ``answered`` was computed globally across the entire transcript.
+    When a provider reused a tool call id across turns (e.g. 'call_0'), the second
+    turn's unanswered tool call was treated as already answered. How: the global set
+    contained 'call_0' from the earlier turn, skipping synthetic cancelled row creation
+    and causing the provider to return 400 Bad Request on the next request.
+    Why this change: Scope ``answered`` per assistant message by scanning only the
+    contiguous tool rows immediately following that assistant message.
     """
-    answered = {
-        msg.get("tool_call_id")
-        for msg in messages
-        if isinstance(msg, dict) and msg.get("role") == "tool" and msg.get("tool_call_id")
-    }
     added = 0
     index = 0
     while index < len(messages):
@@ -337,8 +353,16 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
         if not isinstance(calls, list) or not calls:
             index += 1
             continue
+        answered: set[str] = set()
         insert_at = index + 1
-        while insert_at < len(messages) and isinstance(messages[insert_at], dict) and messages[insert_at].get("role") == "tool":
+        while (
+            insert_at < len(messages)
+            and isinstance(messages[insert_at], dict)
+            and messages[insert_at].get("role") == "tool"
+        ):
+            tid = messages[insert_at].get("tool_call_id")
+            if isinstance(tid, str) and tid:
+                answered.add(tid)
             insert_at += 1
         for call in calls:
             call_id = _tool_call_id(call)
@@ -363,13 +387,14 @@ def emit_for_host(host: Any, item: Any) -> bool:
     return turn.put(item)
 
 
-def put_for_turn(host: Any, turn: Any, q: Any, item: Any) -> bool:
+def put_for_turn(turn: Any, item: Any) -> bool:
     """Workers enqueue on the controller they captured. They do not touch the transcript.
 
-    ``host`` and ``q`` are unused. A worker must not assign ``turn.queue``;
-    the drain attached the queue before spawn. After abort, ``put`` is a no-op.
+    What was wrong: host and q were unused parameters kept in the signature.
+    Why this change: Removed host and q parameters so callers enqueue directly on turn.
+    A worker must not assign ``turn.queue``; the drain attached the queue before spawn.
+    After abort, ``put`` is a no-op.
     """
-    del host, q
     if not isinstance(turn, TurnController):
         return False
     return turn.put(item)
@@ -409,9 +434,9 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     payload_error = (StreamQueueKind.ERROR, format_error_payload(exc))
     payload_done = (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(exc), default=str))
     if is_tool_document_disposed(exc, model):
-        put_for_turn(host, turn, q, payload_error)
+        put_for_turn(turn, payload_error)
         return
-    put_for_turn(host, turn, q, payload_done)
+    put_for_turn(turn, payload_done)
 
 
 def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
@@ -491,19 +516,19 @@ def build_tool_execute_fn(
         needs_document_research_ui = delegate_domain == "document_research"
         if needs_web_research_ui or needs_document_research_ui:
 
-            def _subagent_target() -> tuple[Any, Any]:
+            def _subagent_target() -> TurnController | None:
                 # What was wrong: chat lines and the approval dialog were put
                 # on the host queue when the callback ran. Stop or a new send
                 # had replaced that queue, so the text or the dialog landed
                 # on the next turn. Why: the tool worker already captured
                 # this turn at spawn. A dead turn drops the item.
                 if isinstance(captured_turn, TurnController):
-                    return captured_turn, captured_turn.queue
-                return None, None
+                    return captured_turn
+                return None
 
             def _sub_agent_chat_append(text: str) -> None:
-                emit_turn, emit_q = _subagent_target()
-                if not put_for_turn(host, emit_turn, emit_q, (StreamQueueKind.CHUNK, text)):
+                emit_turn = _subagent_target()
+                if not put_for_turn(emit_turn, (StreamQueueKind.CHUNK, text)):
                     return
 
             chat_append_cb = _sub_agent_chat_append
@@ -512,7 +537,7 @@ def build_tool_execute_fn(
                 if needs_web_research_ui and get_config_bool("chatbot.prompt_for_web_research"):
 
                     def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
-                        emit_turn, q = _subagent_target()
+                        emit_turn = _subagent_target()
                         if not isinstance(emit_turn, TurnController) or emit_turn.queue is None:
                             log.warning("tool_loop: web_research approval skipped (queue missing)")
                             return (False, None)
@@ -522,7 +547,7 @@ def build_tool_execute_fn(
                         setattr(event, "query_override", None)
                         from plugin.framework.queue_executor import wait_for_approval
 
-                        if not put_for_turn(host, emit_turn, q, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
+                        if not put_for_turn(emit_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
                             return (False, None)
                         # Workers pass the checker captured at spawn. Direct
                         # callers (tests) omit it and still run on that thread.
@@ -530,10 +555,10 @@ def build_tool_execute_fn(
                         # event.wait() ignored Stop. Sidebar close latches the
                         # checker and never sets the event, so this worker parked.
                         if not wait_for_approval(event, checker):
-                            put_for_turn(host, emit_turn, q, (StreamQueueKind.STOPPED,))
+                            put_for_turn(emit_turn, (StreamQueueKind.STOPPED,))
                             return (False, None)
                         if not getattr(event, "approved", False):
-                            put_for_turn(host, emit_turn, q, (StreamQueueKind.STOPPED,))
+                            put_for_turn(emit_turn, (StreamQueueKind.STOPPED,))
                         return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
                     approval_cb = _web_approval
@@ -666,7 +691,7 @@ class ToolLoopEffectInterpreter:
             host._spawn_llm_worker(q, host._active_client, host._active_max_tokens, host._active_tools, effect.round_num, query_text=host._active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
             self._update_activity_state(effect)
-        elif effect.__class__.__name__ == "CleanupAudioEffect":
+        elif isinstance(effect, CleanupAudioEffect):
             self._cleanup_audio()
         elif isinstance(effect, SpawnToolWorkerEffect):
             if self._spawn_tool_worker(effect):
@@ -741,16 +766,25 @@ class ToolLoopEffectInterpreter:
             update_activity_state("exhausted_rounds")
 
     def _cleanup_audio(self) -> None:
+        """Clean up recording file and record audio support for the captured model.
+
+        What was wrong: _cleanup_audio called get_text_model() and get_current_endpoint()
+        at cleanup time. If the user changed the model in the UI mid-send, the new model was
+        erroneously marked as supporting native audio instead of the model that was
+        active when the work was spawned. How: global combobox state was re-read rather than
+        using the turn's spawn-time capture. Why this change: Read model and endpoint from
+        the turn captured when the work was spawned.
+        """
         host = self.host
-        current_model = get_text_model()
-        current_endpoint = get_current_endpoint()
-        set_native_audio_support(current_model, current_endpoint, supported=True)
+        turn = current_turn(host)
+        if turn is not None and turn.text_model:
+            set_native_audio_support(turn.text_model, turn.endpoint, supported=True)
 
         try:
             if host.audio_wav_path:
                 os.remove(host.audio_wav_path)
         except Exception:
-            pass
+            log.exception("Tool loop: failed to remove audio_wav_path")
         host.audio_wav_path = None
 
     def _spawn_tool_worker(self, effect: SpawnToolWorkerEffect) -> bool:
@@ -770,7 +804,7 @@ class ToolLoopEffectInterpreter:
         model = turn.model
 
         def emit(item: Any) -> None:
-            put_for_turn(host, turn, worker_q, item)
+            put_for_turn(turn, item)
 
         # What was wrong: the async body read the execute function and the
         # document when the thread ran. A new send replaced both while this
