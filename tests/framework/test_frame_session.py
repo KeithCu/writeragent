@@ -711,3 +711,31 @@ def test_attach_leave_query_deduplicates_using_uno_identity():
     # Second attach should not be called because uno_same returns True
     leave2.addMouseListener.assert_not_called()
     leave2.addFocusListener.assert_not_called()
+
+def test_dispose_handles_thread_violation_in_release_listeners():
+    # Setup
+    session, frame, query = _active_session("doc-a")
+    leave_ctrl = MagicMock()
+    leave_mouse = MagicMock()
+    leave_focus = MagicMock()
+    session._leave.append((leave_ctrl, leave_mouse, leave_focus))
+
+    click_ctrl = MagicMock()
+    click_handler = MagicMock()
+    session._click_controller = click_ctrl
+    session._click_handler = click_handler
+
+    session._query_listener = MagicMock()
+    session._query_control = MagicMock()
+    session._query_control.removeFocusListener.side_effect = _thread_violation("removeFocusListener")
+
+    with pytest.raises(RuntimeError, match="UNO thread violation"):
+        session.dispose()
+
+    leave_ctrl.removeMouseListener.assert_called_once_with(leave_mouse)
+    leave_ctrl.removeFocusListener.assert_called_once_with(leave_focus)
+    click_ctrl.removeMouseClickHandler.assert_called_once_with(click_handler)
+
+    assert session._frame_listener is None
+    assert session.panel is None
+    assert session_for_frame(frame) is None
