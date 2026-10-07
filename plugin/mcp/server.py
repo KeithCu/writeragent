@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.mcp.cors import reject_forbidden_origin, send_cors_headers
+from plugin.mcp.cors import reject_forbidden_host, reject_forbidden_origin, send_cors_headers
 from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_route
 
 if TYPE_CHECKING:
@@ -298,6 +298,7 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     daemon_threads: bool = True
     allow_reuse_address: bool = os.name != "nt"
     route_registry: HttpRouteRegistry | None = None
+    bind_host: str | None = None
     ssl_ctx: ssl.SSLContext | None = None
 
     def get_request(self) -> tuple[Any, Any]:
@@ -344,6 +345,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         self._dispatch("DELETE")
 
     def do_OPTIONS(self) -> None:
+        if reject_forbidden_host(self):
+            return
         if reject_forbidden_origin(self):
             return
         path = get_url_path(self.path)
@@ -351,6 +354,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         write_http_empty(self, 204, extra_headers=lambda h: send_cors_headers(h, preflight=True))
 
     def _dispatch(self, method: str) -> None:
+        if reject_forbidden_host(self):
+            return
         if reject_forbidden_origin(self):
             return
         path = get_url_path(self.path)
@@ -448,6 +453,9 @@ class HttpServer:
         try:
             self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
             self._server.route_registry = self.route_registry
+            # The configured bind host (e.g. a LAN name) is an allowed Host header
+            # alongside loopback and the tunnel host (DNS-rebinding check).
+            self._server.bind_host = self.host
             # Before the accept thread exists, so request handlers share this state.
             _sse_state(self._server)
         except OSError:
@@ -492,8 +500,10 @@ class HttpServer:
         threads_to_join = []
         try:
             if self._server:
-                # The SSE state registry tracks active threads (via note_sse_keepalive,
-                # which routes use) so we can wait for in-flight requests to complete.
+                # The SSE state registry tracks active SSE keepalive threads so we can
+                # wait for them to exit after their sockets are closed. POST handler threads
+                # are daemon threads and are not joined (joining POST threads on the main thread
+                # while they await the main-thread queue causes deadlocks/freezes).
                 _, _, threads, lock = _sse_state(self._server)
                 with lock:
                     threads_to_join = list(threads)
@@ -505,7 +515,7 @@ class HttpServer:
             # still blocked in select until their sockets are closed.
             stop_sse_keepalives(self._server)
 
-            # Join in-flight threads. We give them a bit of time, shutdown() only shuts down new accept calls.
+            # Join in-flight SSE keepalive threads. We give them a bit of time, shutdown() only shuts down new accept calls.
             for t in threads_to_join:
                 if t.is_alive() and t is not threading.current_thread():
                     t.join(timeout=2.0)

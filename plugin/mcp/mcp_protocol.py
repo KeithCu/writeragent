@@ -404,9 +404,13 @@ class MCPProtocolHandler:
         self.queue_executor = services.get("main_thread") or QueueExecutor(ctx=services.get("uno") if services else None)
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
-        self._cancelled_requests: set[str | int] = set()
-        self._in_flight_requests: dict[str | int, int] = {}
+        self._cancelled_requests: set[tuple[Any, str | int]] = set()
+        self._in_flight_requests: dict[tuple[Any, str | int], int] = {}
         self._requests_lock: threading.Lock = threading.Lock()
+        # What was wrong: self.version was unassigned if EXTENSION_VERSION import failed,
+        # causing AttributeError in _mcp_initialize.
+        # Why: assign default 'unknown' before the try.
+        self.version = "unknown"
         try:
             from plugin.version import EXTENSION_VERSION
 
@@ -415,6 +419,19 @@ class MCPProtocolHandler:
             pass
 
     # ── Raw handlers (receive GenericRequestHandler) ─────────────────
+
+    def _extract_session(self, handler: Any) -> Any:
+        """Extract a client session key from headers or peer address for cancellation isolation."""
+        if handler is None:
+            return None
+        session_id = _get_request_session_id(handler)
+        if not session_id and hasattr(handler, "headers") and handler.headers:
+            session_id = handler.headers.get("X-Session-Id") or handler.headers.get("X-Session-ID")
+        addr = getattr(handler, "client_address", None)
+        peer = addr[0] if isinstance(addr, tuple) and addr else addr
+        if session_id and peer:
+            return f"{session_id}@{peer}"
+        return session_id or peer
 
     def handle_mcp_post(self, handler: Any, transport: str = "mcp") -> None:
         """POST /mcp — MCP streamable-http (JSON-RPC 2.0)."""
@@ -429,14 +446,12 @@ class MCPProtocolHandler:
             return
         document_url = handler.headers.get("X-Document-URL") or None
 
-        tcp_server = getattr(handler, "server", None)
-        sock = getattr(handler, "connection", None)
-        stop_event = note_sse_keepalive(tcp_server, sock) if sock is not None else None
-        try:
-            self._handle_mcp(body, handler, document_url=document_url)
-        finally:
-            if stop_event is not None:
-                forget_sse_keepalive(tcp_server, sock)
+        # What was wrong: handle_mcp_post registered POST threads via note_sse_keepalive,
+        # causing HttpServer.stop() to join POST threads. If a POST was waiting on the
+        # main-thread queue while stop() ran on the main thread, it could stall or deadlock.
+        # Why: only long-lived SSE streams require keepalive tracking and shutdown; POST
+        # handlers are short-lived daemon threads and must not be joined in stop().
+        self._handle_mcp(body, handler, document_url=document_url)
 
     def handle_mcp_sse(self, handler: Any) -> None:
         """GET /mcp — SSE notification stream (keepalive)."""
@@ -641,8 +656,10 @@ class MCPProtocolHandler:
 
     # ── MCP protocol handler ─────────────────────────────────────────
 
-    def _handle_mcp(self, msg: Any, handler: Any, document_url: str | None = None) -> None:
+    def _handle_mcp(self, msg: Any, handler: Any, document_url: str | None = None, session: Any = None) -> None:
         """Route MCP JSON-RPC request(s) — single or batch."""
+        if session is None:
+            session = self._extract_session(handler)
         method = msg.get("method", "?") if isinstance(msg, dict) else "batch"
         req_id = msg.get("id") if isinstance(msg, dict) else None
         log.info("[MCP] <<< %s (id=%s)", method, req_id)
@@ -661,7 +678,7 @@ class MCPProtocolHandler:
             responses = []
             batch_has_init = False
             for item in msg:
-                result = self._process_jsonrpc(item, document_url=document_url)
+                result = self._process_jsonrpc(item, document_url=document_url, session=session)
                 if result is not None:
                     _status, response = result
                     responses.append(response)
@@ -682,7 +699,7 @@ class MCPProtocolHandler:
             return
 
         # Single request
-        result = self._process_jsonrpc(msg, document_url=document_url)
+        result = self._process_jsonrpc(msg, document_url=document_url, session=session)
         if result is None:
             write_http_empty(handler, 202, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
             return
@@ -702,6 +719,11 @@ class MCPProtocolHandler:
         # the client then sends that value as Mcp-Protocol-Version and
         # _validate_http_protocol_version answers 400 to every later request.
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
+        if not isinstance(client_version, str):
+            # What was wrong: non-string protocolVersion raised TypeError on set membership,
+            # returning HTTP 500 instead of a JSON-RPC error.
+            # Why: MCP specification requires protocolVersion to be a string; return INVALID_PARAMS.
+            raise ValueError("protocolVersion must be a string")
         if client_version not in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
             client_version = MCP_PROTOCOL_VERSION
         return wire_types.initialize_result(protocol_version=MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
@@ -818,7 +840,7 @@ class MCPProtocolHandler:
     def _mcp_prompts_list(self, params: Any) -> Any:
         return wire_types.empty_prompts_result()
 
-    def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None) -> Any:
+    def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
         state = MCPState(status=MCPStateStr.IDLE)
 
         call_params = wire_types.CallToolRequestParams.from_params(params)
@@ -889,10 +911,13 @@ class MCPProtocolHandler:
 
                 elif isinstance(effect, ExecuteToolEffect):
                     try:
+                        exec_kwargs: dict[str, Any] = {"document_url": effect.document_url, "req_id": req_id}
+                        if session is not None:
+                            exec_kwargs["session"] = session
                         if effect.is_long_running is True:
-                            res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
+                            res = self._execute_long_running(effect.tool_name, effect.arguments, **exec_kwargs)
                         else:
-                            res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
+                            res = self._execute_with_backpressure(effect.tool_name, effect.arguments, **exec_kwargs)
                         events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
                     except BusyError:
                         raise
@@ -933,7 +958,7 @@ class MCPProtocolHandler:
 
     # ── JSON-RPC processing ──────────────────────────────────────────
 
-    def _process_jsonrpc(self, msg: Any, document_url: str | None = None) -> Any:
+    def _process_jsonrpc(self, msg: Any, document_url: str | None = None, session: Any = None) -> Any:
         """Process a JSON-RPC message.
 
         Returns (http_status, response_dict) or None for notifications (no ``id``).
@@ -942,13 +967,17 @@ class MCPProtocolHandler:
             return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
 
         # Handle cancellation notifications globally.
+        # What was wrong: cancellations were keyed by JSON-RPC id alone, allowing
+        # one client to cancel another client's request with the same id.
+        # Why: key cancellations by (session, requestId) for client isolation.
         if msg.get("method") == "notifications/cancelled":
             params = msg.get("params")
             req_id_to_cancel = params.get("requestId") if isinstance(params, dict) else None
             if isinstance(req_id_to_cancel, (str, int)) and not isinstance(req_id_to_cancel, bool):
+                cancel_target = (session, req_id_to_cancel)
                 with self._requests_lock:
-                    if req_id_to_cancel in self._in_flight_requests:
-                        self._cancelled_requests.add(req_id_to_cancel)
+                    if cancel_target in self._in_flight_requests:
+                        self._cancelled_requests.add(cancel_target)
 
         # Notifications must not receive a JSON-RPC response (HTTP 202, empty body).
         if wire_types.is_jsonrpc_notification(msg):
@@ -974,23 +1003,24 @@ class MCPProtocolHandler:
             if method == "tools/list":
                 result = self._mcp_tools_list(params, document_url=document_url)
             elif method == "tools/call":
-                if req_id is not None:
+                cancel_key = (session, req_id) if req_id is not None else None
+                if cancel_key is not None:
                     with self._requests_lock:
-                        count = self._in_flight_requests.get(req_id, 0)
+                        count = self._in_flight_requests.get(cancel_key, 0)
                         if count == 0:
-                            self._cancelled_requests.discard(req_id)
-                        self._in_flight_requests[req_id] = count + 1
+                            self._cancelled_requests.discard(cancel_key)
+                        self._in_flight_requests[cancel_key] = count + 1
                 try:
-                    result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id)
+                    result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id, session=session)
                 finally:
-                    if req_id is not None:
+                    if cancel_key is not None:
                         with self._requests_lock:
-                            count = self._in_flight_requests.get(req_id, 0) - 1
+                            count = self._in_flight_requests.get(cancel_key, 0) - 1
                             if count <= 0:
-                                self._in_flight_requests.pop(req_id, None)
-                                self._cancelled_requests.discard(req_id)
+                                self._in_flight_requests.pop(cancel_key, None)
+                                self._cancelled_requests.discard(cancel_key)
                             else:
-                                self._in_flight_requests[req_id] = count
+                                self._in_flight_requests[cancel_key] = count
             else:
                 result = one_arg[method](params)
             if log.isEnabledFor(logging.DEBUG):
@@ -1017,7 +1047,7 @@ class MCPProtocolHandler:
 
     # ── Backpressure execution ───────────────────────────────────────
 
-    def _execute_with_backpressure(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None) -> Any:
+    def _execute_with_backpressure(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
         """Execute a fast tool with backpressure.
 
         The semaphore and the per-document mutation gate are acquired on this
@@ -1039,7 +1069,7 @@ class MCPProtocolHandler:
         try:
             from plugin.framework.queue_executor import get_current_send_cancellation
             send_cancellation = get_current_send_cancellation()
-            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
+            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
             if not isinstance(prepared, _PreparedMcpCall):
                 return prepared
             with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
@@ -1085,7 +1115,7 @@ class MCPProtocolHandler:
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
         return schemas, others
 
-    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, send_cancellation: Any = _SEND_CANCELLATION_UNSET) -> Any:
+    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, send_cancellation: Any = _SEND_CANCELLATION_UNSET, session: Any = None) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
         Returns ``_PreparedMcpCall`` or a structured error dict.
@@ -1167,8 +1197,9 @@ class MCPProtocolHandler:
 
         def stop_checker() -> bool:
             if req_id is not None:
+                cancel_key = (session, req_id)
                 with self._requests_lock:
-                    if req_id in self._cancelled_requests:
+                    if cancel_key in self._cancelled_requests:
                         return True
             if send_cancellation is not None and send_cancellation.is_cancelled():
                 return True
@@ -1217,7 +1248,7 @@ class MCPProtocolHandler:
                 return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
-    def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None) -> Any:
+    def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
         """Execute a long-running tool on the current background HTTP thread.
 
         Context resolution runs on the main thread. Mutating tools hold the same
@@ -1230,7 +1261,7 @@ class MCPProtocolHandler:
         """
         from plugin.framework.queue_executor import get_current_send_cancellation
         send_cancellation = get_current_send_cancellation()
-        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation)
+        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared
         return self._run_prepared_mcp_execute(prepared, tool_name, arguments)

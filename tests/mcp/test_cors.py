@@ -16,11 +16,13 @@ import plugin.mcp.mcp_protocol as mcp_protocol
 from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
 from plugin.mcp.cors import (
     is_private_browser_origin,
+    is_safe_host,
     is_safe_origin,
     merge_allow_headers,
     normalize_cors_origin,
     normalize_origins_list,
     origin_is_forbidden,
+    reject_forbidden_host,
     set_allow_private_origins,
     set_extra_allowed_origins,
 )
@@ -39,6 +41,79 @@ def teardown_function():
 
 def test_normalize_cors_origin_strips_slash():
     assert normalize_cors_origin("https://localai.local/") == "https://localai.local"
+
+
+def test_normalize_cors_origin_lowercases_and_strips_ports_paths():
+    assert normalize_cors_origin("https://App.Example.com") == "https://app.example.com"
+    assert normalize_cors_origin("http://HOST:8080/some/path") == "http://host:8080"
+    assert normalize_cors_origin("http://host:80") == "http://host"
+    assert normalize_cors_origin("https://host:443") == "https://host"
+    assert normalize_cors_origin("http://[::1]:8080/foo") == "http://[::1]:8080"
+
+
+def test_extra_allowed_origins_case_insensitive():
+    set_extra_allowed_origins(["https://App.Example.COM"])
+    assert is_safe_origin("https://app.example.com")
+    assert is_safe_origin("https://APP.EXAMPLE.COM")
+    assert is_safe_origin("https://App.Example.com/subpath")
+
+
+def test_is_safe_host_loopback():
+    assert is_safe_host("localhost")
+    assert is_safe_host("localhost:18765")
+    assert is_safe_host("127.0.0.1")
+    assert is_safe_host("127.0.0.1:8080")
+    assert is_safe_host("[::1]")
+    assert is_safe_host("[::1]:18765")
+
+
+def test_is_safe_host_rejects_malicious_and_empty():
+    assert not is_safe_host("attacker.com")
+    assert not is_safe_host("attacker.com:18765")
+    assert not is_safe_host("evil.localhost")
+    assert not is_safe_host("")
+    assert not is_safe_host(None)
+    assert not is_safe_host("localhost:notaport")
+    assert not is_safe_host("[::1")
+
+
+def test_is_safe_host_configured_tunnel_host(monkeypatch):
+    monkeypatch.setattr("plugin.mcp.cors.get_configured_tunnel_host", lambda: "tunnel.trycloudflare.com")
+    assert is_safe_host("tunnel.trycloudflare.com")
+    assert is_safe_host("tunnel.trycloudflare.com:8443")
+    assert not is_safe_host("other.com")
+    assert not is_safe_host("attacker.com")
+
+
+def test_reject_forbidden_host():
+    class DummyHandler:
+        def __init__(self, headers):
+            self.headers = headers
+            self.sent_responses = []
+            self.sent_headers = []
+            self._response_started = False
+
+        def send_response(self, code):
+            self.sent_responses.append(code)
+
+        def send_header(self, k, v):
+            self.sent_headers.append((k, v))
+
+        def end_headers(self):
+            pass
+
+    safe = DummyHandler({"Host": "127.0.0.1:18765"})
+    assert not reject_forbidden_host(safe)
+    assert safe.sent_responses == []
+
+    forbidden = DummyHandler({"Host": "attacker.com"})
+    assert reject_forbidden_host(forbidden)
+    assert forbidden.sent_responses == [403]
+    assert forbidden._response_started is True
+
+    missing = DummyHandler({})
+    assert reject_forbidden_host(missing)
+    assert missing.sent_responses == [403]
 
 
 def test_normalize_cors_origin_rejects_invalid():
@@ -490,3 +565,87 @@ def test_post_unsupported_protocol_version(mcp_server):
     if raw:
         body = json.loads(raw.decode("utf-8"))
         assert body.get("error", {}).get("code") == -32600
+
+
+def test_dns_rebinding_protection_rejects_untrusted_host_header(mcp_server):
+    """DNS-rebinding protection: requests with untrusted Host header must return 403 Forbidden."""
+    parsed = urllib.parse.urlparse(mcp_server)
+
+    # Untrusted Host header
+    req = urllib.request.Request(
+        f"{mcp_server}/health",
+        method="GET",
+        headers={"Host": "evil.attacker.com"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req, timeout=5)
+    assert exc_info.value.code == 403
+
+    # Valid loopback Host header with port
+    req_good = urllib.request.Request(
+        f"{mcp_server}/health",
+        method="GET",
+        headers={"Host": f"localhost:{parsed.port}"},
+    )
+    with urllib.request.urlopen(req_good, timeout=5) as resp:
+        assert resp.status == 200
+
+
+def test_dns_rebinding_protection_options_preflight(mcp_server):
+    """OPTIONS preflight with untrusted Host header must return 403 Forbidden."""
+    req = urllib.request.Request(
+        f"{mcp_server}/mcp",
+        method="OPTIONS",
+        headers={
+            "Host": "evil.attacker.com",
+            "Access-Control-Request-Method": "POST",
+            "Origin": "http://localhost:3000",
+        },
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req, timeout=5)
+    assert exc_info.value.code == 403
+
+
+def test_dns_rebinding_protection_allows_configured_tunnel_host_live(mcp_server, monkeypatch):
+    """Configured tunnel host must be permitted through the Host header check on live server."""
+    monkeypatch.setattr("plugin.mcp.cors.get_configured_tunnel_host", lambda: "tunnel.example.com")
+    req = urllib.request.Request(
+        f"{mcp_server}/health",
+        method="GET",
+        headers={"Host": "tunnel.example.com"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.status == 200
+
+    # Untrusted host still rejected even with tunnel host configured
+    req_bad = urllib.request.Request(
+        f"{mcp_server}/health",
+        method="GET",
+        headers={"Host": "evil.attacker.com"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req_bad, timeout=5)
+    assert exc_info.value.code == 403
+
+
+def test_is_safe_host_allows_configured_bind_host():
+    from plugin.mcp.cors import is_safe_host
+
+    assert is_safe_host("mybox.local:8766", bind_host="mybox.local")
+    assert is_safe_host("192.168.1.5:8766", bind_host="192.168.1.5")
+    assert not is_safe_host("evil.example:8766", bind_host="mybox.local")
+    assert not is_safe_host("evil.example:8766", bind_host="0.0.0.0")
+
+
+def test_get_configured_tunnel_host_reads_shared_tunnel_public_url(monkeypatch):
+    import plugin.mcp as mcp_pkg
+    from plugin.mcp.cors import get_configured_tunnel_host
+
+    class _Tunnel:
+        public_url = "https://abc.trycloudflare.com"
+
+    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", _Tunnel(), raising=False)
+    assert get_configured_tunnel_host() == "abc.trycloudflare.com"
+    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", None, raising=False)
+    assert get_configured_tunnel_host() is None

@@ -441,7 +441,6 @@ def test_handle_debug_post_blocks_tunneled_request(monkeypatch):
 def test_http_server_stop_ends_sse_keepalive():
     """stop() must wake the SSE request thread instead of leaving it in select."""
     import socket
-    import time
 
     from plugin.mcp.routes import HttpRouteRegistry
     from plugin.mcp.server import HttpServer
@@ -805,28 +804,21 @@ def test_initialize_with_unsupported_version_returns_server_version(mcp_server, 
         assert res["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
 
 
-def test_sse_post_registers_keepalive(mcp_server, monkeypatch):
-    """Test 3: a /sse POST registers and forgets the keepalive."""
+def test_post_does_not_register_sse_keepalive(mcp_server, monkeypatch):
+    """POST /sse and /mcp must NOT register in note_sse_keepalive (only SSE stream threads are joined in stop)."""
     import urllib.request
     import json
 
     events = []
 
-    # Patch note_sse_keepalive and forget_sse_keepalive
     import plugin.mcp.mcp_protocol as prot
     orig_note = prot.note_sse_keepalive
-    orig_forget = prot.forget_sse_keepalive
 
     def fake_note(server, sock):
         events.append("note")
         return orig_note(server, sock)
 
-    def fake_forget(server, sock):
-        events.append("forget")
-        return orig_forget(server, sock)
-
     monkeypatch.setattr(prot, "note_sse_keepalive", fake_note)
-    monkeypatch.setattr(prot, "forget_sse_keepalive", fake_forget)
 
     payload = {
         "jsonrpc": "2.0",
@@ -838,10 +830,53 @@ def test_sse_post_registers_keepalive(mcp_server, monkeypatch):
     with urllib.request.urlopen(req, timeout=5) as response:
         assert response.status == 200
 
-    assert "note" in events
-    # The server forgets the keepalive in a finally after the response is
-    # written, so the client can see the response first. Wait for it briefly.
-    deadline = time.monotonic() + 5
-    while "forget" not in events and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert "forget" in events
+    # POST handlers must not register keepalives
+    assert "note" not in events
+
+
+def test_initialize_non_string_protocol_version_returns_invalid_params():
+    """Non-string protocolVersion (e.g. list, dict, int) must return JSON-RPC INVALID_PARAMS (-32602), not HTTP 500."""
+    from unittest.mock import MagicMock
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from plugin.mcp.wire_types import INVALID_PARAMS
+
+    services = MagicMock()
+    protocol = MCPProtocolHandler(services)
+
+    for bad_version in ([1, 2], {"ver": "1"}, 123, True):
+        msg = {
+            "jsonrpc": "2.0",
+            "id": 42,
+            "method": "initialize",
+            "params": {"protocolVersion": bad_version, "capabilities": {}}
+        }
+        res = protocol._process_jsonrpc(msg)
+        assert res is not None
+        status, response = res
+        assert status == 400
+        assert "error" in response
+        assert response["error"]["code"] == INVALID_PARAMS
+        assert "string" in response["error"]["message"].lower()
+
+
+def test_protocol_handler_version_defaults_to_unknown(monkeypatch):
+    """If EXTENSION_VERSION cannot be imported, self.version must default to 'unknown'."""
+    import builtins
+    from unittest.mock import MagicMock
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    orig_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "plugin.version":
+            raise ImportError("simulated missing version module")
+        return orig_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+    assert handler.version == "unknown"
+
+    # initialize result should succeed using 'unknown'
+    init_res = handler._mcp_initialize({"protocolVersion": "2024-11-05"})
+    assert init_res["serverInfo"]["version"] == "unknown"

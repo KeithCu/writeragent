@@ -25,7 +25,8 @@ def test_in_flight_requests_does_not_leak():
     assert res[1]["result"]["isError"] is True
 
     # Must not leak in-flight request
-    assert "req_1" not in handler._in_flight_requests
+    assert (None, "req_1") not in handler._in_flight_requests
+    assert not handler._in_flight_requests
 
 def test_bool_is_not_id():
     msg = {"jsonrpc": "2.0", "id": True, "method": "ping"}
