@@ -326,30 +326,18 @@ def reject_forbidden_origin(handler: Any) -> bool:
     return True
 
 
-_configured_tunnel_host: str | None = None
-
-
-def set_configured_tunnel_host(host: str | None) -> None:
-    """Set configured tunnel host for DNS-rebinding protection (tests/settings)."""
-    global _configured_tunnel_host
-    _configured_tunnel_host = host.strip() if host else None
-
-
 def get_configured_tunnel_host() -> str | None:
-    """Return active tunnel host from manual configuration or shared tunnel."""
-    if _configured_tunnel_host is not None:
-        return _configured_tunnel_host
+    """Hostname of the running MCP tunnel's public URL, if any."""
     try:
         from plugin.mcp import _shared_tunnel
 
-        if _shared_tunnel is not None:
-            pub_url = _shared_tunnel.mcp_public_url() or getattr(_shared_tunnel._state, "public_url", None)
-            if pub_url:
-                parsed = urlparse(pub_url if "://" in pub_url else f"http://{pub_url}")
-                return parsed.hostname
+        pub_url = _shared_tunnel.public_url if _shared_tunnel is not None else None
     except Exception:
         log.debug("tunnel host lookup for Host check failed", exc_info=True)
-    return None
+        return None
+    if not pub_url:
+        return None
+    return urlparse(pub_url if "://" in pub_url else f"https://{pub_url}").hostname
 
 
 def is_safe_host(host_header: str | None, tunnel_host: str | None = None, bind_host: str | None = None) -> bool:

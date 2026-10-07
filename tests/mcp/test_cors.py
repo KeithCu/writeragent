@@ -24,7 +24,6 @@ from plugin.mcp.cors import (
     origin_is_forbidden,
     reject_forbidden_host,
     set_allow_private_origins,
-    set_configured_tunnel_host,
     set_extra_allowed_origins,
 )
 from plugin.mcp.wire_types import MCP_PROTOCOL_VERSION
@@ -33,13 +32,11 @@ from plugin.mcp.wire_types import MCP_PROTOCOL_VERSION
 def setup_function():
     set_extra_allowed_origins([])
     set_allow_private_origins(True)
-    set_configured_tunnel_host(None)
 
 
 def teardown_function():
     set_extra_allowed_origins([])
     set_allow_private_origins(True)
-    set_configured_tunnel_host(None)
 
 
 def test_normalize_cors_origin_strips_slash():
@@ -80,13 +77,12 @@ def test_is_safe_host_rejects_malicious_and_empty():
     assert not is_safe_host("[::1")
 
 
-def test_is_safe_host_configured_tunnel_host():
-    set_configured_tunnel_host("tunnel.trycloudflare.com")
+def test_is_safe_host_configured_tunnel_host(monkeypatch):
+    monkeypatch.setattr("plugin.mcp.cors.get_configured_tunnel_host", lambda: "tunnel.trycloudflare.com")
     assert is_safe_host("tunnel.trycloudflare.com")
     assert is_safe_host("tunnel.trycloudflare.com:8443")
     assert not is_safe_host("other.com")
     assert not is_safe_host("attacker.com")
-    set_configured_tunnel_host(None)
 
 
 def test_reject_forbidden_host():
@@ -611,30 +607,26 @@ def test_dns_rebinding_protection_options_preflight(mcp_server):
     assert exc_info.value.code == 403
 
 
-def test_dns_rebinding_protection_allows_configured_tunnel_host_live(mcp_server):
+def test_dns_rebinding_protection_allows_configured_tunnel_host_live(mcp_server, monkeypatch):
     """Configured tunnel host must be permitted through the Host header check on live server."""
-    try:
-        set_configured_tunnel_host("tunnel.example.com")
-        req = urllib.request.Request(
-            f"{mcp_server}/health",
-            method="GET",
-            headers={"Host": "tunnel.example.com"},
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            assert resp.status == 200
+    monkeypatch.setattr("plugin.mcp.cors.get_configured_tunnel_host", lambda: "tunnel.example.com")
+    req = urllib.request.Request(
+        f"{mcp_server}/health",
+        method="GET",
+        headers={"Host": "tunnel.example.com"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.status == 200
 
-        # Untrusted host still rejected even with tunnel host configured
-        req_bad = urllib.request.Request(
-            f"{mcp_server}/health",
-            method="GET",
-            headers={"Host": "evil.attacker.com"},
-        )
-        with pytest.raises(urllib.error.HTTPError) as exc_info:
-            urllib.request.urlopen(req_bad, timeout=5)
-        assert exc_info.value.code == 403
-    finally:
-        set_configured_tunnel_host(None)
-
+    # Untrusted host still rejected even with tunnel host configured
+    req_bad = urllib.request.Request(
+        f"{mcp_server}/health",
+        method="GET",
+        headers={"Host": "evil.attacker.com"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req_bad, timeout=5)
+    assert exc_info.value.code == 403
 
 
 def test_is_safe_host_allows_configured_bind_host():
@@ -644,3 +636,16 @@ def test_is_safe_host_allows_configured_bind_host():
     assert is_safe_host("192.168.1.5:8766", bind_host="192.168.1.5")
     assert not is_safe_host("evil.example:8766", bind_host="mybox.local")
     assert not is_safe_host("evil.example:8766", bind_host="0.0.0.0")
+
+
+def test_get_configured_tunnel_host_reads_shared_tunnel_public_url(monkeypatch):
+    import plugin.mcp as mcp_pkg
+    from plugin.mcp.cors import get_configured_tunnel_host
+
+    class _Tunnel:
+        public_url = "https://abc.trycloudflare.com"
+
+    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", _Tunnel(), raising=False)
+    assert get_configured_tunnel_host() == "abc.trycloudflare.com"
+    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", None, raising=False)
+    assert get_configured_tunnel_host() is None
