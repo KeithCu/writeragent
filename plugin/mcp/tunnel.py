@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import threading
@@ -680,8 +681,6 @@ class TunnelManager:
         # below so a failed spawn does not look like a live Funnel.
         if provider == "tailscale":
             _write_tailscale_arm()
-        import os
-
         try:
             from plugin.framework.worker_pool import AsyncProcess
 
