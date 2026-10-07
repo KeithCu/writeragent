@@ -2166,8 +2166,8 @@ def test_record_assistant_start_on_ui_thread_for_web_research():
     assert getattr(panel, "_record_assistant_start", False) is True
 
 
-def test_tool_error_clearing_mode_flag_syncs_combo_box():
-    """When a tool error sets in_*_mode to False, sync callback and combo box to Chat mode."""
+def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
+    """A tool error that sets in_*_mode False runs the on_*_session_finished callback (which resets the combo)."""
     for mode_attr, payload_key, callback_name in [
         ("_in_librarian_mode", "in_librarian_mode", "on_librarian_session_finished"),
         ("_in_brainstorming_mode", "in_brainstorming_mode", "on_brainstorming_session_finished"),
@@ -2178,7 +2178,6 @@ def test_tool_error_clearing_mode_flag_syncs_combo_box():
         setattr(panel, mode_attr, True)
         callback = MagicMock()
         setattr(panel, callback_name, callback)
-        panel.chat_mode_selector = MagicMock()
 
         q = queue.Queue()
         current_state = SendHandlerState("web", "ready")
@@ -2191,7 +2190,6 @@ def test_tool_error_clearing_mode_flag_syncs_combo_box():
 
         assert getattr(panel, mode_attr) is False
         callback.assert_called_once()
-        panel.chat_mode_selector.setText.assert_called_with("Chat")
 
 
 def test_do_send_direct_image_aborted_turn_does_not_spawn_worker():

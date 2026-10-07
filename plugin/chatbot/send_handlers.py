@@ -158,27 +158,6 @@ def _reset_active_run_flags(host: Any) -> None:
         setattr(host, flag, False)
 
 
-def _sync_chat_mode_to_chat(host: Any) -> None:
-    """Sync host chat mode selector and mode state back to Chat mode."""
-    selector = getattr(host, "chat_mode_selector", None)
-    if selector is not None:
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_CHAT,
-            set_selector_mode,
-            set_selector_mode_with_flags,
-        )
-
-        flags = getattr(host, "sidebar_mode_flags", None)
-        with suppress_disposed("sync chat_mode_selector to chat", logger=log):
-            if flags is not None:
-                set_selector_mode_with_flags(selector, CHAT_MODE_CHAT, flags)
-            else:
-                set_selector_mode(selector, CHAT_MODE_CHAT)
-    apply_fn = getattr(host, "_apply_sidebar_mode_fn", None)
-    if callable(apply_fn):
-        apply_fn("chat")
-
-
 if TYPE_CHECKING:
     from plugin.chatbot.panel import ChatSession
 
@@ -214,8 +193,6 @@ class SendHandlerHost(Protocol):
     _active_run_writing_plan: bool
     _active_run_ppt_master: bool
     _active_run_deep_research: bool
-    chat_mode_selector: Any
-    sidebar_mode_flags: Any
     session: "ChatSession"
     response_control: Any
     status_control: Any
@@ -421,15 +398,14 @@ class SendHandlersMixin:
             # How it happened: the error branches set in_*_mode=False in STREAM_DONE
             # payload, but _finish_specialized_session only looked for success keys
             # (e.g. librarian_switch_to_chat, brainstorming_finished).
-            # Why this change: when in_*_mode is False, trigger the session finished
-            # callback and sync the combo box back to Chat mode.
+            # Why this change: when in_*_mode is False, run the same session finished
+            # callback as success, which resets the combo and applies Chat mode.
             if payload.get("librarian_switch_to_chat") or payload.get("in_librarian_mode") is False:
                 finished_cb = getattr(self, "on_librarian_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
                 else:
                     self._in_librarian_mode = False
-                _sync_chat_mode_to_chat(self)
             if payload.get("brainstorming_finished") or payload.get("in_brainstorming_mode") is False:
                 spec_saved = bool(payload.get("spec_saved", False))
                 finished_cb = getattr(self, "on_brainstorming_session_finished", None)
@@ -437,22 +413,18 @@ class SendHandlersMixin:
                     finished_cb(spec_saved=spec_saved)
                 else:
                     self._in_brainstorming_mode = False
-                if not spec_saved:
-                    _sync_chat_mode_to_chat(self)
             if payload.get("writing_plan_finished") or payload.get("in_writing_plan_mode") is False:
                 finished_cb = getattr(self, "on_writing_plan_session_finished", None)
                 if callable(finished_cb):
                     finished_cb()
                 else:
                     self._in_writing_plan_mode = False
-                _sync_chat_mode_to_chat(self)
             if payload.get("ppt_master_finished") or payload.get("in_ppt_master_mode") is False:
                 finished_cb = getattr(self, "on_ppt_master_session_finished", None)
                 if callable(finished_cb):
                     finished_cb(exported=bool(payload.get("exported", False)))
                 else:
                     self._in_ppt_master_mode = False
-                _sync_chat_mode_to_chat(self)
 
 
             if "in_librarian_mode" in payload:
@@ -556,12 +528,6 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="image", status="ready")
 
-        # Bugfix: what was wrong: when turn_session was None (stopped/aborted turn),
-        # _do_send_direct_image skipped add_user_message but still dispatched StartEvent,
-        # which spawned the direct image worker for an already-aborted turn.
-        # How it happened: turn_session was checked with 'if turn_session is not None:',
-        # continuing to next_state and interpreter.interpret rather than returning early.
-        # Why this change: return early when turn_session is None so no worker is spawned.
         turn_session = _turn_session_or_stop(self)
         # What was wrong: Image mode painted 'You: <prompt>' twice. The StartEvent
         # user append folded the prompt into the session, then the spawn effect
