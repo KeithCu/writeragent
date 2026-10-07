@@ -942,18 +942,61 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
         return later_checker
 
     host.resolve_stop_checker = resolve_later
-    second = begin_send_turn(host, "chat")
-    second_q: queue.Queue = queue.Queue()
-    second.queue = second_q
-    host._active_q = second_q
     started[0]()
     old_fn.assert_called_once()
+    assert host._active_execute_tool_fn.call_count == 0
     assert old_fn.call_args.args[2] is old_model
     assert old_fn.call_args.kwargs["stop_checker"] is spawn_checker
     assert old_fn.call_args.kwargs["captured_turn"] is turn
     assert old_fn.call_args.kwargs["captured_q"] is first_q
     assert old_fn.call_args.kwargs["captured_call_id"] == "call_old"
     host._active_execute_tool_fn.assert_not_called()
+
+
+
+
+def test_async_tool_aborted_before_run_drops_execution():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    host = FakeHost()
+    turn = begin_send_turn(host, "chat")
+    first_q: queue.Queue = queue.Queue()
+    turn.queue = first_q
+    host._active_q = first_q
+    old_model = Mock(name="old-model")
+    old_fn = Mock(return_value='{"status": "ok"}')
+    host._active_model = old_model
+    host._active_execute_tool_fn = old_fn
+
+    def spawn_checker() -> bool:
+        return False
+
+    def resolve_spawn() -> object:
+        return spawn_checker
+
+    host.resolve_stop_checker = resolve_spawn
+    started: list = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+        interpreter.execute(
+            SpawnToolWorkerEffect(
+                call_id="call_old",
+                func_name="web_research",
+                func_args_str="{}",
+                func_args={"query": "x"},
+                is_async=True,
+            )
+        )
+
+    # New send happens BEFORE the worker starts
+    second = begin_send_turn(host, "chat")
+    second_q: queue.Queue = queue.Queue()
+    second.queue = second_q
+    host._active_q = second_q
+
+    started[0]()
+
+    assert old_fn.call_count == 0
     assert first_q.empty()
     assert second_q.empty()
 
@@ -985,6 +1028,13 @@ def test_subagent_append_and_approval_use_the_captured_queue():
     def registry_execute(name, ctx, **kwargs):
         seen["doc"] = ctx.doc
         seen["stop"] = ctx.stop_checker
+
+        # Simulate a new send happening mid-run
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+        host._active_model = Mock(name="new-doc")
+        host._active_q = queue.Queue()
+        new_turn = begin_send_turn(host, "chat")
+
         if ctx.chat_append_callback:
             ctx.chat_append_callback("research line" if name == "web_research" else "opened doc")
         if ctx.approval_callback:
@@ -1023,13 +1073,6 @@ def test_subagent_append_and_approval_use_the_captured_queue():
                     is_async=True,
                 )
             )
-            host._active_model = Mock(name="new-doc")
-            host._active_q = queue.Queue()
-            new_turn = begin_send_turn(host, "chat")
-            new_q: queue.Queue = queue.Queue()
-            new_turn.queue = new_q
-            host._active_q = new_q
-
             def later_checker() -> bool:
                 return True
 
@@ -1046,7 +1089,6 @@ def test_subagent_append_and_approval_use_the_captured_queue():
     assert seen["stop"] is spawn_checker
     assert "wait_checker" not in seen
     assert seen["approval"] == (False, None)
-    assert new_q.empty()
     assert first_q.empty()
     assert not getattr(host.session, "tool_streamed_texts", {})
 

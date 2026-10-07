@@ -92,7 +92,6 @@ class ChatSession:
     document_context: str
     active_specialized_domain: str | None
     python_tool_domain: str | None
-    tool_streamed_texts: dict[str, list[str]]
     compaction: Any
 
     def __init__(self, system_prompt: str | None = None, session_id: str | None = None) -> None:
@@ -104,7 +103,6 @@ class ChatSession:
 
         self.active_specialized_domain = None
         self.python_tool_domain = None
-        self.tool_streamed_texts = {}
         # Cached compact view (CompactionState). Duck-typed by compaction.py;
         # never persisted. New chat / clear() must drop it or the next send
         # would keep summarizing against a stale first_kept_index.
@@ -210,7 +208,6 @@ class ChatSession:
         # previous delegate set meant Clear still offered that domain.
         self.active_specialized_domain = None
         self.python_tool_domain = None
-        self.tool_streamed_texts = {}
         if self.db:
             self.db.clear()
             

@@ -137,7 +137,7 @@ def test_clear_resets_messages_and_document_context():
     session.compaction = object()
     session.active_specialized_domain = "tables"
     session.python_tool_domain = "numpy"
-    session.tool_streamed_texts = {"call": ["chunk"]}
+
     session.clear()
 
     mock_db.clear.assert_called_once()
@@ -145,7 +145,7 @@ def test_clear_resets_messages_and_document_context():
     assert session.compaction is None
     assert session.active_specialized_domain is None
     assert session.python_tool_domain is None
-    assert session.tool_streamed_texts == {}
+
     assert len(session.messages) == 1
     assert session.messages[0] == {"role": "system", "content": "Sys"}
     mock_db.add_message.assert_called_with("system", "Sys")
