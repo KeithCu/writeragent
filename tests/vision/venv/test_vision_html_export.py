@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.vision.vision_common import CSS_INLINE_INSTALL_CMD
 from plugin.vision.venv.vision_html_export import (
-    CSS_INLINE_INSTALL_CMD,
     apply_structured_insert_html,
     augment_lo_body_paragraph_styles,
     augment_lo_heading_styles,
@@ -28,9 +29,13 @@ from plugin.vision.venv.vision_html_export import (
 
 def test_prepare_html_for_lo_import_inlines():
     raw = "<html><head><style>h1 { color: blue; }</style></head><body><h1>Hi</h1></body></html>"
-    with patch("css_inline.inline", return_value='<h1 style="color: blue;">Hi</h1>') as mock_inline:
+    with patch("css_inline.CSSInliner") as mock_cls:
+        mock_inliner = MagicMock()
+        mock_inliner.inline.return_value = '<h1 style="color: blue;">Hi</h1>'
+        mock_cls.return_value = mock_inliner
         out = prepare_html_for_lo_import(raw)
-    mock_inline.assert_called_once_with(raw)
+    mock_cls.assert_called_once_with(load_remote_stylesheets=False)
+    mock_inliner.inline.assert_called_once_with(raw)
     assert "style=" in out
 
 
@@ -54,9 +59,9 @@ def test_augment_lo_heading_styles_adds_style_when_missing():
 
 
 def test_augment_lo_body_paragraph_styles_bare_p():
-    raw = "<p>Body line</p><p class=\"x\">Also bare</p>"
+    raw = '<p>Body line</p><p class="x">Also bare</p>'
     out = augment_lo_body_paragraph_styles(raw)
-    assert 'font-family: Arial, sans-serif' in out
+    assert "font-family: Arial, sans-serif" in out
     assert out.count("font-family: Arial") == 2
 
 
@@ -69,9 +74,13 @@ def test_augment_lo_body_paragraph_styles_skips_existing_style():
 
 def test_prepare_html_for_lo_import_applies_heading_and_body_augment():
     raw = "<html><head><style>h2 { color: blue; } p { margin: 1em; }</style></head><body><h2>Hi</h2><p>there</p></body></html>"
-    with patch("css_inline.inline", return_value='<h2 style="color: blue;">Hi</h2><p>there</p>') as mock_inline:
+    with patch("css_inline.CSSInliner") as mock_cls:
+        mock_inliner = MagicMock()
+        mock_inliner.inline.return_value = '<h2 style="color: blue;">Hi</h2><p>there</p>'
+        mock_cls.return_value = mock_inliner
         out = prepare_html_for_lo_import(raw)
-    mock_inline.assert_called_once_with(raw)
+    mock_cls.assert_called_once_with(load_remote_stylesheets=False)
+    mock_inliner.inline.assert_called_once_with(raw)
     assert "font-weight: bold" in out
     assert "font-family: Arial" in out
 
@@ -121,6 +130,24 @@ def test_html_table_from_columns_rows_emits_spans():
     assert "ASSETS:" not in html[html.index("<thead>") : html.index("</thead>")]
 
 
+def test_html_table_from_columns_rows_clamps_huge_spans():
+    from plugin.vision.venv.vision_html_export import _html_table_from_columns_rows
+
+    html = _html_table_from_columns_rows(
+        ["A", "B"],
+        [["1", "2"], ["3", "4"]],
+        [
+            {"row": 0, "col": 0, "rowspan": 99999, "colspan": 99999},
+            {"row": "junk", "col": 0, "rowspan": 1, "colspan": 1},
+            {"row": -1, "col": 0, "rowspan": 2, "colspan": 2},
+        ],
+    )
+    # 3 total rows (1 header + 2 body) and 2 cols: rowspan clamped to 3, colspan to 2
+    assert 'rowspan="3"' in html
+    assert 'colspan="2"' in html
+    assert "99999" not in html
+    assert "<table" in html
+
 
 def test_export_docling_to_html_default():
     doc = MagicMock()
@@ -138,6 +165,14 @@ def test_export_docling_to_html_default():
         formula_to_mathml=True,
         split_page_view=False,
     )
+
+
+def test_export_docling_to_html_logs_warning_when_no_export_method(caplog):
+    obj = object()
+    with caplog.at_level(logging.WARNING):
+        out = export_docling_to_html(obj, {})
+    assert out == ""
+    assert "lacks export_to_html" in caplog.text
 
 
 def test_css_inline_install_cmd():
@@ -229,7 +264,6 @@ def test_convert_latex_uses_vendored_latex2mathml_when_not_installed(tmp_path, m
         "def convert(latex, display='inline'):\n"
         "    return '<math display=\"%s\"><mi>x</mi></math>' % display\n"
     )
-    # A copy one level too high is what the old four-``..`` walk found.
     parent_pkg = tmp_path / "vendor" / "latex2mathml"
     parent_pkg.mkdir(parents=True)
     (parent_pkg / "__init__.py").write_text("")
@@ -256,6 +290,7 @@ def test_convert_latex_uses_vendored_latex2mathml_when_not_installed(tmp_path, m
 
     monkeypatch.setattr(builtins, "__import__", guarded)
     path_before = list(sys.path)
+    html_export._import_latex2mathml_convert.cache_clear()
     try:
         out = convert_latex_delimiters_to_mathml("<p>$$x^2$$</p>")
     finally:
@@ -266,6 +301,7 @@ def test_convert_latex_uses_vendored_latex2mathml_when_not_installed(tmp_path, m
                 if str(tmp_path) in mod_file:
                     sys.modules.pop(name, None)
         sys.modules.update(removed)
+        html_export._import_latex2mathml_convert.cache_clear()
 
     assert "$$" not in out
     assert '<math display="block">' in out
@@ -280,6 +316,43 @@ def test_convert_latex_delimiters_to_mathml_display_and_inline():
     assert "<math" in out
     assert 'display="block"' in out
     assert 'display="inline"' in out
+
+
+def test_convert_latex_delimiters_unescapes_entities():
+    pytest.importorskip("latex2mathml")
+    html = "<p>$a &lt; b^2$</p>"
+    out = convert_latex_delimiters_to_mathml(html)
+    assert "<math" in out
+    assert "&lt;" not in out
+    assert "<mi>&</mi>" not in out
+
+
+def test_convert_latex_delimiters_does_not_pair_across_tags():
+    pytest.importorskip("latex2mathml")
+    html = "<p>costs $alpha</p><p>and $x^2</p>"
+    out = convert_latex_delimiters_to_mathml(html)
+    # The '$' must not cross </p><p>
+    assert "</p><p>" in out
+    assert "<p>costs $alpha</p>" in out
+
+
+def test_convert_latex_delimiters_skips_code_and_pre():
+    pytest.importorskip("latex2mathml")
+    html = "<p><code>$x^2$</code> and <pre>$y^2$</pre></p>"
+    out = convert_latex_delimiters_to_mathml(html)
+    assert "<math" not in out
+    assert "<code>$x^2$</code>" in out
+    assert "<pre>$y^2$</pre>" in out
+
+
+def test_convert_latex_delimiters_failed_double_dollar_emits_both_dollars():
+    # If $$ conversion fails, both $$ must be emitted without pairing subsequent single $
+    with patch("plugin.vision.venv.vision_html_export._latex_to_math_element", return_value=None):
+        html = "<p>$$unconvertible$$ then $foo then $bar</p>"
+        out = convert_latex_delimiters_to_mathml(html)
+    assert "$$unconvertible$$" in out
+    # Second $ of $$ must not have consumed $foo as inline math
+    assert "$foo" in out
 
 
 def test_convert_latex_delimiters_skips_currency_dollars():
@@ -321,7 +394,7 @@ def test_promote_table_header_rows_wraps_first_th_row_only():
     raw = (
         "<table><tbody>"
         "<tr><td></td><th>2025</th><th>2024</th></tr>"
-        "<tr><th colspan=\"3\">ASSETS:</th></tr>"
+        '<tr><th colspan="3">ASSETS:</th></tr>'
         "<tr><th>Cash</th><td>1</td><td>2</td></tr>"
         "</tbody></table>"
     )
@@ -335,22 +408,55 @@ def test_promote_table_header_rows_wraps_first_th_row_only():
     assert len(re.findall(r"<th\b", header)) == 3  # empty corner td promoted to th
 
 
-def test_promote_table_header_rows_skips_layout_tables():
+def test_promote_table_header_rows_caption_and_colgroup():
     raw = (
-        '<table style="width:100%;border:none;">'
-        "<tr><td>Left</td><td>Right</td></tr></table>"
+        "<table>"
+        "<caption>Inventory Summary</caption>"
+        '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>'
+        "<tbody>"
+        "<tr><th>Item</th><th>Qty</th></tr>"
+        "<tr><td>Pen</td><td>5</td></tr>"
+        "</tbody></table>"
     )
+    out = promote_table_header_rows(raw)
+    assert "<caption>Inventory Summary</caption>" in out
+    assert "<colgroup>" in out
+    # Caption and colgroup must precede thead
+    caption_pos = out.index("<caption>")
+    colgroup_pos = out.index("<colgroup>")
+    thead_pos = out.index("<thead>")
+    tbody_pos = out.index("<tbody>")
+    assert caption_pos < colgroup_pos < thead_pos < tbody_pos
+    assert "<thead><tr><th>Item</th><th>Qty</th></tr></thead>" in out
+    assert "<tbody><tr><td>Pen</td><td>5</td></tr></tbody>" in out
+
+
+def test_promote_table_header_rows_skips_complex_tbody_or_tfoot():
+    # When tfoot or multiple tbodys are present, table must not be rewritten into broken markup
+    raw = (
+        "<table><tbody>"
+        "<tr><th>Item</th></tr>"
+        "<tr><td>Pen</td></tr>"
+        "</tbody><tfoot><tr><td>Total</td></tr></tfoot></table>"
+    )
+    out = promote_table_header_rows(raw)
+    assert out == raw
+
+
+def test_promote_table_header_rows_skips_layout_tables():
+    raw = '<table style="width:100%;border:none;"><tr><td>Left</td><td>Right</td></tr></table>'
     out = promote_table_header_rows(raw)
     assert "<thead>" not in out
 
 
 def test_prepare_html_for_lo_import_applies_table_and_math_augment():
     raw = "<html><body><p>$$x^2$$</p><table><tr><th>A</th></tr><tr><td>1</td></tr></table></body></html>"
-    with patch(
-        "css_inline.inline",
-        return_value="<p>$$x^2$$</p><table><tr><th>A</th></tr><tr><td>1</td></tr></table>",
-    ):
+    with patch("css_inline.CSSInliner") as mock_cls:
+        mock_inliner = MagicMock()
+        mock_inliner.inline.return_value = "<p>$$x^2$$</p><table><tr><th>A</th></tr><tr><td>1</td></tr></table>"
+        mock_cls.return_value = mock_inliner
         out = prepare_html_for_lo_import(raw)
+    mock_cls.assert_called_once_with(load_remote_stylesheets=False)
     assert "<math" in out
     assert 'border="1"' in out
     assert "<thead>" in out
