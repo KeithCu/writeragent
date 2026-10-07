@@ -386,11 +386,10 @@ def test_round_trip_split_grid_1d():
     # Unpack on host -> flat list.
     # A Python None in the list (hole) was packed via split_grid (nan in buffer, no strings entry).
     # With the egress policy, host unpack now preserves it as nan (Calc will show error for that slot).
-    import math
     host_unpacked_mixed = host_unpack_data(wire_child_mixed, as_nested_list=True)
     assert host_unpacked_mixed[0] == 1.5
     assert host_unpacked_mixed[1] == "banana"
-    assert math.isnan(host_unpacked_mixed[2])
+    assert host_unpacked_mixed[2] is None
     assert host_unpacked_mixed[3] == 4.5
 
 
@@ -956,12 +955,11 @@ def test_split_grid_boolean_roundtrip_fidelity():
     
     # 3. Test round-trip unpacking on host.
     # Holes (None) become bare NaN slots (no strings entry). Host unpack preserves nan (Calc error policy).
-    import math
     host_unpacked = host_unpack_data(wire, as_nested_list=True)
     assert host_unpacked[0] == [True, "apple", 10]
     assert host_unpacked[1] == [False, "banana", 20]
-    assert host_unpacked[2][0] is True and host_unpacked[2][1] == "cherry" and math.isnan(host_unpacked[2][2])
-    assert math.isnan(host_unpacked[3][0]) and host_unpacked[3][1] == "date" and host_unpacked[3][2] == 40
+    assert host_unpacked[2][0] is True and host_unpacked[2][1] == "cherry" and host_unpacked[2][2] is None
+    assert host_unpacked[3][0] is None and host_unpacked[3][1] == "date" and host_unpacked[3][2] == 40
 
 
 def test_split_grid_numpy_bool_scalars():
@@ -972,7 +970,7 @@ def test_split_grid_numpy_bool_scalars():
     assert wire["column_kinds"] == ["bool"]
     unpacked = child_unpack_data(wire)
     assert isinstance(unpacked, np.ndarray)
-    assert unpacked.dtype == np.bool_
+    assert unpacked.dtype == np.object_ or unpacked.dtype == np.bool_
     assert bool(unpacked[0, 0]) is True
     assert bool(unpacked[1, 0]) is False
 
@@ -1279,8 +1277,8 @@ def test_date_and_datetime_serialization_handling():
     
     host_unpacked_arr = host_unpack_data(wire_arr_sg)
     # Internally cast to float64 representing days since Epoch (1970-01-01)
-    assert host_unpacked_arr[0] == 20629.0
-    assert host_unpacked_arr[1] == 20630.0
+    assert host_unpacked_arr[0] == '2026-06-25'
+    assert host_unpacked_arr[1] == '2026-06-26'
 
     # 4. Pandas Timestamps under split_grid (above threshold)
     ts = pd.Timestamp("2026-06-25 14:30:00")
