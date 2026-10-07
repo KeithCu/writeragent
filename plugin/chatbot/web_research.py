@@ -369,6 +369,7 @@ class VisitWebpageCdpTool(Tool):
     output_type: str = "string"
     cdp_url: str
     max_output_length: int
+    stop_checker: Any
 
     def __init__(self, cdp_url: str, stop_checker: Any = None, max_output_length: int = 40000, **kwargs: Any) -> None:
         super().__init__()
