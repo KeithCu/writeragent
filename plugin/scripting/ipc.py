@@ -49,28 +49,19 @@ DEFAULT_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
 # numpy.* name: REDUCE runs the resolved callable inside LibreOffice, so
 # numpy.ctypeslib.load_library would execute in the host process.
 _SAFE_PICKLE_BUILTINS = frozenset({
-    "dict",
-    "list",
-    "tuple",
-    "set",
-    "frozenset",
-    "bytes",
-    "bytearray",
-    "str",
-    "int",
-    "float",
     "complex",
-    "bool",
 })
 
 # Names a NumPy pickle REDUCE actually invokes (ndarray via _frombuffer,
 # dtype, scalar). Not load, save, or ctypeslib.
-_NUMPY_RECONSTRUCT_NAMES = frozenset({
-    "_frombuffer",
-    "_reconstruct",
-    "scalar",
-    "dtype",
-    "ndarray",
+_NUMPY_RECONSTRUCT_PAIRS = frozenset({
+    ("numpy._core.numeric", "_frombuffer"),
+    ("numpy.core.numeric", "_frombuffer"),
+    ("numpy._core.multiarray", "_reconstruct"),
+    ("numpy.core.multiarray", "_reconstruct"),
+    ("numpy._core.multiarray", "scalar"),
+    ("numpy.core.multiarray", "scalar"),
+    ("numpy", "dtype"),
 })
 
 
@@ -78,7 +69,10 @@ class _SafeUnpickler(pickle.Unpickler):
     def find_class(self, module: str, name: str) -> Any:
         if module in ("builtins", "__builtin__") and name in _SAFE_PICKLE_BUILTINS:
             return getattr(builtins, name)
-        if (module == "numpy" or module.startswith("numpy.")) and name in _NUMPY_RECONSTRUCT_NAMES:
+        if (module, name) in _NUMPY_RECONSTRUCT_PAIRS:
+            mod = sys.modules.get(module)
+            if mod is not None:
+                return getattr(mod, name)
             return super().find_class(module, name)
         raise pickle.UnpicklingError(f"global {module}.{name} is not allowed")
 
@@ -108,6 +102,7 @@ _PICKLE_LOAD_ERRORS = (
     TypeError,
     OverflowError,
     RecursionError,
+    MemoryError,
 )
 
 
@@ -487,6 +482,8 @@ def read_pickle_frame_with_timeout(
     Returns None on clean EOF or truncation.
     """
     timeout_sec = max(0.0, float(timeout_sec))
+    deadline = time.monotonic() + timeout_sec
+
     if sys.platform == "win32":
         # PeekNamedPipe, not a daemon thread blocked in ReadFile. Closing the
         # pipe while that thread is still in ReadFile crashed the xdist worker
@@ -495,7 +492,7 @@ def read_pickle_frame_with_timeout(
 
         def _read_exact_win32(n: int) -> bytes:
             return _read_bytes_with_timeout_win32(
-                stream, n, timeout_sec, cmd=frame_label
+                stream, n, deadline, timeout_sec, cmd=frame_label, stop_checker=is_alive
             )
 
         payload = read_frame_payload(
@@ -506,13 +503,13 @@ def read_pickle_frame_with_timeout(
         )
         return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
-    deadline = time.monotonic() + timeout_sec
-
     def _read_exact(n: int) -> bytes:
         buf = bytearray()
         while len(buf) < n:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                if len(buf) > 0:
+                    raise ConnectionError(f"{frame_label} stream desynchronized: timeout mid-frame")
                 raise subprocess.TimeoutExpired(cmd=frame_label, timeout=timeout_sec)
             ready, _unused, _unused2 = select.select([stream], [], [], min(1.0, remaining))
             if ready:
@@ -542,6 +539,7 @@ def write_json_line(stream: IO[str], payload: dict[str, Any]) -> None:
 def _read_bytes_with_timeout_win32(
     stream: IO[bytes],
     n: int,
+    deadline: float,
     timeout_sec: float,
     *,
     cmd: str,
@@ -560,13 +558,14 @@ def _read_bytes_with_timeout_win32(
     if not isinstance(fd, int):
         return stream.read(n)
 
-    deadline = time.monotonic() + max(0.0, timeout_sec)
     buf = bytearray()
     while len(buf) < n:
         if stop_checker and stop_checker():
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
+            if len(buf) > 0:
+                raise ConnectionError(f"{cmd} stream desynchronized: timeout mid-frame")
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
         avail = _peek_pipe_bytes_available(fd)
         if avail is None:
@@ -615,24 +614,24 @@ def _peek_pipe_bytes_available(fd: int) -> int | None:
     raise OSError(ctypes.get_last_error(), ctypes.FormatError(ctypes.get_last_error()))
 
 
-def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, *, cmd: str = "IPC JSON line") -> str:
+def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes: int, *, cmd: str = "IPC JSON line") -> str:
     """Windows path: poll pipe with PeekNamedPipe; readline only when bytes are queued."""
     try:
         fd = stream.fileno()
     except (AttributeError, OSError, ValueError):
-        return stream.readline()
+        return stream.readline(max_bytes + 1)
     # MagicMock.fileno() returns another mock that coerces to int; PeekNamedPipe then
     # hits the console FD and raises errno 1. Match the POSIX isinstance(fd, int) gate.
     if not isinstance(fd, int):
-        return stream.readline()
+        return stream.readline(max_bytes + 1)
 
     deadline = time.monotonic() + max(0.0, timeout_sec)
     while time.monotonic() < deadline:
         avail = _peek_pipe_bytes_available(fd)
         if avail is None:
-            return stream.readline()
+            return stream.readline(max_bytes + 1)
         if avail > 0:
-            return stream.readline()
+            return stream.readline(max_bytes + 1)
         # PeekNamedPipe can cross the deadline; sleep(negative) is ValueError.
         time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
 
@@ -703,11 +702,13 @@ def _read_available_line_bytes(fd: int) -> bytes | None:
             pass
 
 
-def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float) -> str:
+def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, max_bytes: int) -> str:
     """Read one line, returning when the deadline passes even without a newline."""
     deadline = time.monotonic() + max(0.0, float(timeout_sec))
     pending = _pop_json_line_pending(stream)
     while True:
+        if len(pending) > max_bytes:
+            raise ValueError(f"JSON line exceeds {max_bytes} bytes")
         taken = _take_json_line(pending)
         if taken is not None:
             line, rest = taken
@@ -734,22 +735,22 @@ def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float) -
         pending.extend(piece)
 
 
-def _readline_with_timeout(stream: IO[str], timeout_sec: float | None) -> str:
+def _readline_with_timeout(stream: IO[str], timeout_sec: float | None, max_bytes: int) -> str:
     if timeout_sec is None:
-        return stream.readline()
+        return stream.readline(max_bytes + 1)
 
     # Windows select.select() only supports sockets, not pipes (WinError 10038).
     if sys.platform == "win32":
-        return _readline_with_timeout_win32(stream, timeout_sec)
+        return _readline_with_timeout_win32(stream, timeout_sec, max_bytes)
 
     try:
         fd = stream.fileno()
     except (AttributeError, OSError, ValueError):
         fd = None
     if isinstance(fd, int):
-        return _readline_with_timeout_posix(stream, fd, timeout_sec)
+        return _readline_with_timeout_posix(stream, fd, timeout_sec, max_bytes)
 
-    return stream.readline()
+    return stream.readline(max_bytes + 1)
 
 
 def read_json_line(
@@ -759,7 +760,7 @@ def read_json_line(
     max_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
 ) -> dict[str, Any] | None:
     """Read one newline-delimited JSON object. Return None on clean EOF."""
-    line = _readline_with_timeout(stream, timeout_sec)
+    line = _readline_with_timeout(stream, timeout_sec, max_bytes)
     if not line:
         return None
     encoded = line.encode("utf-8", errors="replace")

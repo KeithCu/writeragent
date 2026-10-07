@@ -261,8 +261,8 @@ def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch
     stream = MagicMock()
     stream.fileno.return_value = 3
     with pytest.raises(subprocess.TimeoutExpired):
-        ipc._read_bytes_with_timeout_win32(stream, 4, 0.01, cmd="IPC frame")
-    assert slept == [0.0]
+        ipc._read_bytes_with_timeout_win32(stream, 4, 0.01, 0.01, cmd="IPC frame")
+    assert slept == [0.001]
     stream.read.assert_not_called()
 
 
@@ -278,7 +278,7 @@ def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     stream = MagicMock()
     stream.fileno.return_value = 3
     with pytest.raises(subprocess.TimeoutExpired):
-        ipc._readline_with_timeout_win32(stream, 0.01)
+        ipc._readline_with_timeout_win32(stream, 0.01, 1024)
     assert slept == [0.0]
 
 
@@ -541,3 +541,48 @@ def test_json_line_timeout_falls_back_when_fileno_not_int():
     stream.readline.return_value = '{"status": "ready"}\n'
     assert read_json_line(stream, timeout_sec=0.01) == {"status": "ready"}
     stream.readline.assert_called_once()
+
+
+def test_hostile_reduce_bytes_raises_value_error():
+    import pickle
+    from plugin.scripting.ipc import unpack_pickle_frame
+
+    class BadBytes:
+        def __reduce__(self):
+            return (bytes, (10**12,))
+
+    payload = pickle.dumps(BadBytes(), protocol=5)
+    with pytest.raises(ValueError, match="is not allowed|Unable to allocate|MemoryError"):
+        unpack_pickle_frame(payload)
+
+
+def test_roundtrip_ndarray_complex_containers():
+    import numpy as np
+    import pickle
+    from plugin.scripting.ipc import unpack_pickle_frame
+    from plugin.scripting.ipc import pack_pickle_frame
+
+    obj1 = 1 + 2j
+    obj2 = np.array([1, 2, 3], dtype=np.float64)
+    obj3 = {"a": [1, 2, 3], "b": b"xyz"}
+
+    assert unpack_pickle_frame(pickle.dumps(obj1, protocol=5)) == obj1
+
+    res2 = unpack_pickle_frame(pickle.dumps(obj2, protocol=5))
+    assert isinstance(res2, np.ndarray)
+    assert np.array_equal(res2, obj2)
+
+    assert unpack_pickle_frame(pickle.dumps(obj3, protocol=5)) == obj3
+
+def test_numpy_arbitrary_submodule_import_fails():
+    import pickle
+    import numpy as np
+    from plugin.scripting.ipc import unpack_pickle_frame
+
+    class BadNumpy:
+        def __reduce__(self):
+            return (np.ctypeslib.load_library, ("libc.so.6", "/lib"))
+
+    payload = pickle.dumps(BadNumpy(), protocol=5)
+    with pytest.raises(ValueError, match="is not allowed"):
+        unpack_pickle_frame(payload)
