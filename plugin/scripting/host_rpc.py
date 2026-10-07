@@ -26,6 +26,7 @@ protocol is added here.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 from typing import Any, Callable
@@ -266,16 +267,8 @@ def _catalog_lead(namespaces: list[str]) -> str:
     )
 
 
-def format_script_api_catalog(domains: list[str]) -> str:
-    """Script-callable API catalog: ``core`` plus each delegated domain.
-
-    Each entry is the ``wa.<namespace>.<method>(...)`` call and the full
-    generated method docstring (description and Args). That docstring is the
-    text ``scripts/generate_tool_proxies.py`` ``_method_doc_lines`` wrote into
-    ``writeragent_api``. The venv sandbox blocks ``inspect``, ``dir``, and
-    ``__doc__``, so the inner agent cannot read this off the proxy itself.
-    Empty when the proxy module is not shipped (LibrePy).
-    """
+@functools.lru_cache(maxsize=16)
+def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
     tools = _domain_tools_map()
     if tools is None:
         return ""
@@ -285,7 +278,7 @@ def format_script_api_catalog(domains: list[str]) -> str:
         return ""
     namespaces: list[str] = []
     seen: set[str] = set()
-    for name in ("core", *domains):
+    for name in ("core", *domains_tuple):
         key = domain_proxy_namespace(name, tools)
         if not key or key in seen:
             continue
@@ -302,19 +295,29 @@ def format_script_api_catalog(domains: list[str]) -> str:
             if method is None:
                 log.warning("script API catalog: no proxy method for %s", tool_name)
                 continue
-            # Verbatim generated docstring (description + Args), not a summary.
             doc = inspect.cleandoc(getattr(method, "__doc__", None) or "")
             call = _format_proxy_call(namespace, method)
             entries.append(f"{call}\n{doc}" if doc else call)
-        if not entries:
-            continue
-        any_entry = True
-        blocks.append(f"{namespace}:")
-        blocks.append("\n\n".join(entries))
-        blocks.append("")
+        if entries:
+            blocks.append(f"{namespace}:")
+            blocks.append("\n\n".join(entries))
+            blocks.append("")
+            any_entry = True
     if not any_entry:
         return ""
     return "\n".join(blocks).rstrip() + "\n"
+
+def format_script_api_catalog(domains: list[str]) -> str:
+    """Script-callable API catalog: ``core`` plus each delegated domain.
+
+    Each entry is the ``wa.<namespace>.<method>(...)`` call and the full
+    generated method docstring (description and Args). That docstring is the
+    text ``scripts/generate_tool_proxies.py`` ``_method_doc_lines`` wrote into
+    ``writeragent_api``. The venv sandbox blocks ``inspect``, ``dir``, and
+    ``__doc__``, so the inner agent cannot read this off the proxy itself.
+    Empty when the proxy module is not shipped (LibrePy).
+    """
+    return _format_script_api_catalog_cached(tuple(domains))
 
 
 def execute_tool(
@@ -517,10 +520,16 @@ def handle_tool_call_frame(
         return False
 
     tool_name = response.get("tool")
-    if not isinstance(tool_name, str):
-        raise RuntimeError(f"Invalid tool_call: {tool_name!r}")
-    args = response.get("args")
     call_id = response.get("id")
+    if not isinstance(tool_name, str):
+        tool_response = {"status": "error", "id": call_id, "message": f"Invalid tool_call: {tool_name!r}"}
+        try:
+            frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+            stdin_write(frame)
+        except (OSError, ValueError):
+            log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
+        return True
+    args = response.get("args")
     if args is not None and not isinstance(args, dict):
         tool_response = {"status": "error", "id": call_id, "message": "args must be a dictionary"}
         try:
@@ -535,7 +544,21 @@ def handle_tool_call_frame(
     # then kept calling host tools, including export, after the sidebar went idle.
     # Why this works: the same checker the LLM frame already receives refuses
     # the call and tells the child to end with USER_STOPPED.
-    if stop_checker is not None and stop_checker():
+    is_stopped = False
+    if stop_checker is not None:
+        try:
+            is_stopped = stop_checker()
+        except Exception:
+            log.exception("stop_checker raised exception in handle_tool_call_frame")
+            tool_response = {"status": "error", "id": call_id, "message": "stop_checker raised exception"}
+            try:
+                frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+                stdin_write(frame)
+            except (OSError, ValueError):
+                log.warning("venv tool_call error reply failed (worker pipe closed)", exc_info=True)
+            return True
+
+    if is_stopped:
         tool_response = {
             "status": "error",
             "id": call_id,

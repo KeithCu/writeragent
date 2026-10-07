@@ -131,12 +131,14 @@ def test_format_script_api_catalog_empty_without_proxy():
     """LibrePy omits writeragent_api; the inner prompt then has no catalog."""
     from unittest.mock import patch
 
-    from plugin.scripting.host_rpc import format_script_api_catalog
+    from plugin.scripting.host_rpc import format_script_api_catalog, _format_script_api_catalog_cached
 
+    _format_script_api_catalog_cached.cache_clear()
     with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
-        assert format_script_api_catalog(["shapes"]) == ""
+        assert format_script_api_catalog(["shapes_empty_1"]) == ""
+    _format_script_api_catalog_cached.cache_clear()
     with patch("plugin.scripting.host_rpc._proxy_methods_by_tool", return_value=None):
-        assert format_script_api_catalog(["shapes"]) == ""
+        assert format_script_api_catalog(["shapes_empty_2"]) == ""
 
 
 def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
@@ -478,10 +480,19 @@ def test_resolve_allowed_tools_indexes_and_exempt_domains():
 
 
 def test_handle_tool_call_frame_invalid_tool_name_type():
-    import pytest
+    import io
 
-    with pytest.raises(RuntimeError, match="Invalid tool_call"):
-        handle_tool_call_frame({"type": "tool_call", "tool": 123}, stdin_write=MagicMock())
+    written: list[bytes] = []
+    handled = handle_tool_call_frame(
+        {"type": "tool_call", "id": "1", "tool": None},
+        stdin_write=written.append,
+    )
+
+    assert handled is True
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert "Invalid tool_call: None" in resp["message"]
 
 def test_execute_tool_async_tool_runs_on_caller_thread():
     from plugin.framework.tool import ToolBase, ToolContext
