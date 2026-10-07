@@ -90,7 +90,7 @@ def test_extract_text_docling_empty_adds_warning(mock_convert, _mock_html):
 def test_extract_text_docling_unavailable_falls_back_to_paddle(mock_convert):
     mock_convert.side_effect = ImportError("docling is not installed")
 
-    with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
+    with patch("plugin.vision.venv.vision_paddle.decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as mock_get_engine:
         engine = MagicMock(spec=["ocr"])
@@ -128,7 +128,7 @@ def test_extract_text_docling_api_error_falls_back_to_paddle(mock_convert):
         "'LayoutModelConfig' object has no attribute 'get_engine_config'"
     )
 
-    with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
+    with patch("plugin.vision.venv.vision_paddle.decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as mock_get_engine:
         engine = MagicMock(spec=["ocr"])
@@ -155,7 +155,7 @@ def test_extract_text_docling_unrelated_vision_error_does_not_fallback(mock_conv
     assert "model failed" in result["message"]
 
 
-@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):
     engine = MagicMock(spec=["ocr"])
@@ -234,7 +234,7 @@ def test_extract_structure_docling_default(mock_convert, _mock_html):
     assert result["tables"][0]["rows"] == [["Widget", "2"]]
 
 
-@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_pp_structure")
 def test_extract_structure_paddle_engine(mock_get_engine, mock_decode):
     engine = MagicMock()
@@ -305,7 +305,7 @@ def test_extract_structure_paddle_unavailable(mock_get_engine):
     assert result["code"] == "PADDLEOCR_UNAVAILABLE"
 
 
-@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_runtime_error_returns_vision_error(mock_get_engine, mock_decode):
     engine = MagicMock(spec=["ocr"])
@@ -352,7 +352,7 @@ def test_vision_client_passes_payload(mock_action):
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_pdf_docling_unavailable_does_not_call_paddle(mock_convert):
     mock_convert.side_effect = ImportError("docling is not installed")
-    with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as decode, patch(
+    with patch("plugin.vision.venv.vision_paddle.decode_image_bytes") as decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as paddle:
         result = run_vision({"helper": "extract_text", "params": {}}, b"%PDF-1.4 not-a-png", {})
@@ -367,3 +367,23 @@ def test_run_vision_rejects_oversized_image():
         result = run_vision({"helper": "extract_text"}, b"12345", {})
     assert result["status"] == "error"
     assert result["code"] == "IMAGE_TOO_LARGE"
+
+
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_paddle_fallback_failure_preserves_docling_error(mock_convert):
+    # What was wrong: an unhandled exception in the Paddle fallback replaced the original Docling error with VISION_ERROR.
+    # Why this change: verify the fallback failure is caught and logged, returning the original docling_result.
+    mock_convert.side_effect = ImportError("docling is not installed")
+
+    with patch("plugin.vision.venv.vision._run_paddle_helper", side_effect=RuntimeError("paddle crashed")):
+        result = run_vision({"helper": "extract_text", "params": {}}, b"png-bytes", {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "DOCLING_UNAVAILABLE"
+
+
+def test_run_vision_unknown_engine_returns_invalid_params():
+    result = run_vision({"helper": "extract_text", "params": {"engine": "padle"}}, b"png-bytes", {})
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAMS"
+    assert "Unknown vision engine" in result["message"]

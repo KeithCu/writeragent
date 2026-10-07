@@ -97,7 +97,7 @@ def test_parse_ocr_lines_v2_page_and_v3_result():
     assert regions[1]["confidence"] == 0.91
 
 
-@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_v3_ocr_result(mock_get_engine, mock_decode):
     engine = MagicMock(spec=["predict"])
@@ -118,7 +118,7 @@ def test_extract_text_v3_ocr_result(mock_get_engine, mock_decode):
     assert len(result["regions"]) == 2
 
 
-@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_v3_predict_generator(mock_get_engine, mock_decode):
     mock_get_engine.return_value = _PredictEngine([_Result(_v3_ocr_payload())])
@@ -183,6 +183,7 @@ class _V3PPStructure:
             "use_doc_orientation_classify",
             "use_doc_unwarping",
             "use_table_recognition",
+            "lang",
         }
         if unknown:
             name = sorted(unknown)[0]
@@ -208,7 +209,7 @@ def _install_fake_paddleocr(monkeypatch: MonkeyPatch, fake_mod: SimpleNamespace,
         monkeypatch.setattr(paddle_mod, "_paddle_ocr_engine", None)
         monkeypatch.setattr(paddle_mod, "_paddle_ocr_lang", None)
     monkeypatch.setattr(paddle_mod.importlib, "import_module", _import_module)
-    monkeypatch.setattr(paddle_mod, "_decode_image_bytes", lambda image_bytes: "decoded")
+    monkeypatch.setattr(paddle_mod, "decode_image_bytes", lambda image_bytes: "decoded")
 
 
 def test_run_paddle_ocr_v3_uses_predict_not_cls() -> None:
@@ -268,6 +269,7 @@ def test_extract_structure_v3_constructs_without_show_log(monkeypatch: MonkeyPat
         "use_doc_orientation_classify": False,
         "use_doc_unwarping": False,
         "use_table_recognition": True,
+        "lang": "en",
     }
     assert engine.predict_images == ["decoded"]
 
@@ -311,7 +313,7 @@ def test_parse_structure_prefers_result_json_over_layout_blocks():
     assert blocks[1]["type"] == "table"
 
 
-@patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
+@patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_pp_structure")
 def test_extract_structure_v3_predict_result(mock_get_engine, mock_decode):
     mock_get_engine.return_value = _PredictEngine([_LiveStructureResult(_v3_structure_payload())])
@@ -328,3 +330,54 @@ def test_extract_structure_v3_predict_result(mock_get_engine, mock_decode):
     assert result["html"].lower().count("<table") == 1
     assert "&lt;table" not in result["html"].lower()
     assert result["warnings"] == []
+
+
+def test_parse_v3_structure_page_preserves_table_html_positions_when_first_empty():
+    # What was wrong: filtering empty strings from htmls shifted indices, causing subsequent tables to be matched to the wrong HTML.
+    # Why this change: verify table 2 gets html 2 even when table 1 has empty HTML.
+    payload = {
+        "table_res_list": [
+            {"pred_html": ""},  # empty HTML for table 1
+            {"pred_html": "<table><tr><th>T2</th></tr><tr><td>Val2</td></tr></table>"},
+        ],
+        "parsing_res_list": [
+            {"block_label": "table", "block_content": "<table><tr><th>T1</th></tr><tr><td>Val1</td></tr></table>", "block_bbox": [0, 0, 10, 10]},
+            {"block_label": "table", "block_content": "", "block_bbox": [0, 10, 10, 20]},
+        ],
+    }
+    blocks, tables, text_parts, _ = paddle_mod._parse_v3_structure_page(payload, table_index=0)
+    assert len(tables) == 2
+    assert tables[0]["columns"] == ["T1"]
+    assert tables[0]["rows"] == [["Val1"]]
+    assert tables[1]["columns"] == ["T2"]
+    assert tables[1]["rows"] == [["Val2"]]
+
+
+def test_get_paddle_ocr_attribute_error_guard(monkeypatch: MonkeyPatch):
+    # What was wrong: missing AttributeError guard if paddleocr module lacked PaddleOCR class.
+    # Why this change: guard (ImportError, AttributeError) and report PADDLEOCR_UNAVAILABLE.
+    empty_mod = SimpleNamespace()
+    monkeypatch.setattr(paddle_mod, "_paddle_ocr_engine", None)
+    monkeypatch.setattr(paddle_mod, "_paddle_ocr_lang", None)
+    monkeypatch.setattr(paddle_mod.importlib, "import_module", lambda name: empty_mod)
+
+    result = paddle_mod.extract_text(b"png-bytes", {})
+    assert result["status"] == "error"
+    assert result["code"] == "PADDLEOCR_UNAVAILABLE"
+
+
+def test_get_paddle_ocr_constructor_error(monkeypatch: MonkeyPatch):
+    # What was wrong: constructor errors in _get_paddle_ocr escaped as unhandled exceptions.
+    # Why this change: catch constructor exceptions and return error_result with VISION_ERROR.
+    def _exploding_ocr(**kwargs):
+        raise RuntimeError("PaddleOCR constructor failed")
+
+    fake_mod = SimpleNamespace(PaddleOCR=_exploding_ocr)
+    monkeypatch.setattr(paddle_mod, "_paddle_ocr_engine", None)
+    monkeypatch.setattr(paddle_mod, "_paddle_ocr_lang", None)
+    monkeypatch.setattr(paddle_mod.importlib, "import_module", lambda name: fake_mod)
+
+    result = paddle_mod.extract_text(b"png-bytes", {})
+    assert result["status"] == "error"
+    assert result["code"] == "VISION_ERROR"
+    assert "PaddleOCR constructor failed" in result["message"]

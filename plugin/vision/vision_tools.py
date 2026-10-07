@@ -63,8 +63,8 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
 
         stop_checker = getattr(ctx, "stop_checker", None)
 
-        def _run() -> dict[str, Any]:
-            return run_and_insert_vision_for_selection(
+        try:
+            result = run_and_insert_vision_for_selection(
                 ctx.ctx,
                 doc,
                 helper="extract_structure",
@@ -72,9 +72,6 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                 insert_into_document=insert_into_document,
                 stop_checker=stop_checker,
             )
-
-        try:
-            result = _run()
         except DocumentDisposedError:
             raise
         except ToolExecutionError as exc:
@@ -99,6 +96,8 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                 }
             return self._tool_error(message, code=code, vision_result=result, **partial_fields)
 
+        # What was wrong: int(result.get("images_processed") or 1) turned 0 processed images into 1.
+        # Why this change: default to 0 only when missing, preserving legitimate 0 counts.
         out: dict[str, Any] = {
             "status": "ok",
             "helper": "extract_structure",
@@ -106,7 +105,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             "metrics": result.get("metrics") if isinstance(result.get("metrics"), dict) else {},
             "warnings": result.get("warnings") if isinstance(result.get("warnings"), list) else [],
             "inserted": bool(result.get("inserted")),
-            "images_processed": int(result.get("images_processed") or 1),
+            "images_processed": int(result.get("images_processed", 0)),
             "message": str(result.get("message") or _("OCR complete.")),
         }
         names = result.get("image_names")

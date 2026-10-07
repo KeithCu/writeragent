@@ -709,7 +709,7 @@ class ToolRegistry:
         if protocol == "openai":
             # get_image is only useful to a vision-capable text model on the chat path; hide it from
             # text-only models. The MCP path (below) always keeps it (client assumed vision-capable).
-            from plugin.vision.vision_availability import filter_get_image_for_text_only_model
+            from plugin.vision.image_filter import filter_get_image_for_text_only_model
 
             tools = filter_get_image_for_text_only_model(tools)
             schemas = [to_openai_schema(t, doc_type=doc_type) for t in tools]

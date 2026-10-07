@@ -9,15 +9,18 @@ from __future__ import annotations
 import base64
 from typing import Any
 
-from plugin.vision.vision_common import merge_vision_params
-
 from plugin.doc.doc_type import is_calc, is_writer
-from plugin.scripting.client import run_vision
-from plugin.framework.errors import ToolExecutionError
-from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.framework.i18n import _
-from plugin.vision.vision_common import HELPER_NAMES, IMPLEMENTED_HELPERS, VISION_IMAGE_MAX_BYTES
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.i18n import _
+from plugin.framework.queue_executor import SendCancelled, execute_on_main_thread
+from plugin.scripting.client import run_vision
+from plugin.vision.vision_common import (
+    HELPER_NAMES,
+    IMPLEMENTED_HELPERS,
+    VISION_IMAGE_MAX_BYTES,
+    merge_vision_params,
+)
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
 
 
@@ -54,59 +57,7 @@ def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = N
     return png_bytes
 
 
-def _reraise_if_disposed(exc: BaseException) -> None:
-    # CharLocale / selection reads used to swallow every Exception and fall back
-    # to locale "en" (or skip the graphic). A disposed document then looked like
-    # a missing image or English OCR instead of a closed document. Re-raise so
-    # callers stop instead of continuing against a dead UNO object.
-    from plugin.framework.errors import DocumentDisposedError, is_disposed_exception
-
-    if is_disposed_exception(exc):
-        raise DocumentDisposedError("Document disposed during vision OCR", object_type="vision") from exc
-
-
-def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
-    # 1. Try to get CharLocale from the graphic object itself
-    if graphic_obj is not None:
-        try:
-            locale = graphic_obj.getPropertyValue("CharLocale")
-            if locale and getattr(locale, "Language", None):
-                return str(locale.Language).lower()
-        except Exception as exc:
-            _reraise_if_disposed(exc)
-            pass
-
-    # 2. Try to get CharLocale from the current selection/cursor
-    try:
-        selection = doc.CurrentController.Selection
-        if selection:
-            if hasattr(selection, "getCount") and selection.getCount() > 0:
-                sel_obj = selection.getByIndex(0)
-            else:
-                sel_obj = selection
-            locale = sel_obj.getPropertyValue("CharLocale")
-            if locale and getattr(locale, "Language", None):
-                return str(locale.Language).lower()
-    except Exception as exc:
-        _reraise_if_disposed(exc)
-        pass
-
-    # 3. Fall back to LibreOffice UI locale
-    try:
-        from plugin.framework.i18n import get_lo_locale
-
-        lo_locale = get_lo_locale(ctx)
-        if lo_locale:
-            return lo_locale.split("_")[0].split("-")[0].lower()
-    except Exception as exc:
-        _reraise_if_disposed(exc)
-        pass
-
-    return "en"
-
-
-def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Export graphic bytes and run a trusted vision helper in the user venv."""
+def _validate_helper(helper: str) -> str:
     name = str(helper or "").strip()
     if not name:
         raise ToolExecutionError("helper is required", code="VISION_ERROR")
@@ -117,8 +68,62 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         # Exporting a graphic and RPC'ing them only to get UNKNOWN_HELPER from the worker
         # wasted the selection. Reject here.
         raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
+    return name
 
-    params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
+
+def _first_selected_object(doc: Any) -> Any:
+    try:
+        selection = doc.CurrentController.Selection
+        if selection:
+            if hasattr(selection, "getCount") and selection.getCount() > 0:
+                return selection.getByIndex(0)
+            return selection
+    except Exception as exc:
+        reraise_if_disposed(exc)
+    return None
+
+
+def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
+    # 1. Try to get CharLocale from the graphic object itself
+    if graphic_obj is not None:
+        try:
+            locale = graphic_obj.getPropertyValue("CharLocale")
+            if locale and getattr(locale, "Language", None):
+                return str(locale.Language).lower()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+
+    # 2. Try to get CharLocale from the current selection/cursor
+    try:
+        sel_obj = _first_selected_object(doc)
+        if sel_obj is not None:
+            locale = sel_obj.getPropertyValue("CharLocale")
+            if locale and getattr(locale, "Language", None):
+                return str(locale.Language).lower()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+
+    # 3. Fall back to LibreOffice UI locale
+    try:
+        from plugin.framework.i18n import get_lo_locale
+
+        lo_locale = get_lo_locale(ctx)
+        if lo_locale:
+            return lo_locale.split("_")[0].split("-")[0].lower()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+
+    return "en"
+
+
+def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Export graphic bytes and run a trusted vision helper in the user venv."""
+    name = _validate_helper(helper)
+    if isinstance(params, dict) and params.get("_merged"):
+        params_dict = dict(params)
+        params_dict.pop("_merged", None)
+    else:
+        params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
 
     def _export_on_main_thread() -> tuple[bytes, dict[str, Any], dict[str, Any]]:
         # Graphic lookup, locale, and PNG export are UNO. OCR itself is not.
@@ -128,15 +133,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         if image_name:
             graphic_obj = _get_graphic_object(doc, str(image_name))
         else:
-            try:
-                selection = doc.CurrentController.Selection
-                if selection:
-                    if hasattr(selection, "getCount") and selection.getCount() > 0:
-                        graphic_obj = selection.getByIndex(0)
-                    else:
-                        graphic_obj = selection
-            except Exception as exc:
-                _reraise_if_disposed(exc)
+            graphic_obj = _first_selected_object(doc)
 
         if not local_params.get("lang"):
             local_params["lang"] = _resolve_locale_language(ctx, doc, graphic_obj)
@@ -173,20 +170,12 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
     UNO discovery and insert are marshaled to the main thread. The venv OCR call
     inside ``run_trusted_vision`` is not.
     """
-    name = str(helper or "").strip()
-    if not name:
-        raise ToolExecutionError("helper is required", code="VISION_ERROR")
-    if name not in HELPER_NAMES:
-        raise ToolExecutionError(f"Unknown helper {name!r}", code="VISION_ERROR")
-    if name not in IMPLEMENTED_HELPERS:
-        # HELPER_NAMES still lists Phase 4/5 helpers so copied script headers parse.
-        # Exporting a graphic and RPC'ing them only to get UNKNOWN_HELPER from the worker
-        # wasted the selection. Reject here.
-        raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
+    name = _validate_helper(helper)
 
     if stop_checker is None:
         stop_checker = getattr(ctx, "stop_checker", None)
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
+    params_dict["_merged"] = True
     explicit_name = str(params_dict.get("image_name") or "").strip()
 
     def _discover_names() -> list[str]:
@@ -201,60 +190,59 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
         return found
 
-    target_names = execute_on_main_thread(_discover_names)
+    # What was wrong: execute_on_main_thread(_discover_names) could raise SendCancelled which escaped
+    # as a generic VISION_ERROR instead of USER_STOPPED, and checked type(exc).__name__ string.
+    # Why this change: import SendCancelled and wrap discovery and the OCR loop in one typed handler.
+    try:
+        target_names = execute_on_main_thread(_discover_names)
 
-    from plugin.framework.queue_executor import SendCancelled
-
-    results: list[dict[str, Any]] = []
-    for image_name in target_names:
-        if stop_checker is not None and stop_checker():
-            if results:
-                # Prior images were already inserted into the document. Break loop
-                # and return completed results so the tool result matches what landed.
-                break
-            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
-
-        per_params = dict(params_dict)
-        per_params["image_name"] = image_name
-        try:
-            result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
-        except SendCancelled:
-            return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
-        except Exception as exc:
-            if getattr(type(exc), "__name__", "") == "SendCancelled":
+        results: list[dict[str, Any]] = []
+        stopped_early = False
+        for image_name in target_names:
+            if stop_checker is not None and stop_checker():
+                if results:
+                    # Prior images were already inserted into the document. Break loop
+                    # and return completed results so the tool result matches what landed.
+                    stopped_early = True
+                    break
                 return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
-            raise
 
-        if result.get("status") == "error":
-            # Image 1 may already be inserted. Keep status=error and stop the loop
-            # (tests/writer/test_vision_ocr_mock_uno.py). Attach what landed so the
-            # caller is not told that nothing happened.
-            failed = dict(result)
-            failed["images_processed"] = len(results)
-            failed["image_names"] = list(target_names[: len(results)])
-            failed["failed_image"] = image_name
-            failed["inserted"] = bool(insert_into_document and results)
-            failed["partial"] = bool(results)
-            return failed
-        # A finished OCR is a document mutation and is inserted. Stop is checked
-        # at the top of the loop, so the next image is not started.
-        if insert_into_document:
-            # prepare_vision_writer_insert collapses any range selection before HTML import.
-            def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:
-                from plugin.vision.vision_egress import insert_vision_result
+            per_params = dict(params_dict)
+            per_params["image_name"] = image_name
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
 
-                insert_vision_result(ctx, doc, res, params=per_insert)
+            if result.get("status") == "error":
+                # Image 1 may already be inserted. Keep status=error and stop the loop
+                # (tests/writer/test_vision_ocr_mock_uno.py). Attach what landed so the
+                # caller is not told that nothing happened.
+                failed = dict(result)
+                failed["images_processed"] = len(results)
+                failed["image_names"] = list(target_names[: len(results)])
+                failed["failed_image"] = image_name
+                failed["inserted"] = bool(insert_into_document and results)
+                failed["partial"] = bool(results)
+                return failed
+            # A finished OCR is a document mutation and is inserted. Stop is checked
+            # at the top of the loop, so the next image is not started.
+            if insert_into_document:
+                # prepare_vision_writer_insert collapses any range selection before HTML import.
+                def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:
+                    from plugin.vision.vision_egress import insert_vision_result
 
-            # What was wrong: execute_on_main_thread defaulted to binding to the send cancellation
-            # scope, which aborted this document mutation if Stop was clicked during/after OCR.
-            # Why this change: once bytes are in hand, marshal the insert unscoped (bound_scope=None).
-            execute_on_main_thread(_insert, bound_scope=None)
-        result["image_name"] = image_name
-        if "context" not in result or not isinstance(result["context"], dict):
-            result["context"] = {"image_name": image_name}
-        else:
-            result["context"]["image_name"] = image_name
-        results.append(result)
+                    insert_vision_result(ctx, doc, res, params=per_insert)
+
+                # What was wrong: execute_on_main_thread defaulted to binding to the send cancellation
+                # scope, which aborted this document mutation if Stop was clicked during/after OCR.
+                # Why this change: once bytes are in hand, marshal the insert unscoped (bound_scope=None).
+                execute_on_main_thread(_insert, bound_scope=None)
+            result["image_name"] = image_name
+            if "context" not in result or not isinstance(result["context"], dict):
+                result["context"] = {"image_name": image_name}
+            else:
+                result["context"]["image_name"] = image_name
+            results.append(result)
+    except SendCancelled:
+        return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
 
     full_parts = [str(r.get("full_text") or "") for r in results]
     warnings: list[Any] = []
@@ -269,12 +257,21 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             metrics.update(single_metrics)
 
     inserted = bool(insert_into_document)
-    if inserted:
+    # What was wrong: on a Stop break, the result still reported "OCR complete" and listed all
+    # target_names (including un-processed ones) without indicating partial execution.
+    # Why this change: return target_names[:len(results)], stopped=True, partial=True, and
+    # message "Stopped after N of M images".
+    if stopped_early:
+        image_names = list(target_names[: len(results)])
+        message = _("Stopped after {count} of {total} images.").format(count=len(results), total=len(target_names))
+    elif inserted:
+        image_names = list(target_names)
         message = _("OCR complete ({count} images).").format(count=len(results)) if len(results) > 1 else _("OCR complete.")
     else:
+        image_names = list(target_names)
         message = _("OCR complete (text returned only; not inserted).")
 
-    return {
+    res_out: dict[str, Any] = {
         "status": "ok",
         "helper": name,
         "full_text": "\n\n".join(part for part in full_parts if part),
@@ -283,8 +280,12 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         "warnings": warnings,
         "inserted": inserted,
         "images_processed": len(results),
-        "image_names": list(target_names),
-        "image_name": target_names[0] if target_names else None,
+        "image_names": image_names,
+        "image_name": image_names[0] if image_names else None,
         "message": message,
         "results": results if len(results) > 1 else None,
     }
+    if stopped_early:
+        res_out["stopped"] = True
+        res_out["partial"] = True
+    return res_out

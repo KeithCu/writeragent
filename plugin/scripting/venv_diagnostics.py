@@ -545,7 +545,7 @@ def _probe_vector_search_packages(
     )
 
 
-def _probe_vision_packages(
+def probe_vision_packages(
     python_exe: str,
     timeout: float = VISION_PROBE_TIMEOUT_SEC,
 ) -> Tuple[dict[str, Any], Optional[str]]:
@@ -1085,7 +1085,7 @@ def _attach_external_probes(
             data, probes, failure, group="nlp", keys=_NLP_PACKAGE_KEYS, failure_key="nlp_probe_failure"
         )
     if include_vision:
-        probes, failure = _probe_vision_packages(
+        probes, failure = probe_vision_packages(
             python_exe,
             timeout=float(VISION_PROBE_TIMEOUT_SEC),
         )

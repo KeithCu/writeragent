@@ -293,7 +293,7 @@ def test_draw_prompt_omits_get_image_when_model_has_no_vision():
     model.supportsService.side_effect = supportsService
     with (
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
-        patch("plugin.vision.vision_availability.chat_text_model_has_native_vision", return_value=False),
+        patch("plugin.vision.image_filter.chat_text_model_has_native_vision", return_value=False),
     ):
         prompt = get_chat_system_prompt_for_document(model)
     assert DRAW_GET_IMAGE_TOOL_LINE not in prompt
@@ -315,7 +315,7 @@ def test_draw_prompt_keeps_get_image_when_model_has_vision():
     model.supportsService.side_effect = supportsService
     with (
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
-        patch("plugin.vision.vision_availability.chat_text_model_has_native_vision", return_value=True),
+        patch("plugin.vision.image_filter.chat_text_model_has_native_vision", return_value=True),
     ):
         prompt = get_chat_system_prompt_for_document(model)
     assert DRAW_GET_IMAGE_TOOL_LINE in prompt

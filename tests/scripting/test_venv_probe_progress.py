@@ -28,7 +28,7 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
             "plugin.scripting.venv_diagnostics._probe_nlp_packages",
             return_value=({"spacy": "present", "textdescriptives": None, "transformers": None}, None),
         ),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({"docling": "present"}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({"docling": "present"}, None)),
         patch(
             "plugin.scripting.venv_diagnostics._probe_vector_search_packages",
             return_value=({"envwrap": "present", "sqlite_vec": "present"}, None),
@@ -79,7 +79,7 @@ def test_run_venv_self_check_with_progress_continues_after_sandbox_probe_error()
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({"docling": "present"}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({"docling": "present"}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         ok, msg = run_venv_self_check_with_progress("/fake/python", displays.append, timeout=60.0)
@@ -103,7 +103,7 @@ def test_run_venv_self_check_with_progress_skips_audio_and_vector_search() -> No
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({"docling": "present"}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({"docling": "present"}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_audio_packages") as mock_audio,
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages") as mock_vector,
     ):

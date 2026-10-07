@@ -12,9 +12,10 @@ import os
 from typing import Any
 
 from plugin.framework.config import get_config_str
+from plugin.framework.errors import ConfigError
 from plugin.scripting.config_limits import VISION_PROBE_TIMEOUT_SEC
 from plugin.scripting.sandbox import resolve_venv_python
-from plugin.scripting.venv_diagnostics import _probe_vision_packages, vision_ocr_stack_ready
+from plugin.scripting.venv_diagnostics import probe_vision_packages, vision_ocr_stack_ready
 
 log = logging.getLogger(__name__)
 
@@ -24,17 +25,14 @@ _DELEGATE_GATEWAY_NAMES = frozenset({"delegate_to_specialized_writer_toolset", "
 
 # Package probe cache (Settings self-check / diagnostics only — not used on Send / get_schemas).
 _probe_cache: dict[tuple[str, float], bool] = {}
-_cached_venv_path: str | None = None
 
 
 def invalidate_vision_availability_cache() -> None:
     """Drop cached vision probe results (e.g. after Settings venv path change)."""
-    global _cached_venv_path
     _probe_cache.clear()
-    _cached_venv_path = None
 
 
-def _resolve_vision_python_exe(ctx: Any) -> str | None:
+def _resolve_vision_python_exe() -> str | None:
     venv_dir = get_config_str("scripting.python_venv_path").strip()
     if not venv_dir:
         return None
@@ -50,7 +48,7 @@ def _probe_ready(python_exe: str) -> bool:
     if cache_key in _probe_cache:
         return _probe_cache[cache_key]
 
-    probe, err = _probe_vision_packages(python_exe, timeout=float(VISION_PROBE_TIMEOUT_SEC))
+    probe, err = probe_vision_packages(python_exe, timeout=float(VISION_PROBE_TIMEOUT_SEC))
     if err:
         log.debug("vision_packages_probe_ready: probe note: %s", err)
     ready = vision_ocr_stack_ready(probe)
@@ -58,7 +56,7 @@ def _probe_ready(python_exe: str) -> bool:
     return ready
 
 
-def specialized_domain_available(domain: str, ctx: Any) -> bool:
+def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
     """Whether a specialized domain can actually run, for the exposure layers that advertise it.
 
     Some domains need a backend the install may not have. The discovery catalog has always hidden
@@ -74,94 +72,51 @@ def specialized_domain_available(domain: str, ctx: Any) -> bool:
     return True
 
 
-def vision_venv_configured(ctx: Any) -> bool:
+def vision_venv_configured(ctx: Any = None) -> bool:
     """True when Settings venv path is set and a python executable resolves (no import probe).
 
     Used for schema/prompt gating on the main-thread Send path. Missing Docling/Paddle
     packages surface at OCR runtime or via Settings → Python → Test.
     """
-    if ctx is None:
+    # What was wrong: vision_venv_configured had a 'pytest' in sys.modules escape hatch
+    # that masked config errors and forced False under test, while ctx=None short-circuited.
+    # Why this change: catch ConfigError directly, log it, return False, and drop the ctx gate.
+    try:
+        return _resolve_vision_python_exe() is not None
+    except ConfigError as exc:
+        log.warning("vision_venv_configured: config error: %s", exc)
         return False
 
-    try:
-        return _resolve_vision_python_exe(ctx) is not None
-    except Exception:
-        # Avoid crashing with ConfigError in unit tests that lack a complete MODULES initialization.
-        import sys
-        if "pytest" in sys.modules:
-            return False
-        raise
 
-
-def vision_packages_probe_ready(ctx: Any) -> bool:
+def vision_packages_probe_ready(ctx: Any = None) -> bool:
     """True when the venv subprocess probe finds a ready OCR stack (see vision_ocr_stack_ready).
 
     For Settings diagnostics only — do not call from get_schemas or chat send setup.
     """
-    global _cached_venv_path
-    if ctx is None:
-        return False
-
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
-    if venv_dir != _cached_venv_path:
-        invalidate_vision_availability_cache()
-        _cached_venv_path = venv_dir
-
-    python_exe = _resolve_vision_python_exe(ctx)
+    python_exe = _resolve_vision_python_exe()
     if not python_exe:
         return False
     return _probe_ready(python_exe)
 
 
-def vision_ocr_available(ctx: Any) -> bool:
+def vision_ocr_available(ctx: Any = None) -> bool:
     """Schema/prompt gate: same as :func:`vision_venv_configured` (no subprocess on Send)."""
     return vision_venv_configured(ctx)
 
 
-def filter_vision_specialized_tools(tools: list[Any], ctx: Any) -> list[Any]:
+def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[Any]:
     """Omit extract_structure_from_image when no Settings venv is configured."""
     if vision_venv_configured(ctx):
         return tools
     return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]
 
 
-def chat_text_model_has_native_vision() -> bool:
-    """True when the configured chat text model can see images.
-
-    Fail-open True when capability cannot be determined — same contract as
-    filter_get_image_for_text_only_model (keep get_image rather than hide it).
-
-    What was wrong: schema and Draw prompt setup called ``has_native_vision``
-    with the default ``allow_fetch=True``. How: Chat Send builds tool schemas
-    on the UI thread, and a cold OpenRouter/Together catalog GET is 10s with
-    up to 3 attempts. Image attach already passed ``allow_fetch=False``.
-    Why: this gate does too. An id with no static row, no stored answer, and
-    no process cache stays fail-open so ``get_image`` is not hidden.
-    """
-    try:
-        from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
-
-        return bool(has_native_vision(get_text_model(), get_current_endpoint(), allow_fetch=False, unknown_is_vision=True))
-    except Exception:
-        return True
-
-
-def filter_get_image_for_text_only_model(tools: list[Any]) -> list[Any]:
-    """Drop get_image when the configured CHAT text model has no native vision.
-
-    get_image only helps a model that can actually SEE the returned image. For the chat (openai)
-    path the text model is known, so a text-only model shouldn't be offered it (Keith: every tool
-    a small/blind model can't use is wasted context + a chance to mispick). The MCP path does NOT
-    call this -- there we assume the connecting client is vision-capable and always expose it.
-    Fail OPEN: if the model's vision can't be determined, keep the tool rather than hide a working one."""
-    if chat_text_model_has_native_vision():
-        return tools
-    return [t for t in tools if getattr(t, "name", None) != "get_image"]
-
-
-def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any) -> list[dict[str, Any]]:
+def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
     """Remove vision from delegate gateway domain enums when no Settings venv is configured."""
-    if ctx is None or vision_venv_configured(ctx):
+    # What was wrong: ctx=None caused filter_vision_delegate_schemas to return schemas unchanged,
+    # exposing vision tools when unconfigured, while filter_vision_specialized_tools hid them.
+    # Why this change: drop the ctx is None short-circuit so both filters apply the same rule.
+    if vision_venv_configured(ctx):
         return schemas
 
     out: list[dict[str, Any]] = []
