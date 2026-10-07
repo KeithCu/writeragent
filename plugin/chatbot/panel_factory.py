@@ -113,10 +113,18 @@ def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control
     def on_frame_close() -> None:
         if getattr(session, "panel", None) is panel:
             from plugin.chatbot.tool_loop_actions import current_turn
+
             turn = current_turn(send_listener)
             if turn is not None:
                 turn.closed_by_document = True
             release_live_sidebar(panel, query_control)
+
+    # Kept on the panel so FrameSession.release_panel can drop it (no leaked
+    # closures holding old panels across sidebar rebuilds).
+    old_hook = getattr(panel, "_frame_close_hook", None)
+    if old_hook is not None and hasattr(session, "remove_close_hook"):
+        session.remove_close_hook(old_hook)
+    panel._frame_close_hook = on_frame_close
     if hasattr(session, "add_close_hook"):
         session.add_close_hook(on_frame_close)
 
@@ -448,6 +456,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     send_listener: Any
     _live_panel_uid: str
     frame_session: Any
+    _frame_close_hook: Callable[[], None] | None
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str, frame_session: Any = None) -> None:
         self.ctx = ctx
@@ -458,6 +467,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.Type = TOOLPANEL
         self.toolpanel = None
         self.m_panelRootWindow = None
+        self._frame_close_hook = None
         self.session: Any = None  # Created in _wireControls
         self._released = False
         self._current_mode = ""
