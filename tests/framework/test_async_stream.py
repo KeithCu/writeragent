@@ -2577,8 +2577,11 @@ def test_overlapping_event_drains_keep_the_pump_owner_until_both_finish() -> Non
     The owner went back to None while the second drain still held the pump,
     so a different owner (MCP) could start under it.
     """
-    from plugin.framework.queue_executor import NestedDrainOwnerError, get_drain_owner, drain_owner_scope
+    from plugin.framework.queue_executor import NestedDrainOwnerError, get_drain_depth, get_drain_owner, drain_owner_scope
 
+    # xdist can leave drain depth from an earlier test on this worker; without
+    # a clean slate both releases leave owner="stream" and the final assert flakes.
+    _clear_event_drain()
     rearm_a, rearm_b = _RecordingRearm(), _RecordingRearm()
     q_a: queue.Queue = queue.Queue()
     q_b: queue.Queue = queue.Queue()
@@ -2597,6 +2600,7 @@ def test_overlapping_event_drains_keep_the_pump_owner_until_both_finish() -> Non
         rearm_b.pump()
         assert done_b[0] is True
         assert get_drain_owner() is None
+        assert get_drain_depth() == 0
     finally:
         _clear_event_drain()
 
