@@ -47,6 +47,7 @@ _cdp_visits_inflight = 0
 _cdp_closing = False
 _cdp_runs = 0
 _cdp_launch_lock = threading.Lock()
+_CDP_LOCK_TIMEOUT_SECONDS = 35.0
 
 # Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
 # main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
@@ -292,14 +293,13 @@ def _cdp_run_enter() -> None:
     a Chrome process that is about to be killed.
     """
     global _cdp_runs
+    import time
     with _cdp_visits_cond:
-        import time
-        start_wait = time.time()
+        start_wait = time.monotonic()
         while _cdp_closing:
             _cdp_visits_cond.wait(1.0)
-            if time.time() - start_wait > 35.0:
-                log.warning("Timeout waiting for previous CDP browser to close")
-                break
+            if time.monotonic() - start_wait > _CDP_LOCK_TIMEOUT_SECONDS:
+                raise RuntimeError("previous CDP browser still closing")
         _cdp_runs += 1
 
 
@@ -346,10 +346,10 @@ def _finish_cdp_browser() -> None:
             return
         _cdp_closing = True
         import time
-        start_wait = time.time()
+        start_wait = time.monotonic()
         while _cdp_visits_inflight > 0:
             _cdp_visits_cond.wait(1.0)
-            if time.time() - start_wait > 35.0:
+            if time.monotonic() - start_wait > _CDP_LOCK_TIMEOUT_SECONDS:
                 log.warning("Timeout waiting for in-flight CDP visits to finish")
                 break
     try:
@@ -369,9 +369,9 @@ class VisitWebpageCdpTool(Tool):
     output_type: str = "string"
     cdp_url: str
     max_output_length: int
-    stop_checker: Any
+    stop_checker: Callable[[], bool] | None
 
-    def __init__(self, cdp_url: str, stop_checker: Any = None, max_output_length: int = 40000, **kwargs: Any) -> None:
+    def __init__(self, cdp_url: str, max_output_length: int = 40000, *, stop_checker: Callable[[], bool] | None = None, **kwargs: Any) -> None:
         super().__init__()
         self.cdp_url = cdp_url
         self.max_output_length = max_output_length
@@ -939,9 +939,7 @@ class WebResearchTool(ToolBase):
             if cdp_held:
                 _finish_cdp_browser()
             try:
-                if 'smol_model' in locals() and smol_model:
-                    if hasattr(smol_model, "api") and hasattr(smol_model.api, "stop"):
-                        smol_model.api.stop()
+                smol_model.api.stop()
             except Exception as e:
                 log.debug("Error stopping smol_model api: %s", e)
 
