@@ -916,7 +916,7 @@ class LlmClient:
                     requested_model = request_model_from_body(body)
                     used_model = None
                     retry_outer = False
-                    stream_state = {}
+                    stream_state: dict[str, Any] = {}
 
                     for payload in iterate_sse(response):
                         if payload == "[DONE]":

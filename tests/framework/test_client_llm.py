@@ -1366,7 +1366,7 @@ def test_anthropic_shim(client):
 
 
 def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
-    client.config["model"] = "claude-3-7-sonnet"
+    client.config["model"] = ""
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         messages = [

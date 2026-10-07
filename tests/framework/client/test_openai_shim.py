@@ -14,7 +14,7 @@ def test_openai_shim_build_image_request():
     method, path, body, headers = shim.build_image_request("prompt", "gpt-image-alpha", 1024, 768)
     data = json.loads(body)
     assert "response_format" not in data
-    assert "size" not in data
+    assert data["size"] == "1536x1024"
 
     # test dall-e snapping
     method, path, body, headers = shim.build_image_request("prompt", "dall-e-2", 400, 300)
@@ -23,8 +23,8 @@ def test_openai_shim_build_image_request():
 
     method, path, body, headers = shim.build_image_request("prompt", "dall-e-3", 200, 200)
     data = json.loads(body)
-    assert data["size"] == "256x256"
+    assert data["size"] == "1024x1024"
 
     # test ValueError
-    with pytest.raises(ValueError, match="dall-e-3 cannot edit an existing image. Pick a GPT image model."):
+    with pytest.raises(ValueError, match="dall-e-3 cannot edit an existing image. Pick a GPT Image model or dall-e-2."):
         shim.build_image_request("prompt", "dall-e-3", 1024, 1024, source_image="data:image/png;base64,123")

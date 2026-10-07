@@ -15,6 +15,8 @@ from .base_provider_shim import BaseProviderShim, coerce_raw_b64, inline_image_m
 
 log = logging.getLogger(__name__)
 
+_BAD_TOOL_INPUT = object()
+
 
 def _anthropic_image_block(url_val: Any) -> dict[str, Any] | None:
     """Turn an OpenAI data-URL image part into an Anthropic base64 image block.
@@ -68,7 +70,7 @@ def _dict_parts(content: Any) -> list[dict[str, Any]]:
     return [part for part in content if isinstance(part, dict)]
 
 
-def _parse_tool_input(args: Any) -> dict[str, Any] | None:
+def _parse_tool_input(args: Any) -> dict[str, Any] | object:
     """Parse tool arguments into an object. Never substitute ``{}`` for bad JSON.
 
     An empty object would look like a successful call with no arguments.
@@ -77,17 +79,17 @@ def _parse_tool_input(args: Any) -> dict[str, Any] | None:
         return args
     if not isinstance(args, str):
         log.warning("Anthropic tool arguments were not JSON; omitting tool_use")
-        return {"__BAD_JSON__": True}
+        return _BAD_TOOL_INPUT
     if not args.strip():
         return {}
     try:
         parsed = json.loads(args)
     except json.JSONDecodeError:
         log.warning("Anthropic tool arguments were not valid JSON; omitting tool_use")
-        return {"__BAD_JSON__": True}
+        return _BAD_TOOL_INPUT
     if not isinstance(parsed, dict):
         log.warning("Anthropic tool arguments JSON was not an object; omitting tool_use")
-        return {"__BAD_JSON__": True}
+        return _BAD_TOOL_INPUT
     return parsed
 
 
@@ -140,7 +142,7 @@ class AnthropicShim(BaseProviderShim):
         url = f"{endpoint}/v1/messages"
         system_parts: list[str] = []
         converted: list[dict[str, Any]] = []
-        dropped_tool_ids = set()
+        dropped_tool_ids: set[str | None] = set()
 
         for m in messages:
             role = m.get("role")
@@ -223,7 +225,7 @@ class AnthropicShim(BaseProviderShim):
                     if "arguments" not in fn:
                         continue
                     args_obj = _parse_tool_input(fn.get("arguments"))
-                    if isinstance(args_obj, dict) and args_obj.get("__BAD_JSON__"):
+                    if args_obj is _BAD_TOOL_INPUT:
                         dropped_tool_ids.add(tc.get("id"))
                         continue
                     if args_obj is None:
@@ -277,7 +279,7 @@ class AnthropicShim(BaseProviderShim):
             effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
             if effort == "minimal":
                 effort = "low"
-            if effort in ("low", "medium", "high", "max") and model_name and "claude-3-7" in model_name.lower():
+            if effort in ("low", "medium", "high", "max"):
                 data["output_config"] = {"effort": effort}
 
         path = get_url_path_and_query(url)

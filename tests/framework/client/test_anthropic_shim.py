@@ -1,6 +1,6 @@
-import pytest
+from typing import Any
 import json
-from plugin.framework.client.anthropic_shim import _parse_tool_input, AnthropicShim
+from plugin.framework.client.anthropic_shim import _parse_tool_input, AnthropicShim, _BAD_TOOL_INPUT
 
 def test_anthropic_shim_tool_parsing():
     # Empty/whitespace args become {}
@@ -8,8 +8,8 @@ def test_anthropic_shim_tool_parsing():
     assert _parse_tool_input("   \n ") == {}
 
     # Bad JSON becomes __BAD_JSON__
-    assert _parse_tool_input("{bad json") == {"__BAD_JSON__": True}
-    assert _parse_tool_input("[\"not an object\"]") == {"__BAD_JSON__": True}
+    assert _parse_tool_input("{bad json") == _BAD_TOOL_INPUT
+    assert _parse_tool_input("[\"not an object\"]") == _BAD_TOOL_INPUT
 
 def test_anthropic_shim_build_chat():
     class DummyClient:
@@ -60,8 +60,8 @@ def test_anthropic_shim_stream_state():
         def _headers(self): return {}
     shim = AnthropicShim(DummyClient())
 
-    state1 = {}
-    state2 = {}
+    state1: dict[str, Any] = {}
+    state2: dict[str, Any] = {}
 
     # Stream 1 block start
     chunk1 = {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "t1", "name": "f1"}}

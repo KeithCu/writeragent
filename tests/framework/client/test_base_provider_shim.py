@@ -1,4 +1,3 @@
-import pytest
 from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
 
 def test_adjust_image_body_for_rejection():
