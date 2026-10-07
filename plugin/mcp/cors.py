@@ -123,12 +123,30 @@ def normalize_cors_origin(value: str | None) -> str | None:
     origin = str(value).strip()
     if not origin:
         return None
-    if origin.endswith("/"):
-        origin = origin.rstrip("/")
-    lower = origin.lower()
-    if not (lower.startswith("http://") or lower.startswith("https://")):
+    # What was wrong: origins were compared as exact strings without lowercasing scheme/host
+    # or parsing scheme://host[:port], so https://App.Example.com or http://host:80 failed to match.
+    # Why: parse scheme and host into lowercase and canonicalize scheme://host[:port].
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
         return None
-    return origin
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        return None
+    host = parsed.hostname
+    if not host:
+        return None
+    host = host.lower()
+    if ":" in host:
+        host = f"[{host}]"
+    port = parsed.port
+    if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+        port = None
+    if port is not None:
+        netloc = f"{host}:{port}"
+    else:
+        netloc = host
+    return f"{scheme}://{netloc}"
 
 
 # Deep check-all run 32840960268 hung here at the 360-minute job wall (Prev 9:51
@@ -301,6 +319,87 @@ def reject_forbidden_origin(handler: Any) -> bool:
 
     log_forbidden_origin(handler)
     # No Access-Control-* — a reflected ACAO would let the browser read the 403.
+    handler._response_started = True
+    handler.send_response(403)
+    handler.send_header("Content-Length", "0")
+    handler.end_headers()
+    return True
+
+
+_configured_tunnel_host: str | None = None
+
+
+def set_configured_tunnel_host(host: str | None) -> None:
+    """Set configured tunnel host for DNS-rebinding protection (tests/settings)."""
+    global _configured_tunnel_host
+    _configured_tunnel_host = host.strip() if host else None
+
+
+def get_configured_tunnel_host() -> str | None:
+    """Return active tunnel host from manual configuration or shared tunnel."""
+    if _configured_tunnel_host is not None:
+        return _configured_tunnel_host
+    try:
+        from plugin.mcp import _shared_tunnel
+
+        if _shared_tunnel is not None:
+            pub_url = _shared_tunnel.mcp_public_url() or getattr(_shared_tunnel._state, "public_url", None)
+            if pub_url:
+                parsed = urlparse(pub_url if "://" in pub_url else f"http://{pub_url}")
+                return parsed.hostname
+    except Exception:
+        pass
+    return None
+
+
+def is_safe_host(host_header: str | None, tunnel_host: str | None = None) -> bool:
+    """DNS-rebinding protection: True when Host is localhost / 127.0.0.1 / [::1] (optional port) or tunnel host."""
+    if not host_header:
+        return False
+    raw = host_header.strip()
+    if not raw:
+        return False
+    if raw.startswith("["):
+        closing = raw.find("]")
+        if closing == -1:
+            return False
+        host = raw[: closing + 1].lower()
+        rest = raw[closing + 1 :]
+        if rest and (not rest.startswith(":") or not rest[1:].isdigit()):
+            return False
+    elif ":" in raw:
+        host, rest = raw.split(":", 1)
+        if not rest.isdigit():
+            return False
+        host = host.lower()
+    else:
+        host = raw.lower()
+
+    if host in _SAFE_LOOPBACK_HOSTS or (host.startswith("[") and host[1:-1] in _SAFE_LOOPBACK_HOSTS):
+        return True
+
+    active_tunnel = tunnel_host or get_configured_tunnel_host()
+    if active_tunnel:
+        th = active_tunnel.strip()
+        if "://" in th:
+            try:
+                p = urlparse(th)
+                th = p.hostname or th
+            except Exception:
+                pass
+        elif ":" in th and not th.startswith("["):
+            th = th.split(":", 1)[0]
+        if host == th.lower():
+            return True
+    return False
+
+
+def reject_forbidden_host(handler: Any) -> bool:
+    """If Host header is missing or unsafe (DNS rebinding), write 403 and return True."""
+    host_header = handler.headers.get("Host") if hasattr(handler, "headers") and handler.headers else None
+    if is_safe_host(host_header):
+        return False
+    log.warning("Rejecting request with forbidden Host header: %r", host_header)
     handler._response_started = True
     handler.send_response(403)
     handler.send_header("Content-Length", "0")
