@@ -501,7 +501,7 @@ def test_host_callback_writeframes_error_is_swallowed(ctx, tmp_path, monkeypatch
     wav_path = str(tmp_path / "host.wav")
     with (
         patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("", "no venv")),
-        patch("plugin.chatbot.audio_recorder.ensure_downloaded_audio_on_path"),
+        patch("plugin.chatbot.audio_recorder.ensure_native_binaries_on_path"),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
     ):
         recorder = AudioRecorder(ctx)

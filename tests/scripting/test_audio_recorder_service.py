@@ -64,25 +64,69 @@ def test_wait_for_recording_ready_accepts_ready_line():
 
 
 def test_stop_recording_process_returns_path():
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = MagicMock()
-    proc.stdout = MagicMock()
-    proc.stdout.readline.return_value = json.dumps({"status": "ok", "path": "/tmp/x.wav"}) + "\n"
     proc.wait.return_value = 0
-    assert stop_recording_process(proc) == "/tmp/x.wav"
+    handoff = RecordingStopHandoff()
+    handoff.note_ok("/tmp/x.wav")
+
+    assert stop_recording_process(proc, handoff=handoff) == "/tmp/x.wav"
     proc.stdin.write.assert_called_once_with(json.dumps({"command": "stop"}) + "\n")
 
 
 def test_stop_recording_process_uses_json_stop_command():
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = StringIO()
-    proc.stdout = StringIO(json.dumps({"status": "ok", "path": "/tmp/x.wav"}) + "\n")
     proc.wait.return_value = 0
+    handoff = RecordingStopHandoff()
+    handoff.note_ok("/tmp/x.wav")
 
-    assert stop_recording_process(proc) == "/tmp/x.wav"
+    assert stop_recording_process(proc, handoff=handoff) == "/tmp/x.wav"
     assert proc.stdin.getvalue() == json.dumps({"command": "stop"}) + "\n"
+
+
+def test_monitor_recording_stdout_skips_non_json_lines_before_ok():
+    """Stray non-JSON lines (e.g. ALSA warnings or library prints) must be skipped."""
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff, monitor_recording_stdout
+
+    proc = MagicMock()
+    proc.poll.side_effect = [None, None, 0]
+    proc.stdout = StringIO("ALSA lib pcm.c: unknown PCM\n" + json.dumps({"status": "ok", "path": "/tmp/good.wav"}) + "\n")
+    handoff = RecordingStopHandoff()
+
+    handle = monitor_recording_stdout(
+        proc,
+        on_auto_stopped=lambda _p: None,
+        handoff=handoff,
+    )
+    handle.join(timeout=2.0)
+    assert handoff.snapshot_path() == "/tmp/good.wav"
+
+
+def test_stop_recording_via_handoff_reaps_on_timeout():
+    """Handoff timeout must reap the child process via try/finally."""
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff, _recording_stderr_drains
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = MagicMock()
+    drain = MagicMock()
+    _recording_stderr_drains[id(proc)] = drain
+
+    handoff = RecordingStopHandoff()
+    # Note nothing so wait_for_path times out
+    with pytest.raises(RuntimeError, match="timed out"):
+        stop_recording_process(proc, handoff=handoff, timeout_sec=0.01)
+
+    proc.wait.assert_called()
+    drain.join.assert_called()
+    assert id(proc) not in _recording_stderr_drains
 
 
 def test_wait_for_recording_ready_eof_raises_runtime_error():

@@ -9,7 +9,10 @@
 
 from __future__ import annotations
 
+import functools
 from typing import Any
+
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 _TIMEOUT_CONFIG_KEY = "scripting.python_exec_timeout"
 # Fallbacks duplicate module.yaml so an OXT can import without plugin._manifest.
@@ -45,9 +48,8 @@ LANGUAGETOOL_WORKER_TIMEOUT_SEC = 15
 VALE_WORKER_TIMEOUT_SEC = 25
 
 
-def long_trusted_worker_timeout_sec(_ctx: Any | None = None) -> int:
+def long_trusted_worker_timeout_sec() -> int:
     """Single long budget for the list of known long-running trusted helpers."""
-    del _ctx
     return LONG_TRUSTED_WORKER_TIMEOUT_SEC
 
 # Settings → Python Test: per-package sandbox import probe (independent of scripting.python_exec_timeout).
@@ -63,16 +65,12 @@ VECTOR_SEARCH_PROBE_TIMEOUT_SEC = 30
 _DATA_CELLS_CONFIG_KEY = "scripting.python_max_data_cells"
 
 
+@functools.cache
 def _scripting_schema_field(field_name: str, *, required: bool = False) -> dict[str, Any] | None:
     try:
         from plugin._manifest import MODULES
     except ImportError:
-        if required:
-            raise RuntimeError(
-                f"{field_name} missing from manifest; run make manifest "
-                "(plugin/scripting/module.yaml must define the field)."
-            ) from None
-        return None
+        MODULES = []
     for m in MODULES:
         if not isinstance(m, dict):
             continue
@@ -91,6 +89,7 @@ def _scripting_schema_field(field_name: str, *, required: bool = False) -> dict[
     return None
 
 
+@functools.cache
 def _schema_int(field_name: str, name: str, *, fallback: int | None = None, required: bool = False) -> int:
     field = _scripting_schema_field(field_name, required=required)
     if not field:
@@ -106,9 +105,6 @@ def _schema_int(field_name: str, name: str, *, fallback: int | None = None, requ
 
 
 # --- python_exec_timeout ---
-
-
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
 def python_exec_timeout_default() -> int:
@@ -197,17 +193,17 @@ def resolve_python_exec_timeout(
     return _clamp_timeout(parsed)
 
 
-def configured_python_exec_timeout(ctx: Any) -> int:
+# get_config_int_safe reads from global config storage and does not take a UNO
+# context. Dropping ctx removes misleading parameter coupling across callers.
+def configured_python_exec_timeout() -> int:
     """Read Settings value for scripting.python_exec_timeout and clamp to schema bounds."""
-    del ctx
     from plugin.framework.config import get_config_int_safe
 
     return _clamp_timeout(get_config_int_safe(_TIMEOUT_CONFIG_KEY))
 
 
-def embeddings_worker_timeout_sec(_ctx: Any | None = None) -> int:
+def embeddings_worker_timeout_sec() -> int:
     """Wall-clock budget for trusted embeddings RPC (uses the single long trusted budget)."""
-    del _ctx
     return long_trusted_worker_timeout_sec()
 
 
@@ -232,9 +228,8 @@ def _clamp_max_data_cells(value: int) -> int:
     return max(lo, min(hi, value))
 
 
-def configured_python_max_data_cells(ctx: Any) -> int:
+def configured_python_max_data_cells() -> int:
     """Read Settings value for scripting.python_max_data_cells and clamp to schema bounds."""
-    del ctx
     from plugin.framework.config import get_config_int_safe
 
     return _clamp_max_data_cells(get_config_int_safe(_DATA_CELLS_CONFIG_KEY))

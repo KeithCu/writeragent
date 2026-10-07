@@ -36,6 +36,7 @@ from plugin.scripting.ipc import (
     IpcFrameError,
     IpcPayloadSizeError,
     UserStopped,
+    claim_ipc_channel,
     read_pickle_frame,
     write_pickle_frame,
 )
@@ -67,20 +68,26 @@ def _handle_trusted_action(
     from plugin.scripting.venv.worker_heartbeat import HeartbeatEmitter, write_result_frame
 
     domain = str(data.get("domain") or "")
-    wiring = get_trusted_action_wiring(domain)
-    if wiring is None:
-        return {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
-
-    use_heartbeat = bool(request.get("allow_heartbeat")) and wiring.supports_heartbeat and stdout is not None
-    heartbeat_fn = None
-    if use_heartbeat:
-        emitter = HeartbeatEmitter(stdout)
-        heartbeat_fn = emitter.emit
-
+    use_heartbeat = False
+    # What was wrong: get_trusted_action_wiring and wiring inspection ran outside
+    # the try block, so invalid/long domain arguments or contract errors escaped to
+    # main() and crashed the worker.
+    # Why this fixes it: resolving wiring inside try ensures errors return a clean
+    # error response frame.
     try:
-        result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
-        resp = {"status": "ok", "result": result}
+        wiring = get_trusted_action_wiring(domain)
+        if wiring is None:
+            resp = {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
+        else:
+            use_heartbeat = bool(request.get("allow_heartbeat")) and wiring.supports_heartbeat and stdout is not None
+            heartbeat_fn = None
+            if use_heartbeat:
+                emitter = HeartbeatEmitter(stdout)
+                heartbeat_fn = emitter.emit
+            result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
+            resp = {"status": "ok", "result": result}
     except Exception as exc:
+        use_heartbeat = bool(request.get("allow_heartbeat")) and stdout is not None
         resp = _error_response(exc)
 
     if use_heartbeat and stdout is not None:
@@ -220,7 +227,11 @@ def main() -> None:
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
 
     stdin = sys.stdin.buffer
-    stdout = sys.stdout.buffer
+    # What was wrong: sys.stdout.buffer was used directly as the IPC channel, so any
+    # library print() corrupted IPC framing.
+    # Why this fixes it: claim_ipc_channel() dups fd 1 into a private binary stream
+    # and redirects fd 1 to stderr (fd 2), isolating protocol frames from stray stdout prints.
+    stdout = claim_ipc_channel()
 
     while True:
         req_id = ""

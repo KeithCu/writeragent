@@ -166,3 +166,9 @@ def test_target_identity_key_same_cell_matches():
     assert target_identity_key("calc_cell", a) == target_identity_key("calc_cell", b)
     c = target_from_load({"mode": "calc_cell", "cell_address": "B1", "doc_url": "file:///x"})
     assert target_identity_key("calc_cell", a) != target_identity_key("calc_cell", c)
+
+
+def test_target_identity_key_distinguishes_script_origin():
+    user_script = {"script_name": "helper.py", "script_origin": "user"}
+    doc_script = {"script_name": "helper.py", "script_origin": "document"}
+    assert target_identity_key("run_script", user_script) != target_identity_key("run_script", doc_script)

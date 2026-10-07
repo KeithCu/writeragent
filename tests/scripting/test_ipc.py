@@ -626,3 +626,31 @@ def test_read_pickle_frame_with_timeout_win32_is_alive_honored(monkeypatch):
     stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
     with pytest.raises(subprocess.TimeoutExpired):
         ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: False)
+
+
+def test_claim_ipc_channel_redirects_stdout_and_preserves_framing():
+    """print() in child must go to stderr and not corrupt the claimed IPC channel."""
+    code = """
+import os, sys
+from plugin.scripting.ipc import claim_ipc_channel, write_json_line
+
+ipc_stream = claim_ipc_channel()
+print("Stray library debug print to stdout")
+sys.stdout.flush()
+write_json_line(ipc_stream, {"status": "ok", "value": 42})
+"""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+    )
+    stdout, stderr = proc.communicate(timeout=5.0)
+    assert proc.returncode == 0
+    assert b"Stray library debug print to stdout" in stderr
+    assert b"Stray library debug print to stdout" not in stdout
+
+    import json
+    line = stdout.decode("utf-8").strip()
+    data = json.loads(line)
+    assert data == {"status": "ok", "value": 42}

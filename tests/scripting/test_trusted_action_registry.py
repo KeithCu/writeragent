@@ -18,10 +18,6 @@ def test_get_trusted_action_wiring_known_domains() -> None:
     assert analysis is not None
     assert analysis.handler.endswith("trusted_dispatch:dispatch_analysis")
 
-    math = get_trusted_action_wiring("math")
-    assert math is not None
-    assert math.handler.endswith("trusted_dispatch:dispatch_symbolic")
-
     embeddings = get_trusted_action_wiring("embeddings_index")
     assert embeddings is not None
     assert embeddings.supports_heartbeat is True
@@ -29,6 +25,24 @@ def test_get_trusted_action_wiring_known_domains() -> None:
     languagetool = get_trusted_action_wiring("languagetool")
     assert languagetool is not None
     assert languagetool.handler.endswith("trusted_dispatch:dispatch_languagetool")
+
+
+def test_all_trusted_action_wirings_resolve_and_match_heartbeat() -> None:
+    import importlib
+    import inspect
+    from plugin.scripting.trusted_action_registry import _TRUSTED_ACTION_WIRING
+
+    for wiring in _TRUSTED_ACTION_WIRING:
+        mod_name, attr_name = wiring.handler.rsplit(":", 1)
+        mod = importlib.import_module(mod_name)
+        fn = getattr(mod, attr_name)
+        assert callable(fn), f"{wiring.handler} is not callable"
+        sig = inspect.signature(fn)
+        has_heartbeat_param = "heartbeat_fn" in sig.parameters
+        assert has_heartbeat_param == wiring.supports_heartbeat, (
+            f"{wiring.domain} ({wiring.handler}) supports_heartbeat={wiring.supports_heartbeat} "
+            f"but heartbeat_fn in signature={has_heartbeat_param}"
+        )
 
 
 def test_get_trusted_action_wiring_unknown_domain() -> None:

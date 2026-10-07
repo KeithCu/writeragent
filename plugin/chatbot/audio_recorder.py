@@ -44,7 +44,6 @@ from plugin.chatbot.audio_recorder_state import (
 )
 from plugin.scripting.audio_recorder_service import (
     RecordingStopHandoff,
-    ensure_downloaded_audio_on_path,
     make_temp_wav_path,
     monitor_recording_stdout,
     resolve_recording_python,
@@ -53,6 +52,7 @@ from plugin.scripting.audio_recorder_service import (
     terminate_recording_process,
     wait_for_recording_ready,
 )
+from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 from plugin.scripting.audio_silence_detector import SilenceDetector, load_silence_detector_config
 
 log = logging.getLogger(__name__)
@@ -371,7 +371,7 @@ class AudioRecorder:
             else:
                 # Host-side capture via downloaded sounddevice binaries (no venv).
                 try:
-                    ensure_downloaded_audio_on_path()
+                    ensure_native_binaries_on_path()
                     import sounddevice as sd
 
                     self.temp_filename = make_temp_wav_path()
@@ -476,11 +476,17 @@ class AudioRecorder:
             if proc is not None and self.temp_filename and self.state.status != "error":
                 try:
                     if auto_path and proc.poll() is not None:
+                        # What was wrong: child process had already exited after auto-stop, but was never reaped,
+                        # leaving its stderr drain thread alive and leaking in _recording_stderr_drains.
+                        # How it happened: this branch only updated self.temp_filename without reaping.
+                        # Why this change fixes it: terminate_recording_process reaps the child and drops the drain.
+                        terminate_recording_process(proc)
                         self.temp_filename = auto_path
                     elif proc.poll() is None:
                         path = stop_recording_process(proc, fallback_path=auto_path, handoff=handoff)
                         self.temp_filename = path
                     else:
+                        terminate_recording_process(proc)
                         self.temp_filename = auto_path or self.temp_filename
                 except Exception as exc:
                     self._keep_recorded_wav_or_cleanup(proc, auto_path, exc)

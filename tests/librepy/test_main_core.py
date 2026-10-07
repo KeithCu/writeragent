@@ -13,7 +13,7 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
     monkeypatch.setattr(
-        "plugin.scripting.native_binaries.ensure_downloaded_audio_on_path",
+        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
         lambda: None,
     )
     monkeypatch.setattr(

@@ -1225,8 +1225,6 @@ class PythonWorkerManager:
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
                 return frame_bytes
-            if data.get("status") in ("ok", "error"):
-                return frame_bytes
             log.debug("venv worker ignoring unknown frame type: %r", frame_type)
 
     def _read_frame_bytes(self, stdout: IO[bytes], read_exact: Callable[[int], bytes]) -> bytes:
@@ -1440,7 +1438,7 @@ def run_code_in_user_venv(
         return err
     assert manager is not None
 
-    configured = configured_python_exec_timeout(uno_ctx)
+    configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
     return manager.execute(
@@ -1473,7 +1471,7 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
         return err
     assert manager is not None
 
-    configured = configured_python_exec_timeout(uno_ctx)
+    configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
     return manager.execute(
@@ -1502,7 +1500,7 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
 
             model = get_embedding_model()
             if model:
-                timeout_val = embeddings_worker_timeout_sec(uno_ctx)
+                timeout_val = embeddings_worker_timeout_sec()
                 res = manager.execute(
                     action="run_trusted_action",
                     data={

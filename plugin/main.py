@@ -45,8 +45,8 @@ ensure_plugin_on_path(
 
 # Inject downloaded binaries path (audio + serialization)
 try:
-    from plugin.scripting.native_binaries import ensure_downloaded_audio_on_path
-    ensure_downloaded_audio_on_path()
+    from plugin.scripting.native_binaries import ensure_native_binaries_on_path
+    ensure_native_binaries_on_path()
 except Exception:
     pass
 

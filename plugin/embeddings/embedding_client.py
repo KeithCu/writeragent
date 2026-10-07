@@ -69,7 +69,7 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout
     if texts is None:
         texts = []
 
-    resolved_timeout_sec = embeddings_worker_timeout_sec(ctx) if timeout_sec is None else int(timeout_sec)
+    resolved_timeout_sec = embeddings_worker_timeout_sec() if timeout_sec is None else int(timeout_sec)
     result = run_trusted_worker_action(
         ctx, domain="embedding", helper="embed_texts", params={}, additional_data={"model": model_name, "texts": list(texts)}, session_id=_embedding_session_id(model_name), timeout_sec=resolved_timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, error_code="EMBEDDING_ERROR", error_label="Embedding"
     )

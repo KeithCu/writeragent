@@ -10,12 +10,13 @@ from plugin.framework.i18n import _
 from plugin.scripting.editor_ui_strings import (
     build_monaco_ui_strings,
     enrich_monaco_load_message,
-    format_js,
 )
 
 
-def test_format_js_uses_numeric_placeholders():
-    assert format_js("Loaded script '{0}'.", "foo") == "Loaded script 'foo'."
+def test_init_script_ui_uses_initialization_strings():
+    ui = build_monaco_ui_strings(mode="init_script")
+    assert ui["save_label"] == _("Save")
+    assert ui["saved_default"] == _("Initialization script saved.")
 
 
 def test_calc_cell_ui_includes_data_binding_and_cancel():

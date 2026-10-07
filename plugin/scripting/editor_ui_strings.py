@@ -33,10 +33,9 @@ _LOAD_OVERRIDE_KEYS = (
     "data_binding_title",
 )
 
-
-def format_js(template: str, *args: Any) -> str:
-    """Format a template for JS ``fmt()`` — uses ``{0}`` placeholders like Python ``.format()``."""
-    return template.format(*args)
+_OVERRIDE_KEY_MAP: dict[str, str] = {
+    "saved_ok_text": "saved_default",
+}
 
 
 def _shared_ui_strings() -> dict[str, str]:
@@ -55,14 +54,20 @@ def _shared_ui_strings() -> dict[str, str]:
     }
 
 
+def _data_strings() -> dict[str, str]:
+    return {
+        "data_label": _("Data:"),
+        "data_placeholder": _("A1:C1  or  A1:C1, C1:C5"),
+    }
+
+
 def _calc_cell_ui_strings() -> dict[str, str]:
     ui = _shared_ui_strings()
     ui["close_label"] = ui["cancel_label"]
+    ui.update(_data_strings())
     ui.update(
         {
             "plain_text_label": _("Save without =PY()"),
-            "data_label": _("Data:"),
-            "data_placeholder": _("A1:C1  or  A1:C1, C1:C5"),
             "data_binding_title": _(
                 "Calc injects `data` and `ranges` from these range(s) at runtime."
             ),
@@ -78,6 +83,7 @@ def _calc_cell_ui_strings() -> dict[str, str]:
 
 def _run_script_ui_strings() -> dict[str, str]:
     ui = _shared_ui_strings()
+    ui.update(_data_strings())
     ui.update(
         {
             "new_label": _("New"),
@@ -85,7 +91,6 @@ def _run_script_ui_strings() -> dict[str, str]:
             "script_name_label": _("Script name:"),
             "attach_to_document_label": _("Attach to this document"),
             "create_label": _("Create"),
-            "cancel_label": _("Cancel"),
             "script_name_required": _("Script name cannot be empty."),
             "script_label": _("Script:"),
             "attach_label": _("Attach"),
@@ -118,8 +123,6 @@ def _run_script_ui_strings() -> dict[str, str]:
             "save_to_document_confirm": _("Save script '{0}' to this document?"),
             "delete_confirm": _("Are you sure you want to delete script '{0}'?"),
             "data_binding_title": _("Select data range or enter A1 address (injected as data)."),
-            "data_label": _("Data:"),
-            "data_placeholder": _("A1:C1  or  A1:C1, C1:C5"),
         }
     )
     return ui
@@ -138,12 +141,26 @@ def _latex_ui_strings() -> dict[str, str]:
     return ui
 
 
+def _init_script_ui_strings() -> dict[str, str]:
+    ui = _shared_ui_strings()
+    ui.update(
+        {
+            "save_label": _("Save"),
+            "close_label": _("Close"),
+            "saved_default": _("Initialization script saved."),
+        }
+    )
+    return ui
+
+
 def build_monaco_ui_strings(*, mode: str) -> dict[str, str]:
-    """Return static Monaco shell strings for *calc_cell*, *run_script*, or *latex*."""
+    """Return static Monaco shell strings for *calc_cell*, *run_script*, *init_script*, or *latex*."""
     if mode == "run_script":
         return _run_script_ui_strings()
     if mode == "latex":
         return _latex_ui_strings()
+    if mode == "init_script":
+        return _init_script_ui_strings()
     return _calc_cell_ui_strings()
 
 
@@ -156,13 +173,8 @@ def enrich_monaco_load_message(msg: dict[str, Any]) -> dict[str, Any]:
     for key in _LOAD_OVERRIDE_KEYS:
         value = enriched.get(key)
         if isinstance(value, str) and value:
-            ui_key = key
-            if key == "saved_ok_text":
-                ui_key = "saved_default"
+            ui_key = _OVERRIDE_KEY_MAP.get(key, key)
             ui[ui_key] = value
-
-    if mode == "calc_cell" and "close_label" not in enriched:
-        ui["close_label"] = ui["cancel_label"]
 
     enriched["ui"] = ui
     return enriched

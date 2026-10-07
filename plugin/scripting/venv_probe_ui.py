@@ -173,12 +173,12 @@ class ScriptingVenvTestListener(BaseActionListener):
         self._include_audio = include_audio
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.scripting.native_binaries import ensure_downloaded_audio_on_path
+        from plugin.scripting.native_binaries import ensure_native_binaries_on_path
         from plugin.scripting.payload_codec import host_cython_status_line
         from plugin.scripting.venv_diagnostics import probe_venv_path_with_progress
 
         # User-downloaded writeragent_vec may be on sys.path via audio_binaries.
-        ensure_downloaded_audio_on_path()
+        ensure_native_binaries_on_path()
         # Reload on the main thread (not the probe worker): after redownload the
         # worker must not be the first site that imports / calls into natives.
         cython_status = host_cython_status_line(reload=True)

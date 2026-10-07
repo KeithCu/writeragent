@@ -16,10 +16,18 @@ from plugin.scripting.audio_silence_detector import SilenceDetector, SilenceDete
 SAMPLE_RATE = 16000
 CHANNELS = 1
 SAMPLE_WIDTH = 2  # 16-bit PCM
+MAX_RECORDING_DURATION_SEC = 4 * 3600  # Cap recording at 4 hours to avoid runaway processes.
 
-PORTAUDIO_LINUX_HINT = (
-    "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
-)
+
+def portaudio_hint() -> str:
+    """Platform-specific installation hint for PortAudio."""
+    if sys.platform == "darwin":
+        return "Audio recording requires PortAudio. On macOS, please run: brew install portaudio"
+    if sys.platform == "win32":
+        return "Audio recording requires PortAudio. Please install PortAudio DLLs or configure your venv."
+    return "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
+
+
 SOUNDDEVICE_MISSING_HINT = (
     "Install sounddevice in your Python venv: uv pip install sounddevice "
     "(Settings → Python → configure the venv path first)."
@@ -32,7 +40,7 @@ def _import_sounddevice() -> Any:
     except ImportError as exc:
         raise RuntimeError(SOUNDDEVICE_MISSING_HINT) from exc
     except OSError as exc:
-        raise RuntimeError(PORTAUDIO_LINUX_HINT) from exc
+        raise RuntimeError(portaudio_hint()) from exc
     return sd
 
 
@@ -50,39 +58,45 @@ def record_to_wav(
     """
     sd = _import_sounddevice()
 
-    recording = threading.Event()
-    recording.set()
-    vad = SilenceDetector(silence_config or SilenceDetectorConfig(silence_stop_ms=0), sample_rate=SAMPLE_RATE)
+    vad = (
+        SilenceDetector(silence_config, sample_rate=SAMPLE_RATE)
+        if (silence_config is not None and silence_config.enabled)
+        else None
+    )
     auto_stopped = False
 
-    wav_file = None
+    # What was wrong: wave.open was inside the PortAudio try block, so file system
+    # errors (disk full, bad permissions) erroneously reported PORTAUDIO_LINUX_HINT.
+    # How it happened: broad try block wrapped both wave creation and PortAudio init.
+    # Why this change fixes it: open wave file first so file errors raise accurately.
+    try:
+        wav_file = wave.open(output_path, "wb")
+        wav_file.setnchannels(CHANNELS)
+        wav_file.setsampwidth(SAMPLE_WIDTH)
+        wav_file.setframerate(SAMPLE_RATE)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to create audio WAV file at {output_path}: {exc}") from exc
+
     stream = None
 
     def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
         nonlocal auto_stopped
         if status:
             print(status, file=sys.stderr)
-        if not recording.is_set() or not wav_file:
+        if not wav_file:
             return
         pcm = bytes(indata)
         wav_file.writeframes(pcm)
-        if not silence_config or not silence_config.enabled or auto_stopped:
+        if vad is None or auto_stopped:
             return
         result = vad.process_chunk(pcm, frame_count=frames)
         if on_ipc_emit is not None and vad.should_emit_silence_progress(result):
             on_ipc_emit({"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)})
         if result.should_stop:
             auto_stopped = True
-            if on_ipc_emit is not None:
-                on_ipc_emit({"status": "auto_stopped", "path": output_path})
             stop_event.set()
 
     try:
-        wav_file = wave.open(output_path, "wb")
-        wav_file.setnchannels(CHANNELS)
-        wav_file.setsampwidth(SAMPLE_WIDTH)
-        wav_file.setframerate(SAMPLE_RATE)
-
         stream = sd.RawInputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
@@ -92,15 +106,14 @@ def record_to_wav(
         stream.start()
         if on_stream_started is not None:
             on_stream_started()
-        stop_event.wait(timeout=4 * 3600)
+        stop_event.wait(timeout=MAX_RECORDING_DURATION_SEC)
     except AssertionError as exc:
         raise RuntimeError(
             "Audio recording is not available on this system (PortAudio backend error)."
         ) from exc
     except OSError as exc:
-        raise RuntimeError(PORTAUDIO_LINUX_HINT) from exc
+        raise RuntimeError(portaudio_hint()) from exc
     finally:
-        recording.clear()
         if stream is not None:
             try:
                 stream.stop()
@@ -115,4 +128,12 @@ def record_to_wav(
                 wav_file.close()
             except (OSError, ValueError):
                 pass
+
+    # What was wrong: auto_stopped was emitted from the PortAudio callback thread
+    # before the stream and WAV file were closed, yielding a WAV header with 0 length.
+    # How it happened: early emit inside result.should_stop in the audio callback.
+    # Why this change fixes it: emit auto_stopped from the main thread only after the
+    # WAV file is completely finalized and flushed to disk.
+    if auto_stopped and on_ipc_emit is not None:
+        on_ipc_emit({"status": "auto_stopped", "path": output_path})
     return auto_stopped

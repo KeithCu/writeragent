@@ -24,13 +24,24 @@ from plugin.framework.uno_bootstrap import register_alias_importer
 
 register_alias_importer()
 
+from typing import IO
+
 from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
 from plugin.scripting.venv.audio_recorder import record_to_wav
-from plugin.scripting.ipc import write_json_line
+from plugin.scripting.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
+
+_ipc_stream: IO[bytes] | None = None
+_emit_lock = threading.Lock()
 
 
 def _emit(payload: dict[str, object]) -> None:
-    write_json_line(sys.stdout, payload)
+    # What was wrong: child stdout was raw and unprotected, so stray library prints or ALSA logs
+    # corrupted line-delimited JSON IPC framing.
+    # How it happened: sys.stdout was used directly without fd redirection.
+    # Why this change fixes it: write exclusively to the private dup'd IPC channel.
+    stream = _ipc_stream or get_child_ipc_stream() or sys.stdout
+    with _emit_lock:
+        write_json_line(stream, payload)
 
 
 def _is_stop_command(line: str) -> bool:
@@ -53,6 +64,11 @@ def _stdin_stop_reader(stop_event: threading.Event) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _ipc_stream
+    _ipc_stream = claim_ipc_channel()
+    if _SCRIPT_DIR in sys.path:
+        sys.path.remove(_SCRIPT_DIR)
+
     parser = argparse.ArgumentParser(description="WriterAgent venv audio recorder")
     parser.add_argument("--output", required=True, help="Path to write the WAV file")
     parser.add_argument("--silence-stop-ms", type=int, default=3000)

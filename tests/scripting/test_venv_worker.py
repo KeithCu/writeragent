@@ -2067,7 +2067,7 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
 
     # Mock config_limits
     mod2 = types.ModuleType("plugin.scripting.config_limits")
-    mod2.embeddings_worker_timeout_sec = lambda ctx: 300  # type: ignore # type: ignore
+    mod2.embeddings_worker_timeout_sec = lambda: 300  # type: ignore # type: ignore
     sys.modules["plugin.scripting.config_limits"] = mod2
 
     try:

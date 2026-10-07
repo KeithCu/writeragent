@@ -60,6 +60,12 @@ def test_handle_window_closing_intercepts_and_hides(monkeypatch):
     mock_window.hide.assert_called_once()
 
 
+def test_handle_window_closing_returns_true_when_shutting_down():
+    _reset_closed_state()
+    em._shutting_down = True
+    assert em._handle_window_closing() is True
+
+
 def test_poll_messages_load_shows_window_and_updates_title():
     _reset_closed_state()
     api = em.MonacoEditorApi()

@@ -12,8 +12,13 @@ from __future__ import annotations
 import ast
 import hashlib
 import threading
+import functools
 from collections import OrderedDict
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from plugin.contrib.smolagents.local_python_executor import (
     is_forbidden_dunder_attribute,
@@ -68,6 +73,7 @@ _deal_sandbox_code_ok = (
 )
 
 # Statement/expression forms the interpreter refuses outright (see evaluate_ast else branch).
+# ast.Match is standard in Python 3.10+ (required by dataclass slots=True below).
 _FORBIDDEN_NODE_TYPES: tuple[type[ast.AST], ...] = (
     ast.AsyncFunctionDef,
     ast.AsyncFor,
@@ -75,17 +81,14 @@ _FORBIDDEN_NODE_TYPES: tuple[type[ast.AST], ...] = (
     ast.Global,
     ast.Nonlocal,
     ast.NamedExpr,
+    ast.Match,
 )
-if hasattr(ast, "Match"):
-    _FORBIDDEN_NODE_TYPES = _FORBIDDEN_NODE_TYPES + (ast.Match,)  # type: ignore[attr-defined]
-if hasattr(ast, "MatchStar"):
-    _FORBIDDEN_NODE_TYPES = _FORBIDDEN_NODE_TYPES + (ast.MatchStar,)  # type: ignore[attr-defined]
 
 _DEFAULT_MAX_ENTRIES = 256
 
 
 @deal.post(lambda result: result is None or isinstance(result, str))
-def validate_sandbox_ast(module: ast.Module, authorized_imports: list[str]) -> str | None:
+def validate_sandbox_ast(module: ast.Module, authorized_imports: Sequence[str]) -> str | None:
     """Return an error message if *module* violates sandbox policy, else ``None``."""
     # AST walk on a symbolic module hangs deep check.
     # crosshair: off
@@ -127,14 +130,19 @@ _cache: OrderedDict[str, HotEntry] = OrderedDict()
 _max_entries = _DEFAULT_MAX_ENTRIES
 
 
+@functools.cache
+def _memoized_fingerprint(imports_tuple: tuple[str, ...]) -> str:
+    return "\n".join(sorted(set(imports_tuple)))
+
+
 @deal.pre(lambda authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
-def _imports_fingerprint(authorized_imports: list[str]) -> str:
+def _imports_fingerprint(authorized_imports: Sequence[str]) -> str:
     # crosshair: off  # sorted join over symbolic import lists (cover-all 33418536119: sandbox_cache 20906s after PR 523). Doable later with a closed import-alphabet fingerprint.
-    return "\n".join(sorted(set(authorized_imports)))
+    return _memoized_fingerprint(tuple(authorized_imports))
 
 
 @deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
-def _cache_key(code: str, authorized_imports: list[str]) -> str:
+def _cache_key(code: str, authorized_imports: Sequence[str]) -> str:
     # crosshair: off  # sha256 on symbolic code+NUL (cover-all 33418536119: sandbox_cache 20906s after PR 523). Engine-hostile; keep off.
     material = code + "\0" + _imports_fingerprint(authorized_imports)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -151,7 +159,7 @@ def _format_syntax_error(exc: SyntaxError) -> str:
 
 
 @deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
-def _build_entry(code: str, authorized_imports: list[str]) -> HotEntry:
+def _build_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
     try:
         module = ast.parse(code)
     except SyntaxError as exc:
@@ -161,7 +169,7 @@ def _build_entry(code: str, authorized_imports: list[str]) -> HotEntry:
 
 
 @deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
-def get_hot_entry(code: str, authorized_imports: list[str]) -> HotEntry:
+def get_hot_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
     """Return cached or freshly built parse + static validation for *code*."""
     # crosshair: off  # threading.Lock + OrderedDict hot cache (cover-all 33418536119: sandbox_cache 20906s after PR 523). Engine-hostile; keep off.
     key = _cache_key(code, authorized_imports)

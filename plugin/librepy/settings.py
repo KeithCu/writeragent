@@ -33,7 +33,7 @@ class _DownloadVecPackListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread
-        from plugin.scripting.native_binaries import ensure_downloaded_audio_on_path, run_vec_pack_download
+        from plugin.scripting.native_binaries import ensure_native_binaries_on_path, run_vec_pack_download
         from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
 
         def bind_downloaded_vec_on_main() -> None:
@@ -41,7 +41,7 @@ class _DownloadVecPackListener(BaseActionListener):
             # ScriptingVenvTestListener does the same work on this thread
             # before its probe; the download cannot, because the files are
             # not on disk yet.
-            ensure_downloaded_audio_on_path()
+            ensure_native_binaries_on_path()
             invalidate_host_cython_accelerator()
 
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:

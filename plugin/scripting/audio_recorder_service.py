@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config import get_config_str
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, run_in_background, start_stderr_drain
-from plugin.scripting.native_binaries import _CONTRIB_BASE_URL, _download_url_to_file, ensure_downloaded_audio_on_path, run_vec_pack_download
+from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -135,6 +135,10 @@ class RecordingStopHandoff:
         with self._lock:
             return self._path
 
+    def has_error(self) -> bool:
+        with self._lock:
+            return self._error is not None
+
     def wait_for_path(self, timeout_sec: float) -> str:
         """Block until ``note_ok`` / ``note_error``, or raise on timeout."""
         if not self._ready.wait(timeout_sec):
@@ -207,106 +211,81 @@ def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> 
         drain.join(timeout=1.0)
 
 
-def stop_recording_process(proc: subprocess.Popen[str], *, timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC, fallback_path: str | None = None, handoff: RecordingStopHandoff | None = None) -> str:
-    """Send stop, then return the WAV path.
-
-    When *handoff* is set the stdout monitor is the only reader (see
-    ``monitor_recording_stdout``). This function writes ``{"command":"stop"}``
-    and waits on that handoff. It must not also call ``read_json_line``: that
-    second reader stole ``ok`` and manual Stop Rec never got a path.
-    """
+def _known_path(handoff: RecordingStopHandoff | None, fallback_path: str | None) -> str | None:
     if handoff is not None:
-        return _stop_recording_via_handoff(proc, handoff, timeout_sec=timeout_sec, fallback_path=fallback_path)
+        known = handoff.snapshot_path()
+        if known:
+            return known
+    if isinstance(fallback_path, str) and fallback_path:
+        return fallback_path
+    return None
 
-    # Reap on every exit, including the error raises (they used to leave the
-    # child running).
+
+def _stop_recording_via_handoff(
+    proc: subprocess.Popen[str],
+    handoff: RecordingStopHandoff,
+    *,
+    timeout_sec: float,
+    fallback_path: str | None,
+) -> str:
+    """Write stop and wait for the monitor. Do not read stdout."""
+    # What was wrong: _stop_recording_via_handoff could exit or raise without reaping
+    # the child process (wait_for_path timeout, stdin None, or already-exited timeout).
+    # How it happened: Gap introduced by commit 6cacb559 separating handoff logic from reap.
+    # Why this change fixes it: wrap in try/finally _reap_recording_process so the child
+    # is guaranteed to be reaped and its stderr drain removed on all exit paths.
     try:
         if proc.poll() is not None:
-            if proc.stdout is not None:
-                try:
-                    payload = read_json_line(proc.stdout, timeout_sec=0.25)
-                except (subprocess.TimeoutExpired, ValueError, RuntimeError):
-                    payload = None
-                if isinstance(payload, dict) and payload.get("status") == "ok":
-                    path = payload.get("path")
-                    if isinstance(path, str) and path:
-                        return path
-            if fallback_path:
-                return fallback_path
-            raise RuntimeError("Recording subprocess already exited without a WAV path.")
+            known = _known_path(handoff, fallback_path)
+            if known:
+                return known
+            try:
+                return handoff.wait_for_path(min(timeout_sec, 1.0))
+            except RuntimeError:
+                known = _known_path(handoff, fallback_path)
+                if known:
+                    return known
+                raise RuntimeError("Recording subprocess already exited without a WAV path.") from None
 
         if proc.stdin is None:
+            known = _known_path(handoff, fallback_path)
+            if known:
+                return known
             raise RuntimeError("Recording subprocess stdin is not available.")
         try:
             write_json_line(proc.stdin, {"command": "stop"})
         except OSError as exc:
+            known = _known_path(handoff, fallback_path)
+            if known:
+                return known
             raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
 
-        payload = _read_json_line(proc, timeout_sec)
-        status = payload.get("status")
-        if status != "ok":
-            message = payload.get("message") if status == "error" else f"Unexpected status {status!r}"
-            raise RuntimeError(str(message or "Audio recording failed to stop."))
-        path = payload.get("path")
-        if not isinstance(path, str) or not path:
-            raise RuntimeError("Recording subprocess did not return a WAV path.")
-        return path
+        try:
+            return handoff.wait_for_path(timeout_sec)
+        except RuntimeError:
+            known = _known_path(handoff, fallback_path)
+            if known:
+                return known
+            raise
     finally:
         _reap_recording_process(proc, timeout_sec)
 
 
-def _stop_recording_via_handoff(proc: subprocess.Popen[str], handoff: RecordingStopHandoff, *, timeout_sec: float, fallback_path: str | None) -> str:
-    """Write stop and wait for the monitor. Do not read stdout."""
+def stop_recording_process(
+    proc: subprocess.Popen[str],
+    *,
+    timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
+    fallback_path: str | None = None,
+    handoff: RecordingStopHandoff | None = None,
+) -> str:
+    """Send stop, then return the WAV path.
 
-    def _fallback() -> str | None:
-        if isinstance(fallback_path, str) and fallback_path:
-            return fallback_path
-        return None
-
-    if proc.poll() is not None:
-        # Child already exited (typical after silence auto-stop). The monitor
-        # owns any ``ok`` still in the pipe; use the stashed path or the
-        # auto-stop fallback instead of a competing read.
-        known = handoff.snapshot_path() or _fallback()
-        if known:
-            _reap_recording_process(proc, timeout_sec)
-            return known
-        try:
-            path = handoff.wait_for_path(min(timeout_sec, 1.0))
-        except RuntimeError:
-            known = handoff.snapshot_path() or _fallback()
-            if known:
-                return known
-            raise RuntimeError("Recording subprocess already exited without a WAV path.") from None
-        _reap_recording_process(proc, timeout_sec)
-        return path
-
-    if proc.stdin is None:
-        known = handoff.snapshot_path() or _fallback()
-        if known:
-            return known
-        raise RuntimeError("Recording subprocess stdin is not available.")
-    try:
-        write_json_line(proc.stdin, {"command": "stop"})
-    except OSError as exc:
-        # Auto-stop can close stdin between poll() and the write. The WAV path
-        # is already on the handoff in that case.
-        known = handoff.snapshot_path() or _fallback()
-        if known:
-            _reap_recording_process(proc, timeout_sec)
-            return known
-        raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
-
-    try:
-        path = handoff.wait_for_path(timeout_sec)
-    except RuntimeError:
-        known = handoff.snapshot_path()
-        if known:
-            _reap_recording_process(proc, timeout_sec)
-            return known
-        raise
-    _reap_recording_process(proc, timeout_sec)
-    return path
+    The stdout monitor is the sole pipe reader. This function delegates
+    to ``_stop_recording_via_handoff`` to signal stop and await the WAV path.
+    """
+    if handoff is None:
+        handoff = RecordingStopHandoff()
+    return _stop_recording_via_handoff(proc, handoff, timeout_sec=timeout_sec, fallback_path=fallback_path)
 
 
 def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingStopHandoff | None, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None, on_error: Callable[[str], None] | None) -> None:
@@ -363,14 +342,21 @@ def monitor_recording_stdout(proc: subprocess.Popen[str], *, on_auto_stopped: Ca
                 if proc.poll() is not None:
                     break
                 continue
-            except (ValueError, RuntimeError) as exc:
+            except ValueError as exc:
+                # What was wrong: non-JSON lines (e.g. ALSA/PortAudio library warnings or stray prints)
+                # caused ValueError, stopping the monitor prematurely before reading the 'ok' frame.
+                # How it happened: ValueError was grouped with RuntimeError in the break-loop except block.
+                # Why this change fixes it: skip and log non-JSON lines so the monitor stays alive to receive 'ok'.
+                log.warning("Skipping non-JSON line from recording subprocess: %s", exc)
+                continue
+            except RuntimeError as exc:
                 log.debug("Recording IPC monitor stopped: %s", exc)
                 break
             if payload is None:
                 # EOF after the child exited without an ok or error frame (a
                 # crash): report it and wake a Stop waiting on the handoff
                 # instead of leaving it to time out.
-                if proc.poll() is not None and handoff is not None and not handoff.snapshot_path() and handoff._error is None:
+                if proc.poll() is not None and handoff is not None and not handoff.snapshot_path() and not handoff.has_error():
                     message = "Recording subprocess exited unexpectedly."
                     handoff.note_error(message)
                     if on_error is not None:
@@ -402,7 +388,7 @@ def make_temp_wav_path() -> str:
 
 def check_host_audio_supported() -> bool:
     """Check if host-side audio recording is supported by trying to import sounddevice."""
-    ensure_downloaded_audio_on_path()
+    ensure_native_binaries_on_path()
     try:
         import sounddevice as sd
 
@@ -417,86 +403,6 @@ def is_audio_recording_supported(ctx: Any) -> bool:
     if is_audio_recording_configured(ctx):
         return True
     return check_host_audio_supported()
-
-
-def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> bool:
-    """Download the pure-Python audio source zip and the platform-specific compiled binaries from GitHub."""
-    import platform
-    import sysconfig
-    import zipfile
-
-    from plugin.framework.config import user_config_dir
-
-    ucd = user_config_dir()
-    if not ucd:
-        raise RuntimeError("User config directory not resolved.")
-
-    target_dir = os.path.join(ucd, "audio_binaries")
-    os.makedirs(target_dir, exist_ok=True)
-
-    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
-    if not ext_suffix:
-        raise RuntimeError("Failed to determine Python EXT_SUFFIX.")
-
-    cffi_name = f"_cffi_backend{ext_suffix}"
-
-    portaudio_name = None
-    if platform.system() == "Darwin":
-        portaudio_name = "libportaudio.dylib"
-    elif platform.system() == "Windows":
-        is_arm = platform.machine().lower() in ("arm64", "aarch64")
-        platform_suffix = "arm64" if is_arm else "64bit"
-        portaudio_name = f"libportaudio{platform_suffix}.dll"
-
-    base_url = _CONTRIB_BASE_URL
-
-    on_display(f"Target directory: {target_dir}\n")
-    on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
-    on_display(f"Python: {platform.python_version()}\n\n")
-
-    # Download pure Python source zip
-    zip_url = f"{base_url}audio_source.zip"
-    zip_dest = os.path.join(target_dir, "audio_source.zip")
-    on_display("Downloading pure Python audio libraries (audio_source.zip)...\n")
-    _download_url_to_file(zip_url, zip_dest, on_status)
-
-    # Extract audio_source.zip
-    on_status("Extracting audio_source.zip...")
-    on_display("Extracting audio_source.zip...\n")
-    try:
-        with zipfile.ZipFile(zip_dest, "r") as zf:
-            zf.extractall(target_dir)
-    except Exception as exc:
-        raise RuntimeError(f"Failed to extract audio_source.zip: {exc}") from exc
-    finally:
-        if os.path.exists(zip_dest):
-            try:
-                os.remove(zip_dest)
-            except Exception:
-                pass
-
-    # Download CFFI binary
-    cffi_url = f"{base_url}audio/{cffi_name}"
-    cffi_dest = os.path.join(target_dir, cffi_name)
-    on_display(f"Downloading binary {cffi_name}...\n")
-    _download_url_to_file(cffi_url, cffi_dest, on_status)
-
-    # Download PortAudio binary if needed
-    if portaudio_name:
-        pa_url = f"{base_url}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}"
-        pa_dest = os.path.join(target_dir, "_sounddevice_data", "portaudio-binaries", portaudio_name)
-        on_display(f"Downloading binary {portaudio_name}...\n")
-        _download_url_to_file(pa_url, pa_dest, on_status)
-
-    # Create _sounddevice_data/__init__.py placeholder
-    init_dest = os.path.join(target_dir, "_sounddevice_data", "__init__.py")
-    os.makedirs(os.path.dirname(init_dest), exist_ok=True)
-    with open(init_dest, "w") as f:
-        f.write("# Placeholder\n")
-
-    run_vec_pack_download(on_display, on_status, include_header=False)
-    on_display("\nAll downloaded files installed successfully!\n")
-    return True
 
 
 def _is_400_input_validation(err: Any) -> bool:
