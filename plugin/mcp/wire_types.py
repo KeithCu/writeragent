@@ -96,6 +96,9 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
     if "id" not in raw or raw.get("id") is None:
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
+    req_id = raw.get("id")
+    if not isinstance(req_id, (str, int)) or isinstance(req_id, bool):
+        return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
     params = raw.get("params", {})
     if params is None:
         params = {}

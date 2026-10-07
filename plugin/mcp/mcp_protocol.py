@@ -405,7 +405,7 @@ class MCPProtocolHandler:
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
         self._cancelled_requests: set[str | int] = set()
-        self._in_flight_requests: set[str | int] = set()
+        self._in_flight_requests: dict[str | int, int] = {}
         self._requests_lock: threading.Lock = threading.Lock()
         try:
             from plugin.version import EXTENSION_VERSION
@@ -579,6 +579,11 @@ class MCPProtocolHandler:
         if self._is_tunneled(_DummyHandler()):
             return (403, {"error": "Forbidden: Debug actions restricted to localhost (tunneled access blocked)"})
 
+        # Reject Origin to block any cross-origin requests on /debug.
+        origin = headers.get("Origin") or headers.get("origin")
+        if origin:
+            return (403, {"error": "Forbidden: Origin header not allowed on /debug"})
+
         tools = list(self.tool_registry.tool_names) if self.tool_registry else []
         return (
             200,
@@ -602,6 +607,13 @@ class MCPProtocolHandler:
         if client_ip not in ("127.0.0.1", "::1", "localhost") or self._is_tunneled(handler):
             log.warning("Blocked remote access to /debug from %s (tunneled=%s)", client_ip, self._is_tunneled(handler))
             self._send_json(handler, 403, {"error": "Forbidden: Debug actions restricted to localhost"})
+            return
+
+        # Reject Origin to block any cross-origin requests on /debug.
+        origin = handler.headers.get("Origin") or handler.headers.get("origin")
+        if origin:
+            log.warning("Blocked cross-origin request to /debug")
+            self._send_json(handler, 403, {"error": "Forbidden: Cross-origin requests not allowed on /debug"})
             return
 
         body = self._read_body(handler)
@@ -642,12 +654,23 @@ class MCPProtocolHandler:
 
         # Batch request
         if isinstance(msg, list):
+            if not msg:
+                self._send_json(handler, 400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Empty batch"))
+                return
+
             responses = []
+            batch_has_init = False
             for item in msg:
                 result = self._process_jsonrpc(item, document_url=document_url)
                 if result is not None:
                     _status, response = result
                     responses.append(response)
+                    if isinstance(item, dict) and item.get("method") == "initialize" and _status == 200:
+                        batch_has_init = True
+
+            if batch_has_init:
+                _mint_session_id_once()
+
             if responses:
                 self._send_json(handler, 200, responses)
             else:
@@ -847,75 +870,64 @@ class MCPProtocolHandler:
 
         initial_event = MCPEvent(kind=EventKind.REQUEST_RECEIVED, data={"tool_name": tool_name, "arguments": arguments, "document_url": document_url, "is_long_running": is_long_running})
 
-        if req_id is not None:
-            with self._requests_lock:
-                self._cancelled_requests.discard(req_id)
-                self._in_flight_requests.add(req_id)
-
         # State machine runner
         events_to_process = [initial_event]
         final_result = None
 
-        try:
-            while events_to_process:
-                event = events_to_process.pop(0)
-                tr = next_state(state, event)
-                state = tr.state
-                effects = tr.effects
+        while events_to_process:
+            event = events_to_process.pop(0)
+            tr = next_state(state, event)
+            state = tr.state
+            effects = tr.effects
 
-                for effect in effects:
-                    if isinstance(effect, ParseRequestEffect):
-                        log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
-                        event_bus = getattr(self, "event_bus", None)
-                        if event_bus is not None:
-                            event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
+            for effect in effects:
+                if isinstance(effect, ParseRequestEffect):
+                    log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
+                    event_bus = getattr(self, "event_bus", None)
+                    if event_bus is not None:
+                        event_bus.emit("mcp:request", tool=state.tool_name, args=state.arguments, method="tools/call", req_id=req_id)
 
-                    elif isinstance(effect, ExecuteToolEffect):
-                        try:
-                            if effect.is_long_running is True:
-                                res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
-                            else:
-                                res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
-                            events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
-                        except BusyError:
-                            raise
-                        except TimeoutError:
-                            # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
-                            raise
-                        except Exception as e:
-                            # Tool failures must be MCP tool results (isError), not JSON-RPC
-                            # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
-                            # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
-                            # stay 429/504 above. WriterAgentException used to re-raise into
-                            # _process_jsonrpc as HTTP 500 — that is the retryable path.
-                            log.exception("MCP tool %s raised unexpectedly", effect.tool_name)
-                            code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
-                            if code == "INTERNAL_ERROR":
-                                code = "TOOL_EXECUTION_ERROR"
-                            events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
-
-                    elif isinstance(effect, StreamResponseEffect):
-                        event_bus = getattr(self, "event_bus", None)
-                        if event_bus is not None:
-                            snippet = str(effect.result)[:100] if effect.result else ""
-                            event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
-
-                        # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
-                        # emit a native MCP image content block (get_image) instead of base64-as-text.
-                        res = effect.result
-                        img = res.get("_mcp_image") if isinstance(res, dict) else None
-                        if isinstance(img, dict) and img.get("data"):
-                            final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
+                elif isinstance(effect, ExecuteToolEffect):
+                    try:
+                        if effect.is_long_running is True:
+                            res = self._execute_long_running(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
                         else:
-                            final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
+                            res = self._execute_with_backpressure(effect.tool_name, effect.arguments, document_url=effect.document_url, req_id=req_id)
+                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": res}))
+                    except BusyError:
+                        raise
+                    except TimeoutError:
+                        # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
+                        raise
+                    except Exception as e:
+                        # Tool failures must be MCP tool results (isError), not JSON-RPC
+                        # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
+                        # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
+                        # stay 429/504 above. WriterAgentException used to re-raise into
+                        # _process_jsonrpc as HTTP 500 — that is the retryable path.
+                        log.exception("MCP tool %s raised unexpectedly", effect.tool_name)
+                        code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
+                        if code == "INTERNAL_ERROR":
+                            code = "TOOL_EXECUTION_ERROR"
+                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
 
-                    elif isinstance(effect, SendErrorEffect):
-                        raise ValueError(effect.message)
-        finally:
-            if req_id is not None:
-                with self._requests_lock:
-                    self._in_flight_requests.discard(req_id)
-                    self._cancelled_requests.discard(req_id)
+                elif isinstance(effect, StreamResponseEffect):
+                    event_bus = getattr(self, "event_bus", None)
+                    if event_bus is not None:
+                        snippet = str(effect.result)[:100] if effect.result else ""
+                        event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments, req_id=req_id)
+
+                    # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
+                    # emit a native MCP image content block (get_image) instead of base64-as-text.
+                    res = effect.result
+                    img = res.get("_mcp_image") if isinstance(res, dict) else None
+                    if isinstance(img, dict) and img.get("data"):
+                        final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
+                    else:
+                        final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
+
+                elif isinstance(effect, SendErrorEffect):
+                    raise ValueError(effect.message)
 
         return final_result
 
@@ -931,8 +943,9 @@ class MCPProtocolHandler:
 
         # Handle cancellation notifications globally.
         if msg.get("method") == "notifications/cancelled":
-            req_id_to_cancel = msg.get("params", {}).get("requestId")
-            if req_id_to_cancel is not None:
+            params = msg.get("params")
+            req_id_to_cancel = params.get("requestId") if isinstance(params, dict) else None
+            if isinstance(req_id_to_cancel, (str, int)) and not isinstance(req_id_to_cancel, bool):
                 with self._requests_lock:
                     if req_id_to_cancel in self._in_flight_requests:
                         self._cancelled_requests.add(req_id_to_cancel)
@@ -961,7 +974,23 @@ class MCPProtocolHandler:
             if method == "tools/list":
                 result = self._mcp_tools_list(params, document_url=document_url)
             elif method == "tools/call":
-                result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id)
+                if req_id is not None:
+                    with self._requests_lock:
+                        count = self._in_flight_requests.get(req_id, 0)
+                        if count == 0:
+                            self._cancelled_requests.discard(req_id)
+                        self._in_flight_requests[req_id] = count + 1
+                try:
+                    result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id)
+                finally:
+                    if req_id is not None:
+                        with self._requests_lock:
+                            count = self._in_flight_requests.get(req_id, 0) - 1
+                            if count <= 0:
+                                self._in_flight_requests.pop(req_id, None)
+                                self._cancelled_requests.discard(req_id)
+                            else:
+                                self._in_flight_requests[req_id] = count
             else:
                 result = one_arg[method](params)
             if log.isEnabledFor(logging.DEBUG):
@@ -1017,6 +1046,8 @@ class MCPProtocolHandler:
                 return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
         finally:
             # We release the semaphore on a marshal TimeoutError, not keep it held, because QueueExecutor raises it only for work that never started.
+            # If the tool body actually started executing on the main thread, QueueExecutor waits indefinitely instead of raising TimeoutError.
+            # This ensures we don't accidentally release the semaphore or gate while a long-running tool is actively mutating LibreOffice.
             _tool_semaphore.release()
 
     def _add_other_open_doc_schemas(self, schemas: list[dict[str, Any]], active_doc_type: str | None, exclude_tiers: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -1222,7 +1253,15 @@ class MCPProtocolHandler:
     def _debug_call_tool(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         if not tool_name:
             return {"error": "Missing 'tool' parameter"}
-        result = self._execute_with_backpressure(tool_name, arguments, document_url=document_url)
+        if not isinstance(arguments, dict):
+            return {"error": "'args' must be a dictionary"}
+
+        args_copy = dict(arguments)
+
+        if document_url is None:
+            document_url = args_copy.pop("document_url", None)
+
+        result = self._execute_with_backpressure(tool_name, args_copy, document_url=document_url)
         return result
 
     def _debug_trigger(self, command: str) -> Any:
