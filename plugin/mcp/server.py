@@ -43,11 +43,16 @@ import threading
 import weakref
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, ClassVar, cast
+from typing import TYPE_CHECKING
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.mcp.cors import reject_forbidden_origin, send_cors_headers
 from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_route
+
+if TYPE_CHECKING:
+    import ssl
+    from plugin.mcp.routes import HttpRouteRegistry
 
 
 log = logging.getLogger("writeragent.framework.http_server")
@@ -294,8 +299,8 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
     daemon_threads: bool = True
     allow_reuse_address: bool = os.name != "nt"
-    route_registry: Any
-    ssl_ctx: Any
+    route_registry: HttpRouteRegistry | None = None
+    ssl_ctx: ssl.SSLContext | None = None
 
     def get_request(self) -> tuple[Any, Any]:
         """Accept one connection and bound how long a later recv may block.
@@ -309,9 +314,8 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
             conn.settimeout(MCP_HTTP_SOCKET_TIMEOUT_SEC)
         except OSError:
             pass
-        ssl_ctx = getattr(self, "ssl_ctx", None)
-        if ssl_ctx is not None:
-            conn = ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
+        if self.ssl_ctx is not None:
+            conn = self.ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
         return conn, addr
 
     def handle_error(self, request: Any, client_address: Any) -> None:
@@ -353,7 +357,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             return
         path = get_url_path(self.path)
         log_http_request(self, method, path)
-        route_registry = getattr(self.server, "route_registry", None)
+        server = cast("_ThreadedHTTPServer", self.server)
+        route_registry = server.route_registry
         route = route_registry.match(method, path) if route_registry else None
 
         if route is None:
