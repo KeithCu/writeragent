@@ -42,8 +42,7 @@ import sys
 import threading
 import weakref
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, ClassVar, cast
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
@@ -53,7 +52,6 @@ from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_r
 if TYPE_CHECKING:
     import ssl
     from plugin.mcp.routes import HttpRouteRegistry
-
 
 log = logging.getLogger("writeragent.framework.http_server")
 
@@ -149,7 +147,7 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         return None, (413, err)
     try:
         raw_bytes = handler.rfile.read(content_length)
-    except (socket.timeout, TimeoutError):
+    except TimeoutError:
         log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
         err = AgentParsingError("Timed out reading HTTP body", details={"length": content_length})
         return None, (408, err)
@@ -321,7 +319,7 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     def handle_error(self, request: Any, client_address: Any) -> None:
         """A stalled read is a closed request, not a traceback on the console."""
         _typ, exc, _tb = sys.exc_info()
-        if isinstance(exc, (socket.timeout, TimeoutError)):
+        if isinstance(exc, TimeoutError):
             host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
             log.info("HTTP read timed out from %s", host)
             return
