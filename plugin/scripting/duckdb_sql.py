@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, deal, str_bounded
 from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
+from plugin.scripting.venv.duckdb_sql import MAX_TABLE_ROWS
 
 # --- Constants (host) ---
 
@@ -33,7 +35,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
 }
 
 _SQL_ROW_CAP_NOTE = (
-    "Results cap at 200 rows (MAX_TABLE_ROWS). truncated/warning/flags mean "
+    f"Results cap at {MAX_TABLE_ROWS} rows (MAX_TABLE_ROWS). truncated/warning/flags mean "
     "the table is incomplete — add LIMIT or aggregate."
 )
 
@@ -47,7 +49,7 @@ _SQL_VENV_EXPORTS = frozenset(
         "invalidate_session_tables",
         "persistable_duckdb_session_id",
         "GuardedDuckDBConnection",
-        "ReadonlyViolation",
+        "SqlError",
         "MAX_TABLE_ROWS",
     }
 )
@@ -59,9 +61,7 @@ install_lazy_dir(globals(), _SQL_VENV_EXPORTS)
 # --- Templates for Run Python Script (Calc) ---
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
-    import sys
-
-    if "crosshair" in sys.modules:
+    if UNDER_CROSSHAIR:
         params_json = "{}"
     else:
         params_json = json.dumps(params, separators=(",", ":"))
@@ -92,9 +92,6 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         f"    {params_json}.get('files', ['yourfile.csv']),\n"
         f")\n"
     )
-
-
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
 def _deal_sql_code_ok_pytest(code: object) -> bool:

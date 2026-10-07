@@ -4,8 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trusted venv DuckDB SQL compute (folder read-only) — runs in user venv worker.
 
-Phase A–C: CSV/Parquet/JSON (direct) + sibling .xlsx/.xls/.ods via host LO import
-(preloaded grids) + multi-table catalog. Phase D: one in-memory DuckDB per
+CSV/Parquet/JSON (direct) + sibling .xlsx/.xls/.ods via host LO import
+(preloaded grids) + multi-table catalog. One in-memory DuckDB per
 shared-kernel workbook session (``calc:`` / ``rps:`` / ``notebook:``) until
 Reset Python Session. Isolated / chat trusted actions stay per-request.
 
@@ -22,19 +22,17 @@ import logging
 import os
 import re
 import threading
-from typing import Any, ClassVar, Iterator, cast
+from typing import Any, Iterator
 
 from plugin.scripting.venv.coerce import (
     ok_result as _ok_result,
     error_result as _error_result,
-    missing_package_error as _missing_package_error,
     table_from_df as _table_from_df,
 )
 
 log = logging.getLogger(__name__)
 
-# Small shared result/error shapes (duplicated from analysis for zero coupling in A)
-MAX_TABLE_ROWS = 200  # generous for SQL results vs analysis 50
+MAX_TABLE_ROWS = 200
 
 # Direct DuckDB binders (venv). Sibling .xlsx/.xls/.ods stay on the host LO import path.
 FLAT_CSV_EXTS = (".csv", ".tsv")
@@ -43,15 +41,49 @@ FLAT_JSON_EXTS = (".json", ".jsonl", ".ndjson")
 FLAT_FILE_EXTS = FLAT_CSV_EXTS + FLAT_PARQUET_EXTS + FLAT_JSON_EXTS
 _OFFICE_HINT_EXTS = (".xlsx", ".xls", ".ods")
 
+_READONLY_VIOLATION_MESSAGE = "SQL contains write, attach, or path escape"
 
-class FlatFileError(ValueError):
-    """Typed folder-file failure so query_folder_sql can return a stable code."""
+
+# Bugfix (SqlError): unify FlatFileError and ReadonlyViolation into a single
+# exception type that preserves error codes and inherits from RuntimeError so
+# callers and tests get consistent exception types and codes.
+class SqlError(RuntimeError):
+    """Typed SQL failure so query_folder_sql / run_sql can return a stable code."""
 
     code: str
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def _require_duckdb(helper: str = "duckdb_sql") -> Any:
+    """Import duckdb or raise SqlError('MISSING_PACKAGE', ...)."""
+    try:
+        import duckdb  # type: ignore[import-not-found]
+
+        return duckdb
+    except ImportError as exc:
+        raise SqlError("MISSING_PACKAGE", f"duckdb is required for {helper}.") from exc
+
+
+def _duckdb_version_tuple() -> tuple[int, ...]:
+    try:
+        import duckdb  # type: ignore[import-not-found]
+
+        ver = str(getattr(duckdb, "__version__", ""))
+        return tuple(int(p) for p in ver.split(".")[:2] if p.isdigit())
+    except Exception:
+        return (0, 0)
+
+
+def _is_duckdb_error(exc: BaseException) -> bool:
+    try:
+        import duckdb  # type: ignore[import-not-found]
+
+        return isinstance(exc, duckdb.Error)
+    except Exception:
+        return False
 
 
 def _flat_ext(path: str) -> str:
@@ -73,7 +105,7 @@ def _assert_under_scoped_dir(scoped_dir: str, path: str) -> str:
     base = os.path.realpath(os.path.abspath(scoped_dir))
     rp = os.path.realpath(os.path.abspath(path))
     if rp == base or not rp.startswith(base + os.sep):
-        raise FlatFileError(
+        raise SqlError(
             "READONLY_VIOLATION",
             f"path outside scoped_dir: {os.path.basename(path)}",
         )
@@ -88,22 +120,22 @@ def resolve_flat_file_path(scoped_dir: str, spec: str) -> str:
     missing ``FROM``.
     """
     if not scoped_dir or not os.path.isdir(scoped_dir):
-        raise FlatFileError("MISSING_SCOPED_DIR", "scoped_dir must be an existing directory")
+        raise SqlError("MISSING_SCOPED_DIR", "scoped_dir must be an existing directory")
     raw = str(spec).strip()
     if not raw:
-        raise FlatFileError("MISSING_FILE", "file spec is empty")
+        raise SqlError("MISSING_FILE", "file spec is empty")
     normalized = raw.replace("\\", "/")
     if any(part == ".." for part in normalized.split("/")):
-        raise FlatFileError("READONLY_VIOLATION", f"file spec escapes scoped_dir: {raw}")
+        raise SqlError("READONLY_VIOLATION", f"file spec escapes scoped_dir: {raw}")
     bn = os.path.basename(raw)
     if not bn or bn in (".", ".."):
-        raise FlatFileError("READONLY_VIOLATION", f"invalid file spec {raw!r}")
+        raise SqlError("READONLY_VIOLATION", f"invalid file spec {raw!r}")
     ext = _flat_ext(bn)
     if ext not in FLAT_FILE_EXTS:
-        raise FlatFileError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(bn, ext))
+        raise SqlError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(bn, ext))
     candidate = os.path.join(os.path.realpath(os.path.abspath(scoped_dir)), bn)
     if not os.path.isfile(candidate):
-        raise FlatFileError(
+        raise SqlError(
             "MISSING_FILE",
             f"Folder file {bn!r} was not found under the document folder",
         )
@@ -126,7 +158,7 @@ def _read_flat_relation(con: Any, path: str) -> Any:
         if ext in (".jsonl", ".ndjson"):
             return con.read_json(path, format="newline_delimited")
         return con.read_json(path)
-    raise FlatFileError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(os.path.basename(path), ext))
+    raise SqlError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(os.path.basename(path), ext))
 
 
 # Workbook-keyed sessions may keep one DuckDB. Domain prefixes used by
@@ -277,7 +309,7 @@ def _acquire_duckdb(session_id: str | None) -> tuple[Any, bool]:
     ``session_duckdb() is session_duckdb()`` stays true for a persistable id
     and ``execute`` / ``sql`` still hit the firewall.
     """
-    import duckdb  # type: ignore[import-not-found]
+    duckdb = _require_duckdb()
 
     key = resolve_duckdb_session_id(session_id)
     if key is None:
@@ -307,19 +339,34 @@ def _register_relation(con: Any, name: str, rel: Any) -> None:
 
 # Disk/network side effects only. In-memory CREATE VIEW / TABLE / INSERT stay
 # allowed so shared-kernel ``session_duckdb()`` register workflows work.
-# Do not use ``duckdb.connect(read_only=True)`` on ``:memory:`` — the engine
-# refuses that. Word-boundary scan after comment/string strip (tokens inside
-# comments or string literals are not statements).
+# Bugfix (_BLOCKED_STMT_RE): previously matched bare identifiers anywhere
+# in SQL like 'SELECT load, copy FROM t' because it lacked statement-start
+# anchoring, and missed keywords like SET, PRAGMA, CALL, CREATE SECRET, DETACH.
+# Anchoring to statement boundaries ((?:^|;)\s*) matches statements only.
 _BLOCKED_STMT_RE = re.compile(
-    r"(?is)(?<![A-Z0-9_])(?:COPY|EXPORT|ATTACH|INSTALL|LOAD)\b"
+    r"""(?isx)
+    (?:^|;)\s*(?:\(\s*)*
+    (?:
+        COPY\b
+        | EXPORT\b
+        | ATTACH\b
+        | DETACH\b
+        | INSTALL\b
+        | LOAD\b
+        | SET\b
+        | PRAGMA\b
+        | CALL\b
+        | CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:TEMPORARY|PERSISTENT)\s+)?SECRET\b
+    )
+    """
 )
 
-_STRING_RE = re.compile(r"(?s)('(?:''|[^'])*'|\"(?:\"\"|[^\"]*)\")")
-_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
-_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 _DRIVE_RE = re.compile(r"^[A-Za-z]:[/\\]")
 _URI_RE = re.compile(r"(?i)^(?:https?|s3|file|ftp)://")
-# Unquoted remainder: ../, drive, URI, or absolute /path (not ``a / b`` division).
+
+# Bugfix (_REMAINDER_PATH_RE): previously matched (?:^|[\s=,(])[/\\](?!\s),
+# which incorrectly flagged division like 'price /100' or 'a /2' as path escapes.
+# Division slashes are not path escapes, so unquoted absolute slashes are removed.
 _REMAINDER_PATH_RE = re.compile(
     r"""(?ix)
     (?:
@@ -327,16 +374,23 @@ _REMAINDER_PATH_RE = re.compile(
         | ~/
         | [A-Za-z]:[/\\]
         | (?:https?|s3|file|ftp)://
-        | (?:^|[\s=,(])[/\\](?!\s)
     )
     """
 )
 
-
-class ReadonlyViolation(ValueError):
-    """COPY/escape blocked the same way as ``query_folder_sql`` (``READONLY_VIOLATION``)."""
-
-    code: ClassVar[str] = "READONLY_VIOLATION"
+# Bugfix (_TOKEN_RE): comments stripped before string literals allowed embedded
+# '--' or '/*' in strings to swallow later SQL statements (e.g. "SELECT '--'; COPY t TO 'x'").
+# A single-pass tokenizer parses strings, dollar-quoted strings ($tag$...$tag$),
+# and line/block comments left-to-right.
+_TOKEN_RE = re.compile(
+    r"""(?isx)
+    (?P<line_comment> --[^\n]* )
+    | (?P<block_comment> /\* .*? \*/ )
+    | (?P<single_quote> ' (?: '' | [^'] )* ' )
+    | (?P<double_quote> " (?: "" | [^"] )* " )
+    | (?P<dollar_quote> \$ (?P<tag> [A-Za-z0-9_]* ) \$ .*? \$ (?P=tag) \$ )
+    """
+)
 
 
 # Methods a script may call on session_duckdb() besides execute/sql/close.
@@ -349,7 +403,7 @@ class GuardedDuckDBConnection:
     """Delegate to an in-memory DuckDB connection; ``execute`` / ``sql`` use the firewall.
 
     Register / CREATE VIEW stay available. Raw ``import duckdb`` is allowed and
-    unguarded; ``session_duckdb()`` is what returns this wrapper.
+    unguarded; ``session_duckdb()`` returns this wrapper as an advisory guard.
     """
 
     def __init__(self, con: Any) -> None:
@@ -383,23 +437,42 @@ def _strip_sql_comments_and_strings(sql: str) -> tuple[str, list[str]]:
     """Return (sql without comments/strings, inner string literals).
 
     Statements are judged on the remainder; path escapes live in the strings.
+    Single-pass tokenization prevents string contents from being misinterpreted
+    as comments or vice-versa.
     """
     strings: list[str] = []
-
-    def _keep_string(match: re.Match[str]) -> str:
-        raw = match.group(0)
-        strings.append(raw[1:-1])
-        return " "
-
-    no_block = _BLOCK_COMMENT_RE.sub(" ", sql)
-    no_line = _LINE_COMMENT_RE.sub(" ", no_block)
-    remainder = _STRING_RE.sub(_keep_string, no_line)
+    chunks: list[str] = []
+    pos = 0
+    for m in _TOKEN_RE.finditer(sql):
+        chunks.append(sql[pos : m.start()])
+        pos = m.end()
+        if m.group("single_quote"):
+            raw = m.group("single_quote")
+            strings.append(raw[1:-1].replace("''", "'"))
+            chunks.append(" ")
+        elif m.group("double_quote"):
+            raw = m.group("double_quote")
+            strings.append(raw[1:-1].replace('""', '"'))
+            chunks.append(" ")
+        elif m.group("dollar_quote"):
+            tag = m.group("tag")
+            prefix_len = len(tag) + 2
+            strings.append(m.group("dollar_quote")[prefix_len:-prefix_len])
+            chunks.append(" ")
+        else:
+            # line or block comment replaced by space
+            chunks.append(" ")
+    chunks.append(sql[pos:])
+    remainder = "".join(chunks)
     return remainder, strings
 
 
+# Bugfix (_string_looks_like_escape): text.startswith("/") treated '/' alone
+# as an escape, breaking legitimate SQL like split_part(x, '/', 1) and replace(p, '/', '_').
+# A standalone '/' or '\' delimiter is not an escape path.
 def _string_looks_like_escape(literal: str) -> bool:
     text = literal.strip()
-    if not text:
+    if not text or text in ("/", "\\"):
         return False
     if text.startswith(("/", "\\", "~/")) or text.startswith("~\\"):
         return True
@@ -420,9 +493,6 @@ def _file_spec_looks_like_escape(spec: str) -> bool:
 
 
 def _looks_like_write_or_escape(sql: str) -> bool:
-    # Comment/string strip avoids false positives (``SELECT 'COPY later'``) while
-    # still catching ``FROM '/etc/passwd'`` and ``COPY … TO`` as statements.
-    # Do not treat ``ROUND(a / b)`` as a path — only ``/name`` without a space.
     remainder, strings = _strip_sql_comments_and_strings(str(sql))
     if _BLOCKED_STMT_RE.search(remainder):
         return True
@@ -433,7 +503,7 @@ def _looks_like_write_or_escape(sql: str) -> bool:
 
 def _raise_if_write_or_escape(sql: str) -> None:
     if _looks_like_write_or_escape(sql):
-        raise ReadonlyViolation("SQL contains write, attach, or path escape")
+        raise SqlError("READONLY_VIOLATION", _READONLY_VIOLATION_MESSAGE)
 
 
 def _truncation_warning(total: int) -> str:
@@ -510,6 +580,7 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
         return
     from plugin.scripting.venv.coerce import coerce_to_dataframe
 
+    registered_stems: set[str] = set()
     for orig_name, data in preloaded.items():
         # CalcRange refuses ``bool()`` (ambiguous truth value). Empty list/dict
         # is still a skip; a live =PY() range must register.
@@ -527,14 +598,27 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
             _register_relation(con, orig_name, coerced.df)
             stem = os.path.splitext(orig_name)[0]
             if stem and stem != orig_name:
-                try:
-                    _register_relation(con, stem, coerced.df)
-                except Exception:
-                    pass
+                # Bugfix: stem alias collisions (e.g. a.csv vs a.xlsx) previously
+                # silently overwrote earlier registrations or failed with pass.
+                # Skip colliding stems, log alias errors, and avoid silent overwrites.
+                if stem in preloaded or stem in registered_stems:
+                    log.warning(
+                        "Skipping stem alias %r for %r: name collision",
+                        stem,
+                        orig_name,
+                    )
+                else:
+                    try:
+                        _register_relation(con, stem, coerced.df)
+                        registered_stems.add(stem)
+                    except Exception as alias_err:
+                        log.warning(
+                            "Failed to register stem alias %r for %r: %s",
+                            stem,
+                            orig_name,
+                            alias_err,
+                        )
         except Exception as reg_err:
-            # Bugfix: a failed preload used to log and continue, so the query
-            # then failed with "table not found". Flat-file registration already
-            # raises. Do the same here.
             log.warning("Failed to register preloaded table %s: %s", orig_name, reg_err)
             raise
 
@@ -546,48 +630,159 @@ def _register_flat_files(
 ) -> None:
     if not flat_files:
         return
+    # Bugfix: remove dead scoped_dir=None branches; query_folder_sql requires
+    # scoped_dir whenever files are present. All paths resolve through resolve_flat_file_path.
+    if not scoped_dir:
+        raise SqlError("MISSING_SCOPED_DIR", "scoped_dir is required for flat files")
     raw = _raw_duckdb(con)
     for name, path in flat_files.items():
         if not name or not path:
             continue
-        p = str(path)
-        if scoped_dir:
-            # Host sends a full path; still require the file to live under scoped_dir.
-            if os.path.isfile(p):
-                ext = _flat_ext(p)
-                if ext not in FLAT_FILE_EXTS:
-                    raise FlatFileError(
-                        "UNSUPPORTED_FILE_TYPE",
-                        unsupported_flat_type_message(os.path.basename(p), ext),
-                    )
-                p = _assert_under_scoped_dir(scoped_dir, p)
-            else:
-                p = resolve_flat_file_path(scoped_dir, p)
-        elif not os.path.isfile(p):
-            raise FlatFileError(
-                "MISSING_FILE",
-                f"Folder file {os.path.basename(p)!r} (table {name!r}) was not found",
-            )
-        else:
-            ext = _flat_ext(p)
-            if ext not in FLAT_FILE_EXTS:
-                raise FlatFileError(
-                    "UNSUPPORTED_FILE_TYPE",
-                    unsupported_flat_type_message(os.path.basename(p), ext),
-                )
+        p = resolve_flat_file_path(scoped_dir, str(path))
         try:
-            # Unwrap GuardedDuckDBConnection so read_* hits the engine, not execute().
             rel = _read_flat_relation(raw, p)
-        except FlatFileError:
+        except SqlError:
             raise
         except Exception as flat_err:
-            # Used to log-and-skip: SQL then failed with a missing table instead of
-            # the real Parquet/JSON read error.
-            raise FlatFileError(
+            raise SqlError(
                 "FLAT_FILE_READ_ERROR",
                 f"Could not read {os.path.basename(p)!r} as table {name!r}: {flat_err}",
             ) from flat_err
-        _register_relation(con, name, rel)
+
+        # Bugfix: materialize flat file relations into in-memory tables so that
+        # SET enable_external_access=false does not block subsequent queries on them.
+        escaped_name = name.replace('"', '""')
+        raw.register("_wa_tmp_import", rel)
+        try:
+            raw.execute(f'DROP TABLE IF EXISTS "{escaped_name}"')
+            raw.execute(f'CREATE TABLE "{escaped_name}" AS SELECT * FROM _wa_tmp_import')
+        finally:
+            try:
+                raw.unregister("_wa_tmp_import")
+            except Exception:
+                pass
+
+        stem = os.path.splitext(name)[0]
+        if stem and stem != name and stem not in flat_files:
+            escaped_stem = stem.replace('"', '""')
+            try:
+                raw.execute(
+                    f'CREATE VIEW IF NOT EXISTS "{escaped_stem}" AS SELECT * FROM "{escaped_name}"'
+                )
+            except Exception as alias_err:
+                log.warning("Failed to create view for stem %r: %s", stem, alias_err)
+
+
+# Bugfix (_execute): split execution out of query_folder_sql so run_sql can
+# retrieve the full DataFrame without truncation to MAX_TABLE_ROWS and preserve
+# SqlError error codes instead of losing them in a generic RuntimeError.
+def _execute(
+    scoped_dir: str | None,
+    sql: str,
+    files: list[str] | dict[str, str] | None = None,
+    preloaded: dict[str, Any] | None = None,
+    flat_files: dict[str, str] | None = None,
+    *,
+    session_id: str | None = None,
+) -> tuple[Any, list[str]]:
+    """Execute SQL against preloaded tables and scoped folder files, returning (df, used_files)."""
+    _require_duckdb("query_folder_sql")
+
+    if not sql or not str(sql).strip():
+        raise SqlError("INVALID_SQL", "sql is required")
+
+    _raise_if_write_or_escape(str(sql))
+
+    # Bugfix: normalize files once up front (str -> [str], tuple -> list)
+    # so single strings are not iterated character by character and tuples
+    # are not skipped by the escape pre-check.
+    normalized_files: list[str] | dict[str, str] | None = None
+    if isinstance(files, str):
+        normalized_files = [files]
+    elif isinstance(files, tuple):
+        normalized_files = list(files)
+    else:
+        normalized_files = files
+
+    file_specs: list[str] = []
+    if isinstance(normalized_files, list):
+        file_specs = [str(x) for x in normalized_files]
+    elif isinstance(normalized_files, dict):
+        file_specs = [str(v) for v in normalized_files.values()]
+
+    if any(_file_spec_looks_like_escape(spec) for spec in file_specs):
+        raise SqlError("READONLY_VIOLATION", _READONLY_VIOLATION_MESSAGE)
+
+    if not scoped_dir and (normalized_files or flat_files):
+        raise SqlError(
+            "MISSING_SCOPED_DIR",
+            "scoped_dir is required for file-based queries (resolved on host)",
+        )
+
+    base = os.path.realpath(os.path.abspath(scoped_dir)) if scoped_dir else None
+
+    legacy_files: list[str] | None = None
+    validated: list[str] = []
+    resolved_flat = dict(flat_files) if flat_files else {}
+
+    if isinstance(normalized_files, list):
+        legacy_files = normalized_files
+        validated = _validate_files(scoped_dir, normalized_files) if scoped_dir else []
+        for p in validated:
+            bn = os.path.basename(p)
+            if bn not in resolved_flat:
+                resolved_flat[bn] = p
+            stem = os.path.splitext(bn)[0]
+            if stem and stem not in resolved_flat:
+                resolved_flat[stem] = p
+    elif isinstance(normalized_files, dict):
+        if not scoped_dir:
+            raise SqlError("MISSING_SCOPED_DIR", "scoped_dir is required for file-based queries")
+        for k, v in normalized_files.items():
+            if k and str(v).strip():
+                resolved_flat[k] = resolve_flat_file_path(scoped_dir, v)
+
+    con, persist = _acquire_duckdb(session_id)
+    raw = _raw_duckdb(con)
+    try:
+        _register_preloaded(con, preloaded)
+        if resolved_flat and base:
+            _register_flat_files(con, resolved_flat, scoped_dir=base)
+
+        # Bugfix: lock configuration and disable external access on non-persistent
+        # connections for defense-in-depth after materializing tables into memory.
+        if not persist:
+            raw.execute("SET enable_external_access=false")
+            raw.execute("SET lock_configuration=true")
+        elif base and _duckdb_version_tuple() >= (1, 3):
+            escaped_base = base.replace("'", "''")
+            raw.execute(f"SET allowed_directories=['{escaped_base}']")
+
+        if base and legacy_files:
+            with _scoped_cwd(base):
+                df = con.execute(sql).df()
+        else:
+            df = con.execute(sql).df()
+    except SqlError:
+        raise
+    except Exception as exc:
+        # Bugfix: log duckdb.Error with warning instead of full exception traceback
+        if _is_duckdb_error(exc):
+            log.warning("SQL execution failed: %s", exc)
+        else:
+            log.exception("SQL execution failed unexpectedly")
+        raise SqlError("DUCKDB_ERROR", str(exc)) from exc
+    finally:
+        if not persist:
+            _close_connection(con)
+
+    used = [os.path.basename(p) for p in validated]
+    if preloaded:
+        used = list(preloaded.keys()) + used
+    if resolved_flat:
+        used = list(resolved_flat.keys()) + used
+
+    return df, used
 
 
 def run_sql(
@@ -606,11 +801,10 @@ def run_sql(
 
     * Execute: ``run_sql(sql)`` or ``run_sql(sql, con)`` returns the same
       honesty dict as ``query_folder_sql``. No ``con`` uses ``_acquire_duckdb``
-      so a persistable sandbox session reuses the Phase D catalog.
+      so a persistable sandbox session reuses the catalog.
     * Folder join: a mapping as the second arg (or ``preloaded=`` / ``files`` /
-      ``scoped_dir``) runs ``query_folder_sql`` and returns a DataFrame for
-      spill. Pretty-demo RESULTS: ``run_sql(sql, {sales: data[0]}, {zip_income:
-      zip_income.csv}, scoped_dir)``.
+      ``scoped_dir``) runs ``_execute`` and returns the full DataFrame for
+      spill without the 200 row cap.
     """
     helper = "run_sql"
     folder_preloaded = preloaded
@@ -619,49 +813,50 @@ def run_sql(
         con = None
 
     if folder_preloaded is not None or files is not None or scoped_dir is not None:
-        import pandas as pd
-
-        res = query_folder_sql(
+        # Bugfix: call _execute directly so folder joins return the full DataFrame
+        # without being truncated to MAX_TABLE_ROWS, and raise SqlError with code preserved.
+        df, _used = _execute(
             scoped_dir,
             sql,
             files=files,
             preloaded=folder_preloaded,
             session_id=session_id,
         )
-        if res.get("status") != "ok":
-            raise RuntimeError(str(res.get("message") or res.get("code") or "SQL failed"))
-        cols = res.get("columns") or []
-        rows = res.get("rows") or []
-        # Cast cols to Any for pandas-stubs Axes compatibility
-        return pd.DataFrame(rows, columns=cast("Any", cols))
+        return df
 
-    try:
-        import duckdb  # type: ignore[import-not-found]
-    except ImportError:
-        return _missing_package_error(helper, "duckdb")
-    del duckdb
+    _require_duckdb(helper)
 
     if not sql or not str(sql).strip():
         return _error_result("INVALID_SQL", "sql is required", helper=helper)
-
-    if _looks_like_write_or_escape(str(sql)):
-        return _error_result("READONLY_VIOLATION", "SQL contains write, attach, or path escape", helper=helper)
 
     persist = False
     acquired: Any = None
     try:
         if con is None:
             acquired, persist = _acquire_duckdb(session_id)
-            df = acquired.execute(sql).df()
-        elif isinstance(con, GuardedDuckDBConnection):
-            df = con.execute(sql).df()
+            target_con = acquired
+            if not persist:
+                raw = _raw_duckdb(acquired)
+                raw.execute("SET enable_external_access=false")
+                raw.execute("SET lock_configuration=true")
         else:
-            df = con.execute(sql).df()
+            target_con = con
+
+        # Bugfix: remove duplicate scan (_looks_like_write_or_escape was called both
+        # up front and inside GuardedDuckDBConnection.execute) and remove redundant
+        # Guarded vs else branches.
+        if not isinstance(target_con, GuardedDuckDBConnection):
+            _raise_if_write_or_escape(sql)
+        df = target_con.execute(sql).df()
         return _ok_sql_result(helper, df)
-    except ReadonlyViolation as exc:
-        return _error_result("READONLY_VIOLATION", str(exc), helper=helper)
+    except SqlError as exc:
+        return _error_result(exc.code, str(exc), helper=helper)
     except Exception as exc:
-        log.exception("run_sql failed")
+        # Bugfix: log duckdb.Error with warning instead of full exception traceback
+        if _is_duckdb_error(exc):
+            log.warning("run_sql failed: %s", exc)
+        else:
+            log.exception("run_sql failed")
         return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
     finally:
         if acquired is not None and not persist:
@@ -681,7 +876,7 @@ def query_folder_sql(
 
     - preloaded: dict table_name -> 2D grid data (from host LO reads for ranges/office files).
     - files: list of basenames (legacy, uses chdir + filename refs) or dict name->basename for flat files.
-    - flat_files: dict name -> full validated path for direct DuckDB reads (preferred for named files in Phase C+).
+    - flat_files: dict name -> full validated path for direct DuckDB reads.
     - session_id: shared-kernel workbook id. When persistable (or the current
       ``=PY()`` sandbox session is), reuse one connection and keep tables
       that this call does not re-register. Isolated / omitted: per-request.
@@ -692,69 +887,21 @@ def query_folder_sql(
     """
     helper = "query_folder_sql"
     try:
-        import duckdb  # type: ignore[import-not-found]
-    except ImportError:
-        return _missing_package_error(helper, "duckdb")
-    del duckdb
-
-    if not sql or not str(sql).strip():
-        return _error_result("INVALID_SQL", "sql is required", helper=helper)
-
-    if _looks_like_write_or_escape(str(sql)):
-        return _error_result("READONLY_VIOLATION", "SQL contains write, attach, or path escape", helper=helper)
-
-    file_specs: list[str] = []
-    if isinstance(files, list):
-        file_specs = [str(x) for x in files]
-    elif isinstance(files, dict):
-        file_specs = [str(v) for v in files.values()]
-    if any(_file_spec_looks_like_escape(spec) for spec in file_specs):
-        return _error_result("READONLY_VIOLATION", "SQL contains write, attach, or path escape", helper=helper)
-
-    if not scoped_dir and (files or flat_files):
-        return _error_result("MISSING_SCOPED_DIR", "scoped_dir is required for file-based queries (resolved on host)", helper=helper)
-
-    try:
-        base = os.path.realpath(os.path.abspath(scoped_dir)) if scoped_dir else None
-
-        # Handle legacy files list or new dict for flat files
-        legacy_files = None
-        if isinstance(files, list):
-            legacy_files = files
-            validated = _validate_files(scoped_dir, files) if scoped_dir else []
-        elif isinstance(files, dict):
-            validated = []
-            if not scoped_dir:
-                raise FlatFileError("MISSING_SCOPED_DIR", "scoped_dir is required for file-based queries")
-            flat_from_files = {k: resolve_flat_file_path(scoped_dir, v) for k, v in files.items() if k and str(v).strip()}
-            flat_files = {**(flat_files or {}), **flat_from_files}
-        else:
-            validated = _validate_files(scoped_dir, files) if files and scoped_dir else []
-
-        # In-memory catalog. DuckDB refuses ``read_only=True`` on ``:memory:``.
-        # Shared kernel reuses one connection; isolated always opens+closes.
-        con, persist = _acquire_duckdb(session_id)
-        try:
-            _register_preloaded(con, preloaded)
-            _register_flat_files(con, flat_files, scoped_dir=base)
-
-            if base and (legacy_files or not flat_files) and (validated or legacy_files):
-                with _scoped_cwd(base):
-                    df = con.execute(sql).df()
-            else:
-                df = con.execute(sql).df()
-        finally:
-            if not persist:
-                _close_connection(con)
-
-        used = [os.path.basename(p) for p in validated]
-        if preloaded:
-            used = list(preloaded.keys()) + used
-        if flat_files:
-            used = list(flat_files.keys()) + used
+        df, used = _execute(
+            scoped_dir,
+            sql,
+            files=files,
+            preloaded=preloaded,
+            flat_files=flat_files,
+            session_id=session_id,
+        )
         return _ok_sql_result(helper, df, files_used=used)
-    except FlatFileError as exc:
+    except SqlError as exc:
         return _error_result(exc.code, str(exc), helper=helper)
-    except Exception as exc:  # broad: duckdb errors, IO, etc. surface message
-        log.exception("query_folder_sql failed")
+    except Exception as exc:
+        # Bugfix: log duckdb.Error with warning instead of full exception traceback
+        if _is_duckdb_error(exc):
+            log.warning("query_folder_sql failed: %s", exc)
+        else:
+            log.exception("query_folder_sql failed")
         return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
