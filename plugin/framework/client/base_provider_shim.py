@@ -111,7 +111,7 @@ def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | Non
         if param not in data:
             continue
 
-        pattern = rf"{param}: not supported\.(?: Accepted: ([^|]+))?"
+        pattern = rf"\b{param}\b: not supported\.(?: Accepted: ([^|}}\n\"]+))?"
         matches = list(re.finditer(pattern, error_text))
         if matches:
             # all providers rejecting this param must agree on the accepted values
@@ -222,7 +222,7 @@ class BaseProviderShim:
         path = get_url_path_and_query(url)
         return "POST", path, json_data, self.client._headers()
 
-    def parse_response_chunk(self, chunk: dict[str, Any]) -> tuple[str, str | None, str | None, dict[str, Any]]:
+    def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
         from .stream_normalizer import _extract_thinking_from_delta
 
         choices = chunk.get("choices", [])

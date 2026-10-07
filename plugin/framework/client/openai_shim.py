@@ -82,6 +82,34 @@ class OpenAIShim(BaseProviderShim):
         data: dict[str, Any] = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "b64_json"}
         if model:
             data["model"] = model
+
+        lower_model = str(model).lower() if model else ""
+        if lower_model.startswith("gpt-image"):
+            data.pop("response_format", None)
+            ratio = width / height if height else 1.0
+            if ratio > 1.2:
+                data["size"] = "1536x1024"
+            elif ratio < 0.8:
+                data["size"] = "1024x1536"
+            else:
+                data["size"] = "1024x1024"
+        elif lower_model.startswith("dall-e-3"):
+            ratio = width / height if height else 1.0
+            if ratio > 1.2:
+                data["size"] = "1792x1024"
+            elif ratio < 0.8:
+                data["size"] = "1024x1792"
+            else:
+                data["size"] = "1024x1024"
+        elif lower_model.startswith("dall-e"):
+            edge = max(width, height)
+            if edge <= 256:
+                data["size"] = "256x256"
+            elif edge <= 512:
+                data["size"] = "512x512"
+            else:
+                data["size"] = "1024x1024"
+
         if ref:
             data["images"] = [{"image_url": ref}]
         path = get_url_path_and_query(url)
