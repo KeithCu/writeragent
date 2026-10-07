@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from plugin.calc.address_utils import column_to_index, index_to_column
-from plugin.calc.python.formula_edit import _py_call_open_end, format_data_binding_display, parse_data_binding_text, parse_python_formula, py_formula_has_unquoted_code_ref
+from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text, parse_python_formula, py_call_open_end, py_formula_has_unquoted_code_ref
 from plugin.framework.errors import CalcError
 
 
@@ -160,7 +160,7 @@ def classify_sheet_ref_span(token: str) -> str:
 
 
 def _looks_like_python_formula(formula: str) -> bool:
-    return _py_call_open_end(formula, require_equals=True) is not None
+    return py_call_open_end(formula, require_equals=True) is not None
 
 
 def _python_span_allows_adjust(formula: str) -> bool:

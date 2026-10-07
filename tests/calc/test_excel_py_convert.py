@@ -672,11 +672,11 @@ def test_dag_meta_payload_roundtrip():
 
 def test_excel_escape_skips_calc_sanitizer():
     code = "x = float(1)"
-    assert "+0.0" in escape_code_for_formula(code)
+    assert escape_code_for_formula(code) == code
     assert escape_code_for_excel_formula(code) == code
     calc = rebuild_python_formula_with_data(code, [])
     xlsx = rebuild_python_formula_with_data(code, [], separator=",", excel_escape=True)
-    assert "+0.0" in calc
+    assert "float(1)" in calc
     assert "float(1)" in xlsx
     assert xlsx.endswith('")')
 

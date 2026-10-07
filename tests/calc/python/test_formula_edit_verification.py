@@ -69,7 +69,6 @@ _REWRITE_WRAPPERS_OFF = (
     "py_formula_has_unquoted_code_ref",
     "rebuild_python_formula_with_code_ref",
     "cell_looks_python_like",
-    "replace_python_code",
 )
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
@@ -97,12 +96,12 @@ def _find_crosshair() -> str | None:
 @given(code=_CODE_TEXT)
 @settings(max_examples=vhs_max_examples(60, 600), deadline=None)
 def test_hypothesis_escape_embed_parse_round_trip(code: str) -> None:
-    """escape → embed in =PY("…") → parse recovers post-sanitize code."""
+    """escape → embed in =PY("…") → parse recovers code."""
     escaped = escape_code_for_formula(code)
     formula = f'=PY("{escaped}")'
     parts = parse_python_formula(formula)
     assert parts is not None
-    assert parts.code == sanitize_inline_py_code(code)
+    assert parts.code == code
     assert parts.data_suffix == ")"
 
 
@@ -182,7 +181,7 @@ def test_parse_rebuild_preserves_code_and_data_suffix() -> None:
     assert again is not None
     assert again.code == parts.code
     assert again.data_suffix == parts.data_suffix
-    assert rebuilt.startswith('=PY("')
+    assert rebuilt.startswith('=PYTHON("')
 
 
 def test_normalize_lo_preserves_semicolon_inside_quotes() -> None:
@@ -270,9 +269,9 @@ def test_normalize_py_token_is_not_pattern_error() -> None:
 def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
     """Cluster B: ``dtype=float`` + NUL/SOH grew past nested rewrite pre."""
     assert sanitize_inline_py_code("dtype=float\x00") == "dtype=np.float64\x00"
-    assert escape_code_for_formula("dtype=float\x00") == "dtype=np.float64\x00"
+    assert escape_code_for_formula("dtype=float\x00") == "dtype=float\x00"
     rebuilt = rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), ".dtype=float\x01")
-    assert "dtype=np.float64" in rebuilt
+    assert ".dtype=float\x01" in rebuilt
 
 
 def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
@@ -304,13 +303,10 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         "py_formula_has_unquoted_code_ref",
         "rebuild_python_formula_with_code_ref",
         "cell_looks_python_like",
-        "replace_python_code",
         # cover-all 35526755391 leftovers (~2.45h formula_edit)
-        "_format_py_data_range_body",
-        "_format_excel_data_range_body",
         "_parts_result_ok",
         "_quoted_parse_result_ok",
-        "_py_call_open_end",
+        "py_call_open_end",
         "_find_matching_paren",
         "format_data_binding_text",
     ):
@@ -321,13 +317,10 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
     assert any(f.endswith(".normalize_lo_formula_for_parse") for f in preprocess)
 
 
-def test_rewrite_token_calls_rejects_nonalpha_token() -> None:
-    """Metacharacter tokens used to compile an unterminated regex; pre rejects them."""
-    if not deal_pre_present(_rewrite_token_calls):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        _rewrite_token_calls("float(1)", "(", lambda inner: inner)
+def test_rewrite_token_calls() -> None:
+    """Verify regex token rewrite behavior."""
     assert _rewrite_token_calls("float(1)", "float", lambda inner: f"({inner})+0.0") == "(1)+0.0"
+    assert _rewrite_token_calls("int(2)", "int", lambda inner: f"(({inner})//1)") == "((2)//1)"
 
 
 

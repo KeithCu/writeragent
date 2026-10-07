@@ -84,6 +84,14 @@ class TestACPConnectionStop:
         conn._running = True
         conn.stop()
         conn.stop()
+        # What was wrong: stop() delegates termination to the background writer drain
+        # thread (_writer_drain_loop). Checking proc.terminate synchronously right after
+        # stop() raced with the background worker, intermittently failing in CI when the
+        # background thread had not yet executed proc.terminate().
+        # Why this change: poll with a short deadline before asserting called_once.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not proc.terminate.called:
+            time.sleep(0.01)
         proc.terminate.assert_called_once()
 
 
