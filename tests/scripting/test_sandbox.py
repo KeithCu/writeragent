@@ -448,3 +448,130 @@ def test_venv_allowlist_mirrors_plugin_entries_and_keeps_duckdb() -> None:
     assert import_authorized("duckdb.functional", VENV_AUTHORIZED_IMPORTS) is True
     assert import_authorized("plugin.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is False
 
+
+def test_import_authorized_intermediate_nodes_rejected() -> None:
+    """Intermediate nodes (plugin, plugin.scripting, writeragent.scripting) must not be authorized."""
+    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+
+    assert import_authorized("plugin", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("plugin.scripting", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("writeragent.scripting", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("plugin.scripting.analysis", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("writeragent.scripting.analysis", VENV_AUTHORIZED_IMPORTS) is True
+
+    # Wildcard prefix tests: 'a.b.*' must allow 'a.b' and 'a.b.x' but reject 'a' or 'a.bc'.
+    policy = ["a.b.*"]
+    assert import_authorized("a", policy) is False
+    assert import_authorized("a.b", policy) is True
+    assert import_authorized("a.b.c", policy) is True
+    assert import_authorized("a.b.c.d", policy) is True
+    assert import_authorized("a.bc", policy) is False
+
+
+def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
+    """Tokens ending with blocked words, DATABASE_URL, and *_DSN must be detected while keeping KEYBOARD/XAUTHORITY."""
+    from plugin.scripting.sandbox import _env_name_is_credential
+
+    assert _env_name_is_credential("OPENAI_APIKEY") is True
+    assert _env_name_is_credential("GITHUB_APITOKEN") is True
+    assert _env_name_is_credential("AWS_SECRETKEY") is True
+    assert _env_name_is_credential("DATABASE_URL") is True
+    assert _env_name_is_credential("POSTGRES_DSN") is True
+    assert _env_name_is_credential("SENTRY_DSN") is True
+    assert _env_name_is_credential("DSN") is True
+    assert _env_name_is_credential("KEY") is True
+    assert _env_name_is_credential("MY_KEYS") is True
+
+    # KEYBOARD device names and XAUTHORITY must not be blocked.
+    assert _env_name_is_credential("KEYBOARD") is False
+    assert _env_name_is_credential("KEYBOARD_LAYOUT") is False
+    assert _env_name_is_credential("KEYBOARD_MODEL") is False
+    assert _env_name_is_credential("XAUTHORITY") is False
+
+
+def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
+    """PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT are blocked, and empty dict gets overrides."""
+    from plugin.scripting.sandbox import _BLOCKED_ENV_EXACT, scrub_subprocess_env
+
+    for var in ("PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONINSPECT", "DATABASE_URL"):
+        assert var in _BLOCKED_ENV_EXACT
+
+    base = {
+        "PYTHONSTARTUP": "/etc/startup.py",
+        "PYTHONUSERBASE": "/home/u/.local",
+        "PYTHONBREAKPOINT": "0",
+        "PYTHONINSPECT": "1",
+        "DATABASE_URL": "postgres://user:pass@host/db",
+        "OPENAI_APIKEY": "sk-test",
+        "POSTGRES_DSN": "postgres://...",
+        "KEYBOARD_LAYOUT": "us",
+        "USER_VAR": "hello",
+    }
+    scrubbed = scrub_subprocess_env(base)
+    assert "PYTHONSTARTUP" not in scrubbed
+    assert "PYTHONUSERBASE" not in scrubbed
+    assert "PYTHONBREAKPOINT" not in scrubbed
+    assert "PYTHONINSPECT" not in scrubbed
+    assert "DATABASE_URL" not in scrubbed
+    assert "OPENAI_APIKEY" not in scrubbed
+    assert "POSTGRES_DSN" not in scrubbed
+    assert scrubbed["KEYBOARD_LAYOUT"] == "us"
+    assert scrubbed["USER_VAR"] == "hello"
+
+    # None returns empty; {} applies standard overrides.
+    assert scrub_subprocess_env(None) == {}
+    empty_scrubbed = scrub_subprocess_env({})
+    assert empty_scrubbed.get("PYTHONUTF8") == "1"
+    assert empty_scrubbed.get("PYTHONIOENCODING") == "utf-8"
+    assert empty_scrubbed.get("PYTHONDONTWRITEBYTECODE") == "1"
+
+
+def test_is_acceptable_python_basename_rejects_config() -> None:
+    """python3.X-config scripts and pythonw must be rejected."""
+    from plugin.scripting.sandbox import _is_acceptable_python_basename
+
+    assert _is_acceptable_python_basename("python3.13-config") is False
+    assert _is_acceptable_python_basename("python3-config") is False
+    assert _is_acceptable_python_basename("python-config.exe") is False
+    assert _is_acceptable_python_basename("pythonw") is False
+    assert _is_acceptable_python_basename("pythonw.exe") is False
+    assert _is_acceptable_python_basename("python") is True
+    assert _is_acceptable_python_basename("python3") is True
+    assert _is_acceptable_python_basename("python3.13") is True
+    assert _is_acceptable_python_basename("python.exe") is True
+
+
+def test_python_candidates_in_bin_dir_handles_oserror(tmp_path, monkeypatch) -> None:
+    """OSError during os.listdir in bin dir must be swallowed."""
+    from plugin.scripting.sandbox import _python_candidates_in_bin_dir
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+
+    def mock_listdir(_path):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr("os.listdir", mock_listdir)
+    candidates = _python_candidates_in_bin_dir(str(bin_dir))
+    assert any("python" in c for c in candidates)
+
+
+def test_detect_sandbox_cache_clear(monkeypatch) -> None:
+    """detect_sandbox result is cached and _reset_cache clears it."""
+    from plugin.scripting.sandbox import _reset_cache, detect_sandbox
+
+    monkeypatch.delenv("FLATPAK_ID", raising=False)
+    monkeypatch.delenv("SNAP_NAME", raising=False)
+    monkeypatch.setattr("os.path.exists", lambda path: False)
+    _reset_cache()
+
+    assert detect_sandbox() is None
+
+    monkeypatch.setenv("SNAP_NAME", "test-snap")
+    # Still cached as None before reset
+    assert detect_sandbox() is None
+
+    _reset_cache()
+    assert detect_sandbox() == "snap"
+    _reset_cache()
+

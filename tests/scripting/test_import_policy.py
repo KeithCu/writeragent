@@ -216,3 +216,50 @@ def test_format_units_helper_hint():
 def test_python_specialized_sub_agent_units_hint():
     hint = python_specialized_sub_agent_hint("Writer")
     assert "Units Helpers" in hint
+
+
+def test_venv_authorized_top_level_modules_real_roots():
+    """venv_authorized_top_level_modules must only return real top-level module names without dots."""
+    top_level = venv_authorized_top_level_modules()
+    assert all("." not in m for m in top_level)
+    assert "plugin" not in top_level
+    assert "writeragent" in top_level
+    assert "numpy" in top_level
+    assert "matplotlib" in top_level
+    assert "json" in top_level
+    assert "duckdb" in top_level
+
+
+def test_format_venv_import_policy_for_prompt_helpers_shown_once():
+    """Prompt must show writeragent.scripting helpers once and omit plugin.* twins."""
+    policy = format_venv_import_policy_for_prompt(compact=False)
+    assert "writeragent.scripting.analysis" in policy
+    allowed_packages_part = policy.split("Allowed packages in this sandbox")[1]
+    assert "plugin.scripting.analysis" not in allowed_packages_part
+    assert "plugin.scripting." not in allowed_packages_part
+    assert policy.count("writeragent.scripting.analysis") == 1
+    assert "duckdb" not in policy.lower()
+
+
+def test_import_failure_messages_short_and_hide_allowlist():
+    """Import failure messages must not dump the whole allowlist or expose duckdb."""
+    import ast
+    from plugin.scripting.sandbox_cache import validate_sandbox_ast
+
+    allowed = ["math", "duckdb", "duckdb.*"]
+
+    err_import = validate_sandbox_ast(ast.parse("import os"), allowed)
+    assert err_import == "Import of os is not allowed."
+    assert "duckdb" not in err_import
+    assert "Authorized imports" not in err_import
+
+    err_from = validate_sandbox_ast(ast.parse("from os import path"), allowed)
+    assert err_from == "Import from os is not allowed."
+    assert "duckdb" not in err_from
+    assert "Authorized imports" not in err_from
+
+    err_rel = validate_sandbox_ast(ast.parse("from . import helper"), allowed)
+    assert err_rel == "Relative imports are not allowed."
+
+    err_rel_dotted = validate_sandbox_ast(ast.parse("from .numpy import foo"), allowed)
+    assert err_rel_dotted == "Relative imports are not allowed."

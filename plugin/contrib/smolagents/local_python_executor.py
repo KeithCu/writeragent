@@ -1455,9 +1455,8 @@ def evaluate_import(expression, state, authorized_imports):
                 raw_module = import_module(alias.name)
                 state[alias.asname or alias.name] = get_safe_module(raw_module, authorized_imports)
             else:
-                raise InterpreterError(
-                    f"Import of {alias.name} is not allowed. Authorized imports are: {str(authorized_imports)}"
-                )
+                # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+                raise InterpreterError(f"Import of {alias.name} is not allowed.")
         return None
     elif isinstance(expression, ast.ImportFrom):
         if check_import_authorized(expression.module, authorized_imports):
@@ -1478,9 +1477,8 @@ def evaluate_import(expression, state, authorized_imports):
                     else:
                         raise InterpreterError(f"Module {expression.module} has no attribute {alias.name}")
         else:
-            raise InterpreterError(
-                f"Import from {expression.module} is not allowed. Authorized imports are: {str(authorized_imports)}"
-            )
+            # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+            raise InterpreterError(f"Import from {expression.module} is not allowed.")
         return None
 
 

@@ -68,7 +68,23 @@ class AliasImporter:
         # same allowlist accepts the plugin target or an explicit alias entry.
         from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
         if not import_authorized(fullname, VENV_AUTHORIZED_IMPORTS):
-            return None
+            # Bugfix: Python's import machinery imports parent packages before submodules
+            # (e.g. 'writeragent.scripting' before 'writeragent.scripting.analysis').
+            # Since import_authorized now rejects intermediate nodes, allow AliasImporter
+            # to return a package spec when fullname is a parent prefix for an authorized module,
+            # allowing submodule traversal to succeed while keeping intermediate imports blocked.
+            prefix = fullname + "."
+            real_prefix = (
+                fullname.replace("writeragent", "plugin", 1) + "."
+                if fullname.startswith("writeragent.")
+                else None
+            )
+            has_authorized_child = any(
+                (entry != "writeragent.*" and (entry.startswith(prefix) or (real_prefix is not None and entry.startswith(real_prefix))))
+                for entry in VENV_AUTHORIZED_IMPORTS
+            )
+            if not has_authorized_child:
+                return None
         if fullname == "writeragent":
             real_name = _WRITERAGENT_API
         else:

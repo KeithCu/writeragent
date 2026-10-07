@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from typing import TYPE_CHECKING, Any, Optional
@@ -30,10 +31,12 @@ from plugin.framework.deal_shim import (
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
 # Dynamically sync/mirror allowed and dangerous modules from smolagents to avoid silent drift.
+# Note: LibreHarper bundles sandbox.py for wrap_command_for_sandbox without bundling
+# smolagents; fallback tuples ensure sandbox.py can still be imported in that slim package.
 try:
     from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES as _BASE_BUILTIN
     BASE_BUILTIN_MODULES: tuple[str, ...] = tuple(_BASE_BUILTIN)
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     BASE_BUILTIN_MODULES = (
         "collections",
         "datetime",
@@ -51,7 +54,7 @@ except ImportError:
 try:
     from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as _DANGEROUS
     DANGEROUS_MODULES: tuple[str, ...] = tuple(_DANGEROUS)
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     DANGEROUS_MODULES = (
         "builtins",
         "io",
@@ -89,8 +92,24 @@ def _writeragent_alias_mirrors(entries: tuple[str, ...]) -> tuple[str, ...]:
 # are presumed trusted, and the container plus a scrubbed environment is the boundary.
 # We do not want arbitrary writes as a goal; if callers ever become untrusted, revisit
 # this allowlist (narrow to the submodules formulas need). Review noted 2026-10-06.
-_VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = (
+_VENV_STDLIB: tuple[str, ...] = (
+    "copy",
+    "csv",
+    "dataclasses",
+    "decimal",
+    "enum",
+    "fractions",
+    "functools",
+    "json",
+    "operator",
     "platform",
+    "pprint",
+    "string",
+    "textwrap",
+    "typing",
+)
+
+_VENV_PACKAGES: tuple[str, ...] = (
     "numpy",
     "numpy.*",
     "pandas",
@@ -116,19 +135,6 @@ _VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = (
     "pandas_montecarlo",
     "pandas_montecarlo.*",
     "cv2",
-    "json",
-    "csv",
-    "decimal",
-    "fractions",
-    "functools",
-    "operator",
-    "string",
-    "textwrap",
-    "enum",
-    "dataclasses",
-    "typing",
-    "copy",
-    "pprint",
     # webview / PyQt / jedi are editor-only. They are probed in a one-shot
     # subprocess (venv_diagnostics), not imported into the warm =PY() worker.
     "writeragent",
@@ -178,6 +184,8 @@ _VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = (
     "plugin.scripting.calc_functions.*",
 )
 
+_VENV_AUTHORIZED_IMPORT_BASE: tuple[str, ...] = _VENV_STDLIB + _VENV_PACKAGES
+
 # Script imports whose plugin path stays off the direct list.
 # vision: ``from writeragent.vision import run_vision`` (not plugin.vision.venv.vision).
 # duckdb_sql: SQL templates. ``plugin.scripting.duckdb_sql`` stays unlisted so
@@ -204,61 +212,93 @@ def _alias_real_module(name: str) -> str | None:
     return None
 
 
+@functools.lru_cache(maxsize=128)
+def _compile_allowlist(authorized_imports: tuple[str, ...]) -> tuple[frozenset[str], tuple[str, ...]]:
+    exact: set[str] = set()
+    wildcards: list[str] = []
+    for entry in authorized_imports:
+        if entry == "*":
+            wildcards.append("")
+        elif entry.endswith(".*"):
+            prefix = entry[:-2]
+            exact.add(prefix)
+            wildcards.append(prefix + ".")
+        else:
+            exact.add(entry)
+    return frozenset(exact), tuple(wildcards)
+
+
+def _matches_allowlist(name: str, exact: frozenset[str], wildcards: tuple[str, ...]) -> bool:
+    if name in exact:
+        return True
+    return any(name.startswith(p) for p in wildcards)
+
+
 def import_authorized(name: str, authorized_imports: list[str] | tuple[str, ...]) -> bool:
     """Whether *name* is on the sandbox import allowlist.
+
+    Bugfix: check_import_authorized allowed any intermediate trie node (e.g.
+    'plugin' or 'plugin.scripting'), inadvertently permitting imports of intermediate
+    packages. Require that the name is an exact allowlist entry or covered by a
+    wildcard prefix ('a.b.*' matching 'a.b' and 'a.b.<child>'). Precompute exact
+    names and wildcard prefixes per allowlist with caching instead of rebuilding
+    the trie on every check.
 
     A ``writeragent.*`` import is allowed only when the plugin module
     AliasImporter would load is on the same list, or the alias itself is an
     explicit entry. The blanket pattern ``writeragent.*`` is ignored: it
     authorized every alias, and the hook then loaded ``plugin.framework.config``
     and ``LlmClient``. Names that are not aliases, including ``duckdb`` and
-    ``duckdb.*``, use the vendored checker unchanged.
+    ``duckdb.*``, are checked against the precomputed allowlist.
     """
     # crosshair: off
-    from plugin.contrib.smolagents.local_python_executor import check_import_authorized
+    tuple_imports = tuple(authorized_imports)
+    exact, wildcards = _compile_allowlist(tuple_imports)
 
-    allowed = list(authorized_imports)
     real = _alias_real_module(name)
     if real is None:
-        return check_import_authorized(name, allowed)
-    if check_import_authorized(real, allowed):
+        return _matches_allowlist(name, exact, wildcards)
+
+    if _matches_allowlist(real, exact, wildcards):
         return True
-    without_blanket = [item for item in allowed if item != "writeragent.*"]
-    return check_import_authorized(name, without_blanket)
+
+    if "writeragent.*" in tuple_imports:
+        without_blanket = tuple(item for item in tuple_imports if item != "writeragent.*")
+        exact_no_blanket, wildcards_no_blanket = _compile_allowlist(without_blanket)
+        return _matches_allowlist(name, exact_no_blanket, wildcards_no_blanket)
+
+    return _matches_allowlist(name, exact, wildcards)
 
 
 # In-process LO embedded sandbox (execute_python_script) — stdlib-only extras beyond BASE_BUILTIN_MODULES.
-CALC_AUTHORIZED_IMPORTS: tuple[str, ...] = (
-    "math",
-    "datetime",
-    "random",
-    "json",
-    "re",
-    "collections",
-    "itertools",
-    "statistics",
-)
+CALC_AUTHORIZED_IMPORTS: tuple[str, ...] = tuple(sorted(set(BASE_BUILTIN_MODULES) | {"json"}))
 
 # --- Subprocess environment ---
 
 _BLOCKED_ENV_TOKENS = frozenset({"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL"})
 # XAUTHORITY contains AUTH but is the X11 cookie path, not a credential name.
 _ENV_CREDENTIAL_ALLOW = frozenset({"XAUTHORITY"})
+# Token prefixes that are known non-credential device or system names (e.g. KEYBOARD_*).
+_ENV_TOKEN_ALLOW = frozenset({"KEYBOARD"})
+
 # LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these
 # leak into a venv subprocess causes SRE module mismatch and import failures.
-# LD_PRELOAD, LD_AUDIT, and DYLD_INSERT_LIBRARIES are not credential tokens, so
-# the name scrub copied them into the child, and they run code before the harness.
+# LD_PRELOAD, LD_AUDIT, and DYLD_INSERT_LIBRARIES run code before the harness.
+# PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT alter python execution.
+# DATABASE_URL is a common connection string containing database credentials.
 _BLOCKED_ENV_EXACT = {
     "PYTHONHOME",
     "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "PYTHONUSERBASE",
+    "PYTHONBREAKPOINT",
+    "PYTHONINSPECT",
     "LD_LIBRARY_PATH",
     "LD_PRELOAD",
     "LD_AUDIT",
     "DYLD_INSERT_LIBRARIES",
+    "DATABASE_URL",
 }
-
-_NOT_SET = "__not_set__"
-_cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel
 
 _PIPE_BUF_TARGET = 1024 * 1024
 
@@ -315,16 +355,29 @@ _DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 def _env_name_is_credential(name: str) -> bool:
     """True when an env name is a credential, matched on ``_`` tokens.
 
-    Substring matching dropped ``XAUTHORITY`` (it contains ``AUTH``) and left
-    the Monaco subprocess without its X11 cookie. A token matches when it is
-    the blocked word or starts with it (``CREDENTIALS``, ``PASSWORDS``).
+    Bugfix: Token matching previously only checked if a token equaled or
+    started with a blocked word, which allowed OPENAI_APIKEY, GITHUB_APITOKEN,
+    AWS_SECRETKEY, and DATABASE_URL/*_DSN to leak, while mistakenly blocking
+    KEYBOARD_*. We now match tokens that equal, start with, or end with blocked
+    words, explicitly allow KEYBOARD tokens, and block DATABASE_URL and names
+    ending in _DSN.
     """
-    if name.upper() in _ENV_CREDENTIAL_ALLOW:
+    nu = name.upper()
+    if nu in _ENV_CREDENTIAL_ALLOW:
         return False
-    tokens = [part for part in name.upper().replace("-", "_").split("_") if part]
+    if nu == "DATABASE_URL" or nu == "DSN" or nu.endswith("_DSN"):
+        return True
+    tokens = [part for part in nu.replace("-", "_").split("_") if part]
     for token in tokens:
+        if any(token == allowed or token.startswith(allowed) for allowed in _ENV_TOKEN_ALLOW):
+            continue
         for word in _BLOCKED_ENV_TOKENS:
-            if token == word or token.startswith(word):
+            if (
+                token == word
+                or token.startswith(word)
+                or token.endswith(word)
+                or token.endswith(word + "S")
+            ):
                 return True
     return False
 
@@ -334,7 +387,7 @@ def _env_name_is_credential(name: str) -> bool:
 @inverse_ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
 @inverse_ensure(lambda base, result: all(not _env_name_is_credential(k) for k in result))
 @deal.ensure(
-    lambda base, result: (base is None or len(base) == 0)
+    lambda base, result: base is None
     or (
         result.get("PYTHONIOENCODING") == "utf-8"
         and result.get("PYTHONUTF8") == "1"
@@ -342,8 +395,13 @@ def _env_name_is_credential(name: str) -> bool:
     )
 )
 def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
-    """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python."""
-    if base is None or len(base) == 0:
+    """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python.
+
+    Bugfix: scrub_subprocess_env({}) previously returned {} without applying UTF-8
+    and bytecode overrides. Only base is None returns {}. An empty dict receives
+    the standard Python environment overrides like any non-empty dict.
+    """
+    if base is None:
         return {}
     out: dict[str, str] = {}
     for k, v in base.items():
@@ -356,8 +414,7 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     # Bugfix: setdefault kept whatever the parent already had. Callers pass
     # dict(os.environ) (venv worker, editor host, compute worker). A latin-1
     # PYTHONIOENCODING, PYTHONUTF8=0, or PYTHONDONTWRITEBYTECODE=0 then failed
-    # the ensure in deal builds (the reported clause is the empty-base arm,
-    # not the value check) and spawned the child with that encoding once
+    # the ensure in deal builds and spawned the child with that encoding once
     # release builds strip deal. Force the values the postcondition requires.
     out["PYTHONIOENCODING"] = "utf-8"
     out["PYTHONUTF8"] = "1"
@@ -376,23 +433,18 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     return out
 
 
+@functools.cache
 def detect_sandbox() -> str | None:
     """Return ``'flatpak'``, ``'snap'``, or ``None``.
 
     The result is cached because sandbox status cannot change at runtime.
     """
     # crosshair: off
-    global _cached_sandbox
-    if _cached_sandbox is not _NOT_SET:
-        return _cached_sandbox
-
     if os.path.exists("/.flatpak-info") or os.environ.get("FLATPAK_ID"):
-        _cached_sandbox = "flatpak"
-    elif os.environ.get("SNAP_NAME"):
-        _cached_sandbox = "snap"
-    else:
-        _cached_sandbox = None
-    return _cached_sandbox
+        return "flatpak"
+    if os.environ.get("SNAP_NAME"):
+        return "snap"
+    return None
 
 
 def optimize_pipe(pipe_fd: int) -> None:
@@ -451,8 +503,7 @@ def wrap_command_for_sandbox(cmd: list[str]) -> list[str]:
 
 def _reset_cache() -> None:  # pyright: ignore[reportUnusedFunction]  # test helper to clear sandbox path cache
     """Reset the cached detection result (for tests only)."""
-    global _cached_sandbox
-    _cached_sandbox = _NOT_SET  # type: ignore[assignment]
+    detect_sandbox.cache_clear()
 
 
 # --- Interpreter resolution ---
@@ -509,9 +560,10 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
 
 @deal.pre(lambda base: ascii_bounded(base, _DEAL_BASENAME_LEN))
 def _is_acceptable_python_basename(base: str) -> bool:
-    """True for python / python3 / python.exe; false for pythonw (no console I/O)."""
+    """True for python / python3 / python.exe; false for pythonw and -config scripts."""
+    # Bugfix: python3.X-config scripts are shell wrappers, not Python interpreters.
     lower = base.lower()
-    if lower in ("pythonw", "pythonw.exe"):
+    if lower in ("pythonw", "pythonw.exe") or lower.endswith(("-config", "-config.exe")):
         return False
     return lower.startswith("python")
 
@@ -638,8 +690,13 @@ def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
     else:
         for name in ("python", "python3"):
             candidates.append(os.path.join(bin_dir, name))
+    # Bugfix: guard os.listdir with OSError like _bundled_lo_python_candidates.
     if os.path.isdir(bin_dir):
-        for entry in sorted(os.listdir(bin_dir)):
+        try:
+            entries = sorted(os.listdir(bin_dir))
+        except OSError:
+            entries = []
+        for entry in entries:
             if entry.startswith("python3."):
                 candidates.append(os.path.join(bin_dir, entry))
     return candidates
