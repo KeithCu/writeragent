@@ -1583,3 +1583,31 @@ def test_normal_turn_end_does_not_set_focus() -> None:
     # Check that a non-stop button state update does not restore focus
     listener._set_button_states(True, False)
     listener.frame_session.restore_focus.assert_not_called()
+
+def test_ask_text_restored_on_post_clear_error() -> None:
+    from plugin.chatbot.panel import SendButtonListener
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.panel.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+
+    listener.query_control = MagicMock()
+    listener.query_control.getModel.return_value = MagicMock()
+
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="some text"), \
+         patch("plugin.chatbot.dialogs.set_control_text"), \
+         patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", side_effect=RuntimeError("boom")), \
+         patch.object(listener, "_restore_query_text") as mock_restore:
+
+        listener._get_document_model = MagicMock(return_value=MagicMock())
+        listener.cached_doc_type = "writer"
+        listener.audio_wav_path = None
+        listener._stt_inflight = False
+        listener.sidebar_state = MagicMock()
+        listener.sidebar_state.send.has_audio = False
+
+        with pytest.raises(RuntimeError, match="boom"):
+            listener._do_send()
+
+        mock_restore.assert_called_once_with("some text")
