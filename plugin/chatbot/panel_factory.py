@@ -260,11 +260,11 @@ def _initialize_extension_paths(ctx: Any) -> None:
                 ensure_writeragent_proofreader_configured(ctx)
             except Exception as e:
                 log.warning("[grammar] sidebar init: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
+            # Only after success: a falsy path or an exception retries on the next sidebar.
+            _paths_initialized = True
         except Exception:
             init_logging(ctx)
             log.exception("_initialize_extension_paths failed")
-        finally:
-            _paths_initialized = True
 
     # Hop the body, not this function: WRITERAGENT_TESTING=1 inlines
     # execute_on_main_thread on Dummy-N, and a self-call would recurse.
