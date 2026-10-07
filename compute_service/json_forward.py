@@ -73,7 +73,7 @@ def _reject_nonfinite_number(value: Any) -> None:
         for item in value:
             _reject_nonfinite_number(item)
     elif isinstance(value, dict):
-        for k, v in value.items():
+        for _k, v in value.items():
             _reject_nonfinite_number(v)
 
 
