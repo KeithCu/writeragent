@@ -27,7 +27,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -99,11 +99,16 @@ def parse_search_queries_response(response: str, num_queries: int) -> list[dict[
         candidate_queries = parsed.get("queries") or parsed.get("searchQueries") or parsed.get("items")
 
     if isinstance(candidate_queries, list):
-        parsed_queries = [
-            {"query": str(item["query"]).strip(), "researchGoal": str(item["researchGoal"]).strip()}
-            for item in candidate_queries
-            if isinstance(item, dict) and item.get("query") and item.get("researchGoal")
-        ]
+        parsed_queries = []
+        for item in candidate_queries:
+            if isinstance(item, dict):
+                q = str(item.get("query") or "").strip()
+                g = str(item.get("researchGoal") or "").strip() or f"Research: {q}"
+                if q:
+                    parsed_queries.append({"query": q, "researchGoal": g})
+            elif isinstance(item, str) and item.strip():
+                q = item.strip()
+                parsed_queries.append({"query": q, "researchGoal": f"Research: {q}"})
         if parsed_queries:
             return parsed_queries[:num_queries]
 
@@ -165,9 +170,13 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
                     learning = str(item).strip()
                     citation = ""
                 if learning:
-                    learnings.append(learning)
                     if citation:
-                        citations[learning] = citation
+                        key = learning
+                        while key in citations:
+                            key += " "
+                        citations[key] = citation
+                        learning = key
+                    learnings.append(learning)
         # A bare string used to be iterated here. ``"What about beta?"`` became
         # one fake question per character (a dict became its keys). Sibling
         # parsers already require a list before they walk the payload.
@@ -201,9 +210,13 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
                     citation = url_match.group(0)
                     learning = learning.replace(citation, "").strip(" -")
             if learning:
-                line_learnings.append(learning)
                 if citation:
-                    line_citations[learning] = citation
+                    key = learning
+                    while key in line_citations:
+                        key += " "
+                    line_citations[key] = citation
+                    learning = key
+                line_learnings.append(learning)
         elif question_match:
             line_questions.append(question_match.group("question").strip())
     return {
@@ -264,7 +277,7 @@ class ResearchProgress:
 
     current_round: int = 1
     max_rounds: int = 1
-    completed_queries: int = 0
+    started_queries: int = 0
     max_sub_queries: int = 14
     current_query: str | None = None
 
@@ -272,7 +285,7 @@ class ResearchProgress:
         q = (self.current_query or "")[:50]
         return (
             f"Deep research round {self.current_round}/{self.max_rounds}, "
-            f"query {self.completed_queries}/{self.max_sub_queries}"
+            f"query {self.started_queries}/{self.max_sub_queries}"
             + (f": {q}..." if q else "")
         )
 
@@ -283,7 +296,7 @@ class _ResearchAccumulator:
     citations: dict[str, str] = field(default_factory=dict)
     context_chunks: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
-    completed_queries: int = 0
+    started_queries: int = 0
     budget_lock: threading.Lock = field(default_factory=threading.Lock)
     last_branch_error: dict[str, Any] | None = None
 
@@ -314,10 +327,10 @@ def parse_assessment_response(response: str) -> dict[str, Any]:
         gaps = [str(g).strip() for g in gaps_raw if str(g).strip()] if isinstance(gaps_raw, list) else []
         queries = [str(q).strip() for q in queries_raw if str(q).strip()] if isinstance(queries_raw, list) else []
         stop_flag = parsed.get("stop")
-        # ``bool("false")``, ``bool("0")``, and ``bool("no")`` are True, so a
-        # stringified flag ended the research loop early. Parse tokens the way
-        # score is coerced above: only a real boolean counts, and bad input
-        # falls back to "do not stop".
+        # stringified flag ended the research loop early. `as_bool` correctly
+        # handles standard boolean token strings. Parse tokens the way score
+        # is coerced above: only a real boolean counts, and bad input falls
+        # back to "do not stop".
         stop = as_bool(stop_flag) if stop_flag is not None else False
         return {
             "score": score,
@@ -338,7 +351,8 @@ def assess_research_coverage(
     quality_threshold: int,
 ) -> dict[str, Any]:
     cited = []
-    for learning in learnings[:40]:
+    unique_learnings = list(dict.fromkeys(learnings))
+    for learning in unique_learnings[-40:]:
         citation = citations.get(learning, "")
         cited.append(f"{learning} [Source: {citation}]" if citation else learning)
     evidence = "\n".join(cited) or "(No learnings yet.)"
@@ -576,15 +590,16 @@ def _process_one_sub_query(
     if stopped is not None:
         return {"error": stopped}
 
-    with acc.budget_lock:
-        if acc.completed_queries >= max_sub_queries:
-            return None
-        acc.completed_queries += 1
-        progress.completed_queries = acc.completed_queries
-
     sub_query = serp_query["query"]
     research_goal = serp_query.get("researchGoal") or ""
-    progress.current_query = sub_query
+
+    with acc.budget_lock:
+        if acc.started_queries >= max_sub_queries:
+            return None
+        acc.started_queries += 1
+        progress.started_queries = acc.started_queries
+        progress.current_query = sub_query
+
     _emit_progress(progress, status_callback, on_progress)
 
     try:
@@ -604,7 +619,14 @@ def _process_one_sub_query(
     if stopped is not None:
         return {"error": stopped}
 
-    results = process_research_results(llm_chat, sub_query, sub_context)
+    try:
+        results = process_research_results(llm_chat, sub_query, sub_context)
+    except Exception as exc:
+        if getattr(exc, "code", None) == "USER_STOPPED":
+            raise
+        log.warning("deep_research: extraction failed for %s: %s", sub_query, exc)
+        results = {}
+
     sources = _extract_urls_from_text(sub_context)
     # parse_research_results_response stores {learning sentence: source url}.
     # Iterating the dict yielded sentences, so follow-up sources never included the URL.
@@ -682,32 +704,37 @@ def _run_sub_queries_parallel(
     user_stopped = False
     try:
         futures = {pool.submit(_task, sq): sq for sq in serp_queries}
-        for future in as_completed(futures):
+        pending = set(futures.keys())
+        while pending:
             stopped = _check_stopped(stop_checker)
             if stopped is not None:
                 error_payload = stopped
                 user_stopped = True
                 return error_payload
-            try:
-                branch = future.result()
-            except Exception as exc:
-                if getattr(exc, "code", None) == "USER_STOPPED":
-                    # process_research_results raises USER_STOPPED. Do not
-                    # store it on the accumulator and continue sibling queries.
-                    user_stopped = True
-                    raise
-                sq = futures[future]
-                log.warning("deep_research: parallel sub-query error (%s): %s", sq.get("query"), exc)
-                acc.last_branch_error = format_error_payload(exc)
-                continue
-            if isinstance(branch, dict) and branch.get("error"):
-                error_payload = branch["error"]
-                if isinstance(error_payload, dict) and error_payload.get("code") == "USER_STOPPED":
-                    user_stopped = True
-                    return error_payload
-                break
-            if branch:
-                _merge_branch_results(acc, branch)
+            done, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
+            for future in done:
+                try:
+                    branch = future.result()
+                except Exception as exc:
+                    if getattr(exc, "code", None) == "USER_STOPPED":
+                        # process_research_results raises USER_STOPPED. Do not
+                        # store it on the accumulator and continue sibling queries.
+                        user_stopped = True
+                        raise
+                    sq = futures[future]
+                    log.warning("deep_research: parallel sub-query error (%s): %s", sq.get("query"), exc)
+                    acc.last_branch_error = format_error_payload(exc)
+                    continue
+                if isinstance(branch, dict) and branch.get("error"):
+                    error_payload = branch["error"]
+                    if isinstance(error_payload, dict) and error_payload.get("code") == "USER_STOPPED":
+                        user_stopped = True
+                        return error_payload
+                    # Emulate the `break` from original `as_completed` when an error branch is found
+                    pending.clear()
+                    break
+                if branch:
+                    _merge_branch_results(acc, branch)
         return error_payload
     finally:
         _shutdown_research_pool(pool, user_stopped=user_stopped)
@@ -786,17 +813,14 @@ def _run_adaptive_research_loop(
             if status_callback:
                 status_callback(f"Planning {breadth} research queries...")
             serp_queries = generate_search_queries(llm_chat, combined_query, num_queries=breadth)
-        elif next_gap_queries:
-            serp_queries = _serp_from_suggested_queries(next_gap_queries[:breadth])
         else:
-            gap_text = combined_query + "\n\nPrior learnings:\n" + "\n".join(acc.learnings[-20:])
-            serp_queries = generate_search_queries(llm_chat, gap_text, num_queries=breadth)
+            serp_queries = _serp_from_suggested_queries(next_gap_queries[:breadth])
 
         if not serp_queries:
             log.warning("deep_research: no search queries for round %s", round_num)
             break
 
-        remaining = max_sub_queries - acc.completed_queries
+        remaining = max_sub_queries - acc.started_queries
         if remaining <= 0:
             break
         serp_queries = serp_queries[: min(len(serp_queries), breadth, remaining)]
@@ -817,7 +841,7 @@ def _run_adaptive_research_loop(
         if loop_error is not None:
             return {"error": loop_error}
 
-        if acc.completed_queries >= max_sub_queries:
+        if acc.started_queries >= max_sub_queries:
             break
 
         if status_callback:

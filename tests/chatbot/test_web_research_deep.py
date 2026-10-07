@@ -128,7 +128,7 @@ class TestDeepResearchParsers:
         assert learning not in branch["sources"]
 
     def test_research_progress_status_text(self):
-        p = ResearchProgress(current_round=2, max_rounds=3, completed_queries=5, max_sub_queries=14, current_query="climate policy")
+        p = ResearchProgress(current_round=2, max_rounds=3, started_queries=5, max_sub_queries=14, current_query="climate policy")
         assert "round 2/3" in p.status_text()
         assert "5/14" in p.status_text()
 
