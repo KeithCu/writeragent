@@ -1129,25 +1129,37 @@ def test_clear_writer_body_continues_past_remove_failures():
 
     doc, _, _, _, _ = _scratch_doc()
     stuck = MagicMock()
-    stuck.getCount.side_effect = [3, 3, 2, 2, 2, 2, 2] # start at 3, after fail 3, after fail 2...
+
+    shape2 = MagicMock()
+    shape2.name = 'fail'
+    shape1 = MagicMock()
+    shape1.name = 'success'
+    shape0 = MagicMock()
+    shape0.name = 'fail'
+
+    # We start with count = 3.
+    count = [3]
+
+    def mock_get_count():
+        return count[0]
+
+    stuck.getCount.side_effect = mock_get_count
 
     # Let's say getByIndex(2) fails to remove, getByIndex(1) succeeds, getByIndex(0) fails
     def mock_remove(shape):
         if shape.name == 'fail':
             raise Exception("Cannot remove")
         else:
-            stuck.getCount.return_value -= 1
-
-    shape2 = MagicMock(name='fail')
-    shape1 = MagicMock(name='success')
-    shape0 = MagicMock(name='fail')
+            count[0] -= 1
 
     stuck.getByIndex.side_effect = lambda i: {2: shape2, 1: shape1, 0: shape0}[i]
     stuck.remove.side_effect = mock_remove
 
     doc.getDrawPage.return_value = stuck
-    clear_writer_body(doc)
+    removed = clear_writer_body(doc)
     assert stuck.remove.call_count == 3
+    assert count[0] == 2
+    assert removed is True
 
 def test_new_blank_writer_returns_none_if_load_fails():
     from plugin.framework.uno_context import new_blank_writer

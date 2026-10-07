@@ -195,7 +195,7 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
     ``get_package_info`` is main-thread only, so off-main without a cache
     returns the WriterAgent default (same as the last-resort below).
     """
-    global _package_extension_id
+    global _package_extension_id, _is_libreharper_cache
     if _package_extension_id:
         return _package_extension_id
 
@@ -211,7 +211,6 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
             if location:
                 _package_extension_id = extension_id
                 if extension_id == EXTENSION_ID_LIBREHARPER:
-                    global _is_libreharper_cache
                     _is_libreharper_cache = True
                 return extension_id
         except Exception:
