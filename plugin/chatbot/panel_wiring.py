@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
@@ -86,6 +91,26 @@ def _install_frame_session_listeners(
         log.debug("frame session focus install: %s", exc)
 
 
+def make_toggle_image_ui(panel: Any, controls: dict[str, Any]) -> Callable[[bool], None]:
+    """Toggle visibility of text vs image model controls and relayout."""
+
+    def toggle_image_ui(is_image: bool) -> None:
+        set_control_visible(controls.get("model_label"), not is_image)
+        set_control_visible(controls.get("model_selector"), not is_image)
+        set_control_visible(controls.get("image_model_selector"), is_image)
+        set_control_visible(controls.get("aspect_ratio_selector"), is_image)
+        set_control_visible(controls.get("base_size_input"), is_image)
+        set_control_visible(controls.get("base_size_label"), is_image)
+        tp = getattr(panel, "toolpanel", None)
+        root = getattr(panel, "m_panelRootWindow", None)
+        rl = getattr(tp, "resize_listener", None) if tp else None
+        if rl and root:
+            with suppress_disposed("relayout after toggling image UI", logger=log):
+                rl.relayout_now(root)
+
+    return toggle_image_ui
+
+
 def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_extension_on_path: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
     """Main entry point to wire all controls for the panel."""
     log.debug("_wireControls entered")
@@ -151,31 +176,26 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
     mode_flags: SidebarModeFlags = SidebarModeFlags()
 
-    def toggle_image_ui(is_image: bool) -> None:
-        # What was wrong: this stub no-op'd when mode UI wiring raised, so
-        # the XDL-visible image controls never hid and later mode changes
-        # could not swap them. How: the real closure is local to
-        # _wire_chat_mode_ui and is only returned on success.
-        # Why: _apply_sidebar_mode still calls this function.
-        set_control_visible(controls["model_label"], not is_image)
-        set_control_visible(controls["model_selector"], not is_image)
-        set_control_visible(controls["image_model_selector"], is_image)
-        set_control_visible(controls["aspect_ratio_selector"], is_image)
-        set_control_visible(controls["base_size_input"], is_image)
-        set_control_visible(controls["base_size_label"], is_image)
-        tp = getattr(self, "toolpanel", None)
-        root = getattr(self, "m_panelRootWindow", None)
-        rl = getattr(tp, "resize_listener", None) if tp else None
-        if rl and root:
-            with suppress_disposed("relayout after toggling image UI", logger=log):
-                rl.relayout_now(root)
+    toggle_image_ui = make_toggle_image_ui(self, controls)
 
     # 1. Config, Models, and UI
     try:
         extra_instructions = get_config("additional_instructions")
+    except Exception as e:
+        _show_init_error("Config: %s" % e)
+        log.exception("Config instructions read failed")
 
+    try:
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
+    except Exception as e:
+        # What was wrong: failure in model selector wiring aborted the entire block,
+        # skipping chat mode UI wiring.
+        # How: _wire_model_selectors and _wire_chat_mode_ui shared a single try block.
+        # Why: isolate model selector wiring in its own try so mode UI is still wired.
+        _show_init_error("Model selectors: %s" % e)
+        log.exception("Model selectors wiring failed")
 
+    try:
         initial_mode, mode_flags, toggle_image_ui = self._wire_chat_mode_ui(
             controls["aspect_ratio_selector"],
             controls["base_size_input"],
@@ -185,10 +205,11 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
             controls["model_selector"],
             controls["image_model_selector"],
             model,
+            toggle_image_ui=toggle_image_ui,
         )
     except Exception as e:
-        _show_init_error("Config: %s" % e)
-        log.exception("Config/model/UI wiring failed")
+        _show_init_error("Mode UI: %s" % e)
+        log.exception("Chat mode UI wiring failed")
 
     # 2. Setup Sessions
     self._setup_sessions(model, extra_instructions)
