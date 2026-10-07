@@ -284,7 +284,10 @@ class BaseProviderShim:
         content = _normalize_message_content(raw_content) or ""
         images = message.get("images") or []
         tool_calls = message.get("tool_calls")
-        usage = response_data.get("usage", {})
+        # What was wrong: response_data.get("usage", {}) returned None when the API returned
+        # "usage": null in JSON, causing downstream code expecting a dict to fail.
+        # Why this change fixes it: response_data.get("usage") or {} normalizes null to {}.
+        usage = response_data.get("usage") or {}
 
         return content, finish_reason, tool_calls, usage, images, message
 

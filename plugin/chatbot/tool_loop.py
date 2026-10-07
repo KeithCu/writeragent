@@ -446,6 +446,12 @@ class ToolCallingMixin:
                 audio_content = []
                 if append_wav_as_input_audio(audio_content, self.audio_wav_path):
                     attachments.append("Audio")
+                    # Capture the model/endpoint the audio is sent to, so a model
+                    # switch mid-send does not mark the wrong model as audio-capable.
+                    audio_turn = current_turn(self)
+                    if isinstance(audio_turn, TurnController):
+                        audio_turn.text_model = str(api_config.get("model") or "") or None
+                        audio_turn.endpoint = client._endpoint()
                 else:
                     self.audio_wav_path = None
 
@@ -522,7 +528,6 @@ class ToolCallingMixin:
     def _spawn_llm_worker(self: ToolLoopHost, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
         """Spawn a background thread that streams the LLM response into q (or the batcher's raw queue)."""
         batched = q if isinstance(q, BatchingStreamQueue) else None
-        real_q = batched.raw if batched is not None else q
 
         update_activity_state("tool_loop", round_num=round_num)
         log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self.session.messages)))
@@ -542,7 +547,7 @@ class ToolCallingMixin:
         bound_scope, stop_checker = capture_send_stop(self)
 
         def emit(item: Any) -> None:
-            put_for_turn(self, turn, real_q, item)
+            put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
             if bound_scope is not None and bound_scope.is_cancelled():
@@ -631,7 +636,6 @@ class ToolCallingMixin:
     def _spawn_final_stream(self: ToolLoopHost, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int) -> None:
         """Spawn a background thread for a final no-tools stream into q (or the batcher's raw queue)."""
         batched = q if isinstance(q, BatchingStreamQueue) else None
-        real_q = batched.raw if batched is not None else q
 
         update_activity_state("exhausted_rounds")
         self._set_status("Finishing...")
@@ -645,7 +649,7 @@ class ToolCallingMixin:
         bound_scope, stop_checker = capture_send_stop(self)
 
         def emit(item: Any) -> None:
-            put_for_turn(self, turn, real_q, item)
+            put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
             if bound_scope is not None and bound_scope.is_cancelled():

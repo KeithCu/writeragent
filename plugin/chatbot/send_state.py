@@ -129,22 +129,24 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
 
     if event.kind == SendEventKind.TEXT_UPDATED:
         new_state = SendButtonState(is_busy=state.is_busy, is_recording=state.is_recording, has_text=event_data.get("has_text", False), has_audio=state.has_audio, audio_supported=state.audio_supported)
+        # What was wrong: typing while busy (such as during web-search approval
+        # or in-flight generation) emitted UpdateUIEffect, which relabeled Send
+        # and greys it out, clobbering overlay states like the Accept button.
+        # Why this change: state.has_text is updated for when the turn finishes,
+        # but no UI effect is needed while busy since button states are locked.
+        if state.is_busy:
+            return FsmTransition(new_state, effects)
         # If currently recording, do not toggle back to Record
         send_enabled = not new_state.is_busy
         # Typing during a take must not grey out Stop (the take's exit).
         stop_enabled = new_state.is_busy or new_state.is_recording
         label = _get_send_label(new_state)
-        # We don't overwrite status text during text update, unless we need to?
-        # Typically status text is managed by the send process, but we can pass None or an empty string
-        # to indicate "don't change". For pure representation, let's omit status text if not changed,
-        # or use the current UI logic: status text is usually set to "Ready" or "" by the caller.
-        # But for UI consistency, we emit UpdateUIEffect.
         effects.append(
             UpdateUIEffect(
                 send_enabled=send_enabled,
                 stop_enabled=stop_enabled,
                 send_label=label,
-                status_text="",  # We'll let the interpreter ignore empty status_text if it wants, or we define it properly
+                status_text="",
             )
         )
         return FsmTransition(new_state, effects)

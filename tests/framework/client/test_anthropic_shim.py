@@ -75,3 +75,58 @@ def test_anthropic_shim_stream_state():
     assert d2["tool_calls"][0]["index"] == 0
     assert state1["_stream_tool_indexes"][0] == 0
     assert state2["_stream_tool_indexes"][0] == 0
+
+
+def test_anthropic_shim_skipped_tool_calls():
+    class DummyClient:
+        def _endpoint(self): return "http://test"
+        def _headers(self): return {}
+    shim = AnthropicShim(DummyClient())
+
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "good1", "function": {"name": "func_good", "arguments": '{"x": 1}'}},
+            {"id": "bad_no_args", "function": {"name": "func_no_args"}},
+            {"id": "bad_json", "function": {"name": "func_bad_json", "arguments": "{invalid json"}},
+            {"id": "bad_name_none", "function": {"name": None, "arguments": "{}"}},
+            {"id": "bad_name_empty", "function": {"name": "", "arguments": "{}"}},
+            {"id": "", "function": {"name": "func_empty_id", "arguments": "{}"}},
+            "not-a-dict",
+        ]},
+        {"role": "tool", "tool_call_id": "good1", "content": "result good"},
+        {"role": "tool", "tool_call_id": "bad_no_args", "content": "result no args"},
+        {"role": "tool", "tool_call_id": "bad_json", "content": "result bad json"},
+        {"role": "tool", "tool_call_id": "bad_name_none", "content": "result name none"},
+        {"role": "tool", "tool_call_id": "bad_name_empty", "content": "result name empty"},
+    ]
+    _, _, body, _ = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None, None
+    )
+    data = json.loads(body)
+    msg_list = data["messages"]
+
+    emitted_tool_use_ids = {
+        block["id"]
+        for msg in msg_list
+        if msg.get("role") == "assistant"
+        for block in msg.get("content", [])
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    }
+    emitted_tool_result_ids = [
+        block["tool_use_id"]
+        for msg in msg_list
+        if msg.get("role") == "user"
+        for block in msg.get("content", [])
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+
+    # Only valid tool call is emitted
+    assert emitted_tool_use_ids == {"good1"}
+    # Assert no tool_result is emitted for skipped ids
+    for skipped_id in ("bad_no_args", "bad_json", "bad_name_none", "bad_name_empty"):
+        assert skipped_id not in emitted_tool_result_ids
+    # Assert every tool_result matches an emitted tool_use id
+    for result_id in emitted_tool_result_ids:
+        assert result_id in emitted_tool_use_ids
+    assert emitted_tool_result_ids == ["good1"]
+

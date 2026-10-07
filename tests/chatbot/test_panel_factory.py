@@ -885,3 +885,192 @@ def test_module_logger_name():
         src = (root / rel).read_text(encoding="utf-8")
         assert "getLogger(__name__)" not in src, rel
         assert 'log = logging.getLogger("%s")' % name in src, rel
+
+
+def test_get_real_interface_failure_retry_and_disposing() -> None:
+    """A retry after getRealInterface failure must reset _released so disposing runs cleanup."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.framework.errors import UnoObjectError
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xParentWindow = MagicMock()
+    el.ResourceURL = "private:resource/ChatPanel"
+    el._released = False
+    frame_session = MagicMock()
+    el.frame_session = frame_session
+    panel = MagicMock()
+
+    attempts = 0
+
+    def fake_wire(*_args: object, **_kwargs: object) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("first build fails")
+
+    with (
+        patch("plugin.chatbot.panel_factory._run_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch.object(el, "_getOrCreatePanelRootWindow", return_value=MagicMock()),
+        patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel),
+        patch("plugin.chatbot.panel_factory.wire_chatpanel_controls", side_effect=fake_wire),
+    ):
+        import pytest
+
+        with pytest.raises(UnoObjectError):
+            el.getRealInterface()
+        assert el._released is True
+        assert el.toolpanel is None
+        assert frame_session.release_panel.call_count == 1
+
+        # Retry must reset _released to False and succeed
+        result = el.getRealInterface()
+        assert result is panel
+        assert el._released is False
+
+    # Disposing must perform cleanup and release frame session
+    with (
+        patch("plugin.framework.event_bus.global_event_bus.unsubscribe"),
+        patch("plugin.doc.live_panels.unregister_live_panel") as unreg_mock,
+    ):
+        el._live_panel_uid = "doc-uid-1"
+        el.disposing()
+        assert el._released is True
+        assert frame_session.release_panel.call_count == 2
+        unreg_mock.assert_called_once_with("doc-uid-1", el)
+
+        # Second disposing call short-circuits due to _released latch
+        el.disposing()
+        assert frame_session.release_panel.call_count == 2
+        assert unreg_mock.call_count == 1
+
+
+def test_chat_mode_listener_reverts_selector_when_busy() -> None:
+    """Selecting a new mode while busy must revert the combo box to the active mode without desync."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.doc_session = MagicMock(name="doc_session")
+    el.web_session = MagicMock(name="web_session")
+    el.librarian_session = MagicMock(name="librarian_session")
+    el.session = el.doc_session
+    el._current_mode = "chat"
+    el._apply_sidebar_mode = MagicMock()
+    el._greeting_for_sidebar_mode = MagicMock(return_value="")
+
+    selector = MagicMock()
+    send_listener = MagicMock()
+    send_listener.sidebar_state.send.is_busy = True
+    mode_flags = SidebarModeFlags()
+
+    with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value="web"):
+        with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as revert_mock:
+            el._wire_chat_mode_listener(
+                selector, MagicMock(), MagicMock(), send_listener, MagicMock(), MagicMock(), mode_flags
+            )
+            mode_listener = selector.addItemListener.call_args[0][0]
+
+            # When busy: item state changed must revert selector to current applied mode ("chat")
+            mode_listener.on_item_state_changed(MagicMock())
+            revert_mock.assert_called_once_with(selector, "chat", mode_flags)
+            el._apply_sidebar_mode.assert_not_called()
+
+            # When not busy: item state changed applies the new mode
+            send_listener.sidebar_state.send.is_busy = False
+            mode_listener.on_item_state_changed(MagicMock())
+            el._apply_sidebar_mode.assert_called_once()
+            assert el._apply_sidebar_mode.call_args[0][0] == "web"
+
+
+def test_queued_config_refresh_after_disposing_noops() -> None:
+    """A config refresh callback queued before teardown must no-op after disposal."""
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    root = MagicMock()
+    root.getControl.side_effect = AssertionError("getControl must not be called after disposal")
+    el.m_panelRootWindow = root
+    el.send_listener = None
+    el.frame_session = None
+
+    with (
+        patch("plugin.framework.event_bus.global_event_bus.unsubscribe"),
+        patch("plugin.doc.live_panels.unregister_live_panel"),
+    ):
+        el.disposing()
+    assert el._released is True
+
+    # Calling refresh directly (as if dequeued from main thread) must return early without touching controls
+    el._refresh_controls_from_config()
+
+    # Calling _on_config_changed while released must not post to main thread
+    with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
+        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+            el._on_config_changed()
+            post_mock.assert_not_called()
+
+
+def test_wire_buttons_get_document_uno_services_raising_attaches_listeners() -> None:
+    """If get_document_uno_services raises, Send/Stop listeners must still be attached."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xFrame = MagicMock()
+    el.session = MagicMock()
+    el.frame_session = None
+    el._live_panel_uid = "uid"
+    el._apply_sidebar_mode = MagicMock()
+    el._greeting_for_sidebar_mode = MagicMock(return_value="")
+
+    send = MagicMock()
+    stop = MagicMock()
+    controls = {
+        "send": send,
+        "stop": stop,
+        "query": MagicMock(),
+        "response": MagicMock(),
+        "image_model_selector": None,
+        "model_selector": None,
+        "status": None,
+        "chat_mode_selector": None,
+        "aspect_ratio_selector": None,
+        "base_size_input": None,
+        "clear": None,
+        "chk_voice": None,
+        "btn_settings": None,
+        "btn_python": None,
+        "btn_latex": None,
+        "btn_search": None,
+        "btn_hamburger": None,
+    }
+    sentinel = MagicMock(name="send_listener")
+
+    with (
+        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
+        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
+        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
+        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
+        patch("plugin.doc.live_panels.register_live_panel"),
+        patch("plugin.doc.doc_type.get_document_type", return_value=MagicMock()),
+        patch("plugin.doc.doc_type.doc_type_label_for_enum", return_value="writer"),
+        patch("plugin.doc.doc_type.doc_type_title_for_label", return_value="Writer"),
+        patch("plugin.doc.doc_type.get_document_uno_services", side_effect=RuntimeError("services fail")),
+        patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
+        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+    ):
+        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+
+    send.addActionListener.assert_called_once_with(sentinel)
+    stop.addActionListener.assert_called_once()
+    assert sentinel.cached_uno_services == frozenset()
+

@@ -18,6 +18,7 @@ Provides:
 from __future__ import annotations
 
 import builtins
+import contextlib
 import enum
 import io
 import logging
@@ -32,7 +33,7 @@ import time
 from typing import IO, TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
@@ -269,13 +270,15 @@ class BaseProcessWorker:
     on_process_exit: Callable[[int], None] | None
     _drain_state: _DrainState
     _drain_lock: threading.Lock
+    default_timeout_sec: float
 
-    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False, on_process_exit: Callable[[int], None] | None = None) -> None:
+    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False, on_process_exit: Callable[[int], None] | None = None, default_timeout_sec: float = 30.0) -> None:
         self.worker_id = worker_id
         self.script_path = script_path
         self.worker_name = worker_name
         self.max_payload_bytes = max_payload_bytes
         self.recover_on_timeout = recover_on_timeout
+        self.default_timeout_sec = float(default_timeout_sec)
         # Formula sessions key off this pid. The callback runs once the child
         # is being reaped so the supervisor can drop every session on it
         # before a replacement process is started.
@@ -418,7 +421,7 @@ class BaseProcessWorker:
         """
         self._reap_previous_process()
 
-    def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+    def execute(self, payload: dict[str, Any], timeout_sec: float, drain_timeout_sec: float | None = None) -> dict[str, Any]:
         """Send request to worker process and await response with timeout."""
         timeout_sec = max(0.01, float(timeout_sec))
         with self.lock:
@@ -432,8 +435,13 @@ class BaseProcessWorker:
                     msg = f"{msg}\n{snippet}"
                 if timeout:
                     if self.recover_on_timeout:
+                        # Bugfix: give the late-drain step its own timeout budget (Bug 3).
+                        # What was wrong: leftover request budget (e.g. 0.01s after queue wait) was passed
+                        # to late-drain, causing premature timeout and SIGKILL of healthy workers.
+                        # Why this change: support drain_timeout_sec so callers can give late-drain a full budget.
+                        eff_drain = timeout_sec if drain_timeout_sec is None else max(0.01, float(drain_timeout_sec))
                         log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid if self.process else None)
-                        self._start_late_drain(timeout_sec)
+                        self._start_late_drain(eff_drain)
                     else:
                         log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid if self.process else None)
                         self.kill()
@@ -477,6 +485,8 @@ class BaseProcessWorker:
                     unpacker=unpack_restricted_pickle_frame,
                 )
             except subprocess.TimeoutExpired:
+                # Count timeouts toward worker tasks executed so hanging workers eventually recycle
+                self.tasks_executed += 1
                 return _fail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {int(timeout_sec)} seconds.", timeout=True)
             except Exception as exc:
                 return _fail("WORKER_CRASHED", f"{self.worker_name} error: {exc}")
@@ -603,7 +613,7 @@ class BaseProcessPool:
 
         if self.num_workers > 0:
             for i in range(self.num_workers):
-                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, recover_on_timeout=recover_on_timeout, on_process_exit=on_process_exit)
+                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, recover_on_timeout=recover_on_timeout, on_process_exit=on_process_exit, default_timeout_sec=default_timeout_sec)
                 self.workers.append(w)
                 # Idle only after the ready handshake. A failed spawn stays
                 # out of the idle set; the next lease respawns that slot.
@@ -749,6 +759,25 @@ class BaseProcessPool:
                     return None
                 self._cond.wait(remaining)
 
+    @contextlib.contextmanager
+    def leased(
+        self,
+        worker: BaseProcessWorker | None = None,
+        *,
+        timeout_sec: float | None = None,
+    ) -> Generator[BaseProcessWorker | None, None, None]:
+        """Context manager leasing a worker and releasing on exit.
+
+        Leases *worker* if given, else any available worker.
+        Always releases the leased worker upon exiting the block.
+        """
+        timeout = float(self.default_timeout_sec) if timeout_sec is None else float(timeout_sec)
+        w = self.lease_specific(worker, timeout_sec=timeout) if worker is not None else self.lease_any(timeout_sec=timeout)
+        try:
+            yield w
+        finally:
+            if w is not None:
+                self.release_worker(w)
 
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
         """Predicate to determine if worker should be recycled on release."""

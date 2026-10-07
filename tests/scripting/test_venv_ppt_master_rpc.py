@@ -298,3 +298,46 @@ def test_handle_llm_request_returns_user_stopped_via_stop_checker():
 
     assert out["status"] == "error"
     assert out["code"] == "USER_STOPPED"
+
+
+def test_handle_llm_request_catches_execute_on_main_thread_failure():
+    """Failure during execute_on_main_thread(get_ctx) must be caught and returned as an error."""
+    from plugin.ppt_master.venv.host_rpc import handle_llm_request
+
+    with patch(
+        "plugin.framework.queue_executor.execute_on_main_thread",
+        side_effect=RuntimeError("main thread queue failure"),
+    ):
+        out = handle_llm_request(
+            {
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 16,
+            }
+        )
+
+    assert out["status"] == "error"
+    assert "main thread queue failure" in out["message"]
+
+
+def test_dispatch_llm_request_handles_get_ctx_failure():
+    """If get_ctx via execute_on_main_thread fails, dispatch writes an error frame instead of raising."""
+    from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
+
+    written: list[bytes] = []
+    with patch(
+        "plugin.framework.queue_executor.execute_on_main_thread",
+        side_effect=RuntimeError("main thread queue failure"),
+    ):
+        handled = dispatch_worker_response(
+            {"type": "llm_request", "id": "err-ctx", "messages": [{"role": "user", "content": "x"}]},
+            stdin_write=written.append,
+        )
+
+    assert handled is True
+    assert len(written) == 1
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "err-ctx"
+    assert "main thread queue failure" in resp["message"]
+

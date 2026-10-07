@@ -385,6 +385,29 @@ def test_handle_tool_call_frame_writes_error_response():
     assert resp["status"] == "error"
     assert resp["id"] == "e1"
     assert "boom" in resp["message"]
+    assert "code" not in resp
+
+
+def test_handle_tool_call_frame_includes_error_code():
+    from plugin.framework.errors import ToolExecutionError
+
+    written: list[bytes] = []
+    with patch(
+        "plugin.scripting.host_rpc.execute_tool",
+        side_effect=ToolExecutionError("cancelled by user", code="USER_STOPPED"),
+    ):
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e2", "tool": "apply_document_content", "args": {}},
+            stdin_write=written.append,
+        )
+    assert handled is True
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "e2"
+    assert resp["code"] == "USER_STOPPED"
+    assert "cancelled by user" in resp["message"]
+
 
 
 def test_handle_non_tool_call_returns_false():

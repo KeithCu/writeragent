@@ -631,7 +631,7 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     assert turn.mode == "chat"
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
-    assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, "Hello"))
+    assert put_for_turn(turn, (StreamQueueKind.CHUNK, "Hello"))
     assert first_q.get_nowait() == (StreamQueueKind.CHUNK, "Hello")
     fold_transcript_chunk(host.session, "Hello", "assistant")
     assert turn.open_text() == "Hello"
@@ -642,8 +642,8 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     assert turn2.alive
     assert turn2.mode == "image"
     assert turn.mode == "chat"
-    assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, " late")) is False
-    assert put_for_turn(host, turn, first_q, (StreamQueueKind.STATUS, "late-status")) is False
+    assert put_for_turn(turn, (StreamQueueKind.CHUNK, " late")) is False
+    assert put_for_turn(turn, (StreamQueueKind.STATUS, "late-status")) is False
     assert first_q.empty()
     assert turn.open_text() == "Hello"
 
@@ -651,7 +651,7 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     host.session.messages = []
     persist_assistant_on_turn(host, content="after-clear")
     assert host.session.messages == []
-    assert put_for_turn(host, turn2, turn2.queue, (StreamQueueKind.CHUNK, " after-clear")) is False
+    assert put_for_turn(turn2, (StreamQueueKind.CHUNK, " after-clear")) is False
 
 
 def test_abort_discards_a_late_write():
@@ -677,7 +677,7 @@ def test_abort_discards_a_late_write():
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     abort_turn(host)
-    assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, "late")) is False
+    assert put_for_turn(turn, (StreamQueueKind.CHUNK, "late")) is False
     assert first_q.empty()
     host.session.messages = []
     turn.persist_assistant(host, content="late-row")
@@ -711,7 +711,7 @@ def test_second_send_replaces_the_turn():
     second.queue = second_q
     assert host._turn is second
     assert not first.alive
-    assert put_for_turn(host, first, first_q, (StreamQueueKind.CHUNK, "stale")) is False
+    assert put_for_turn(first, (StreamQueueKind.CHUNK, "stale")) is False
     assert first_q.empty()
     first.persist_assistant(host, content="from-first")
     assert all(message.get("content") != "from-first" for message in host.session.messages)
@@ -1229,7 +1229,7 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
     def mock_emit(item):
         emitted.append(item)
 
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.put_for_turn", lambda host, turn, q, item: emitted.append(item) or True)
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.put_for_turn", lambda turn, item: emitted.append(item) or True)
 
     # Intercept run_in_background to execute synchronously for the test
     def mock_run_in_background(func, *args, **kwargs):
@@ -1242,3 +1242,135 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
     assert len(emitted) == 1
     assert emitted[0][0] == StreamQueueKind.STOPPED
     assert mock_host._active_execute_tool_fn.call_count == 0
+
+
+def test_append_cancelled_tool_rows_reused_call_id_across_turns():
+    """A tool call ID reused in a later turn gets a synthetic cancelled row if unanswered."""
+    from plugin.chatbot.tool_loop_actions import _CANCELLED_TOOL, _append_cancelled_tool_rows
+
+    messages = [
+        {"role": "user", "content": "turn 1 query"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call_0", "function": {"name": "search"}}],
+        },
+        {"role": "tool", "tool_call_id": "call_0", "content": "turn 1 result"},
+        {"role": "assistant", "content": "turn 1 done"},
+        {"role": "user", "content": "turn 2 query"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call_0", "function": {"name": "search"}}],
+        },
+    ]
+
+    added = _append_cancelled_tool_rows(messages)
+    assert added == 1
+    assert len(messages) == 7
+    assert messages[6] == {
+        "role": "tool",
+        "tool_call_id": "call_0",
+        "content": _CANCELLED_TOOL,
+    }
+    assert messages[2] == {
+        "role": "tool",
+        "tool_call_id": "call_0",
+        "content": "turn 1 result",
+    }
+
+
+def test_append_cancelled_tool_rows_multiple_calls_partial_answer_across_turns():
+    """Unanswered tool calls get cancelled rows even when earlier calls with the same ID were answered."""
+    from plugin.chatbot.tool_loop_actions import _CANCELLED_TOOL, _append_cancelled_tool_rows
+
+    messages = [
+        {"role": "user", "content": "t1"},
+        {"role": "assistant", "tool_calls": [{"id": "call_0"}]},
+        {"role": "tool", "tool_call_id": "call_0", "content": "t1_done"},
+        {"role": "user", "content": "t2"},
+        {"role": "assistant", "tool_calls": [{"id": "call_0"}, {"id": "call_1"}]},
+        {"role": "tool", "tool_call_id": "call_0", "content": "t2_call0_done"},
+    ]
+
+    added = _append_cancelled_tool_rows(messages)
+    assert added == 1
+    assert messages[-1] == {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": _CANCELLED_TOOL,
+    }
+
+
+def test_cleanup_audio_uses_spawn_captured_model(monkeypatch, tmp_path):
+    """_cleanup_audio records native audio support for the model captured at send time, not current model."""
+    from plugin.chatbot.tool_loop_actions import CleanupAudioEffect, ToolLoopEffectInterpreter, begin_send_turn
+
+    audio_file = tmp_path / "test.wav"
+    audio_file.write_bytes(b"RIFF dummy audio")
+
+    class Host:
+        def __init__(self):
+            self.session = None
+            self.audio_wav_path = str(audio_file)
+
+    host = Host()
+
+    recorded = []
+    def fake_set_native_audio_support(model, endpoint, supported=True):
+        recorded.append((model, endpoint, supported))
+
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.set_native_audio_support", fake_set_native_audio_support)
+    turn = begin_send_turn(host, "chat")
+    # The send path captures the model the audio was attached for.
+    turn.text_model = "spawn-model"
+    turn.endpoint = "https://spawn-endpoint"
+
+    interpreter = ToolLoopEffectInterpreter(host)
+    interpreter.execute(CleanupAudioEffect())
+
+    # Must have recorded the model captured when the work was spawned
+    assert recorded == [("spawn-model", "https://spawn-endpoint", True)]
+    assert host.audio_wav_path is None
+    assert not audio_file.exists()
+
+
+def test_cleanup_audio_handles_remove_failure(monkeypatch):
+    """_cleanup_audio logs exception when file removal fails and still clears audio_wav_path."""
+    from plugin.chatbot.tool_loop_actions import CleanupAudioEffect, ToolLoopEffectInterpreter, begin_send_turn
+
+    class Host:
+        def __init__(self):
+            self.session = None
+            self.audio_wav_path = "/nonexistent/path/to/test.wav"
+
+    host = Host()
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.set_native_audio_support", lambda *a, **k: None)
+
+    begin_send_turn(host, "chat")
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    with patch("os.remove", side_effect=OSError("Permission denied")), patch("plugin.chatbot.tool_loop_actions.log.exception") as mock_log_exc:
+        interpreter.execute(CleanupAudioEffect())
+        assert mock_log_exc.called
+        assert host.audio_wav_path is None
+
+
+def test_put_for_turn_signature_and_behavior():
+    """put_for_turn takes (turn, item) and enqueues on alive turn or returns False when aborted."""
+    from plugin.chatbot.tool_loop_actions import TurnController, put_for_turn
+    from plugin.framework.async_stream import StreamQueueKind
+
+    q = queue.Queue()
+    turn = TurnController(None, "chat")
+    turn.queue = q
+
+    assert put_for_turn(turn, (StreamQueueKind.CHUNK, "hello")) is True
+    assert q.get_nowait() == (StreamQueueKind.CHUNK, "hello")
+
+    turn.abort()
+    assert put_for_turn(turn, (StreamQueueKind.CHUNK, "late")) is False
+    assert q.empty()
+
+    assert put_for_turn(None, (StreamQueueKind.CHUNK, "none")) is False
+

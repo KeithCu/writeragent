@@ -588,7 +588,15 @@ def handle_tool_call_frame(
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:
         log.exception("venv tool_call %s failed", tool_name)
+        # What was wrong: error codes on exceptions (such as ToolExecutionError with
+        # code="USER_STOPPED" or domain codes) were dropped, returning only status and message.
+        # How: tool_response was constructed with only status, id, and message.
+        # Why this change fixes it: include code in tool_response when present on exc,
+        # allowing the child worker to detect USER_STOPPED or specific error codes.
         tool_response = {"status": "error", "id": call_id, "message": str(exc)}
+        err_code = getattr(exc, "code", None)
+        if err_code:
+            tool_response["code"] = str(err_code)
     try:
         frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     except IpcFrameError as exc:

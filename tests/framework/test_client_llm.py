@@ -3373,3 +3373,70 @@ def test_stream_without_done_no_emit_retries(client, _fast_retry_waits):
         result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
     assert result["content"] == "Recovered"
     assert mock_https.call_count == 2
+
+
+def test_image_rejected_params_logs_truncated_body(client, caplog):
+    """Image retry warning must truncate long request bodies to 500 chars and state total length."""
+    import logging
+
+    large_prompt = "A" * 1200
+    orig_body = json.dumps({"prompt": large_prompt, "size": "1024x1024"}).encode("utf-8")
+
+    first = True
+
+    def mock_request_json(method, path, body, headers, stop_checker=None, status_callback=None):
+        nonlocal first
+        if first:
+            first = False
+            raise NetworkError("size: not supported. Accepted: 512x512", code="HTTP_ERROR")
+        return {"data": [{"b64_json": "fake_b64_data"}]}
+
+    with caplog.at_level(logging.WARNING):
+        with (
+            patch.object(client, "make_image_request", return_value=("POST", "/v1/images/generations", orig_body, {})),
+            patch.object(client, "_request_json", side_effect=mock_request_json),
+        ):
+            client.image_completion("dummy prompt")
+
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "adjusted body" in r.message]
+    assert len(warning_records) == 1
+    msg = warning_records[0].message
+    assert "... [total " in msg
+    assert "chars]" in msg
+    assert large_prompt not in msg
+    assert "A" * 501 not in msg
+
+
+def test_sync_request_with_tools_wraps_parse_sync_response_error(client):
+    """parse_sync_response exceptions (bad JSON / unexpected shape) must be wrapped in NetworkError with code BAD_RESPONSE."""
+    with patch.object(client, "_exchange_json", return_value=("ok", {"unexpected": "structure"})):
+        with patch.object(client._get_shim(), "parse_sync_response", side_effect=KeyError("choices")):
+            with pytest.raises(NetworkError) as exc_info:
+                client.request_with_tools([{"role": "user", "content": "Hello"}], stream=False)
+            assert exc_info.value.code == "BAD_RESPONSE"
+            assert isinstance(exc_info.value.__cause__, KeyError)
+
+
+def test_observe_provider_http_error_redacts_api_key_query_param(client, caplog):
+    """_observe_provider_http_error must strip ?key=... query param and redact api_key from the logged path."""
+    import logging
+    from unittest.mock import MagicMock
+
+    client.config["api_key"] = "AIzaSySecretApiKey123"
+    response = MagicMock()
+    response.status = 400
+    response.reason = "Bad Request"
+
+    raw_path = "/v1/chat/completions?key=AIzaSySecretApiKey123"
+    err_body = '{"error": "invalid parameter"}'
+
+    with caplog.at_level(logging.ERROR):
+        client._observe_provider_http_error(response, err_body, raw_path, body={})
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR and "Provider API Error" in r.message]
+    assert len(error_records) == 1
+    msg = error_records[0].message
+    assert "AIzaSySecretApiKey123" not in msg
+    assert "key=" not in msg
+    assert "path=/v1/chat/completions" in msg
+
