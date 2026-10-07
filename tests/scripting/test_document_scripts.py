@@ -16,6 +16,8 @@ from plugin.scripting.document_scripts import (
     DOCUMENT_SCRIPTS_UDPROP,
     SCRIPT_PICKER_MESSAGE_TYPES,
     _MAX_DOCUMENT_SCRIPTS_BYTES,
+    DocumentScriptError,
+    DocumentScriptErrorCode,
     attach_document_script,
     build_scripts_list_message,
     build_xdl_script_picker_state,
@@ -25,15 +27,15 @@ from plugin.scripting.document_scripts import (
     document_scripts_identity,
     document_scripts_write_is_stale,
     get_calc_document_from_ctx,
+    get_calc_init_script,
     get_document_scripts,
     handle_editor_script_message,
-    has_document_scripts,
-    parse_analysis_script_display_name,
     parse_document_script_display_name,
-    parse_vision_script_display_name,
     resolve_run_script_selection,
     resolve_script_picker_entry,
+    save_selected_script,
     save_user_script,
+    set_calc_init_script,
     set_document_scripts,
 )
 from plugin.scripting.domain_registry import (
@@ -42,6 +44,7 @@ from plugin.scripting.domain_registry import (
     SCRIPT_ORIGIN_ANALYSIS,
     SCRIPT_ORIGIN_VISION,
     VISION_SCRIPT_DISPLAY_PREFIX,
+    parse_picker_display_name,
 )
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
@@ -116,7 +119,7 @@ def test_get_document_scripts_empty():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     assert get_document_scripts(doc) == {}
-    assert not has_document_scripts(doc)
+    assert not bool(get_document_scripts(doc))
 
 
 def test_roundtrip_envelope():
@@ -129,7 +132,7 @@ def test_roundtrip_envelope():
     assert parsed["version"] == 1
     assert parsed["scripts"] == scripts
     assert get_document_scripts(doc) == scripts
-    assert has_document_scripts(doc)
+    assert bool(get_document_scripts(doc))
 
 
 def test_oversize_payload_rejected():
@@ -234,13 +237,11 @@ def test_display_name_helpers():
 
 
 def test_build_xdl_script_picker_state():
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     attach_document_script(doc, "DocScript", "result = 2")
     with patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
         items, merged, origin_map = build_xdl_script_picker_state(
-            ctx,
             doc,
             {"UserScript": "result = 1"},
         )
@@ -420,7 +421,7 @@ def test_resolve_analysis_script_picker_entry():
     display = f"{ANALYSIS_SCRIPT_DISPLAY_PREFIX}describe_data"
     origin_map = {display: SCRIPT_ORIGIN_ANALYSIS}
     assert resolve_script_picker_entry(display, origin_map) == ("describe_data", SCRIPT_ORIGIN_ANALYSIS)
-    assert parse_analysis_script_display_name(display) == "describe_data"
+    assert parse_picker_display_name(ANALYSIS_SCRIPT_DISPLAY_PREFIX, display) == "describe_data"
 
 
 def test_build_scripts_list_includes_vision_section_for_writer():
@@ -466,10 +467,9 @@ def test_build_scripts_list_excludes_vision_section_for_draw():
 
 
 def test_build_xdl_script_picker_includes_vision_for_writer():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        items, merged, origin_map = build_xdl_script_picker_state(ctx, doc, {})
+        items, merged, origin_map = build_xdl_script_picker_state(doc, {})
     for helper in ("extract_text", "extract_structure"):
         display = f"{VISION_SCRIPT_DISPLAY_PREFIX}{helper}"
         assert display in items
@@ -481,7 +481,7 @@ def test_resolve_vision_script_picker_entry():
     display = f"{VISION_SCRIPT_DISPLAY_PREFIX}extract_text"
     origin_map = {display: SCRIPT_ORIGIN_VISION}
     assert resolve_script_picker_entry(display, origin_map) == ("extract_text", SCRIPT_ORIGIN_VISION)
-    assert parse_vision_script_display_name(display) == "extract_text"
+    assert parse_picker_display_name(VISION_SCRIPT_DISPLAY_PREFIX, display) == "extract_text"
 
 
 def test_build_scripts_list_excludes_text_analytics_section_for_writer():
@@ -496,10 +496,9 @@ def test_build_scripts_list_excludes_text_analytics_section_for_writer():
 
 
 def test_build_xdl_script_picker_excludes_text_analytics_for_writer():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.scripting.text_analytics.supports_text_analytics_manual", return_value=True):
-        items, merged, origin_map = build_xdl_script_picker_state(ctx, doc, {})
+        items, merged, origin_map = build_xdl_script_picker_state(doc, {})
     text_items = [name for name in items if name.startswith("[Text] ")]
     assert text_items == []
     assert not any(origin == "text" for origin in origin_map.values())
@@ -594,7 +593,7 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
         return_value="last_python_script_name_writer",
     ), patch(
         "plugin.scripting.document_scripts.save_document_script",
-        return_value="Document is read-only.",
+        return_value=DocumentScriptError("Document is read-only.", DocumentScriptErrorCode.READONLY),
     ):
         assert handle_editor_script_message(
             "save_script",
@@ -631,7 +630,7 @@ def test_doc_save_fallback_does_not_overwrite_my_scripts():
         return_value="last_python_script_name_writer",
     ), patch(
         "plugin.scripting.document_scripts.save_document_script",
-        return_value="Document is read-only.",
+        return_value=DocumentScriptError("Document is read-only.", DocumentScriptErrorCode.READONLY),
     ):
         assert handle_editor_script_message(
             "save_script",
@@ -836,7 +835,7 @@ def test_init_script_omitted_from_picker():
         "plugin.scripting.domain_registry.get_picker_domains",
         return_value=(),
     ):
-        items, merged, _origins = build_xdl_script_picker_state(MagicMock(), MagicMock(), {})
+        items, merged, _origins = build_xdl_script_picker_state(MagicMock(), {})
     assert document_script_display_name("Hello") in items
     assert document_script_display_name("INIT") not in items
     assert "x = 1" not in merged.values()
@@ -999,3 +998,230 @@ def test_set_calc_init_script_returns_the_property_write_result() -> None:
     ):
         assert ds.set_calc_init_script(MagicMock(), "x = 1") == "read-only"
     assert write.call_args[0][1] == {"INIT": "x = 1"}
+
+
+def test_calc_init_script_both_keys_present_roundtrip():
+    """Bug 1: when both INIT and Init exist, set_calc_init_script normalizes to a single INIT."""
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    set_document_scripts(doc, {"INIT": "init_upper", "Init": "stale_init", "Other": "result = 1"})
+    assert get_calc_init_script(doc) == "init_upper"
+    assert set_calc_init_script(doc, "new_init_code") is None
+    scripts = get_document_scripts(doc)
+    assert scripts["INIT"] == "new_init_code"
+    assert "Init" not in scripts
+    assert scripts["Other"] == "result = 1"
+    assert get_calc_init_script(doc) == "new_init_code"
+
+
+def test_calc_init_script_empty_init_does_not_fall_through_to_stale_init():
+    """Bug 1: an empty INIT key takes precedence over a stale Init key."""
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    set_document_scripts(doc, {"INIT": "", "Init": "stale_init"})
+    assert get_calc_init_script(doc) == ""
+
+
+def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
+    """Bug 2: stale doc passes None to selection resolution so no [Doc] script is selected."""
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/opened.ods")
+    attach_document_script(doc, "SecretDocScript", "secret = 1")
+    with patch("plugin.framework.config.get_config", return_value={"UserScript": "x = 1"}), patch(
+        "plugin.framework.config.get_config_str", return_value="[Doc] SecretDocScript"
+    ), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set, patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_calc",
+    ):
+        # session_doc_url is different from doc.getURL(), marking document_stale = True
+        msg = build_scripts_list_message(
+            ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/other.ods",
+        )
+    assert msg["document_stale"] is True
+    assert msg["selected_script_name"] != "[Doc] SecretDocScript"
+    assert not msg["selected_script_name"].startswith("[Doc] ")
+    # Ensure set_config did not store "[Doc] SecretDocScript" against the stale doc
+    for call in mock_set.call_args_list:
+        assert call.args[1] != "[Doc] SecretDocScript"
+
+
+def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
+    """Bug 3: reserving name INIT returns an error to user and does not write to My Scripts."""
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_calc",
+    ):
+        handled = handle_editor_script_message(
+            "save_script",
+            {"name": "INIT", "code": "malicious = 1", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/doc.ods",
+            send=sent.append,
+        )
+    assert handled is True
+    assert len(sent) == 1
+    assert "status_ok_text" not in sent[0]
+    assert "reserved" in sent[0].get("status_error_text", "").lower()
+    # Must NOT have written to My Scripts (saved_python_scripts)
+    user_writes = [c for c in mock_set.call_args_list if c.args and c.args[0] == "saved_python_scripts"]
+    assert user_writes == []
+
+
+def test_save_script_too_large_does_not_fallback_to_my_scripts():
+    """Bug 3: a script exceeding document size limits does not fall back to My Scripts."""
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
+    sent: list = []
+    huge_code = "x = 1\n" * 200_000
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_calc",
+    ):
+        handled = handle_editor_script_message(
+            "save_script",
+            {"name": "TooLarge", "code": huge_code, "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/doc.ods",
+            send=sent.append,
+        )
+    assert handled is True
+    assert len(sent) == 1
+    assert "status_ok_text" not in sent[0]
+    assert "too large" in sent[0].get("status_error_text", "").lower()
+    user_writes = [c for c in mock_set.call_args_list if c.args and c.args[0] == "saved_python_scripts"]
+    assert user_writes == []
+
+
+def test_delete_document_script_missing_returns_error_and_does_not_write():
+    """Bug 4: deleting a missing document script returns an error and does not touch properties."""
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    err = delete_document_script(doc, "NonExistent")
+    assert err is not None
+    assert err.code == DocumentScriptErrorCode.NOT_FOUND
+    assert DOCUMENT_SCRIPTS_UDPROP not in props.values
+
+
+def test_delete_user_script_missing_returns_error_and_does_not_write():
+    """Bug 4: deleting a missing user script returns an error and does not rewrite config."""
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set:
+        err = delete_user_script("NonExistent")
+    assert err is not None
+    assert err.code == DocumentScriptErrorCode.NOT_FOUND
+    mock_set.assert_not_called()
+
+
+def test_picker_delete_missing_script_returns_error():
+    """Bug 4: IPC message delete_script for non-existent script returns status_error_text."""
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
+
+    # Document delete missing
+    sent_doc: list = []
+    handle_editor_script_message(
+        "delete_script",
+        {"name": "NonExistentDoc", "origin": "document"},
+        ctx=ctx,
+        session_doc=doc,
+        session_doc_url="file:///tmp/doc.ods",
+        send=sent_doc.append,
+    )
+    assert "status_ok_text" not in sent_doc[-1]
+    assert "does not exist" in sent_doc[-1].get("status_error_text", "")
+
+    # User delete missing
+    sent_user: list = []
+    with patch("plugin.framework.config.get_config", return_value={}):
+        handle_editor_script_message(
+            "delete_script",
+            {"name": "NonExistentUser", "origin": "user"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/doc.ods",
+            send=sent_user.append,
+        )
+    assert "status_ok_text" not in sent_user[-1]
+    assert "does not exist" in sent_user[-1].get("status_error_text", "")
+
+
+def test_enumerate_calc_documents_skips_disposed_element_and_continues():
+    """Cleanup: per-element try/except in _enumerate_calc_documents continues on broken component."""
+    broken_elem = MagicMock()
+    broken_elem.getURL.side_effect = RuntimeError("disposed")
+    broken_elem.getController.side_effect = RuntimeError("disposed")
+
+    valid_calc = MagicMock()
+    valid_calc.getURL.return_value = "file:///valid.ods"
+
+    comps = _calc_component_enum(broken_elem, valid_calc)
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    with patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda m: m is valid_calc):
+        from plugin.scripting.document_scripts import _enumerate_calc_documents
+
+        results = _enumerate_calc_documents(desktop)
+    assert results == [valid_calc]
+
+
+def test_shared_save_selected_script_user_and_doc_and_builtin():
+    """Cleanup: shared save_selected_script helper handles user, doc, and template entries."""
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    attach_document_script(doc, "DocScript", "x = 1")
+
+    with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"UserScript": "u = 1"}), patch(
+        "plugin.scripting.document_scripts.save_user_script"
+    ) as mock_user_save, patch(
+        "plugin.scripting.document_scripts.save_document_script",
+        return_value=None,
+    ) as mock_doc_save:
+        # Save to user script
+        err = save_selected_script(doc, "UserScript", "u = 2")
+        assert err is None
+        mock_user_save.assert_called_once_with("UserScript", "u = 2")
+
+        # Save to document script
+        err = save_selected_script(doc, "[Doc] DocScript", "x = 2")
+        assert err is None
+        mock_doc_save.assert_called_once_with(doc, "DocScript", "x = 2")
+
+        # Builtin template refusal when allow_builtin_skip=False
+        with patch("plugin.scripting.document_scripts.is_picker_template_name", return_value=True):
+            err = save_selected_script(doc, "[Vision] extract_text", "code", allow_builtin_skip=False)
+            assert err is not None
+            assert "read-only" in err.lower()
+
+            # Builtin template skip when allow_builtin_skip=True
+            err = save_selected_script(doc, "[Vision] extract_text", "code", allow_builtin_skip=True)
+            assert err is None
+
+        # Missing script error
+        with patch("plugin.scripting.document_scripts.is_picker_template_name", return_value=False):
+            err = save_selected_script(doc, "NonExistent", "code")
+            assert err is not None
+            assert "not in My Scripts or this document" in err
+
