@@ -265,7 +265,7 @@ The split-grid codec is the project's reference Tier-0 verification target: `dea
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index |
 | Python `complex` or a NumPy complex scalar | `NaN` | `str(val)`, imaginary part kept |
 
-Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `serialize_result` runs `_coerce_host_pickle_tree` on list/dict results and on DataFrame/Series object grids before that pack.
+Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `serialize_result` runs `_coerce_host_pickle_tree` on list/dict results, on DataFrame/Series object grids, on object-ndarray `tolist()` output, and on datetime64/timedelta64 arrays (timedelta becomes fractional days) before that pack. A rectangular list whose cells are themselves lists or tuples is not one split_grid: each row is packed on its own, so a list of grids is not stringified.
 
 #### Child materialization (ingress, before CalcRange wrap)
 
@@ -293,7 +293,7 @@ Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN]
 
 - Ingress serial floats stay floats. The bridge does not sniff NumberFormat, and the worker does not guess datetime/timedelta from strings (no Settings checkbox; use `to_pandas(date_cols=…)`).
 - `=PY()` egress converts Python/pandas/numpy temporals to **naive ISO strings** (or timedelta as fractional days) at the venv/`to_calc_compatible` edges. Tz offsets are stripped.
-- datetime64 **columns and arrays** are converted by `serialize_result` before pack, so they never hit `astype(float64)` (that cast is Unix-epoch units, not Calc serials). A direct `child_pack_result` / `child_pack_split_grid` on a `datetime64` or `timedelta64` ndarray raises `ValueError` instead of emitting epoch-day floats or nanosecond integers.
+- datetime64 **columns and arrays** are converted by `serialize_result` before pack, so they never hit `astype(float64)` (that cast is Unix-epoch units, not Calc serials). timedelta64 **arrays and scalars** become fractional days (`total_seconds()/86400`) the same way, below and above `BINARY_MIN_CELLS`. A bare timedelta64 ndarray used to raise under the threshold and stringify as `"1 day, 0:00:00"` at or above it. Rank 3+ temporal arrays convert one plane at a time. A direct `child_pack_result` / `child_pack_split_grid` on a `datetime64` or `timedelta64` ndarray raises `ValueError` instead of emitting epoch-day floats or nanosecond integers.
 - Large mixed grids still stringify stdlib `datetime` into the sparse `strings` map.
 
 **Do not add** a datetime mask, column-kind `'date'`, or Calc-serial encoding on the float64 buffer. The split-grid fast path stays uniform numeric (`i`/`u`/`f`/`b`). A first-class temporal lane would lose `frombuffer` or duplicate the strings map for no UNO benefit — Calc still cannot accept datetime objects from the add-in.

@@ -1920,6 +1920,27 @@ def test_flatten_1d_falls_back_when_accelerator_length_mismatches() -> None:
     assert kinds == ["int"]
 
 
+def test_child_pack_list_of_grids_does_not_stringify_cells() -> None:
+    """A rectangular list of grids is not one split_grid of str(cell)."""
+    nested = [[[i], [i]] for i in range(60)]
+    back = host_unpack_data(child_pack_result(nested))
+    assert back[0] == [[0], [0]]
+    assert back[59] == [[59], [59]]
+    small = [[[i], [i]] for i in range(10)]
+    assert child_pack_result(small) == small
+
+
+def test_wire_cell_count_cycle_raises() -> None:
+    """A self-referential multi_data raises ValueError, and the log summary does not."""
+    wire: dict[str, object] = {"__wa_payload__": PAYLOAD_MULTI_DATA, "items": []}
+    items = wire["items"]
+    assert isinstance(items, list)
+    items.append(wire)
+    with pytest.raises(ValueError, match="maximum recursion depth"):
+        wire_cell_count(wire)
+    assert "cells=?" in describe_wire_value(wire)
+
+
 def test_child_pack_rank3_is_list_of_planes() -> None:
     """Rank 3+ is not a split_grid envelope. Each plane packs on its own."""
     np = pytest.importorskip("numpy")

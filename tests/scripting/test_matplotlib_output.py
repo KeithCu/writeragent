@@ -400,6 +400,66 @@ def test_serialize_result_datetime64_ndarray_is_iso_not_unix_epoch():
     assert out[1] == "2026-06-26T00:00:00"
 
 
+def test_serialize_result_timedelta64_ndarray_is_fractional_days():
+    """timedelta64 must be fractional days on both sides of BINARY_MIN_CELLS."""
+    import io
+
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("pandas")
+    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from plugin.scripting.payload_codec import BINARY_MIN_CELLS, host_unpack_data, is_split_grid
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    small = np.array([np.timedelta64(0, "D"), np.timedelta64(1, "D")])
+    assert host_unpack_data(serialize_result(small)) == [0.0, 1.0]
+    assert serialize_result(np.timedelta64(1, "D")) == 1.0
+
+    large = np.arange(BINARY_MIN_CELLS).astype("timedelta64[D]")
+    wire = serialize_result(large)
+    assert is_split_grid(wire)
+    back = host_unpack_data(wire)
+    assert back[0] == 0.0
+    assert back[1] == 1.0
+    assert "day" not in str(back[1])
+
+    cube = np.arange(8).astype("timedelta64[D]").reshape(2, 2, 2)
+    assert host_unpack_data(serialize_result(cube)) == [
+        [[0.0, 1.0], [2.0, 3.0]],
+        [[4.0, 5.0], [6.0, 7.0]],
+    ]
+
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": serialize_result(small)})
+    buf.seek(0)
+    unpacked = read_pickle_frame(buf, require_dict=True)
+    assert host_unpack_data(unpacked["result"]) == [0.0, 1.0]
+
+
+def test_serialize_result_small_object_ndarray_is_host_pickleable():
+    """An object ndarray under the threshold must coerce, not raise."""
+    import io
+
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from plugin.scripting.payload_codec import BINARY_MIN_CELLS, host_unpack_data, is_split_grid
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    small = np.array([np.int64(1), np.int64(2)], dtype=object)
+    assert serialize_result(small) == [1, 2]
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": serialize_result(small)})
+    buf.seek(0)
+    unpacked = read_pickle_frame(buf, require_dict=True)
+    assert host_unpack_data(unpacked["result"]) == [1, 2]
+
+    large = np.array([np.int64(i) for i in range(BINARY_MIN_CELLS)], dtype=object)
+    wire = serialize_result(large)
+    assert is_split_grid(wire)
+    back = host_unpack_data(wire)
+    assert back[0] == 0
+    assert back[-1] == BINARY_MIN_CELLS - 1
+
+
 def test_serialize_result_multiindex_columns_and_categorical():
     """MultiIndex columns flatten to 'A / x'; row index is dropped; categoricals are labels."""
     pd = pytest.importorskip("pandas")

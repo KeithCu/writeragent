@@ -127,6 +127,10 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - A pure-float child ndarray, and a mixed-kind numeric grid with no strings, is the read-only `np.frombuffer` view. Uniform int and bool columns are writable because `astype` and `==` allocate. Do not `.copy()` the float path
 - A rectangular tuple-of-tuples egresses as a list-of-lists. `host_unpack_data` restores a tuple only when that container is still a tuple on the wire
 - DataFrame and Series object/extension bodies under `BINARY_MIN_CELLS` go through `_coerce_host_pickle_tree` before `child_pack_result`, same as the container arm. `_cell_for_json` still only rewrites `None`
+- A bare object ndarray does too: `serialize_result` coerces `tolist()` before pack. Under the threshold, `np.int64` / `datetime` / `Decimal` / `Fraction` cells used to hit `_reject_host_unpickleable`; at or above it, split_grid already succeeded
+- timedelta64 arrays and `np.timedelta64` scalars become fractional days before pack. The array used to skip `_coerce_host_pickle_tree`: under `BINARY_MIN_CELLS` that raised, and at or above it split_grid stored `"1 day, 0:00:00"`. Rank 3+ converts one plane at a time. Direct `child_pack_result` on a timedelta64 ndarray still raises
+- A rectangular list whose cells are lists or tuples is packed element-wise. The outer shape used to qualify as one split_grid and stringify each inner row (`"[0]"`) once the cell count reached `BINARY_MIN_CELLS`
+- `wire_cell_count` stops at `_MAX_UNPACK_DEPTH` and raises `ValueError`. A self-referential `multi_data` used to raise `RecursionError`. `describe_wire_value` catches that and logs `cells=?` so the summary cannot replace the caller's exception
 - When `strings == {}`, child unpack returns ndarray (pytest); when strings present, returns list (`@deal.ensure` on `child_unpack_split_grid`)
 - Jagged 2D grids raise `ValueError` via `@deal.raises` on `_flatten_grid_to_components`. `host_pack_data` below the threshold, and `force="never"`, returns that jagged list from `grid_from_nested_list` and does not call flatten
 - `host_pack_multi_data` produces a multi_data envelope with one item per input grid

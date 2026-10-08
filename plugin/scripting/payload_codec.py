@@ -23,8 +23,9 @@ split pack/unpack without serialization A/B tests
 (docs/scripting/numpy-serialization.md).
 
 Depth caps differ on purpose. ``_MAX_UNPACK_DEPTH`` (128) bounds recursive
-unpack and pack. It stays well under CPython's default recursion limit
-(~1000) so a cycle raises ``ValueError`` here instead of ``RecursionError``.
+unpack, pack, and ``wire_cell_count``. It stays well under CPython's default
+recursion limit (~1000) so a cycle raises ``ValueError`` here instead of
+``RecursionError``.
 ``find_image_payloads`` stops at ``_MAX_IMAGE_DEPTH`` (12) because image
 trees are shallow (past that it returns ``[]``). The venv
 ``_CUSTOM_SERIALIZE_MAX_DEPTH`` (8)
@@ -852,6 +853,18 @@ def _apply_column_kinds_to_ndarray(arr: Any, *, uniform: str | None) -> Any:
     return arr
 
 
+def _wire_cells_for_log(data: Any) -> str:
+    """Cell count for a debug line.
+
+    ``wire_cell_count`` raises ``ValueError`` on a cycle. This summary is
+    called from ``except`` handlers; that error must not replace the caller's.
+    """
+    try:
+        return str(wire_cell_count(data))
+    except ValueError:
+        return "?"
+
+
 def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     """Short summary for debug logs (avoids dumping huge arrays or base64)."""
     # crosshair: off  # recursive Any walk (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok + sample bound.
@@ -859,22 +872,22 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
         return f"image format={obj.get('format')} bytes={len(obj.get('data', b''))}"
     if is_multi_data(obj):
         items = obj.get("items") or []
-        return f"multi_data items={len(items)} cells={wire_cell_count(obj)}"
+        return f"multi_data items={len(items)} cells={_wire_cells_for_log(obj)}"
     if is_split_grid(obj):
         buf = obj.get("buffer") or b""
         strings = obj.get("strings") or {}
         return (
-            f"split_grid shape={obj.get('shape')} cells={wire_cell_count(obj)} "
+            f"split_grid shape={obj.get('shape')} cells={_wire_cells_for_log(obj)} "
             f"column_kinds={obj.get('column_kinds')} strings={len(strings)} raw_bytes={len(buf)}"
         )
     if is_dataframe_payload(obj):
         cols = obj.get("columns") or []
         inner = obj.get("data")
-        n = wire_cell_count(inner) if inner is not None else 0
-        return f"dataframe cols={len(cols)} cells~{n}"
+        cells = _wire_cells_for_log(inner) if inner is not None else "0"
+        return f"dataframe cols={len(cols)} cells~{cells}"
     if is_calc_range_payload(obj):
         shape = obj.get("shape")
-        return f"calc_range shape={shape} cells={wire_cell_count(obj)}"
+        return f"calc_range shape={shape} cells={_wire_cells_for_log(obj)}"
     if obj is None:
         return "None"
     if isinstance(obj, (str, int, float, bool)):
@@ -1089,22 +1102,29 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
 
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), int) and _deal_return(*a, result=result) >= 0)
 @deal.ensure(lambda data, *a, result=_DEAL_RETURN, **k: data is not None or _deal_return(*a, result=result) == 0)
-def wire_cell_count(data: Any) -> int:
+@deal.raises(ValueError)
+def wire_cell_count(data: Any, *, _depth: int = 0) -> int:
     """Cell count for size limits; works on lists or split_grid / multi_data / calc_range envelopes."""
     # crosshair: off
     # Envelope detectors + typed payload tags hit CrossHairInternal/Literal proxy errors on garbage dicts.
+    # What was wrong: a self-referential multi_data walked until RecursionError.
+    # describe_wire_value then failed its deal post with TypeError.
+    # Why this works: the same depth cap as host_unpack_data. No identity set:
+    # a shared subtree is still counted; a cycle hits 128 and raises.
+    if _depth > _MAX_UNPACK_DEPTH:
+        raise ValueError("payload_codec: wire_cell_count maximum recursion depth exceeded")
     if is_calc_range_payload(data):
         shape = data.get("shape") or [0, 0]
         if isinstance(shape, list) and len(shape) == 2:
             return int(shape[0]) * int(shape[1])
-        return wire_cell_count(data.get("data"))
+        return wire_cell_count(data.get("data"), _depth=_depth + 1)
     if is_multi_data(data):
         items = data.get("items") or []
-        return sum(wire_cell_count(item) for item in items)
+        return sum(wire_cell_count(item, _depth=_depth + 1) for item in items)
     if is_split_grid(data):
         return cell_count(tuple(int(x) for x in data["shape"]))
     if is_dataframe_payload(data):
-        return wire_cell_count(data.get("data"))
+        return wire_cell_count(data.get("data"), _depth=_depth + 1)
     if data is None:
         return 0
     if type(data) not in (list, tuple):
@@ -1493,7 +1513,7 @@ def _flatten_grid_to_components(
                         _append_cell_slow(val, c, idx)
                     else:
                         # ``is`` does not narrow ``float | _AsText`` for ty/basedpyright.
-                        buf_append(cast(float, fval))
+                        buf_append(cast("float", fval))
                         if column_states[c] < 2:
                             column_states[c] = 2
                 elif val is True or val is False:
@@ -1506,7 +1526,7 @@ def _flatten_grid_to_components(
                         has_non_numeric = True
                         _append_cell_slow(val, c, idx)
                     else:
-                        buf_append(cast(float, fval))
+                        buf_append(cast("float", fval))
                         if column_states[c] != 3:
                             _flatten_update_column_state(column_states, c, val)
             else:
@@ -2409,10 +2429,11 @@ def child_pack_result(
     """Pack a worker result. Not pickle-safe for every small-list cell.
 
     Top-level NumPy scalars become builtin int/float/bool. An ndarray becomes a
-    list or a split_grid envelope. Inside a small list, ``_cell_for_json`` only
+    list or a split_grid envelope.     Inside a small list, ``_cell_for_json`` only
     rewrites ``None``; ``np.int64``, ``Decimal``, and ``Fraction`` pass through.
     ``serialize_result`` must run ``_coerce_host_pickle_tree`` on those
-    containers first. ``float('nan')`` stays NaN.
+    containers, on object-ndarray ``tolist()`` output, and on
+    datetime64/timedelta64 arrays first. ``float('nan')`` stays NaN.
     """
     # crosshair: off
     # pre/post are intentionally ``lambda: True``. serialization-verification.md:
@@ -2486,8 +2507,22 @@ def child_pack_result(
                 # TypeErrors when __new__ does not take one iterable, and a script-local
                 # namedtuple is not importable on the host.
                 return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
-            if result and (type(result[0]) in (list, tuple)) and all(isinstance(r, (list, tuple)) and len(r) == len(result[0]) for r in result):
-                # Strict rectangular 2D grid: all rows are lists/tuples. Otherwise fall through to treat as 1D list-of-mixed (supports fancier result strategy).
+            if (
+                result
+                and type(result[0]) in (list, tuple)
+                and all(
+                    isinstance(r, (list, tuple))
+                    and len(r) == len(result[0])
+                    and all(not isinstance(cell, (list, tuple)) for cell in r)
+                    for r in result
+                )
+            ):
+                # Strict rectangular 2D grid of scalar cells. A list-of-grids
+                # ([[[i], [i]], ...]) is rectangular in the outer shape, but
+                # each cell is a row. split_grid then stored str(cell)
+                # ("[0]") once rows*cols >= BINARY_MIN_CELLS. The jagged
+                # branch below packs each row on its own, same as rank-3
+                # ndarrays. str and bytes are not list/tuple, so they stay cells.
                 # Tuple rows become lists. Split_grid is a float64 buffer and
                 # cannot keep row container types, so the list path matches it.
                 # host_unpack_data restores a tuple only when the wire value is
