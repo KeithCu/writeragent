@@ -16,9 +16,16 @@ transpositions or Base64 decoding overhead.
 
 Adjust thresholds below if product policy changes; bench and production share this module.
 
-Do not split pack/unpack without serialization A/B tests
-(docs/scripting/numpy-serialization.md). Do not move ``_deal_*`` scaffolding
-to test-support: the contracts live on the pack functions.
+Layout: policy helpers and envelope detectors, then pack/unpack. ``@deal``
+contracts and ``# crosshair: off`` markers are intentional — see
+docs/scripting/serialization-verification.md. Do not strip them, and do not
+split pack/unpack without serialization A/B tests
+(docs/scripting/numpy-serialization.md).
+
+Depth caps differ on purpose. ``_MAX_UNPACK_DEPTH`` (1000) bounds recursive
+unpack. ``find_image_payloads`` stops at 12 because image trees are shallow
+(past that it returns ``[]``). The venv ``_CUSTOM_SERIALIZE_MAX_DEPTH`` (8)
+bounds custom-type walks and then treats the value as a plain container.
 """
 from __future__ import annotations
 
@@ -533,6 +540,8 @@ def find_image_payloads(
     Depth and an identity set stop a cyclic result from blowing the stack.
     """
     # crosshair: off  # recursive Any dict/list (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    # 12, not _MAX_UNPACK_DEPTH: image trees are shallow. Deeper returns []
+    # instead of raising, so a cyclic or huge result still finishes the walk.
     if _depth > 12:
         return []
     if is_image_payload(obj):
@@ -909,9 +918,16 @@ def _is_numeric_coercible_impl(value: Any) -> bool:
     # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if value is None or isinstance(value, (bool, int, float)):
         return True
-    # Fast direct type inspection for NumPy scalar types on the child side without module-level imports
+    # NumPy scalars (int64, float64, bool_, uint64) without a module-level import.
+    # What was wrong: any type whose name started with int/float/bool/uint
+    # (a user class ``internal``) was treated as numeric. How: the prefix
+    # check had no module gate. Why this works: only numpy scalar classes
+    # take that shortcut; builtins already returned above.
     tname = type(value).__name__
-    if tname.startswith(("int", "float", "bool", "uint")):
+    mod = getattr(type(value), "__module__", "")
+    if (mod == "numpy" or (isinstance(mod, str) and mod.startswith("numpy."))) and tname.startswith(
+        ("int", "float", "bool", "uint")
+    ):
         return True
     if isinstance(value, str):
         return not value.strip()
@@ -1095,7 +1111,10 @@ def _flatten_append_cell_slow(
                     column_states[c] = 1
             else:
                 buf_append(nan)
-                strings[idx] = cast("str", val) if isinstance(val, str) else str(val)
+                # np.str_ subclasses str. Storing it raw fails host unpickle
+                # (LibreOffice Python has no NumPy). str() yields a builtin str;
+                # an exact str is returned unchanged.
+                strings[idx] = str(val)
             return
         tname = t.__name__
         if tname.startswith("bool"):
@@ -1129,7 +1148,8 @@ def _flatten_append_cell_slow(
                     _flatten_update_column_state(column_states, c, val)
         else:
             buf_append(nan)
-            strings[idx] = cast("str", val)
+            # Same as the dtype branch above: plain str, not np.str_.
+            strings[idx] = str(val)
 
 
 def _validate_rectangular_grid(grid_2d: list[list[Any]], ncols: int) -> None:
@@ -1253,18 +1273,35 @@ def _flatten_grid_to_components(
     # None is handled in the fast path to avoid disabling it for empty cells.
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
+        # Bugfix: the rectangular check ran only on the stdlib branch. A native
+        # accelerator that padded or truncated jagged rows would skip the
+        # documented ValueError. Validate first. A short or long accelerator
+        # buffer raises inside the try so the existing except falls back to
+        # stdlib (buf_append still targets the original buffer).
+        _validate_rectangular_grid(grid_2d, ncols)
         use_stdlib = True
         if fast_flatten_grid_2d is not None:
             try:
-                buf, strings, column_states, column_has_none, has_non_numeric = fast_flatten_grid_2d(
+                accel_buf, accel_strings, accel_states, accel_none, accel_non = fast_flatten_grid_2d(
                     [list(row) if type(row) is tuple else row for row in grid_2d], ncols
+                )
+                expected = nrows * ncols
+                if len(accel_buf) != expected:
+                    raise ValueError(
+                        f"accelerator returned {len(accel_buf)} cells, shape needs {expected}"
+                    )
+                buf, strings, column_states, column_has_none, has_non_numeric = (
+                    accel_buf,
+                    accel_strings,
+                    accel_states,
+                    accel_none,
+                    accel_non,
                 )
                 use_stdlib = False
             except Exception as e:
                 log.debug("payload_codec: Cython accelerator failed, falling back to stdlib: %s", e)
 
         if use_stdlib:
-            _validate_rectangular_grid(grid_2d, ncols)
             _stdlib_flatten_pass(_iter_split_grid_cells(grid_2d, is_2d=True))
     else:
         grid_1d = cast("list[Any]", grid)
@@ -1296,6 +1333,12 @@ def _flatten_grid_to_components(
             kind = "float"
 
         column_kinds.append(kind)
+
+    # The Cython accelerator can leave np.str_ in the map (it is a str subclass).
+    # Host unpickle has no NumPy. The stdlib path already stores builtin str;
+    # this only rewrites a map that still holds a subclass.
+    if strings and any(type(val) is not str for val in strings.values()):
+        strings = {idx: str(val) for idx, val in strings.items()}
 
     return buf, strings, column_kinds, shape
 
@@ -1436,11 +1479,11 @@ def host_pack_multi_data(
     return envelope
 
 
-def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) -> dict[int, Any]:
+def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) -> dict[int, str]:
     raw_strings = envelope.get("strings", {})
     if not isinstance(raw_strings, dict):
         raise ValueError("split_grid strings must be a dict")
-    strings: dict[int, Any] = {}
+    strings: dict[int, str] = {}
     for k, v in raw_strings.items():
         try:
             ik = int(k)
@@ -1448,13 +1491,18 @@ def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) 
             raise ValueError(f"split_grid string key {k!r} is not an integer") from exc
         if not (0 <= ik < expected_cells):
             raise ValueError(f"split_grid string key {ik} out of bounds for {expected_cells} cells")
-        strings[ik] = v
+        if not isinstance(v, str):
+            raise ValueError(
+                f"split_grid string value at {ik} must be str, got {type(v).__name__}"
+            )
+        # np.str_ is a str subclass. Host pickle has no NumPy, so store a plain str.
+        strings[ik] = v if type(v) is str else str(v)
     return strings
 
 
 @deal.pre(lambda envelope, *_unused, **__: _is_split_grid_envelope(envelope))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), list))
-@deal.raises(ValueError)
+@deal.raises(ValueError, OverflowError)
 def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
     """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists.
 
@@ -1491,7 +1539,8 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     if not strings and uniform is not None:
         if uniform == "int":
             # Preserve NaN (as float('nan')) for int-declared columns so it surfaces as Calc error.
-            # Only coerce non-NaN values to int.
+            # Only coerce non-NaN values to int. int(inf) raises OverflowError
+            # (corrupt int column); that exception is on @deal.raises.
             flat_list = [int(v) if not math.isnan(v) else float("nan") for v in buf]
         elif uniform == "bool":
             flat_list = [(v == 1.0) if not math.isnan(v) else float("nan") for v in buf]
@@ -1626,10 +1675,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             raw = base64.b64decode(envelope["b64"].encode("ascii"))
         else:
             raise ValueError("Missing payload binary buffer or b64 representation")
-        uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
+        expected_cells = int(nrows) * int(ncols)
+        strings = _validate_split_grid_strings(envelope, expected_cells)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-        expected_cells_check = int(nrows) * int(ncols)
-        strings = _validate_split_grid_strings(envelope, expected_cells_check)
 
         if not strings:
             arr = np.frombuffer(raw, dtype=np.float64)
@@ -1637,15 +1685,21 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             # returned the buffer's own length and materialized a short row
             # because reshape runs only for 2D. Reject the mismatch here and
             # keep the 2D reshape as a second check.
-            expected_cells = int(nrows) * int(ncols)
             if arr.size != expected_cells:
                 raise ValueError(
                     f"split_grid buffer has {arr.size} values but shape {list(shape)} needs {expected_cells}"
                 )
             if not is_1d:
                 arr = arr.reshape((nrows, ncols))
+            # Uniform kind only matters on this numeric path. Computing it
+            # up front re-read column_kinds and threw the result away when
+            # strings were present.
             arr = _apply_column_kinds_to_ndarray(
-                arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
+                arr,
+                column_kinds,
+                ncols=ncols,
+                is_1d=is_1d,
+                uniform=_uniform_column_kind(column_kinds),
             )
             log.debug("payload_codec child_unpack split_grid optimized -> ndarray shape=%s dtype=%s", arr.shape, arr.dtype)
             # Pure-numeric fast path: return ndarray directly (frombuffer + reshape + column casts).
@@ -1671,7 +1725,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # shape still advertised were dropped). A long buffer kept the extra
         # floats. Why this works: the same check, before reshape, so a corrupt
         # envelope raises instead of changing the grid.
-        expected_cells = int(nrows) * int(ncols)
         if arr.size != expected_cells:
             raise ValueError(
                 f"split_grid buffer has {arr.size} values but shape {list(shape)} needs {expected_cells}"
@@ -1829,6 +1882,45 @@ def child_unpack_data(wire: Any) -> Any:
         raise
 
 
+def _reject_temporal_ndarray(arr: Any) -> None:
+    """Refuse datetime64/timedelta64 on the float64 pack path.
+
+    What was wrong: ``astype(float64)`` turned a date into a Unix-epoch day
+    count (20629.0), and ``.tolist()`` on datetime64[ns] yielded integer
+    nanoseconds. How: ``child_pack_result`` sent kind ``M``/``m`` down the
+    numeric lane. Why this works: ``serialize_result`` converts those arrays
+    before it calls here; a direct caller now gets ``ValueError`` instead of
+    a silent wrong number.
+    """
+    # crosshair: off
+    kind = getattr(getattr(arr, "dtype", None), "kind", None)
+    if kind in ("M", "m"):
+        raise ValueError(
+            "datetime64/timedelta64 cannot be packed as float64 "
+            "(astype would emit Unix-epoch units, and tolist() yields integer "
+            "nanoseconds). serialize_result converts these before packing."
+        )
+
+
+def wire_str_key(key: Any, used: set[str]) -> str:
+    """Stringify a dict key for the host pickle boundary.
+
+    What was wrong: ``{str(k): ...}`` last-wins, so ``{1: "a", "1": "b"}``
+    dropped ``"a"`` with no error. How: three egress sites each rebuilt the
+    dict that way. Why this works: the second key that stringifies to an
+    existing wire key raises before the value is overwritten. An exact ``str``
+    is kept; a subclass such as ``np.str_`` becomes a builtin ``str``.
+    """
+    # crosshair: off
+    sk = key if type(key) is str else str(key)
+    if sk in used:
+        raise ValueError(
+            f"dict keys collide when stringified to {sk!r}; refusing to drop a value"
+        )
+    used.add(sk)
+    return sk
+
+
 @deal.pre(lambda arr: _is_ndarray(arr))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), dict))
 @deal.ensure(lambda arr, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result).get("__wa_payload__") == PAYLOAD_SPLIT_GRID)
@@ -1848,6 +1940,7 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
     try:
         if not isinstance(arr, np.ndarray):
             arr = np.asarray(arr)
+        _reject_temporal_ndarray(arr)
         ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
         # A bool ndarray is not an integer dtype. Tagging it "float" made host
         # unpack restore 1.0/0.0 instead of True/False.
@@ -1942,12 +2035,13 @@ def child_pack_result(
             if isinstance(result, np.ndarray):
                 shape = tuple(int(x) for x in result.shape)
                 kind = getattr(result.dtype, "kind", None)
+                # Before either the split_grid cast or tolist(). Both rewrite dates.
+                _reject_temporal_ndarray(result)
                 # Bugfix: child_pack_split_grid does ascontiguousarray(..., float64).
                 # A unicode/bytes/object ndarray at or above BINARY_MIN_CELLS raised
                 # ValueError and dropped a successful cell. Lists of those strings
                 # already go through host_pack_split_grid's strings map. Numeric
-                # kinds (and datetime64, which must not be rewritten here) stay
-                # on the float64 path.
+                # kinds stay on the float64 path.
                 if kind not in ("U", "S", "O") and should_use_binary_envelope(
                     shape, min_cells=min_cells, force=force
                 ):
@@ -1971,7 +2065,14 @@ def child_pack_result(
             elif isinstance(result, np.bool_):
                 return bool(result)
         if isinstance(result, dict):
-            return {str(k): child_pack_result(v, min_cells=min_cells, force=force, _depth=_depth + 1) for k, v in result.items()}
+            used: set[str] = set()
+            packed_dict: dict[str, Any] = {}
+            for key, value in result.items():
+                sk = wire_str_key(key, used)
+                packed_dict[sk] = child_pack_result(
+                    value, min_cells=min_cells, force=force, _depth=_depth + 1
+                )
+            return packed_dict
         if isinstance(result, (list, tuple)):
             if _needs_elementwise_pack(result, _depth=_depth+1):
                 packed = [child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1) for x in result]

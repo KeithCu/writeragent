@@ -181,6 +181,7 @@ Ingress blanks can poison naive `np.sum` / `np.mean` — prefer `nan*` helpers w
 - `±inf` passes through (may also error in formulas). **Not a missing-value sentinel.**
 - `decimal.Decimal` and `fractions.Fraction` → `float` (precision loss is accepted; Calc only has doubles). Column kind must stay `"float"`, not `"int"` (truncation is not accepted). A text cell earlier in the same grid does not turn a later Decimal or Fraction into text.
 - **Int fidelity:** the `split_grid` buffer is float64. Integers outside ±2^53 round on pack and unpack. Account numbers and 64-bit IDs should travel as strings. There is no int64 wire lane (Calc cells are doubles anyway).
+- **Size threshold (mixed `None`):** a Python `None` in a mixed result below `BINARY_MIN_CELLS` stays `None` and spills as a blank. The same `None` at or above the threshold is a NaN hole in `split_grid`. Host unpack keeps that hole as `float('nan')`, so the sheet shows a Calc error. Child unpack of a mixed envelope still restores `None`. The buffer has no separate blank bit; do not collapse host NaN to `None` to hide the threshold.
 - For a visible non-error marker, return a string:
 
 ```python
@@ -232,6 +233,8 @@ What Python sees after UNO unwrap / pack ([`calc_addin_data.py`](../../plugin/ca
 | Formula / plain / Python-style text logicals | `True` / `False` (after coercion) |
 
 **Egress:** Python `True` / `False` map to `1.0` / `0.0` (UNO double) in `to_calc_compatible` and `_coerce_spill_value`. Calc's Add-In bridge unpacks doubles and strings; returning doubles preserves truthiness across Calc formulas (e.g. `IF(...)`, filters, matrix operations).
+
+**Bool grids and the 100-cell threshold:** below `BINARY_MIN_CELLS`, child ingest uses `float64` because `bool` is numeric-coercible, so the script sees `1.0`/`0.0`. At or above the threshold, `split_grid` `column_kinds` restores a bool ndarray. Egress maps both to `1.0`/`0.0`. Do not force the small path onto a bool ndarray to "fix" the dtype change.
 
 
 ---

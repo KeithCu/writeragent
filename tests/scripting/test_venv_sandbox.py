@@ -192,3 +192,16 @@ def test_unknown_result_type_stays_in_the_child():
 
     with pytest.raises(ValueError, match="pickle boundary"):
         serialize_result(Weird())
+
+
+def test_serialize_result_dict_key_collision_raises():
+    """Stringifying keys must not drop a value when 1 and "1" share a wire key."""
+    with pytest.raises(ValueError, match="collide"):
+        serialize_result({1: "a", "1": "b"})
+    assert serialize_result({1: "a"}) == {"1": "a"}
+
+
+def test_serialize_result_custom_dict_key_collision_raises():
+    np = pytest.importorskip("numpy")
+    with pytest.raises(ValueError, match="collide"):
+        serialize_result({1: np.arange(3), "1": "b"})

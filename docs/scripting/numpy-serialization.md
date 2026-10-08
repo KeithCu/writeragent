@@ -283,7 +283,7 @@ After unpack, `=PY()` exposes a `CalcRange` (see [data shapes](../calc/py-data-s
 | Large numeric array (≥ 100 cells) | `split_grid` on wire; host unpack → nested lists (NaN preserved) |
 | Large string or object ndarray (≥ 100 cells) | `tolist()` then the same strings map as a Python list (not `astype(float64)`) |
 
-Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN](../calc/py-data-shapes.md#empty-cells-vs-nan). Host unpack preserves buffer NaN as `float('nan')`; `to_calc_compatible` maps `None` → `""` and leaves NaN as a double for Calc.
+Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN](../calc/py-data-shapes.md#empty-cells-vs-nan). Host unpack preserves buffer NaN as `float('nan')`; `to_calc_compatible` maps `None` → `""` and leaves NaN as a double for Calc. A mixed result's `None` follows that rule only at or above `BINARY_MIN_CELLS` (NaN hole → Calc error). Below the threshold the nested list keeps `None` and spills a blank. Child mixed unpack still restores `None`. Pure-bool grids below the threshold become float64 on child ingest; split_grid keeps bool via `column_kinds`. Egress of bool is `1.0`/`0.0` either way.
 
 #### Dates on the wire
 
@@ -291,7 +291,7 @@ Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN]
 
 - Ingress serial floats stay floats. The bridge does not sniff NumberFormat, and the worker does not guess datetime/timedelta from strings (no Settings checkbox; use `to_pandas(date_cols=…)`).
 - `=PY()` egress converts Python/pandas/numpy temporals to **naive ISO strings** (or timedelta as fractional days) at the venv/`to_calc_compatible` edges. Tz offsets are stripped.
-- datetime64 **columns and arrays** take the object/list path so they never hit `child_pack_split_grid`’s `astype(float64)` (that cast is Unix-epoch units, not Calc serials).
+- datetime64 **columns and arrays** are converted by `serialize_result` before pack, so they never hit `astype(float64)` (that cast is Unix-epoch units, not Calc serials). A direct `child_pack_result` / `child_pack_split_grid` on a `datetime64` or `timedelta64` ndarray raises `ValueError` instead of emitting epoch-day floats or nanosecond integers.
 - Large mixed grids still stringify stdlib `datetime` into the sparse `strings` map.
 
 **Do not add** a datetime mask, column-kind `'date'`, or Calc-serial encoding on the float64 buffer. The split-grid fast path stays uniform numeric (`i`/`u`/`f`/`b`). A first-class temporal lane would lose `frombuffer` or duplicate the strings map for no UNO benefit — Calc still cannot accept datetime objects from the add-in.

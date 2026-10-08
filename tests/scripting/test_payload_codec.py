@@ -881,6 +881,11 @@ def test_is_numeric_coercible_and_is_numeric_grid() -> None:
     assert is_numeric_coercible("hello") is False
     assert is_numeric_grid([[1, 2], [3, 4]]) is True
     assert is_numeric_grid([1, "x"]) is False
+    # A user type whose name starts with "int" is not a NumPy scalar.
+    internal = type("internal", (), {})
+    assert is_numeric_coercible(internal()) is False
+    np = pytest.importorskip("numpy")
+    assert is_numeric_coercible(np.int64(3)) is True
 
 
 def test_pickle5_roundtrip_numeric_4x4() -> None:
@@ -1240,7 +1245,7 @@ def test_date_and_datetime_serialization_handling():
     This verifies that:
     1. Python datetime/date objects below threshold (pickle list path) preserve their types.
     2. Python datetime/date objects above threshold (split_grid) are coerced to strings on the wire.
-    3. NumPy datetime64 arrays serialized above threshold are cast to float64 (days/units since Epoch).
+    3. NumPy datetime64 arrays passed straight to child_pack_result raise (no epoch-day floats).
     4. Pandas Timestamps are correctly coerced to strings under split_grid.
     """
     np = pytest.importorskip("numpy")
@@ -1272,15 +1277,15 @@ def test_date_and_datetime_serialization_handling():
     assert child_unpacked_sg[0][0] == "2026-06-25"
     assert child_unpacked_sg[0][1] == "2026-06-25 14:30:00"
 
-    # 3. NumPy np.datetime64 egress (above threshold)
+    # 3. NumPy datetime64 must not become epoch-day floats or ns integers.
+    # serialize_result converts these first; a direct pack raises.
     arr = np.array([np.datetime64("2026-06-25"), np.datetime64("2026-06-26")])
-    wire_arr_sg = child_pack_result(arr, force="always")
-    assert wire_arr_sg["__wa_payload__"] == PAYLOAD_SPLIT_GRID
-    
-    host_unpacked_arr = host_unpack_data(wire_arr_sg)
-    # Internally cast to float64 representing days since Epoch (1970-01-01)
-    assert host_unpacked_arr[0] == 20629.0
-    assert host_unpacked_arr[1] == 20630.0
+    with pytest.raises(ValueError, match="datetime64"):
+        child_pack_result(arr, force="always")
+    with pytest.raises(ValueError, match="datetime64"):
+        payload_codec.child_pack_split_grid(arr)
+    with pytest.raises(ValueError, match="timedelta64"):
+        child_pack_result(np.array([np.timedelta64(1, "D")]), force="never")
 
     # 4. Pandas Timestamps under split_grid (above threshold)
     ts = pd.Timestamp("2026-06-25 14:30:00")
@@ -1406,6 +1411,9 @@ def test_host_pack_data_numpy_str() -> None:
         arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
         assert str_map[0] == "0123"
         assert str_map[1] == "0123"
+        # np.str_ must not ride the strings map; host pickle has no NumPy.
+        assert type(str_map[0]) is str
+        assert type(str_map[1]) is str
 
         # accel test
         payload_codec._CYTHON_ACCELERATOR_DISABLED = False
@@ -1416,5 +1424,72 @@ def test_host_pack_data_numpy_str() -> None:
             arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
             assert str_map[0] == "0123"
             assert str_map[1] == "0123"
+            assert type(str_map[0]) is str
+            assert type(str_map[1]) is str
     finally:
         payload_codec.fast_flatten_grid_2d = orig_2d
+
+
+def test_child_pack_result_dict_key_collision_raises() -> None:
+    """{1: "a", "1": "b"} must not silently drop "a" when keys are stringified."""
+    with pytest.raises(ValueError, match="collide"):
+        child_pack_result({1: "a", "1": "b"})
+    assert child_pack_result({1: "a"}) == {"1": "a"}
+
+
+def test_split_grid_unpack_rejects_non_str_string_value() -> None:
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [1],
+        "buffer": array.array("d", [1.0]).tobytes(),
+        "strings": {0: 5},
+    }
+    with pytest.raises(ValueError, match="must be str"):
+        host_unpack_split_grid(envelope)
+
+
+def test_host_unpack_int_column_inf_raises() -> None:
+    """A corrupt int column containing inf is OverflowError, not a swallowed contract miss."""
+    wire = payload_codec.host_pack_split_grid([[1, 2], [3, 4]])
+    buf = array.array("d")
+    buf.frombytes(wire["buffer"])
+    buf[0] = float("inf")
+    wire["buffer"] = buf.tobytes()
+    with pytest.raises(OverflowError):
+        host_unpack_split_grid(wire)
+
+
+def test_flatten_rejects_jagged_before_accelerator() -> None:
+    """Jagged rows raise even if a native flattener would pad them."""
+    called: list[bool] = []
+
+    def fake_flatten(_grid: list, _ncols: int):
+        called.append(True)
+        return array.array("d", [1.0, 2.0, 3.0]), {}, [0, 0], [False, False], False
+
+    orig = payload_codec.fast_flatten_grid_2d
+    payload_codec.fast_flatten_grid_2d = fake_flatten
+    try:
+        with pytest.raises(ValueError, match="Uneven"):
+            payload_codec._flatten_grid_to_components([[1, 2], [3]])
+    finally:
+        payload_codec.fast_flatten_grid_2d = orig
+    assert called == []
+
+
+def test_flatten_falls_back_when_accelerator_length_mismatches() -> None:
+    """A short accelerator buffer must not replace the stdlib flatten."""
+
+    def fake_flatten(_grid: list, _ncols: int):
+        return array.array("d", [9.0]), {}, [3], [False], False
+
+    orig = payload_codec.fast_flatten_grid_2d
+    payload_codec.fast_flatten_grid_2d = fake_flatten
+    try:
+        buf, _strings, kinds, shape = payload_codec._flatten_grid_to_components([[1, 2]])
+    finally:
+        payload_codec.fast_flatten_grid_2d = orig
+    assert shape == [1, 2]
+    assert len(buf) == 2
+    assert list(buf) == [1.0, 2.0]
+    assert kinds == ["int", "int"]

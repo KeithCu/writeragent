@@ -39,8 +39,9 @@ from plugin.scripting.payload_codec import (
     PAYLOAD_DATAFRAME,
     child_pack_result,
     describe_wire_value,
-    is_split_grid,
     find_image_payloads,
+    is_split_grid,
+    wire_str_key,
 )
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.scripting.ipc import UserStopped
@@ -349,7 +350,14 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
 
 def _coerce_host_pickle_tree(obj: Any, pd_mod: Any) -> Any:
     if isinstance(obj, dict):
-        return {str(k): _coerce_host_pickle_tree(v, pd_mod) for k, v in obj.items()}
+        used: set[str] = set()
+        out: dict[str, Any] = {}
+        for key, value in obj.items():
+            # wire_str_key raises when two keys stringify to the same string
+            # ({1: "a", "1": "b"} used to drop "a").
+            sk = wire_str_key(key, used)
+            out[sk] = _coerce_host_pickle_tree(value, pd_mod)
+        return out
     if isinstance(obj, list):
         return [_coerce_host_pickle_tree(v, pd_mod) for v in obj]
     if isinstance(obj, tuple):
@@ -464,6 +472,8 @@ def _pil_image_to_payload(img: Any) -> dict[str, Any]:
 # One container level missed {"sheets": [df, df]} and [{"stats": df}]. Those
 # took child_pack_result, which raises ValueError and drops a successful cell.
 # Deeper than this is treated as a plain container (child_pack / pickle reject).
+# Not payload_codec._MAX_UNPACK_DEPTH (1000) or find_image_payloads (12):
+# this walk only looks for DataFrame/ndarray/figure wrappers a few levels down.
 _CUSTOM_SERIALIZE_MAX_DEPTH = 8
 
 
@@ -696,7 +706,12 @@ def _serialize_result_impl(obj: Any) -> Any:
     if isinstance(obj, (dict, list, tuple, set, frozenset)):
         if _has_custom_serialize_objects(obj):
             if isinstance(obj, dict):
-                return {str(k): serialize_result(v) for k, v in obj.items()}
+                used: set[str] = set()
+                out_dict: dict[str, Any] = {}
+                for key, value in obj.items():
+                    sk = wire_str_key(key, used)
+                    out_dict[sk] = serialize_result(value)
+                return out_dict
             elif isinstance(obj, list):
                 return [serialize_result(v) for v in obj]
             elif isinstance(obj, set):
