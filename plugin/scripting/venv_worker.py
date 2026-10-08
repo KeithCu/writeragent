@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, IO, Iterator
+from typing import Any, Callable, IO, Iterator
 
 from plugin.framework.config import get_config_str
 from plugin.framework.thread_guard import background
@@ -35,6 +35,7 @@ from plugin.scripting.config_limits import (
     resolve_python_exec_timeout,
 )
 from plugin.scripting.ipc import (
+    _stop_requested,
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
     IpcFrameError,
@@ -83,6 +84,10 @@ def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = N
 
 class _NonReplayableIpcWriteTimeout(RuntimeError):
     """A mid-turn host response timed out after side effects may have occurred."""
+
+
+class _WorkerRetired(RuntimeError):
+    """This manager was replaced by a new venv path and must not be restarted."""
 
 
 class _StopRequested(Exception):
@@ -208,38 +213,6 @@ _registry_lock = threading.Lock()
 
 def _worker_registry_key(exe: str, pool: str) -> str:
     return f"{pool}:{exe}"
-
-
-def pid_is_alive(pid: int) -> bool:
-    """True if *pid* still names a live process.
-
-    ``os.kill(pid, 0)`` is POSIX. On Windows signal 0 is WinError 87, so a
-    naive helper treated every live grandchild as dead (CI 33453184665).
-    """
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        return _pid_is_alive_win32(int(pid))
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-def _pid_is_alive_win32(pid: int) -> bool:
-    if sys.platform != "win32":
-        return False
-    import ctypes
-
-    # PROCESS_QUERY_LIMITED_INFORMATION: exists-check without PROCESS_ALL_ACCESS.
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    handle = kernel32.OpenProcess(0x1000, False, pid)
-    if handle:
-        kernel32.CloseHandle(handle)
-        return True
-    # ACCESS_DENIED (5): process exists but this token cannot query it.
-    return ctypes.get_last_error() == 5
 
 
 def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
@@ -494,7 +467,9 @@ class PythonWorkerManager:
 
     def warm(self) -> None:
         """Spawn the worker and trigger auto-imports (numpy etc.) so the next real execute is instant."""
-        self._ensure_warmed()
+        err = self._ensure_warmed()
+        if err is not None:
+            log.warning("Python worker warm failed: %s", err.get("message"))
 
     def _build_request(
         self,
@@ -780,6 +755,10 @@ class PythonWorkerManager:
                     # so a later RuntimeError (bad frame, closed pipe) after
                     # exec_started re-raised into the attempt loop and ran the
                     # same script on a new child.
+                    # _NonReplayableIpcWriteTimeout is a RuntimeError, so a mid-turn
+                    # host-response write timeout is caught here first. Re-raising
+                    # when the turn has not started lets the dedicated handler below
+                    # refuse the replay; after exec_started this branch already does.
                     if not state.may_have_run:
                         raise
                     log.warning("Python worker failed after execution started (not replaying): %s", e)
@@ -818,6 +797,12 @@ class PythonWorkerManager:
             except (_NoTerminalFrame, _NonReplayableIpcWriteTimeout) as e:
                 log.warning("Python worker failed without replay: %s", e)
                 return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}")
+            except _WorkerRetired as e:
+                # The registry already dropped this manager. The generic handler
+                # below would terminate it and clear the Calc add-in cache twice
+                # even though no worker died.
+                log.warning("Python worker retired: %s", e)
+                return _worker_error("WORKER_IPC_ERROR", str(e), details={"exe": self.exe})
             except (BrokenPipeError, ValueError, RuntimeError, subprocess.TimeoutExpired, OSError) as e:
                 # TimeoutExpired here is an initial stdin write timeout only; retry once on a
                 # fresh worker. Host read timeouts return above without replay.
@@ -1036,7 +1021,7 @@ class PythonWorkerManager:
 
     def _ensure_running(self) -> None:
         if self._retired:
-            raise RuntimeError(
+            raise _WorkerRetired(
                 "Python worker was replaced by a new venv path and will not be restarted"
             )
         if self._proc is not None and self._proc.poll() is None:
@@ -1065,7 +1050,7 @@ class PythonWorkerManager:
         # before spawn so that retry cannot start an untracked child.
         with self._proc_lock:
             if self._retired:
-                raise RuntimeError(
+                raise _WorkerRetired(
                     "Python worker was replaced by a new venv path and will not be restarted"
                 )
             self._proc = subprocess.Popen(wrap_command_for_sandbox([self.exe, _HARNESS_PATH]), **popen_kw)
@@ -1110,7 +1095,7 @@ class PythonWorkerManager:
         deadline = time.monotonic() + float(timeout_sec)
 
         def _read_exact(n: int) -> bytes:
-            if stop_checker and stop_checker():
+            if _stop_requested(stop_checker):
                 raise _StopRequested()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -1141,7 +1126,7 @@ class PythonWorkerManager:
                     return _read_bytes_with_timeout_win32(stdout, nbytes, time.monotonic() + remaining, timeout_sec, cmd=self.exe, stop_checker=stop_checker)
                 except subprocess.TimeoutExpired:
                     # ipc reports Stop as a timeout; the caller needs CANCELLED.
-                    if stop_checker and stop_checker():
+                    if _stop_requested(stop_checker):
                         raise _StopRequested() from None
                     raise
 
@@ -1176,7 +1161,7 @@ class PythonWorkerManager:
 
         buf = bytearray()
         while len(buf) < nbytes:
-            if stop_checker and stop_checker():
+            if _stop_requested(stop_checker):
                 raise _StopRequested()
             if time.monotonic() >= deadline:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=label)
@@ -1207,7 +1192,7 @@ class PythonWorkerManager:
         deadline_holder = [time.monotonic() + window, window]
 
         def _read_exact(n: int) -> bytes:
-            if stop_checker and stop_checker():
+            if _stop_requested(stop_checker):
                 raise _StopRequested()
             return self._read_exact_before_deadline(stdout, n, deadline_holder[0], stop_checker, timeout_label=deadline_holder[1])
 
@@ -1392,7 +1377,6 @@ def _worker_manager_for_ctx(
         return None, err
     assert exe is not None
     child_env = scrub_subprocess_env(dict(os.environ))
-    child_env["WRITERAGENT_IS_WORKER"] = "1"
     return PythonWorkerManager.get(exe, child_env, pool=pool), None
 
 
@@ -1408,7 +1392,6 @@ def run_code_in_user_venv(
     init_script: str | None = None,
     init_session_id: str | None = None,
     init_script_hash: str | None = None,
-    active_domain: str | None = None,
     python_tool_domain: str | None = None,
     worker_pool: str = WORKER_POOL_DEFAULT,
     allow_heartbeat: bool = False,
@@ -1417,7 +1400,7 @@ def run_code_in_user_venv(
     action: str | None = None,
     stop_checker: Callable[[], bool] | None = None,
     cancellation_scope: Any | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
 
     Without *session_id*, each call uses an isolated namespace in the child. With
@@ -1425,15 +1408,14 @@ def run_code_in_user_venv(
 
     *worker_pool* selects which warm child to use (e.g. embeddings vs Calc/chat default).
 
-    *active_domain* is unused (chat specialized domain). *python_tool_domain*
-    scopes venv→LO tool RPC: ``None`` = all tools, ``""`` = disabled (``=PY()``),
-    a domain name = that domain's proxies. See ``plugin.scripting.host_rpc``.
+    *python_tool_domain* scopes venv→LO tool RPC: ``None`` = all tools, ``""`` =
+    disabled (``=PY()``), a domain name = that domain's proxies. See
+    ``plugin.scripting.host_rpc``.
 
     *script_session_id* is host-only. Tool RPC resolves the document from it
     ahead of *session_id*. Chat passes a ``doc:`` pin so ``wa.*`` uses
     ``ctx.doc`` without putting that id on the child namespace.
     """
-    del active_domain  # chat specialized domain is not the tool-RPC allowlist
     if not action and not (code or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No code provided.")
 
@@ -1465,7 +1447,7 @@ def run_code_in_user_venv(
     )
 
 
-def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> Dict[str, Any]:
+def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:
     """Drop the shared-kernel executor for *session_id* in the warm worker."""
     if not (session_id or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No session_id provided.")

@@ -27,6 +27,20 @@ def test_dispatch_worker_event_only():
     assert events == [{"kind": "thinking", "text": "step"}]
 
 
+def test_dispatch_worker_event_callback_raise_is_ignored() -> None:
+    from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
+
+    def boom(event: dict) -> None:
+        raise KeyError("ui blew up")
+
+    handled = dispatch_worker_response(
+        {"type": "worker_event", "event": {"kind": "thinking"}},
+        stdin_write=MagicMock(),
+        on_worker_event=boom,
+    )
+    assert handled is True
+
+
 def test_dispatch_unknown_frame_returns_false():
     from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
 

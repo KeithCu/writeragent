@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 import pickle
 import signal
@@ -28,7 +29,6 @@ from plugin.scripting.venv_worker import (
     PythonWorkerManager,
     _worker_error,
     _worker_error_message,
-    pid_is_alive,
     reset_python_session,
     run_code_in_user_venv,
     scrub_subprocess_env,
@@ -324,6 +324,39 @@ while True:
         assert mgr._proc is not None and mgr._proc.poll() is None
     finally:
         mgr._terminate_worker()
+
+
+def pid_is_alive(pid: int) -> bool:
+    """True if *pid* still names a live process.
+
+    ``os.kill(pid, 0)`` is POSIX. On Windows signal 0 is WinError 87, so a
+    naive helper treated every live grandchild as dead (CI 33453184665).
+    Production kill code does not call this; the grandchild tests do.
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        return _pid_is_alive_win32(int(pid))
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _pid_is_alive_win32(pid: int) -> bool:
+    if sys.platform != "win32":
+        return False
+    import ctypes
+
+    # PROCESS_QUERY_LIMITED_INFORMATION: exists-check without PROCESS_ALL_ACCESS.
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if handle:
+        kernel32.CloseHandle(handle)
+        return True
+    # ACCESS_DENIED (5): process exists but this token cannot query it.
+    return ctypes.get_last_error() == 5
 
 
 def test_pid_is_alive_current_process():
@@ -1219,6 +1252,34 @@ def test_split_grid_pickle_and_json_round_trip():
     # Host unpacks
     unpacked_host_pickle_from_child = host_unpack_split_grid(child_wire_pickle)
     assert unpacked_host_pickle_from_child == grid
+
+
+def test_warm_logs_prime_failure(caplog: pytest.LogCaptureFixture) -> None:
+    mgr = PythonWorkerManager("/tmp/python-warm-fail", {"PATH": "/usr/bin"})
+    mgr._ensure_warmed = lambda: {"status": "error", "message": "prime failed"}  # type: ignore[method-assign]
+    with caplog.at_level(logging.WARNING, logger="plugin.scripting.venv_worker"):
+        mgr.warm()
+    assert "prime failed" in caplog.text
+
+
+def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A replaced manager must not kill a worker or wipe the Calc scalar cache."""
+    mgr = PythonWorkerManager("/tmp/python-retired", {"PATH": "/usr/bin"})
+    mgr._retired = True
+    terminated: list[bool] = []
+    cleared: list[bool] = []
+    monkeypatch.setattr(mgr, "_terminate_worker", lambda: terminated.append(True))
+
+    def _clear() -> None:
+        cleared.append(True)
+
+    monkeypatch.setattr("plugin.calc.python.function.clear_python_addin_cache", _clear)
+    result = mgr.execute("result = 1", timeout_sec=5)
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "will not be restarted" in result["message"]
+    assert terminated == []
+    assert cleared == []
 
 
 def test_warm_spawns_and_primes_worker():
@@ -2235,6 +2296,61 @@ def test_execute_ipc_attempts_stop_checker_aborts(monkeypatch: pytest.MonkeyPatc
 
     assert stop_called2[0]
 
+
+def _raising_then_false_stop_checker():
+    seen: list[BaseException] = []
+
+    def stop_checker() -> bool:
+        if not seen:
+            err = KeyError("stop_checker blew up")
+            seen.append(err)
+            raise err
+        return False
+
+    return seen, stop_checker
+
+
+def test_raising_stop_checker_on_threaded_read_returns_frame() -> None:
+    """A broken stop_checker must not escape or abandon the queued frame."""
+    from plugin.scripting import venv_worker
+
+    payload = {"status": "ok", "result": 1}
+    frame = pack_pickle_frame(payload)
+    stdout = io.BytesIO(frame)
+
+    class DummyManager(venv_worker.PythonWorkerManager):
+        def __init__(self) -> None:
+            self.exe = "python"
+            self._proc = None
+            self._stderr_drain = None
+
+    seen, stop_checker = _raising_then_false_stop_checker()
+    result = DummyManager()._read_response_bytes_threaded(stdout, timeout_sec=5, stop_checker=stop_checker)
+    assert seen
+    assert venv_worker.unpack_pickle_frame(result) == payload
+
+
+def test_raising_stop_checker_on_select_read_returns_frame(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting import venv_worker
+
+    if sys.platform == "win32":
+        return
+
+    payload = {"status": "ok", "result": 1}
+    frame = pack_pickle_frame(payload)
+    stdout = io.BytesIO(frame)
+
+    class DummyManager(venv_worker.PythonWorkerManager):
+        def __init__(self) -> None:
+            self.exe = "python"
+            self._proc = None
+            self._stderr_drain = None
+
+    monkeypatch.setattr(venv_worker.select, "select", lambda r, w, x, t: (list(r), [], []))
+    seen, stop_checker = _raising_then_false_stop_checker()
+    result = DummyManager()._read_response_bytes_select(stdout, timeout_sec=5, stop_checker=stop_checker)
+    assert seen
+    assert venv_worker.unpack_pickle_frame(result) == payload
 
 
 def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -610,6 +610,25 @@ def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> Non
     stream.flush()
 
 
+def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
+    """True when the user pressed Stop.
+
+    What was wrong: the venv read loop called ``stop_checker()`` directly. A
+    ``KeyError`` (or anything outside the IPC except tuples) escaped
+    ``run_code_in_user_venv`` and left the child blocked on an unread request.
+    Why this works: a broken checker is not a stop. Log it and keep reading
+    so the pipe stays aligned. A tool_call frame is still answered in
+    ``host_rpc``, which has a frame to reply to.
+    """
+    if stop_checker is None:
+        return False
+    try:
+        return bool(stop_checker())
+    except Exception:
+        log.exception("stop_checker failed (continuing)")
+        return False
+
+
 def _read_bytes_with_timeout_win32(
     stream: IO[bytes],
     n: int,
@@ -634,7 +653,7 @@ def _read_bytes_with_timeout_win32(
 
     buf = bytearray()
     while len(buf) < n:
-        if stop_checker and stop_checker():
+        if _stop_requested(stop_checker):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
         remaining = deadline - time.monotonic()
         if remaining <= 0:

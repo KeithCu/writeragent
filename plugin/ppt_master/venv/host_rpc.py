@@ -114,7 +114,15 @@ def dispatch_worker_response(
     if frame_type == "worker_event":
         event = response.get("event")
         if on_worker_event and isinstance(event, dict):
-            on_worker_event(event)
+            # What was wrong: a raising UI callback escaped the read loop.
+            # After exec_started that became a worker kill (_fail_no_replay);
+            # any other exception left the child sitting on an unread request.
+            # Why this works: same as the heartbeat callback — log and keep
+            # reading so the pipe stays aligned.
+            try:
+                on_worker_event(event)
+            except Exception:
+                log.exception("on_worker_event failed (ignoring)")
         return True
 
     # Note: tool_call is not handled here because it's already handled first

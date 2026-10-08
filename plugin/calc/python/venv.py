@@ -171,7 +171,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 ctx.ctx,
                 code,
                 data=py_data,
-                active_domain=ctx.active_domain,
                 python_tool_domain=ctx.python_tool_domain,
                 script_session_id=script_session_id,
                 stop_checker=stop_checker,

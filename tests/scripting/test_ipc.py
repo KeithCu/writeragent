@@ -262,6 +262,31 @@ def test_json_line_timeout_on_pipe():
         os.close(write_fd)
 
 
+def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
+    """A raising stop_checker is not a stop; the peek loop still returns the bytes."""
+    from plugin.scripting import ipc
+
+    stream = MagicMock()
+    stream.fileno.return_value = 3
+    stream.read.return_value = b"abcd"
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 4)
+    monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
+    seen: list[BaseException] = []
+
+    def stop_checker() -> bool:
+        if not seen:
+            err = KeyError("stop_checker blew up")
+            seen.append(err)
+            raise err
+        return False
+
+    data = ipc._read_bytes_with_timeout_win32(
+        stream, 4, 10.0, 10.0, cmd="frame", stop_checker=stop_checker
+    )
+    assert data == b"abcd"
+    assert seen
+
+
 def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch):
     """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
     from plugin.scripting import ipc
