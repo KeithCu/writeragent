@@ -205,3 +205,50 @@ def test_serialize_result_custom_dict_key_collision_raises():
     np = pytest.importorskip("numpy")
     with pytest.raises(ValueError, match="collide"):
         serialize_result({1: np.arange(3), "1": "b"})
+
+
+def test_optional_module_skips_partially_initialized_module(monkeypatch: pytest.MonkeyPatch):
+    import importlib.machinery
+    import sys
+    import types
+
+    from plugin.scripting.venv.venv_sandbox import optional_module
+
+    name = "writeragent_test_partial_mod"
+    mod = types.ModuleType(name)
+    spec = importlib.machinery.ModuleSpec(name, loader=None)
+    setattr(spec, "_initializing", True)
+    mod.__spec__ = spec
+    monkeypatch.setitem(sys.modules, name, mod)
+    assert optional_module(name) is None
+
+
+def test_serialize_result_rejects_self_referential_list():
+    items: list[object] = []
+    items.append(items)
+    with pytest.raises(ValueError, match="self-referential"):
+        serialize_result(items)
+
+
+def test_serialize_result_rejects_deep_nesting():
+    obj: list[object] = []
+    cursor = obj
+    for unused in range(80):
+        nxt: list[object] = []
+        cursor.append(nxt)
+        cursor = nxt
+    with pytest.raises(ValueError, match="too deeply nested"):
+        serialize_result(obj)
+
+
+def test_serialize_result_allows_shared_sublist():
+    from plugin.scripting.venv.venv_sandbox import _coerce_host_pickle_tree
+
+    shared = [1]
+    assert _coerce_host_pickle_tree([shared, shared], None) == [[1], [1]]
+
+
+def test_clongdouble_scalar_names_the_type():
+    np = pytest.importorskip("numpy")
+    with pytest.raises(ValueError, match=r"clongdouble.*builtin complex"):
+        serialize_result(np.clongdouble(1 + 2j))

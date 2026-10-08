@@ -22,6 +22,7 @@ import datetime
 import decimal
 from collections import OrderedDict
 import fractions
+import hashlib
 import importlib
 import logging
 import math
@@ -239,6 +240,12 @@ def optional_module(name: str) -> Any | None:
             spec = getattr(mod, "__spec__", None)
             if spec is None or not getattr(spec, "_initializing", False):
                 return mod
+            # What was wrong: importlib.import_module returns the same partial
+            # module already in sys.modules while spec._initializing is set, so
+            # the lock did not mean "wait until the import finishes."
+            # Why this works: another thread still owns that import. None is
+            # "not ready", which is what the check above the lock already does.
+            return None
         try:
             return importlib.import_module(name)
         except Exception:
@@ -306,6 +313,9 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
 # Leaves the host ``_SafeUnpickler`` accepts. Anything else is a script error,
 # not a worker kill: a rejected global used to terminate every workbook session.
 _HOST_PICKLE_LEAVES = (type(None), bool, int, float, str, bytes, bytearray, complex)
+# Same cap as _reject_host_unpickleable. The coercer used to recurse with no
+# limit, so a cycle raised RecursionError before this check could run.
+_HOST_PICKLE_MAX_DEPTH = 64
 
 
 def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
@@ -352,28 +362,56 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
     return obj
 
 
-def _coerce_host_pickle_tree(obj: Any, pd_mod: Any) -> Any:
-    if isinstance(obj, dict):
-        used: set[str] = set()
-        out: dict[str, Any] = {}
-        for key, value in obj.items():
-            # wire_str_key raises when two keys stringify to the same string
-            # ({1: "a", "1": "b"} used to drop "a").
-            sk = wire_str_key(key, used)
-            out[sk] = _coerce_host_pickle_tree(value, pd_mod)
-        return out
-    if isinstance(obj, list):
-        return [_coerce_host_pickle_tree(v, pd_mod) for v in obj]
-    if isinstance(obj, tuple):
-        return tuple(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
-    if isinstance(obj, set):
-        return {_coerce_host_pickle_tree(v, pd_mod) for v in obj}
-    if isinstance(obj, frozenset):
-        return frozenset(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
-    scalar = _coerce_host_pickle_scalar(obj, pd_mod)
-    if scalar is not obj and isinstance(scalar, (list, tuple, dict, set, frozenset)):
-        return _coerce_host_pickle_tree(scalar, pd_mod)
-    return scalar
+def _coerce_host_pickle_tree(
+    obj: Any,
+    pd_mod: Any,
+    *,
+    depth: int = 0,
+    seen: set[int] | None = None,
+) -> Any:
+    """Turn containers into values the host unpickler accepts.
+
+    What was wrong: a self-referential list recursed until RecursionError.
+    ``_reject_host_unpickleable`` already stops at ``_HOST_PICKLE_MAX_DEPTH``,
+    but it runs after this walk, so a cycle never reached it.
+    Why this works: ``seen`` is the current path (add, then discard), so a
+    DAG that mentions the same list twice still coerces. A cycle or a nest
+    past the depth cap is a script error instead of a worker crash.
+    """
+    if depth > _HOST_PICKLE_MAX_DEPTH:
+        raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
+    if not isinstance(obj, (dict, list, tuple, set, frozenset)):
+        scalar = _coerce_host_pickle_scalar(obj, pd_mod)
+        if scalar is not obj and isinstance(scalar, (list, tuple, dict, set, frozenset)):
+            return _coerce_host_pickle_tree(scalar, pd_mod, depth=depth, seen=seen)
+        return scalar
+    path = seen if seen is not None else set()
+    oid = id(obj)
+    if oid in path:
+        raise ValueError(
+            "Result contains a self-referential container and cannot cross "
+            "the LibreOffice pickle boundary"
+        )
+    path.add(oid)
+    try:
+        if isinstance(obj, dict):
+            used: set[str] = set()
+            out: dict[str, Any] = {}
+            for key, value in obj.items():
+                # wire_str_key raises when two keys stringify to the same string
+                # ({1: "a", "1": "b"} used to drop "a").
+                sk = wire_str_key(key, used)
+                out[sk] = _coerce_host_pickle_tree(value, pd_mod, depth=depth + 1, seen=path)
+            return out
+        if isinstance(obj, list):
+            return [_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj]
+        if isinstance(obj, tuple):
+            return tuple(_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj)
+        if isinstance(obj, set):
+            return {_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj}
+        return frozenset(_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj)
+    finally:
+        path.discard(oid)
 
 
 def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
@@ -382,7 +420,7 @@ def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
     The child can pickle many globals. The host only rebuilds builtins and a
     few NumPy reconstructors, and a ``ValueError`` there kills the worker.
     """
-    if depth > 64:
+    if depth > _HOST_PICKLE_MAX_DEPTH:
         raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
     if isinstance(obj, _HOST_PICKLE_LEAVES):
         return
@@ -395,6 +433,15 @@ def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
         for value in obj:
             _reject_host_unpickleable(value, depth=depth + 1)
         return
+    # What was wrong: clongdouble.item() is another clongdouble, so the
+    # coercer leaves it in place and this check failed the whole cell with
+    # a generic boundary message. Large object arrays still stringify it in
+    # child_pack_result before they get here; do not reject it in the coercer.
+    if type(obj).__name__ == "clongdouble":
+        raise ValueError(
+            "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
+            ".item() returns another clongdouble, not a builtin complex"
+        )
     raise ValueError(
         f"Result type {type(obj).__module__}.{type(obj).__name__} "
         "cannot cross the LibreOffice pickle boundary"
@@ -434,17 +481,28 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
 
     figs = [plt_mod.figure(num) for num in fignums]
     note = ""
-    if len(figs) > 1:
-        items = [_figure_to_image_payload(fig, fmt=fmt) for fig in figs]
-        payload = {
-            "__wa_payload__": "multi_data",
-            "items": items,
-        }
-        note = f"Captured {len(figs)} open figures.\n"
-    else:
-        payload = _figure_to_image_payload(figs[0], fmt=fmt)
-    plt_mod.close("all")
-    return payload, note
+    try:
+        if len(figs) > 1:
+            items = [_figure_to_image_payload(fig, fmt=fmt) for fig in figs]
+            payload = {
+                "__wa_payload__": "multi_data",
+                "items": items,
+            }
+            note = f"Captured {len(figs)} open figures.\n"
+        else:
+            payload = _figure_to_image_payload(figs[0], fmt=fmt)
+        return payload, note
+    finally:
+        # What was wrong: close("all") ran only after a successful render.
+        # A bad figure left the others open, and the next cell returned that
+        # stale SVG.
+        # Why this works: close runs even when rendering raises. A close
+        # failure must not replace the payload or the original render error
+        # (same swallow as _close_open_figures).
+        try:
+            plt_mod.close("all")
+        except Exception:
+            log.debug("failed to close pyplot figures", exc_info=True)
 
 
 def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
@@ -913,6 +971,28 @@ def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str
         executor.state.update(custom_tools)
 
 
+def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) -> str:
+    """Digest that decides whether the init session must re-run.
+
+    What was wrong: a missing hash became ``""``. The next edit also compared
+    as ``""``, so ``_ensure_init_executed`` returned early and the shared cell
+    executor was not cleared or reseeded.
+    Why this works: a caller-supplied hash still wins, so the host and child
+    stay on the same digest. When the hash is omitted, this hashes the
+    stripped script — the same bytes ``document_scripts.init_script_hash``
+    hashes. Both the init map and the cell-seed map store that digest, so a
+    later call that starts passing the host hash does not look like a change
+    and reseed over a cell rebind.
+    """
+    provided = (init_script_hash or "").strip()
+    if provided:
+        return provided
+    script = (init_script or "").strip()
+    if not script:
+        return ""
+    return hashlib.sha256(script.encode("utf-8")).hexdigest()
+
+
 def _seed_shared_executor_once(
     executor: LocalPythonExecutor,
     session_id: str,
@@ -1238,6 +1318,7 @@ def run_sandboxed_code(
     When *init_script* is set, it runs once in *init_session_id* (typically ``calc:…:init``).
     Isolated cell runs seed a fresh executor from a copy of that snapshot; shared kernel
     seeds the workbook session executor once, then reuses it for cell code.
+    A missing *init_script_hash* is filled from the stripped script text in this process.
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
@@ -1252,13 +1333,14 @@ def run_sandboxed_code(
     token = _CURRENT_SANDBOX_SESSION.set(session_id)
     try:
         init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
+        init_digest = _resolve_init_digest(init_script, init_script_hash)
         if init_sid and (init_script or "").strip():
             init_err = _ensure_init_executed(
                 init_sid,
                 init_script or "",
                 timeout_sec=timeout_sec,
                 deadline=deadline,
-                init_script_hash=init_script_hash,
+                init_script_hash=init_digest,
             )
             if init_err is not None:
                 return init_err
@@ -1266,7 +1348,7 @@ def run_sandboxed_code(
         if session_id:
             executor = _get_or_create_session_executor(session_id, timeout_sec)
             if init_sid:
-                _seed_shared_executor_once(executor, session_id, init_sid, init_script_hash)
+                _seed_shared_executor_once(executor, session_id, init_sid, init_digest)
         else:
             executor = _new_executor(timeout_sec)
             if init_sid:

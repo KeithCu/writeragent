@@ -171,9 +171,15 @@ _ACTION_HANDLERS = {
 
 def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
     action = request.get("action")
-    action_key = action if isinstance(action, str) else ""
-    handler = _ACTION_HANDLERS.get(action_key, _action_execute)
-    return handler(request, stdout=stdout)
+    # What was wrong: an unknown action fell through to _action_execute, so a
+    # typo that also carried ``code`` ran as user code.
+    # Why this works: omitted, blank, and the historical ``"execute"`` action
+    # still run user code. Any other action must be in _ACTION_HANDLERS.
+    if action is None or action == "" or action == "execute":
+        return _action_execute(request, stdout=stdout)
+    if not isinstance(action, str) or action not in _ACTION_HANDLERS:
+        return {"status": "error", "message": f"Unknown action: {action!r}"}
+    return _ACTION_HANDLERS[action](request, stdout=stdout)
 
 
 def _init_logging() -> None:

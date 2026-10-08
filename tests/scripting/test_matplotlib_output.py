@@ -522,3 +522,33 @@ def test_serialize_set_and_frozenset_coercion():
 
     res_frozen = serialize_result([frozenset([np.int64(7)])])
     assert res_frozen == [frozenset([7])]
+
+
+def test_capture_open_figures_closes_when_render_raises(monkeypatch):
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    closed = {"n": 0}
+
+    class _Fig:
+        pass
+
+    class _Plt:
+        def get_fignums(self):
+            return [1]
+
+        def figure(self, num):
+            return _Fig()
+
+        def close(self, what):
+            assert what == "all"
+            closed["n"] += 1
+
+    monkeypatch.setattr(vs, "optional_module", lambda name: _Plt() if name == "matplotlib.pyplot" else None)
+
+    def boom(fig, *, fmt="svg"):
+        raise RuntimeError("bad figure")
+
+    monkeypatch.setattr(vs, "_figure_to_image_payload", boom)
+    with pytest.raises(RuntimeError, match="bad figure"):
+        vs._capture_open_figures_payload()
+    assert closed["n"] == 1

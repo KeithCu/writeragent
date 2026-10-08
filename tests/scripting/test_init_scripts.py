@@ -458,3 +458,59 @@ def test_numpy_compiler_and_testing_prefixes_rejected():
     _reject_numpy_code_exec(_fake("numpy.linalg", "norm"), [], {})
     _reject_numpy_code_exec(_fake("numpy", "array"), [1], {})
 
+
+def test_missing_init_hash_reruns_when_script_changes():
+    """A missing hash used to compare as "" == "" and skip the edited script."""
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    init_sid = "calc:wb-nohash:init"
+    cell_sid = "calc:wb-nohash"
+    with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
+        first = run_sandboxed_code(
+            "FACTOR = 99\nresult = FACTOR",
+            session_id=cell_sid,
+            init_script="FACTOR = 10",
+            init_session_id=init_sid,
+        )
+        assert first["status"] == "ok", first.get("message")
+        assert first["result"] == 99
+        second = run_sandboxed_code(
+            "result = FACTOR",
+            session_id=cell_sid,
+            init_script="FACTOR = 10",
+            init_session_id=init_sid,
+        )
+        assert second["status"] == "ok", second.get("message")
+        assert second["result"] == 99
+        # One init execution plus two cells. The same script must not re-run.
+        assert mock_run.call_count == 3
+
+    edited = run_sandboxed_code(
+        "result = FACTOR",
+        session_id=cell_sid,
+        init_script="FACTOR = 7",
+        init_session_id=init_sid,
+    )
+    assert edited["status"] == "ok", edited.get("message")
+    assert edited["result"] == 7
+
+
+def test_missing_init_hash_isolated_sees_edited_script():
+    init_sid = "calc:wb-nohash-iso:init"
+    first = run_sandboxed_code(
+        "result = FACTOR",
+        session_id=None,
+        init_script="FACTOR = 10",
+        init_session_id=init_sid,
+    )
+    assert first["status"] == "ok", first.get("message")
+    assert first["result"] == 10
+    second = run_sandboxed_code(
+        "result = FACTOR",
+        session_id=None,
+        init_script="FACTOR = 4",
+        init_session_id=init_sid,
+    )
+    assert second["status"] == "ok", second.get("message")
+    assert second["result"] == 4
+

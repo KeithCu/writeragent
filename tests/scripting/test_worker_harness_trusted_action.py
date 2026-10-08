@@ -141,3 +141,31 @@ def test_handle_request_trusted_action_heartbeat_exception_writes_error_frame(mo
     assert frame["status"] == "error"
     assert "Index corrupt" in frame["message"]
     assert "traceback" in frame
+
+
+@patch("plugin.scripting.venv.worker_harness._action_execute", return_value={"status": "ok", "result": 1})
+def test_handle_request_unknown_action_does_not_execute(mock_execute) -> None:
+    res = _handle_request({"action": "not_a_real_action", "code": "result = 1"})
+    assert res is not None
+    assert res["status"] == "error"
+    assert "Unknown action" in res["message"]
+    mock_execute.assert_not_called()
+
+    ok = _handle_request({"action": "execute", "code": "result = 1"})
+    assert ok is not None
+    assert ok["status"] == "ok"
+    assert ok["result"] == 1
+
+    missing = _handle_request({"code": "result = 1"})
+    assert missing is not None
+    assert missing["status"] == "ok"
+
+    blank = _handle_request({"action": "", "code": "result = 1"})
+    assert blank is not None
+    assert blank["status"] == "ok"
+
+    bad_type = _handle_request({"action": 1, "code": "result = 1"})
+    assert bad_type is not None
+    assert bad_type["status"] == "error"
+    assert "Unknown action" in bad_type["message"]
+    assert mock_execute.call_count == 3
