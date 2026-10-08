@@ -296,3 +296,112 @@ def test_d_h_bad_inputs(label: str, name: str, args: tuple[Any, ...], expected: 
         assert isinstance(result, float) and math.isnan(result), (label, result)
     else:
         assert result == expected, (label, result)
+
+
+def test_factdouble_cap():
+    val_300 = calc.factdouble(300)
+    assert not math.isnan(val_300) and val_300 > 0
+    assert math.isnan(calc.factdouble(301))
+    assert math.isnan(calc.factdouble(500))
+
+
+def test_fixed_and_dollar_half_up_and_negative():
+    assert calc.fixed(2.5, 0) == "3"
+    assert calc.fixed(-2.5, 0) == "-3"
+    assert calc.fixed(1.25, 1) == "1.3"
+    assert calc.fixed(-1.25, 1) == "-1.3"
+    assert calc.fixed(1234.56, 1, True) == "1234.6"
+    assert calc.fixed(1234.56, 1, False) == "1,234.6"
+
+    # DOLLAR negative formatting: sign before dollar sign
+    assert calc.dollar(-1234.567, 2) == "-$1,234.57"
+    assert calc.dollar(1234.567, 2) == "$1,234.57"
+    assert calc.dollar(-2.5, 0) == "-$3"
+    assert calc.dollar(2.5, 0) == "$3"
+
+
+def test_euroconvert_half_up_and_tables():
+    # 1 DEM in EUR is 1 / 1.95583 = 0.51129... rounds to 0.51
+    assert calc.euroconvert(1.0, "DEM", "EUR") == 0.51
+    # 1 EUR in DEM is 1.95583 rounds to 1.96
+    assert calc.euroconvert(1.0, "EUR", "DEM") == 1.96
+
+
+def test_filter_vector_includes():
+    grid = [[1, 2], [3, 4], [5, 6]]
+    # Column vector include (3, 1)
+    col_mask = [[True], [False], [True]]
+    filtered = calc.filter(grid, col_mask)
+    assert filtered == [[1.0, 2.0], [5.0, 6.0]]
+
+    # Row vector include (1, 2) filtering columns of (2, 2)
+    grid_2x2 = [[10, 20], [30, 40]]
+    row_mask = [[True, False]]
+    filtered_cols = calc.filter(grid_2x2, row_mask)
+    assert filtered_cols == [[10.0], [30.0]]
+
+    # Shape mismatch returns #VALUE!
+    assert calc.filter(grid, [[True], [False]]) == "#VALUE!"
+    assert calc.filter(grid, [True, False, True, False]) == "#VALUE!"
+
+
+def test_days_integer_truncation():
+    # DAYS truncates serials to integers before subtracting
+    assert calc.days(45000.9, 45000.1) == 0.0
+    assert calc.days(45001.2, 45000.9) == 1.0
+
+
+def test_db_and_ddb_period_and_validation():
+    # DDB period bounds 1 <= period <= life
+    assert math.isnan(calc.ddb(1000, 100, 10, 0))
+    assert math.isnan(calc.ddb(1000, 100, 10, 11))
+    assert math.isnan(calc.ddb(-1000, 100, 10, 1))
+    val_ddb = calc.ddb(1000, 100, 10, 1)
+    assert not math.isnan(val_ddb) and val_ddb > 0
+
+    # DB period bounds 1 <= period <= life + 1
+    assert math.isnan(calc.db(10000, 1000, 5, 0, 12))
+    assert math.isnan(calc.db(10000, 1000, 5, 7, 12))
+    val_db = calc.db(10000, 1000, 5, 1, 12)
+    assert not math.isnan(val_db) and val_db > 0
+
+
+def test_decimal_validation():
+    # Valid radix conversions
+    assert calc.decimal("1F", 16) == 31.0
+    assert calc.decimal("1010", 2) == 10.0
+
+    # Invalid characters, prefixes, signs, underscores return NaN
+    assert math.isnan(calc.decimal("0x1F", 16))
+    assert math.isnan(calc.decimal("-10", 10))
+    assert math.isnan(calc.decimal("+10", 10))
+    assert math.isnan(calc.decimal("10_000", 10))
+    assert math.isnan(calc.decimal("123", 2))  # '2' and '3' are invalid in base 2
+
+
+def test_database_functions_no_match_returns_zero():
+    # Valid database with headers and rows
+    db = [["Name", "Score"], ["Alice", 10], ["Bob", 20]]
+    # Criteria matching nobody
+    crit = [["Name"], ["Charlie"]]
+
+    assert calc.dmax(db, "Score", crit) == 0.0
+    assert calc.dmin(db, "Score", crit) == 0.0
+    assert calc.dproduct(db, "Score", crit) == 0.0
+    assert calc.dsum(db, "Score", crit) == 0.0
+
+    # Invalid db/field returns NaN
+    assert math.isnan(calc.dmax("not_a_db", "Score", crit))
+    assert math.isnan(calc.dmin(db, 99, crit))
+
+
+def test_frequency_bincount():
+    data = [1, 2, 2, 3, 4, 7, 9]
+    bins = [3, 6, 10]
+    # <=3: 1, 2, 2, 3 (count 4)
+    # >3 and <=6: 4 (count 1)
+    # >6 and <=10: 7, 9 (count 2)
+    # >10: count 0
+    freqs = calc.frequency(data, bins)
+    assert freqs == [4, 1, 2, 0]
+

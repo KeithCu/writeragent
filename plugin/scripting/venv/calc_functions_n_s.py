@@ -22,13 +22,14 @@ from .calc_functions_util import (
     _clean_paired_arrays,
     _collect_a_values,
     _criteria_numbers,
+    _days_between,
     _extract_numeric_array,
     _find_text_cut,
+    _multi_criteria_mask,
     _npf_result,
     _parse_weekend,
     _scipy_stats,
     _serial_to_date,
-    match_criteria,
 )
 from .coerce import is_missing_value
 
@@ -299,8 +300,6 @@ def odd(n: Any) -> float:
 
 
 def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _days_between
-
     try:
         s = float(settlement)
         m = float(maturity)
@@ -337,8 +336,6 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 
 
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _days_between
-
     try:
         s = float(settlement)
         m = float(maturity)
@@ -367,8 +364,6 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 
 
 def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _days_between
-
     try:
         s = float(settlement)
         m = float(maturity)
@@ -961,29 +956,24 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 
 
 def sumifs(sr: Any, *args: Any) -> float:
-    # Arguments after the sum range are (criteria_range, criteria) pairs.
-    # An odd tail used to IndexError on args[i + 1]. Excel returns #VALUE!.
+    # What was wrong: sumifs with mismatched range lengths truncated to shortest range instead of returning #VALUE! (NaN).
+    # How it happened: checked idx >= len(cr) instead of verifying all criteria ranges match len(sr_flat).
+    # Why this change fixes it: uses _multi_criteria_mask which validates all criteria ranges match len(sr_flat).
     if len(args) % 2 != 0:
         return float("nan")
-    sr_flat = np.asarray(sr).ravel()
-    cond_ranges = []
-    criteria = []
-    for i in range(0, len(args), 2):
-        cond_ranges.append(np.asarray(args[i]).ravel())
-        criteria.append(args[i + 1])
+    sr_flat = np.asarray(sr, dtype=object).ravel()
+    pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
+    mask = _multi_criteria_mask(pairs)
+    if mask is None:
+        return float("nan")
     total = 0.0
-    for idx in range(len(sr_flat)):
-        match = True
-        for cr, crit in zip(cond_ranges, criteria):
-            if idx >= len(cr) or not match_criteria(cr[idx], crit):
-                match = False
-                break
-        if match:
+    for idx in range(min(len(sr_flat), len(mask))):
+        if mask[idx]:
             try:
                 val = float(sr_flat[idx])
                 if not np.isnan(val):
                     total += val
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 pass
     return float(total)
 

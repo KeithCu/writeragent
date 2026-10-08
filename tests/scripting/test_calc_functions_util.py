@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 import datetime as dt
 import math
 import numpy as np
+import pytest
 
 from plugin.scripting.venv.calc_functions_util import (
     _bessel_iv_jv,
@@ -444,6 +446,111 @@ def test_clean_paired_arrays():
 
     # Text cells return None
     assert _clean_paired_arrays(["a", "b"], [1, 2]) is None
+
+
+def test_int_shift_and_bitwise_limits():
+    import operator
+    from plugin.scripting.venv.calc_functions_util import _int_bitwise, _int_shift
+
+    # Shift cap |shift| <= 53
+    assert not math.isnan(_int_shift(1, 53, left=True))
+    assert math.isnan(_int_shift(1, 54, left=True))
+    assert math.isnan(_int_shift(1, -54, left=True))
+
+    # Bitwise range 0 <= n < 2^48
+    max_val = (1 << 48) - 1
+    assert not math.isnan(_int_bitwise(operator.and_, max_val, 1))
+    assert math.isnan(_int_bitwise(operator.and_, max_val + 1, 1))
+    assert math.isnan(_int_bitwise(operator.and_, -1, 1))
+
+
+def test_round_half_up():
+    from plugin.scripting.venv.calc_functions_util import _round_half_up
+
+    assert _round_half_up(2.5, 0) == Decimal("3")
+    assert _round_half_up(-2.5, 0) == Decimal("-3")
+    assert _round_half_up(1.25, 1) == Decimal("1.3")
+    assert _round_half_up(-1.25, 1) == Decimal("-1.3")
+
+    with pytest.raises(ValueError):
+        _round_half_up(float("nan"), 0)
+    with pytest.raises(ValueError):
+        _round_half_up(float("inf"), 0)
+
+
+def test_eval_d_criteria():
+    from plugin.scripting.venv.calc_functions_util import _eval_d_criteria
+
+    db = [["Tree", "Height"], ["Apple", 10], ["Pear", 15]]
+    # Match Pear
+    crit = [["Tree"], ["Pear"]]
+    vals = _eval_d_criteria(db, "Height", crit)
+    assert vals == [15.0]
+
+    # No match returns empty list []
+    crit_none = [["Tree"], ["Orange"]]
+    vals_none = _eval_d_criteria(db, "Height", crit_none)
+    assert vals_none == []
+
+    # Invalid db or field returns None
+    assert _eval_d_criteria("invalid_db", "Height", crit) is None
+    assert _eval_d_criteria(db, 99, crit) is None
+    assert _eval_d_criteria(db, "Height", "invalid_crit") is None
+
+
+def test_multi_criteria_mask():
+    from plugin.scripting.venv.calc_functions_util import _multi_criteria_mask
+
+    # Matching lengths
+    pairs = [([1, 2, 3], ">1"), (["a", "b", "c"], "<>a")]
+    mask = _multi_criteria_mask(pairs, base_len=3)
+    assert mask is not None
+    assert list(mask) == [False, True, True]
+
+    # Mismatched lengths returns None
+    pairs_bad = [([1, 2], ">0"), ([1, 2, 3], ">0")]
+    assert _multi_criteria_mask(pairs_bad) is None
+    assert _multi_criteria_mask(pairs, base_len=2) is None
+
+
+def test_get_coupon_dates_calendar_stepping():
+    from plugin.scripting.venv.calc_functions_util import _get_coupon_dates
+
+    # 2020-01-01 to 2020-06-01, freq=2, basis=0
+    p_ser, c_ser, days_in_per, k = _get_coupon_dates(43831, 43983, 2, 0)
+    assert p_ser == 43800.0  # 2019-12-01
+    assert c_ser == 43983.0  # 2020-06-01
+    assert days_in_per == 180.0
+    assert k == 1.0
+
+    # Invalid frequency or basis raises ValueError
+    with pytest.raises(ValueError):
+        _get_coupon_dates(43831, 43983, 3, 0)
+    with pytest.raises(ValueError):
+        _get_coupon_dates(43831, 43983, 2, 5)
+
+    # Settlement >= maturity raises ValueError
+    with pytest.raises(ValueError):
+        _get_coupon_dates(43983, 43831, 2, 0)
+
+
+def test_nan_on_error():
+    from plugin.scripting.venv.calc_functions_util import nan_on_error
+
+    @nan_on_error(ValueError, ZeroDivisionError)
+    def fail(x):
+        if x == 0:
+            raise ZeroDivisionError
+        if x < 0:
+            raise ValueError
+        return 10.0 / x
+
+    assert fail(2) == 5.0
+    assert math.isnan(fail(0))
+    assert math.isnan(fail(-1))
+    with pytest.raises(TypeError):
+        fail("bad")
+
 
 
 

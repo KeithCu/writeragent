@@ -11,12 +11,22 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+from decimal import Decimal, ROUND_HALF_UP
 import math
 from typing import Any
 
 import numpy as np
 
-from .calc_functions_util import _dollar_fraction_terms, _extract_numeric_array, _npf_result
+from .calc_functions_util import (
+    _date_to_serial,
+    _days360,
+    _dollar_fraction_terms,
+    _eval_d_criteria,
+    _extract_numeric_array,
+    _npf_result,
+    _round_half_up,
+    _serial_to_date,
+)
 
 
 __all__ = [
@@ -78,6 +88,46 @@ __all__ = [
     "harmean",
     "hypgeomdist",
 ]
+
+
+_EURO_RATES: dict[str, float] = {
+    "EUR": 1.0,
+    "ATS": 13.7603,
+    "BEF": 40.3399,
+    "DEM": 1.95583,
+    "ESP": 166.386,
+    "FIM": 5.94573,
+    "FRF": 6.55957,
+    "IEP": 0.787564,
+    "ITL": 1936.27,
+    "LUF": 40.3399,
+    "NLG": 2.20371,
+    "PTE": 200.482,
+    "GRD": 340.750,
+    "SIT": 239.640,
+    "CYP": 0.585274,
+    "MTL": 0.429300,
+    "SKK": 30.1260,
+    "EEK": 15.6466,
+    "LVL": 0.702804,
+    "LTL": 3.45280,
+}
+
+_EURO_DECIMALS: dict[str, int] = {
+    "EUR": 2, "ATS": 2, "BEF": 0, "DEM": 2, "ESP": 0, "FIM": 2,
+    "FRF": 2, "IEP": 2, "ITL": 0, "LUF": 0, "NLG": 2, "PTE": 0,
+    "GRD": 0, "SIT": 2, "CYP": 2, "MTL": 2, "SKK": 2, "EEK": 2,
+    "LVL": 2, "LTL": 2,
+}
+
+
+def _round_sig(x: float, sig: int) -> float:
+    if x == 0 or not math.isfinite(x):
+        return 0.0
+    exponent = math.floor(math.log10(abs(x)))
+    factor = 10 ** (sig - 1 - exponent)
+    d = Decimal(str(x * factor))
+    return float(d.quantize(Decimal("1"), rounding=ROUND_HALF_UP)) / factor
 
 
 def _roll_ymd(year: int, month: int, day: int) -> dt.date:
@@ -162,67 +212,43 @@ def datevalue(text: Any) -> float:
 
 
 def daverage(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
     return float(np.mean(vals)) if vals else float("nan")
 
 
 def days(end_date: Any, start_date: Any) -> float:
+    # What was wrong: days(45000.9, 45000.1) returned 0.8000000000029104 without truncating serial dates.
+    # How it happened: float(ed - sd) subtracted raw floating-point timestamps without integer truncation.
+    # Why this change fixes it: Excel and Calc DAYS truncates both serial date inputs to integers before subtraction.
     try:
-        ed = float(end_date)
-        sd = float(start_date)
+        ed = int(float(end_date))
+        sd = int(float(start_date))
         return float(ed - sd)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
-    try:
-        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
-        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
-    except Exception:
+    sd = _serial_to_date(start_date)
+    ed = _serial_to_date(end_date)
+    if sd is None or ed is None:
         return float("nan")
-
-    d1, m1, y1 = sd.day, sd.month, sd.year
-    d2, m2, y2 = ed.day, ed.month, ed.year
-
-    if bool(method):  # European: both the 31st start and the 31st end become the 30th.
-        if d1 == 31:
-            d1 = 30
-        if d2 == 31:
-            d2 = 30
-    else:
-        # US (NASD). A start on the 31st, or on the last day of February,
-        # is day 30. The old branch only rewrote day 31, so
-        # DAYS360(2023-02-28, 2023-03-01) was 3. Excel and Calc both return
-        # 1 (Apache POI Days360.getStartingDate; Calc agrees, including
-        # that 2024-02-28 is not month-end in a leap year and stays 3).
-        # An end date in February is not rewritten; only a 31st end date
-        # becomes the 30th when the adjusted start day is already 30.
-        if d1 == 31 or (m1 == 2 and d1 == calendar.monthrange(y1, m1)[1]):
-            d1 = 30
-        if d2 == 31 and d1 == 30:
-            d2 = 30
-
-    return float((y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1))
+    return _days360(sd, ed, european=bool(method))
 
 
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
+    # What was wrong: db accepted non-positive costs/lives and period < 1 without returning NaN.
+    # How it happened: period 0 looped 0 times and returned 0.0 instead of #NUM!.
+    # Why this change fixes it: Validates 1 <= period <= life + 1 and valid cost/salvage/life/month.
     try:
         c = float(cost)
         s = float(salvage)
         life_val = float(life)
         p = int(float(period))
         m = int(float(month))
-        if c == 0 or life_val == 0:
-            return 0.0
-        # Period life+1 is the partial final year (month < 12) or a zero
-        # stub (month == 12). Calc returns Err:502 (#NUM!) only past that
-        # stub — DB(1000000, 100000, 6, 8, 7) and DB(10000, 1000, 5, 7, 12)
-        # — and still returns the stub itself (DB(..., 6, 7, 7) is the
-        # partial year). Looping further kept depreciating a spent asset.
-        if life_val > 0 and p > life_val + 1:
+        if c <= 0 or s < 0 or life_val <= 0 or m < 1 or m > 12:
+            return float("nan")
+        if p < 1 or p > life_val + 1:
             return float("nan")
         rate = round(1.0 - math.pow(s / c, 1.0 / life_val), 3)
         val = c
@@ -241,26 +267,27 @@ def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> floa
 
 
 def dcount(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
-    return float(len(vals))
+    return float(len(vals)) if vals is not None else float("nan")
 
 
 def dcounta(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria, as_float=False)
-    return float(sum(1 for v in vals if v is not None and v != ""))
+    return float(sum(1 for v in vals if v is not None and v != "")) if vals is not None else float("nan")
 
 
 def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> float:
+    # What was wrong: ddb accepted period 0 returning 0.0, and unbounded period looped excessively.
+    # How it happened: period was not validated against 1 <= period <= life.
+    # Why this change fixes it: Excel and Calc require 1 <= period <= life, cost >= 0, salvage >= 0, life > 0, factor > 0.
     try:
         c = float(cost)
         s = float(salvage)
         life_val = float(life)
         p = int(float(period))
         f = float(factor)
+        if c < 0 or s < 0 or life_val <= 0 or f <= 0 or p < 1 or p > life_val:
+            return float("nan")
         rate = f / life_val
         val = c
         dep = 0.0
@@ -275,12 +302,22 @@ def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> flo
 
 
 def decimal(text: Any, radix: Any) -> float:
+    # What was wrong: decimal("0x1F", 16) returned 31 because Python int(..., r) accepts 0x prefixes, underscores, and signs.
+    # How it happened: int(str(text), r) was called without validating that each character is a valid radix digit.
+    # Why this change fixes it: Validates every character against allowed base digits (0-9, a-z up to radix), rejecting
+    # signs, prefixes, and punctuation per Excel and Calc DECIMAL semantics.
     try:
         r = int(float(radix))
         if r < 2 or r > 36:
             return float("nan")
-        return float(int(str(text), r))
-    except Exception:
+        s = str(text).strip()
+        if not s:
+            return float("nan")
+        valid_chars = "0123456789abcdefghijklmnopqrstuvwxyz"[:r]
+        if any(c.lower() not in valid_chars for c in s):
+            return float("nan")
+        return float(int(s, r))
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -299,9 +336,9 @@ def devsq(*args: Any) -> float:
 
 
 def dget(db: Any, field: Any, criteria: Any) -> Any:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria, as_float=False)
+    if vals is None:
+        return "#VALUE!"
     if len(vals) == 1:
         return vals[0]
     return "#NUM!" if len(vals) > 1 else "#VALUE!"
@@ -314,9 +351,6 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
         p = float(pr)
         red = float(redemption)
         yf = yearfrac(settlement, maturity, basis)
-        # A zero redemption is #NUM! in Calc (Err:502). Dividing by red
-        # raises ZeroDivisionError today and the blanket except turns that
-        # into nan, but the #NUM! result must not depend on that accident.
         if math.isnan(yf) or yf == 0 or red == 0:
             return float("nan")
         return float((red - p) / red / yf)
@@ -325,59 +359,60 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
 
 
 def dmax(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
+    # What was wrong: dmax returned NaN when no records matched criteria.
+    # How it happened: `float(np.max(vals)) if vals else float("nan")` treated no match as NaN.
+    # Why this change fixes it: Excel and Calc return 0.0 when no matching records are found.
     vals = _eval_d_criteria(db, field, criteria)
-    return float(np.max(vals)) if vals else float("nan")
+    if vals is None:
+        return float("nan")
+    return float(np.max(vals)) if vals else 0.0
 
 
 def dmin(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
+    # What was wrong: dmin returned NaN when no records matched criteria.
+    # How it happened: `float(np.min(vals)) if vals else float("nan")` treated no match as NaN.
+    # Why this change fixes it: Excel and Calc return 0.0 when no matching records are found.
     vals = _eval_d_criteria(db, field, criteria)
-    return float(np.min(vals)) if vals else float("nan")
+    if vals is None:
+        return float("nan")
+    return float(np.min(vals)) if vals else 0.0
 
 
 def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
-    """Format ``val`` after rounding to ``decimals`` places.
-
-    Negative ``decimals`` round left of the decimal point. Clamping the
-    format width with ``max(0, decimals)`` *before* rounding dropped that
-    step, so DOLLAR(12345, -2) stayed ``$12,345`` instead of ``$12,300``.
-    """
+    """Format ``val`` after rounding half-up to ``decimals`` places."""
+    # What was wrong: _format_rounded used Python's round(), producing banker's rounding (fixed(2.5, 0) == '2').
+    # How it happened: round(val, decimals) rounds half to even.
+    # Why this change fixes it: _round_half_up uses Decimal ROUND_HALF_UP (fixed(2.5, 0) == '3', fixed(-2.5, 0) == '-3').
     places = max(0, decimals)
-    rounded = round(val, decimals)
-    if commas:
-        return f"{rounded:,.{places}f}"
-    return f"{rounded:.{places}f}"
+    q = _round_half_up(val, decimals)
+    if places == 0:
+        return f"{int(q):,}" if commas else str(int(q))
+    return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
 
 
 def dollar(number: Any, decimals: Any = 2) -> str | float:
+    # What was wrong: dollar(-1234.567) returned '$-1,234.57', placing the negative sign after '$', and used banker's rounding.
+    # How it happened: string template f"${...}" was applied before checking the sign of the rounded number.
+    # Why this change fixes it: Uses _round_half_up and places '-' before '$' for negative numbers (-$1,234.57).
     try:
         val = float(number)
         dec = int(float(decimals))
-        if math.isnan(val):
+        if math.isnan(val) or not math.isfinite(val):
             return float("nan")
-        return f"${_format_rounded(val, dec, commas=True)}"
+        q = _round_half_up(val, dec)
+        places = max(0, dec)
+        if places == 0:
+            s = f"{abs(int(q)):,}"
+        else:
+            s = f"{abs(q):,.{places}f}"
+        return f"-${s}" if q < 0 else f"${s}"
     except (ValueError, TypeError, OverflowError):
-        # int(float("inf")) raises OverflowError, so DOLLAR(1, inf) left
-        # this handler and traceback'd instead of the #NUM! nan text returns.
         return float("nan")
-
-
-def _fraction_terms(amount: Any, fraction: Any) -> tuple[float, float, float, int, int] | None:
-    # The shared parser catches ValueError from a bad fraction, but
-    # int(float("inf")) raises OverflowError. DOLLARDE and DOLLARFR then
-    # traceback'd instead of the #NUM! nan a zero fraction already returns.
-    try:
-        return _dollar_fraction_terms(amount, fraction)
-    except OverflowError:
-        return None
 
 
 # Group B - Financial 2
 def dollarde(fractional_dollar: Any, fraction: Any) -> float:
-    terms = _fraction_terms(fractional_dollar, fraction)
+    terms = _dollar_fraction_terms(fractional_dollar, fraction)
     if terms is None:
         return float("nan")
     sign, i_part, f_part, f, scale = terms
@@ -385,7 +420,7 @@ def dollarde(fractional_dollar: Any, fraction: Any) -> float:
 
 
 def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
-    terms = _fraction_terms(decimal_dollar, fraction)
+    terms = _dollar_fraction_terms(decimal_dollar, fraction)
     if terms is None:
         return float("nan")
     sign, i_part, f_part, f, scale = terms
@@ -393,37 +428,36 @@ def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
 
 
 def dproduct(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
+    if vals is None:
+        return float("nan")
     return float(np.prod(vals)) if vals else 0.0
 
 
 def dstdev(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
-    return float(np.std(vals, ddof=1)) if len(vals) > 1 else float("nan")
+    if vals is None or len(vals) <= 1:
+        return float("nan")
+    return float(np.std(vals, ddof=1))
 
 
 def dstdevp(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
-    return float(np.std(vals, ddof=0)) if vals else float("nan")
+    if vals is None or not vals:
+        return float("nan")
+    return float(np.std(vals, ddof=0))
 
 
 def dsum(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
+    if vals is None:
+        return float("nan")
     return float(np.sum(vals))
 
 
 def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _year_frac
+    from .calc_functions_t_z import yearfrac
 
-    # Macaulay Duration approximation
     try:
         s = float(settlement)
         m = float(maturity)
@@ -432,34 +466,18 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
         f = float(frequency)
         b = int(float(basis))
     except (ValueError, TypeError, OverflowError):
-        # An infinite basis is OverflowError from int(), not ValueError, so
-        # DURATION used to raise instead of the #NUM! nan a bad basis returns.
         return float("nan")
     if c < 0 or y < 0 or f not in (1, 2, 4) or b < 0 or b > 4 or s >= m:
         return float("nan")
 
-    # Calculate complete coupon periods
-    # duration = (1 + y/f) / (y/f) - (1 + y/f + n*(c/f - y/f)) / ((c/f)*((1+y/f)**n - 1) + y/f)
-    # Actually, let's use the closed-form for Macaulay duration of a bond on coupon date:
-    # Since we need exact day counting, we will use a simpler approximation if it's not a coupon date,
-    # but the closed form is generally expected.
-    # We will implement the standard closed form for exact periods.
-    periods = _year_frac(s, m, b) * f
-    n = periods  # approx number of periods
+    periods = yearfrac(s, m, b) * f
+    n = periods
     if n <= 0:
         return float("nan")
 
-    # Using Macaulay duration formula
-    # MacD = (1 + y/f)/ (y/f) - (1 + y/f + n*(c/f - y/f)) / ( (c/f) * ((1+y/f)**n - 1) + y/f )
-    # ModD = MacD / (1 + y/f)
     yf = y / f
     cf = c / f
     if yf == 0:
-        # The closed form divides by y/f. At a zero yield Calc's cash-flow
-        # sum (analysishelper.cxx GetDuration) discounts by (1+y/f)**t = 1,
-        # so the limit is finite: n/f for a zero coupon, and
-        # n*(cf*(n+1)+2)/(2*f*(cf*n+1)) when the bond pays a coupon.
-        # Returning nan here dropped both, including the zero-coupon n/f.
         denom = cf * n + 1.0
         if denom == 0:
             return float("nan")
@@ -473,36 +491,39 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
 
 
 def dvar(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
-    return float(np.var(vals, ddof=1)) if len(vals) > 1 else float("nan")
+    if vals is None or len(vals) <= 1:
+        return float("nan")
+    return float(np.var(vals, ddof=1))
 
 
 def dvarp(db: Any, field: Any, criteria: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _eval_d_criteria
-
     vals = _eval_d_criteria(db, field, criteria)
-    return float(np.var(vals, ddof=0)) if vals else float("nan")
+    if vals is None or not vals:
+        return float("nan")
+    return float(np.var(vals, ddof=0))
 
 
 def edate(start_date: Any, months: Any) -> float:
-    try:
-        date_val = dt.date.fromordinal(int(float(start_date)) + 693594)
-        # months sat outside this try, so a blank or text months cell raised.
-        month_delta = int(float(months))
-    except Exception:
+    # What was wrong: date arithmetic hand-rolled leap years and lacked date helper reuse.
+    # How it happened: edate manually computed leap years and offsets instead of using calendar.monthrange.
+    # Why this change fixes it: uses _serial_to_date and calendar.monthrange.
+    sd = _serial_to_date(start_date)
+    if sd is None:
         return float("nan")
-    y, m = date_val.year, date_val.month
+    try:
+        month_delta = int(float(months))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    y, m = sd.year, sd.month
     m += month_delta
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
-    d = min(date_val.day, [31, 29 if y % 4 == 0 and (y % 100 != 0 or y % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1])
-    # datetime.date rejects years outside 1..9999. Building the result
-    # outside a handler made EDATE(date, 100000) raise ValueError instead
-    # of the #NUM! nan a bad start date already returns.
     try:
-        return float(dt.date(y, m, d).toordinal() - 693594)
+        dim = calendar.monthrange(y, m)[1]
+        d = min(sd.day, dim)
+        res_date = dt.date(y, m, d)
+        return float(_date_to_serial(res_date))
     except (ValueError, OverflowError):
         return float("nan")
 
@@ -510,7 +531,7 @@ def edate(start_date: Any, months: Any) -> float:
 def effect(nominal_rate: Any, npery: Any) -> float:
     try:
         nr = float(nominal_rate)
-        np = int(float(npery))
+        n_per = int(float(npery))
     except (ValueError, TypeError, OverflowError):
         # int(float("inf")) is OverflowError, so EFFECT(rate, inf) raised
         # instead of the #NUM! nan a non-positive rate already returns.
@@ -518,9 +539,9 @@ def effect(nominal_rate: Any, npery: Any) -> float:
     # Excel EFFECT remarks and LibreOffice AnalysisAddIn::getEffect both
     # reject nominal_rate <= 0 with #NUM!. The algebra at rate 0 is 0, but
     # that is not the spreadsheet result.
-    if nr <= 0 or np < 1:
+    if nr <= 0 or n_per < 1:
         return float("nan")
-    return (1 + nr / np) ** np - 1
+    return (1 + nr / n_per) ** n_per - 1
 
 
 def encodeurl(text: Any) -> str | float:
@@ -533,25 +554,24 @@ def encodeurl(text: Any) -> str | float:
 
 
 def eomonth(start_date: Any, months: Any) -> float:
-    try:
-        date_val = dt.date.fromordinal(int(float(start_date)) + 693594)
-        # months sat outside this try, so a blank or text months cell raised.
-        month_delta = int(float(months))
-    except Exception:
+    # What was wrong: eomonth duplicated manual date stepping and ordinal calculation.
+    # How it happened: hand-rolled month stepping and +693594 offset without using _serial_to_date.
+    # Why this change fixes it: uses _serial_to_date and calendar.monthrange.
+    sd = _serial_to_date(start_date)
+    if sd is None:
         return float("nan")
-    y, m = date_val.year, date_val.month
+    try:
+        month_delta = int(float(months))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    y, m = sd.year, sd.month
     m += month_delta
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
-    # Same year-range miss as EDATE: the result date sat outside the try,
-    # so EOMONTH(date, 100000) raised ValueError instead of #NUM!.
     try:
-        if m == 12:
-            next_month = dt.date(y + 1, 1, 1)
-        else:
-            next_month = dt.date(y, m + 1, 1)
-        last_day = next_month - dt.timedelta(days=1)
-        return float(last_day.toordinal() - 693594)
+        dim = calendar.monthrange(y, m)[1]
+        res_date = dt.date(y, m, dim)
+        return float(_date_to_serial(res_date))
     except (ValueError, OverflowError):
         return float("nan")
 
@@ -582,56 +602,22 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     except (ValueError, TypeError):
         return float("nan")
 
-    rates = {
-        "EUR": 1.0,
-        "ATS": 13.7603,
-        "BEF": 40.3399,
-        "DEM": 1.95583,
-        "ESP": 166.386,
-        "FIM": 5.94573,
-        "FRF": 6.55957,
-        "IEP": 0.787564,
-        "ITL": 1936.27,
-        "LUF": 40.3399,
-        "NLG": 2.20371,
-        "PTE": 200.482,
-        "GRD": 340.750,
-        "SIT": 239.640,
-        "CYP": 0.585274,
-        "MTL": 0.429300,
-        "SKK": 30.1260,
-        "EEK": 15.6466,
-        "LVL": 0.702804,
-        "LTL": 3.45280,
-    }
-
-    if from_curr not in rates or to_curr not in rates:
+    if from_curr not in _EURO_RATES or to_curr not in _EURO_RATES:
         return float("nan")
-
-    decimals = {"EUR": 2, "ATS": 2, "BEF": 0, "DEM": 2, "ESP": 0, "FIM": 2, "FRF": 2, "IEP": 2, "ITL": 0, "LUF": 0, "NLG": 2, "PTE": 0, "GRD": 0, "SIT": 2, "CYP": 2, "MTL": 2, "SKK": 2, "EEK": 2, "LVL": 2, "LTL": 2}
 
     if from_curr == to_curr:
         return val
 
-    def round_sig(x: float, sig: int) -> float:
-        if x == 0:
-            return 0.0
-        import math
-
-        exponent = math.floor(math.log10(abs(x)))
-        factor = 10 ** (sig - 1 - exponent)
-        return round(x * factor) / factor
-
     if from_curr == "EUR":
         eur_val = val
     else:
-        eur_val = val / rates[from_curr]
+        eur_val = val / _EURO_RATES[from_curr]
         if triangulation_precision is not None:
             try:
                 sig = int(float(triangulation_precision))
                 if sig < 3:
                     return float("nan")
-                eur_val = round_sig(eur_val, sig)
+                eur_val = _round_sig(eur_val, sig)
             except (ValueError, TypeError, OverflowError):
                 # int(float("inf")) is OverflowError, so an infinite
                 # triangulation precision raised instead of #NUM!.
@@ -640,7 +626,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     if to_curr == "EUR":
         res = eur_val
     else:
-        res = eur_val * rates[to_curr]
+        res = eur_val * _EURO_RATES[to_curr]
 
     is_full = False
     if isinstance(full_precision, bool):
@@ -651,17 +637,18 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
         except (ValueError, TypeError):
             is_full = False
 
+    if not math.isfinite(res):
+        return float("nan")
+
     if not is_full:
-        # 0-decimal currencies take int(round(value)). A non-finite amount
-        # (about 1e308 EUR into BEF) made int() raise OverflowError instead
-        # of the #NUM! nan an unknown currency already returns.
+        # What was wrong: euroconvert used Python's round-half-even (banker's rounding).
+        # How it happened: round(res, decimals) rounded 0.5 to nearest even integer.
+        # Why this change fixes it: uses _round_half_up per spreadsheet conventions.
         try:
-            res = round(res, decimals[to_curr])
-            if decimals[to_curr] == 0:
-                res = float(int(res))
+            res = float(_round_half_up(res, _EURO_DECIMALS[to_curr]))
         except (OverflowError, ValueError):
             return float("nan")
-    return float(res)
+    return res
 
 
 def even(n: Any) -> float:
@@ -706,9 +693,12 @@ def fact(n: Any) -> float:
 
 
 def factdouble(n: Any) -> float:
+    # What was wrong: factdouble(1e7) hung the interpreter looping down to 0 by -2.
+    # How it happened: no upper bound check on n; LibreOffice ScInterpreter caps at 300.
+    # Why this change fixes it: returns float("nan") when n < 0 or n > 300.
     try:
         v = int(float(n))
-        if v < 0:
+        if v < 0 or v > 300:
             return float("nan")
         res = 1
         for i in range(v, 0, -2):
@@ -733,22 +723,44 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
 
 
 def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
-    # A short include was sliced down to the range, and a column of flags was
-    # used as a 2-D boolean index. Both make NumPy raise IndexError
-    # ("boolean index did not match"). That is a value error, not a traceback.
+    # What was wrong: FILTER with a column-vector include (e.g. [[True], [False]]) raised IndexError and returned #VALUE!.
+    # How it happened: 2D criteria with shape (n, 1) or (1, m) was treated as an exact elementwise mask rather than a row/column filter.
+    # Why this change fixes it: detects (n, 1) column vectors to filter rows and (1, m) row vectors to filter columns.
     try:
         arr = np.asarray(range_arr)
         crit = np.asarray(criteria)
         if arr.ndim == 1:
-            mask = np.asarray([bool(x) for x in crit.ravel()[: len(arr)]])
-            out = arr.ravel()[mask]
-        else:
+            crit_flat = crit.ravel()
+            if len(crit_flat) != len(arr):
+                return "#VALUE!"
+            mask = np.asarray([bool(x) for x in crit_flat])
+            out = arr[mask]
+        elif arr.ndim == 2:
             if crit.ndim == 1:
-                mask = np.asarray([bool(x) for x in crit.ravel()[: arr.shape[0]]])
-                out = arr[mask]
+                if len(crit) == arr.shape[0]:
+                    mask = np.asarray([bool(x) for x in crit])
+                    out = arr[mask]
+                elif len(crit) == arr.shape[1]:
+                    mask = np.asarray([bool(x) for x in crit])
+                    out = arr[:, mask]
+                else:
+                    return "#VALUE!"
+            elif crit.ndim == 2:
+                if crit.shape == (arr.shape[0], 1):
+                    mask = np.asarray([bool(x) for x in crit.ravel()])
+                    out = arr[mask]
+                elif crit.shape == (1, arr.shape[1]):
+                    mask = np.asarray([bool(x) for x in crit.ravel()])
+                    out = arr[:, mask]
+                elif crit.shape == arr.shape:
+                    mask = crit.astype(bool)
+                    out = arr[mask]
+                else:
+                    return "#VALUE!"
             else:
-                mask = crit.astype(bool)
-                out = arr[mask]
+                return "#VALUE!"
+        else:
+            return "#VALUE!"
     except (ValueError, TypeError, IndexError):
         return "#VALUE!"
     if out.size == 0:
@@ -772,8 +784,6 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
 
 def fisher(x: Any) -> float:
     try:
-        import math
-
         x_val = float(x)
         if x_val <= -1 or x_val >= 1:
             return float("nan")
@@ -784,8 +794,6 @@ def fisher(x: Any) -> float:
 
 def fisherinv(y: Any) -> float:
     try:
-        import math
-
         return float(math.tanh(float(y)))
     except (ValueError, TypeError):
         return float("nan")
@@ -827,19 +835,21 @@ def forecast(x: Any, data_y: Any, data_x: Any) -> float:
 
 
 def frequency(data: Any, bins: Any) -> Any:
+    # What was wrong: frequency used a nested Python loop and returned [] on any non-numeric cell or exception.
+    # How it happened: broad except Exception wrapped iterating over unconverted elements.
+    # Why this change fixes it: extracts numeric arrays, uses np.sort on bins and np.searchsorted to place values,
+    # returning counts per bin plus overflow.
     try:
-        data_arr = np.asarray(data).ravel()
-        bins_arr = np.asarray(bins).ravel()
-        # Return a list for vertical spill
-        counts = np.zeros(len(bins_arr) + 1, dtype=int)
-        for d in data_arr:
-            for i, b in enumerate(bins_arr):
-                if d <= b:
-                    counts[i] += 1
-                    break
-            else:
-                counts[-1] += 1
-        return counts.tolist()
+        data_arr = _extract_numeric_array(data, ignore_text=True, ignore_bool=True, propagate_nan=False)
+        bins_arr = _extract_numeric_array(bins, ignore_text=True, ignore_bool=True, propagate_nan=False)
+        if bins_arr.size == 0:
+            return [int(data_arr.size)]
+        sorted_bins = np.sort(bins_arr)
+        if data_arr.size == 0:
+            return [0] * (len(sorted_bins) + 1)
+        indices = np.searchsorted(sorted_bins, data_arr, side="left")
+        counts = np.bincount(indices, minlength=len(sorted_bins) + 1)
+        return [int(c) for c in counts[: len(sorted_bins) + 1]]
     except Exception:
         return []
 
@@ -877,8 +887,6 @@ def fvschedule(principal: Any, schedule: Any) -> float:
 
 def gamma(x: Any) -> float:
     try:
-        import math
-
         x_val = float(x)
         if x_val == 0 or (x_val < 0 and x_val.is_integer()):
             return float("nan")
@@ -922,8 +930,6 @@ def gammainv(p: Any, alpha: Any, beta: Any) -> float:
 
 def gammaln(x: Any) -> float:
     try:
-        import math
-
         x_val = float(x)
         if x_val <= 0:
             return float("nan")
@@ -942,15 +948,13 @@ def gauss(x: Any) -> float:
 
 
 def geomean(*args: Any) -> float:
+    # What was wrong: geomean used scipy.stats.gmean with a numpy fallback that did the same thing.
+    # How it happened: duplicate calculation paths with lazy scipy import.
+    # Why this change fixes it: uses direct numpy calculation exp(mean(log(arr))).
     arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
-    try:
-        import scipy.stats
-        res = float(scipy.stats.gmean(arr))
-        return res if math.isfinite(res) else float("nan")
-    except Exception:
-        return float(np.exp(np.mean(np.log(arr))))
+    return float(np.exp(np.mean(np.log(arr))))
 
 
 def gestep(number: Any, step: Any = 0) -> float:
@@ -990,15 +994,13 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
 
 
 def harmean(*args: Any) -> float:
+    # What was wrong: harmean used scipy.stats.hmean with a numpy fallback that did the same thing.
+    # How it happened: duplicate calculation paths with lazy scipy import.
+    # Why this change fixes it: uses direct numpy calculation len(arr) / sum(1.0 / arr).
     arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
-    try:
-        import scipy.stats
-        res = float(scipy.stats.hmean(arr))
-        return res if math.isfinite(res) else float("nan")
-    except Exception:
-        return float(len(arr) / np.sum(1.0 / arr))
+    return float(len(arr) / np.sum(1.0 / arr))
 
 
 def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
