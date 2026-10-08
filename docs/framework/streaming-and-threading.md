@@ -327,7 +327,7 @@ Smolagents (`ToolCallingAgent.process_tool_calls`) uses the same rule: multiple 
 
 - Sets a **thread-safe** cancelled flag (`scope.is_cancelled()`).
 - Calls `stop()` on every **`LlmClient`** registered for that send (closes the persistent HTTP socket so blocking reads fail fast).
-- Cancels pending main-thread queue work on every **bound** [`QueueExecutor`](../../plugin/framework/queue_executor.py) (`bind_executor` / `agent_session` binds `default_executor`; the sidebar also binds its panel `queue_executor`). A scope with no binds only latches the flag. Stop before `_run_send_drain` is that window: the panel queue is not bound yet, and wiping `default_executor` would cancel unrelated MCP, grammar, and peer items. Runs registered agent-backend `stop()` hooks.
+- Cancels pending main-thread queue work on every **bound** [`QueueExecutor`](../../plugin/framework/queue_executor.py) (`bind_executor` / `agent_session` binds `default_executor`; the sidebar also binds its panel `queue_executor`). A scope with no binds only latches the flag. Scoped cancel re-inserts other sends' items under `_order_lock` before any new enqueue can pass them, then pokes. Stop before `_run_send_drain` is that window: the panel queue is not bound yet, and wiping `default_executor` would cancel unrelated MCP, grammar, and peer items. Runs registered agent-backend `stop()` hooks.
 
 #### When `agent_session` cancels (abort vs success)
 

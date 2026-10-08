@@ -100,9 +100,13 @@ def set_test_poke_handler(handler: Callable[["QueueExecutor"], None] | None) -> 
     _test_poke_handler = handler
 
 
+class _ScopeUnset:
+    """Marker: enqueue reads the current send instead of a caller-supplied scope."""
+
+
 # ``_enqueue_work`` reads the current send unless the caller passes the scope
 # that was current when a pending post was stored.
-_SCOPE_UNSET = object()
+_SCOPE_UNSET = _ScopeUnset()
 
 
 class SendCancelled(Exception):
@@ -198,6 +202,17 @@ class SendCancellation:
 
 def get_current_send_cancellation() -> SendCancellation | None:
     return _current_send_cancellation.get()
+
+
+def _resolve_bound_scope(bound_scope: SendCancellation | None | _ScopeUnset) -> SendCancellation | None:
+    """Current send when the caller did not pass a scope.
+
+    ``is _SCOPE_UNSET`` is the only unset value. Checkers do not narrow ``is``
+    against a class instance, so the else branch is cast.
+    """
+    if bound_scope is _SCOPE_UNSET:
+        return get_current_send_cancellation()
+    return cast("SendCancellation | None", bound_scope)
 
 
 def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[], bool] | None = None) -> Callable[[], bool]:
@@ -422,8 +437,9 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
     finally:
         with _GRAMMAR_INFLIGHT_CV:
             _GRAMMAR_INFLIGHT_COUNT = max(0, _GRAMMAR_INFLIGHT_COUNT - 1)
-            # One release frees one slot. notify_all woke every waiter; the
-            # extras rechecked the count and slept again.
+            # One release frees one slot, so wake one waiter. notify_all() woke
+            # every waiter; the extras rechecked the count and slept again.
+            # CPython's condition deque is FIFO, so the oldest waiter runs.
             _GRAMMAR_INFLIGHT_CV.notify()
 
 
@@ -493,10 +509,16 @@ class QueueExecutor:
         with self._init_lock:
             if self._ctx is not raw:
                 self._ctx = raw
-                # Reset initialization so AsyncCallback is re-created with the updated context if needed
+                # Reset initialization so AsyncCallback is re-created with the updated context if needed.
+                # What was wrong: a failed marshal latched the two log flags, and this
+                # reset cleared the service but not the flags. A later context's
+                # missing-ctx or toolkit failure stayed silent. Why: one warning
+                # per context object; the same object keeps the latch.
                 self._initialized = False
                 self._async_callback_service = None
                 self._callback_instance = None
+                self._logged_missing_ctx = False
+                self._logged_async_callback_failure = False
         # Posts queued before AsyncCallback existed used to sit until the next
         # marshal created it. When any are waiting, create the callback now and
         # flush them. _get_async_callback takes _init_lock; call it only after
@@ -570,6 +592,16 @@ class QueueExecutor:
         if pending:
             self._poke_main_thread()
 
+    # Unwrap Layer A proxies before any UNO getattr. Creating AsyncCallback
+    # from a worker is the marshal bootstrap: if the guard fires here it calls
+    # execute_on_main_thread while ``_init_lock`` is held, and the UI thread
+    # deadlocks in set_context(). Two defenses prevent this:
+    #   1. _unwrap_uno() strips the guard proxy so UNO calls below don't
+    #      trigger assert_main_thread at all.
+    #   2. _notify_thread_violation (thread_guard.py) bails early when
+    #      ``not default_executor._initialized``, which is exactly the state
+    #      while this lock is held.
+    # If you refactor here, preserve both or the bootstrap deadlocks.
     def _get_async_callback(self) -> Any:
         """Lazily create the AsyncCallback UNO service and XCallback instance."""
         if self._initialized:
@@ -593,18 +625,7 @@ class QueueExecutor:
                 # uno.getComponentContext() can return a different context and
                 # cause AsyncCallback to be created in the wrong context — silently
                 # making execute() pokes no-ops. Missing ctx is logged, not probed.
-                #
-                # Unwrap Layer A proxies before any UNO getattr. Creating
-                # AsyncCallback from a worker is the marshal bootstrap: if the
-                # guard fires here it calls execute_on_main_thread while this
-                # lock is held, and the UI thread deadlocks in set_context().
-                # Two defenses prevent this:
-                #   1. _unwrap_uno() strips the guard proxy so UNO calls below
-                #      don't trigger assert_main_thread at all.
-                #   2. _notify_thread_violation (thread_guard.py) bails early
-                #      when ``not default_executor._initialized``, which is
-                #      exactly the state while this lock is held.
-                # If you refactor here, preserve both or the bootstrap deadlocks.
+                # Unwrap before any UNO getattr (see the note above this method).
                 from plugin.framework.thread_guard import _unwrap_uno
 
                 ctx = _unwrap_uno(self._ctx)
@@ -670,19 +691,6 @@ class QueueExecutor:
         if item.blocking and item.event and not item.event.is_set():
             item.exception = SendCancelled()
             item.event.set()
-
-    def _offer_work_items(self, items: list[_WorkItem]) -> None:
-        """Enqueue or requeue. Callers do not use ``Queue.put``.
-
-        What was wrong: ``cancel_pending_work`` put survivors back with a raw
-        ``Queue.put``. ``process_queue`` decides whether to poke from
-        ``empty()`` outside the lock, so those items sat until some later
-        enqueue and a blocking execute hit its timeout.
-        """
-        if not items:
-            return
-        self._put_work_items(items)
-        self._poke_main_thread()
 
     def _put_work_items(self, items: list[_WorkItem]) -> None:
         """Put *items* under ``_claim_lock`` without poking."""
@@ -773,38 +781,43 @@ class QueueExecutor:
     def cancel_pending_work(self, scope: SendCancellation | None = None) -> None:
         """Mark queued main-thread work as cancelled and wake blocking waiters.
 
-        Drain and mark under ``_claim_lock``. ``_enqueue_work`` puts under the
-        same lock. A put used to land after this loop saw an empty queue and
-        before the lock, so Stop left that item runnable.
+        Drain, mark, and put survivors back under ``_order_lock`` then
+        ``_claim_lock`` — the same order as ``_enqueue_work``. What was wrong:
+        the drain released ``_claim_lock`` and re-queued survivors afterwards,
+        so a put in that gap landed ahead of older work from another send.
+        A put that only took ``_claim_lock`` after the drain had already seen
+        an empty queue used to stay runnable too. The poke runs after both
+        locks drop: a test handler re-enters ``process_queue``, and holding a
+        lock across that poke deadlocks. ``_put_work_items`` is not used here
+        because it acquires ``_claim_lock`` again (``Lock`` is not re-entrant).
 
         A *scope* cancels only items enqueued under that send. Other items go
         back in order. Stop used to wipe MCP, grammar, and peer marshals that
-        share ``default_executor``.         No scope still drains the whole queue.
+        share ``default_executor``. No scope still drains the whole queue.
         """
         kept_any = False
-        keep: list[_WorkItem] = []
-        with self._claim_lock:
-            pending: list[_WorkItem] = []
-            while True:
-                try:
-                    pending.append(self._work_queue.get_nowait())
-                except queue.Empty:
-                    break
-            keep = []
-            for item in pending:
-                if scope is not None and item.scope is not scope:
-                    keep.append(item)
-                    continue
-                item.cancelled = True
-                if item.blocking and item.event and not item.event.is_set():
-                    item.exception = SendCancelled()
-                    item.event.set()
-            kept_any = bool(keep)
-        # Requeue through the same offer as enqueue, after this drain releases
-        # the lock. ``_offer_work_items`` pokes. Holding the lock across the
-        # poke would deadlock a test handler that re-enters ``process_queue``.
+        with self._order_lock:
+            with self._claim_lock:
+                pending: list[_WorkItem] = []
+                while True:
+                    try:
+                        pending.append(self._work_queue.get_nowait())
+                    except queue.Empty:
+                        break
+                keep: list[_WorkItem] = []
+                for item in pending:
+                    if scope is not None and item.scope is not scope:
+                        keep.append(item)
+                        continue
+                    item.cancelled = True
+                    if item.blocking and item.event and not item.event.is_set():
+                        item.exception = SendCancelled()
+                        item.event.set()
+                for item in keep:
+                    self._work_queue.put(item)
+                kept_any = bool(keep)
         if kept_any:
-            self._offer_work_items(keep)
+            self._poke_main_thread()
         # Pending posts are not on the work queue yet. A later flush used to
         # enqueue them under whatever send was current then, so Stop did not
         # drop the posts from the cancelled scope.
@@ -815,12 +828,9 @@ class QueueExecutor:
                 self._pending_posts = [row for row in self._pending_posts if row[3] is not scope]
             self._pending_lock.notify_all()
 
-    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: Any = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
+    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
         """Add work item to queue. *poke* False lets a batch caller poke once."""
-        if bound_scope is _SCOPE_UNSET:
-            scope = get_current_send_cancellation()
-        else:
-            scope = bound_scope
+        scope = _resolve_bound_scope(bound_scope)
         if scope is not None:
             scope.bind_executor(self)
         item_id = str(uuid.uuid4())
@@ -926,7 +936,7 @@ class QueueExecutor:
             return True
         return False
 
-    def execute(self, fn: Callable[..., Any], *args: Any, timeout: float = 30.0, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> Any:
+    def execute(self, fn: Callable[..., Any], *args: Any, timeout: float = 30.0, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> Any:
         """Execute function on main thread (blocking).
 
         If already on the main thread, calls directly (avoids deadlock).
@@ -954,6 +964,11 @@ class QueueExecutor:
         elif self._is_logical_main_thread():
             log.debug("marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s", fn_label, tag)
 
+        # WRITERAGENT_TESTING inlines execute on any non-background thread,
+        # including Dummy-N. post() enqueues when AsyncCallback exists and the
+        # caller is not the marshal thread. Why they differ: execute blocks, and
+        # a Dummy-N UNO test waiting on VCL deadlocks (testing_runner sets the
+        # flag so that hop stays inline). post is fire-and-forget, so it can enqueue.
         if self._should_run_inline() and not bg_task:
             log.debug("marshal route=inline_testing fn=%s %s", fn_label, tag)
             return fn(*args, **kwargs)
@@ -976,7 +991,7 @@ class QueueExecutor:
         item = self._enqueue_work(fn, args, kwargs, blocking=True, bound_scope=bound_scope)
         return self._wait_for_result(item, timeout)
 
-    def post(self, fn: Callable[..., Any], *args: Any, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> None:
+    def post(self, fn: Callable[..., Any], *args: Any, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> None:
         """Post function to main thread without waiting for its result.
 
         Unlike execute, this does not return a result. Used for UI updates
@@ -1023,7 +1038,7 @@ class QueueExecutor:
                 if not self._await_pending_slot_locked():
                     log.warning("marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, tag)
                     raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
-                scope = get_current_send_cancellation() if bound_scope is _SCOPE_UNSET else bound_scope
+                scope = _resolve_bound_scope(bound_scope)
                 self._pending_posts.append((fn, args, kwargs, scope))
                 log.debug("marshal route=post_pending fn=%s %s", fn_label, tag)
                 return
@@ -1065,12 +1080,12 @@ def async_callback_for_drain_rearm() -> Any | None:
     return default_executor._get_async_callback()
 
 
-def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> Any:
+def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> Any:
     """Legacy helper: Use default_executor.execute instead."""
     return default_executor.execute(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
 
 
-def post_to_main_thread(fn: Any, *args: Any, bound_scope: Any = _SCOPE_UNSET, **kwargs: Any) -> None:
+def post_to_main_thread(fn: Any, *args: Any, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> None:
     """Legacy helper: Use default_executor.post instead."""
     return default_executor.post(fn, *args, bound_scope=bound_scope, **kwargs)
 

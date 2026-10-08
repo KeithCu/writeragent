@@ -15,6 +15,7 @@ from plugin.framework.deal_shim import (
     deal,
     str_bounded,
 )
+from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 
 # Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
 DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
@@ -25,14 +26,21 @@ DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
     }
 )
 DELEGATE_TASK_CHAT_MAX = 120
+
+
+def _deal_cap(production: int) -> int:
+    # CrossHair floors these caps to 1. Production keeps the real bound.
+    # Truncate/describe still ~56m after token/dict halves (33211730747).
+    return 1 if UNDER_CROSSHAIR else production
+
+
 # Display cap only (sidebar preview). Input sanity is DEAL_MAX_SOURCE (8192).
-# Truncate/describe still ~56m after token/dict halves (33211730747); floor to 1.
-_DEAL_TRUNCATE_TASK_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_DEAL_TRUNCATE_MAX_LEN = 1 if UNDER_CROSSHAIR else DELEGATE_TASK_CHAT_MAX
-_DEAL_EMPTY_TC_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-_DEAL_EMPTY_TOKEN_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-_DEAL_FUNC_ARG_TOKEN_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-_DEAL_FUNC_ARG_DICT_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
+_DEAL_TRUNCATE_TASK_LEN = _deal_cap(DEAL_MAX_SOURCE)
+_DEAL_TRUNCATE_MAX_LEN = _deal_cap(DELEGATE_TASK_CHAT_MAX)
+_DEAL_EMPTY_TC_LEN = _deal_cap(DEAL_MAX_CMD_ARGS)
+_DEAL_EMPTY_TOKEN_LEN = _deal_cap(DEAL_MAX_TOKEN)
+_DEAL_FUNC_ARG_TOKEN_LEN = _deal_cap(DEAL_MAX_TOKEN)
+_DEAL_FUNC_ARG_DICT_LEN = _deal_cap(DEAL_MAX_CMD_ARGS)
 _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX = 120
 
 
@@ -224,13 +232,11 @@ def _result_note(result_data: Mapping[str, Any]) -> str:
     lambda func_args, result_data: _deal_func_args_ok(func_args) and type(result_data) is dict
 )
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
-    # crosshair: off  # dual Mapping + web_research import (cover-all 33569420452: 2249 examples / ~307s est). Doable later.
+    # crosshair: off  # dual Mapping (cover-all 33569420452: 2249 examples / ~307s est). Doable later.
     """Completion line for delegate gateway tools (domain shown; success is short)."""
     domain = domain_from_delegate_args(func_args)
     if result_data.get("status") == "error":
         return f"[delegate ({domain}) failed: {_result_note(result_data)}]\n"
-    from plugin.chatbot.web_research_chat import format_research_cache_result_chat
-
     cache_block = format_research_cache_result_chat(result_data) if domain == "web_research" else ""
     return cache_block + f"[delegate ({domain}): done]\n"
 
@@ -296,8 +302,6 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
     if is_delegate_gateway(func_name):
         return format_delegate_result_chat_line(func_args, result_data)
     if func_name == "web_research":
-        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
-
         cache_block = format_research_cache_result_chat(result_data)
         return cache_block + f"[{func_name}: {note}]\n"
     return f"[{func_name}: {note}]\n"

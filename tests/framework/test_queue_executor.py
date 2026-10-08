@@ -1036,17 +1036,18 @@ class _ClaimLockProbe:
 
 
 def test_cancel_drain_excludes_concurrent_enqueue():
-    """A put that overlaps cancel must wait until the drain has left ``_claim_lock``.
+    """A put that overlaps cancel must wait until the drain has left ``_order_lock``.
 
-    ``get_nowait`` blocks on the empty queue while cancel still holds the lock.
-    If ``_enqueue_work`` put without that lock, the item would land in the gap
+    ``get_nowait`` blocks on the empty queue while cancel still holds
+    ``_order_lock`` then ``_claim_lock``. ``_enqueue_work`` takes that same
+    order, so the racer blocks on ``_order_lock`` and cannot land in the gap
     the drain already treated as empty.
     """
     from plugin.framework.queue_executor import QueueExecutor
 
     qe = QueueExecutor()
     probe = _ClaimLockProbe()
-    qe._claim_lock = probe  # type: ignore[assignment]
+    qe._order_lock = probe  # type: ignore[assignment]
     saw_empty = threading.Event()
     release_empty = threading.Event()
     put_count = {"n": 0}
@@ -1158,6 +1159,77 @@ def test_cancel_reput_pokes_kept_work():
     assert doomed.cancelled is True
 
 
+def test_scoped_cancel_requeues_survivors_ahead_of_concurrent_enqueue():
+    """A put that arrives during a scoped drain stays behind the survivors.
+
+    What was wrong: cancel dropped ``_claim_lock`` and re-queued survivors
+    afterwards, so the newer item landed first. The late enqueue uses
+    ``poke=False`` so the single poke is the one cancel issues after both
+    locks are released.
+    """
+    from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+
+    qe = QueueExecutor()
+    probe = _ClaimLockProbe()
+    qe._order_lock = probe  # type: ignore[assignment]
+    keep_scope = SendCancellation()
+    cancel_scope = SendCancellation()
+    saw_empty = threading.Event()
+    release_empty = threading.Event()
+    pokes: list[str] = []
+    qe._poke_main_thread = lambda: pokes.append("poke")  # type: ignore[method-assign]
+
+    class GapQueue(queue.Queue):
+        def get_nowait(self):  # type: ignore[no-untyped-def]
+            try:
+                return queue.Queue.get_nowait(self)
+            except queue.Empty:
+                saw_empty.set()
+                if not release_empty.wait(timeout=2):
+                    raise AssertionError("cancel drain was not released")
+                raise
+
+    gap: queue.Queue = GapQueue()
+    qe._work_queue = gap
+    survivor = _WorkItem("kept", lambda: None, (), {}, blocking=False, scope=keep_scope)
+    doomed = _WorkItem("doomed", lambda: None, (), {}, blocking=False, scope=cancel_scope)
+    queue.Queue.put(gap, survivor)
+    queue.Queue.put(gap, doomed)
+    errors: list[BaseException] = []
+
+    def canceller() -> None:
+        try:
+            qe.cancel_pending_work(cancel_scope)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def enqueuer() -> None:
+        try:
+            qe._enqueue_work(lambda: "late", (), {}, blocking=False, poke=False)
+        except BaseException as exc:
+            errors.append(exc)
+
+    cancel_thread = threading.Thread(target=canceller)
+    enqueue_thread = threading.Thread(target=enqueuer)
+    cancel_thread.start()
+    try:
+        assert saw_empty.wait(timeout=2)
+        enqueue_thread.start()
+        assert probe.wait_blocked()
+        assert gap.empty()
+    finally:
+        release_empty.set()
+        cancel_thread.join(timeout=2)
+        enqueue_thread.join(timeout=2)
+    assert not cancel_thread.is_alive()
+    assert not enqueue_thread.is_alive()
+    assert errors == []
+    assert doomed.cancelled is True
+    assert gap.get_nowait() is survivor
+    assert gap.get_nowait().fn() == "late"
+    assert pokes == ["poke"]
+
+
 def test_cancel_drops_pending_posts_for_that_scope_only():
     from plugin.framework.queue_executor import QueueExecutor, SendCancellation
 
@@ -1256,6 +1328,24 @@ def test_flush_pending_posts_order_concurrent_enqueue():
     assert enqueued_items[0].fn() == "pending1"
     assert enqueued_items[1].fn() == "pending2"
     assert enqueued_items[2].fn() == "direct"
+
+def test_set_context_resets_diagnostic_log_flags():
+    """A new context object logs marshal failures again; the same object does not."""
+    from plugin.framework.queue_executor import QueueExecutor
+
+    qe = QueueExecutor()
+    qe._logged_missing_ctx = True
+    qe._logged_async_callback_failure = True
+    first = object()
+    qe.set_context(first)
+    assert qe._logged_missing_ctx is False
+    assert qe._logged_async_callback_failure is False
+    qe._logged_missing_ctx = True
+    qe._logged_async_callback_failure = True
+    qe.set_context(first)
+    assert qe._logged_missing_ctx is True
+    assert qe._logged_async_callback_failure is True
+
 
 def test_set_context_wakes_pending_posts():
     """set_context must create AsyncCallback if there are pending posts."""

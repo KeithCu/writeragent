@@ -395,8 +395,9 @@ def test_truncate_delegate_task_crosshair_floors_stay_tiny():
     assert tls._DEAL_TRUNCATE_TASK_LEN == DEAL_MAX_SOURCE
     assert tls._DEAL_TRUNCATE_MAX_LEN == tls.DELEGATE_TASK_CHAT_MAX
     src = inspect.getsource(tls)
-    assert "_DEAL_TRUNCATE_TASK_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE" in src
-    assert "_DEAL_TRUNCATE_MAX_LEN = 1 if UNDER_CROSSHAIR else DELEGATE_TASK_CHAT_MAX" in src
+    assert "return 1 if UNDER_CROSSHAIR else production" in src
+    assert "_DEAL_TRUNCATE_TASK_LEN = _deal_cap(DEAL_MAX_SOURCE)" in src
+    assert "_DEAL_TRUNCATE_MAX_LEN = _deal_cap(DELEGATE_TASK_CHAT_MAX)" in src
     assert "str_bounded(task, _DEAL_TRUNCATE_TASK_LEN)" in src
     assert "ascii_bounded(task, _DEAL_TRUNCATE_TASK_LEN)" not in src
 
