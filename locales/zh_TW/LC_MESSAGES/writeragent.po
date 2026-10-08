@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -265,6 +265,10 @@ msgstr "AI 提供者報告錯誤。請再試一次。"
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} 未找到：{identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "正在等待其他文件的回覆..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO 執行緒違規"
@@ -324,6 +328,7 @@ msgid "Error: {0}"
 msgstr "錯誤：{0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "串流以 finish_reason=error 結束"
 
@@ -358,6 +363,10 @@ msgstr "請在「設定」中設定模型。"
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "請在「設定」中選擇有效的模型（而非預留位置）。"
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "您好，我是您的 LibreOffice WriterAgent。"
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -421,55 +430,55 @@ msgstr "本機 Whisper 逾時或無法啟動。首次執行時會下載模型權
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr "沒有可用的語音轉文字端點語言模型用戶端。"
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "您好，我是您的 LibreOffice WriterAgent。"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "語音請求失敗 ({0})：{1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "語音請求失敗：{0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "語音請求失敗 ({0})。"
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "語音請求失敗。"
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "正在下載 Kokoro 語音模型…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr "無法下載 Kokoro；改用作業系統語音"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "正在下載 Piper 語音 {0}…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "無法下載 {0}；改用 Lessac"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr "無法下載 {0}；改用作業系統語音"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "語音請求失敗 ({0})：{1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "語音請求失敗：{0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "語音請求失敗 ({0})。"
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "語音請求失敗。"
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr "Kokoro 音素轉換失敗；此語言的讀音可能不正確。"
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr "找不到 Misaki；已改用 Kokoro 的英語音素"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "對於非英語語音，Kokoro 已改用英語音素"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -517,6 +526,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "無法在設定的 venv 中匯入 webview (pywebview)。"
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "初始化指令碼已儲存。"
 
@@ -661,7 +671,7 @@ msgstr "已插入影像"
 msgid "Images inserted"
 msgstr "已插入影像"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -861,6 +871,25 @@ msgstr "拒絕此變更"
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "無法將串流文字寫入文件：{0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr "無法完成追蹤編輯並保留生成的文字：{0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr "無法將串流編輯合併為單一追蹤修訂。已保留生成的文字，但它可能仍會顯示為多個追蹤修訂。"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr "無法將串流接續內容合併為單一追蹤修訂。已保留文字，但可能無法進行審閱。"
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1279,6 +1308,10 @@ msgstr "評估儀表板"
 msgid "Debug"
 msgstr "除錯"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[語音訊息]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "錯誤：工具組不可用"
@@ -1347,6 +1380,10 @@ msgstr "切換模型 (模擬)"
 msgid "Slash commands:"
 msgstr "斜線指令："
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "傳送"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "接受"
@@ -1364,6 +1401,10 @@ msgid "Waiting for approval…"
 msgstr "等待核准中…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "免持模式已關閉"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "正在錄製音訊… (%d 毫秒靜音)"
@@ -1375,10 +1416,6 @@ msgstr "錄製"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "停止錄製"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "傳送"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1410,6 +1447,10 @@ msgid "[No speech detected.]"
 msgstr "[未偵測到語音。]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[免持模式已關閉：未偵測到語音。]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1428,6 +1469,11 @@ msgstr "[對等傳送需要在此側邊欄開啟聊天模式。]"
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "免持錄製中..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "免持模式…（靜音 %d 毫秒）"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1531,6 +1577,10 @@ msgstr "[找不到代理後端 '{0}'。]"
 msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr "[代理後端 '{0}' 不可用。請檢查設定（路徑、安裝）。]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "思考中..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1751,6 +1801,18 @@ msgid "Width:"
 msgstr "寬度："
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr "傳送。錄音：點擊以錄製一則訊息，按住 2 秒可進行免持錄音。停止錄音：傳送錄音內容（免持模式會持續監聽）。"
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr "停止回覆或語音（同時結束免持模式）。錄音時：第一次點擊可退出免持模式，再次點擊則取消錄音。"
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "朗讀回應 (TTS)"
 
@@ -1763,6 +1825,10 @@ msgstr "新增 Python 指令碼"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "指令碼名稱："
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "指令碼名稱不能以保留字首開頭。"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1840,7 +1906,7 @@ msgid "My Scripts"
 msgstr "我的指令碼"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr "內建輔助程式為唯讀。請使用「複製到我的指令稿」進行自訂。"
 
@@ -1930,9 +1996,14 @@ msgstr "文件為唯讀，或無法寫入屬性。"
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
-msgstr "初始化指令碼已儲存至文件，但共用核心快取未更新。=PY() 可能仍會執行先前的指令碼。"
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
+msgstr "無法寫入文件屬性（遺失或無法寫入使用者定義屬性）。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "「{0}」以保留字首開頭。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1945,12 +2016,28 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "名為「{0}」的指令碼已存在於此文件中。"
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "此文件中不存在指令碼「{0}」。"
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "本文件"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "文件已關閉。"
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "「我的指令碼」中不存在指令碼「{0}」。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr "指令稿「{0}」不在「我的指令稿」或本文件中，因此未儲存。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "沒有開啟任何文件。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1987,10 +2074,6 @@ msgstr "名為「{0}」的指令碼已存在於「我的指令碼」中。"
 msgid "Copied script '{0}' to My Scripts."
 msgstr "已將指令碼「{0}」複製到「我的指令碼」。"
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "沒有開啟任何文件。"
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2001,13 +2084,13 @@ msgstr "已刪除文件指令碼「{0}」。"
 msgid "Deleted script '{0}'."
 msgstr "已刪除指令碼「{0}」。"
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "文件已關閉。"
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "文件已關閉。"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "指令碼執行失敗。"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2079,11 +2162,6 @@ msgid "Script executed successfully."
 msgstr "指令碼執行成功。"
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr "指令稿執行成功，但未傳回結果且未產生輸出。"
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "成功"
 
@@ -2128,6 +2206,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "指令碼清單更新逾時。"
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "指令碼執行失敗。"
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2473,6 +2555,42 @@ msgstr "{domain} '{helper}' 已完成。寫入 {rows} 列。（耗時 {time}）"
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' 已完成。（耗時 {time}）"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "視覺輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "數學輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "單位輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "分析輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL 輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "視覺化輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "量化輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "最佳化輔助工具"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "預測輔助工具"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2532,6 +2650,10 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "已重設此文件的 Python 工作階段。"
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr "重設 Python 工作階段適用於 Writer、Calc 與 Draw 文件。"
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "單位輔助程式失敗。"
@@ -2551,6 +2673,11 @@ msgstr "無法插入結果：{error}（耗時 {time}）"
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "{domain} '{helper}' 已完成。已插入：{preview}（耗時 {time}）"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "已插入圖表 ({title})。（耗時 {time}）"
 
@@ -2558,16 +2685,6 @@ msgstr "已插入圖表 ({title})。（耗時 {time}）"
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' 已完成。{msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' 已完成。已插入：{preview}（耗時 {time}）"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "單位 '{helper}' 已完成。已插入：{preview}（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2617,12 +2734,6 @@ msgstr "指令碼已儲存。"
 msgid "A script is already running."
 msgstr "已有指令碼正在執行中。"
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr "指令稿「{0}」不在「我的指令稿」或本文件中，因此未儲存。"
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "執行 Python 指令稿"
@@ -2663,6 +2774,11 @@ msgstr "影像過大，無法傳送至視覺處理器（{size} 位元組；限�
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "已由使用者取消。"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "已在處理 {total} 張圖片中的第 {count} 張後停止。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Danish <LL@li.org>\n"
@@ -281,6 +281,10 @@ msgstr "AI-udbyderen rapporterede en fejl. Prøv igen."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} ikke fundet: {identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "Venter på svar fra et andet dokument..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO-trådovertrædelse"
@@ -352,6 +356,7 @@ msgid "Error: {0}"
 msgstr "Fejl: {0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "Stream sluttede med finish_reason=error"
 
@@ -388,6 +393,10 @@ msgstr "Angiv venligst Model i Indstillinger."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Vælg venligst en gyldig model i Indstillinger (ikke en pladsholder)."
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "Hej, jeg er din LibreOffice WriterAgent."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -457,56 +466,55 @@ msgstr ""
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr "Ingen sprogmodel-klient er tilgængelig for endpointet tale-til-tekst."
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "Hej, jeg er din LibreOffice WriterAgent."
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "Taleanmodning mislykkedes ({0}): {1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "Taleanmodning mislykkedes: {0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "Taleanmodning mislykkedes ({0})."
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "Taleanmodning mislykkedes."
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "Downloader Kokoro-stemmemodel…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr "Kunne ikke downloade Kokoro; bruger operativsystemets tale"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "Downloader Piper-stemme {0}…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "Kunne ikke downloade {0}; bruger Lessac"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr "Kunne ikke downloade {0}; bruger operativsystemets tale"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Taleanmodning mislykkedes ({0}): {1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Taleanmodning mislykkedes: {0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Taleanmodning mislykkedes ({0})."
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "Taleanmodning mislykkedes."
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr ""
-"Kokoro-fonemisering mislykkedes; dette sprog bliver muligvis læst forkert."
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr "Misaki ikke fundet; Kokoro brugte engelske fonemer"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro brugte engelske fonemer til ikke-engelsk stemme"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -556,6 +564,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Kan ikke importere webview (pywebview) i den konfigurerede venv."
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Initialiseringsscript gemt."
 
@@ -706,7 +715,7 @@ msgstr "Billede indsat"
 msgid "Images inserted"
 msgstr "Billeder indsat"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -909,6 +918,32 @@ msgstr "Afvis denne ændring"
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Kunne ikke skrive streamet tekst til dokumentet: {0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr ""
+"Kunne ikke færdiggøre den sporede redigering og bevare den genererede tekst:"
+" {0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+"Kunne ikke samle den streamede redigering til en enkelt sporet ændring. Den "
+"genererede tekst blev bevaret, men den kan stadig fremstå som flere sporede "
+"ændringer."
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr ""
+"Kunne ikke samle den streamede fortsættelse til en enkelt sporet ændring. "
+"Teksten blev bevaret, men kan muligvis ikke gennemgås."
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1335,6 +1370,10 @@ msgstr "Evalueringspanel"
 msgid "Debug"
 msgstr "Fejlfinding"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[Stemmemeddelelse]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Fejl: Værktøjssæt ikke tilgængeligt"
@@ -1403,6 +1442,10 @@ msgstr "Skift model (mock)"
 msgid "Slash commands:"
 msgstr "Slash-kommandoer:"
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "Send"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "Acceptér"
@@ -1420,6 +1463,10 @@ msgid "Waiting for approval…"
 msgstr "Venter på godkendelse…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "Håndfri fra"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "Optager lyd… (%d ms stilhed)"
@@ -1431,10 +1478,6 @@ msgstr "Optag"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Stop optagelse"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Send"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1470,6 +1513,10 @@ msgid "[No speech detected.]"
 msgstr "[Ingen tale registreret.]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Håndfri fra: ingen tale registreret.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1490,6 +1537,11 @@ msgstr "[Peer-afsendelse kræver Chat-tilstand i dette sidepanel.]"
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "Håndfri optagelse..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "Håndfri… (%d ms stilhed)"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1603,6 +1655,10 @@ msgid ""
 msgstr ""
 "[Agent-backend '{0}' er ikke tilgængelig. Kontrollér Indstillinger (sti, "
 "installation).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Tænker..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1842,6 +1898,22 @@ msgid "Width:"
 msgstr "Bredde:"
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+"Send. Optag: klik for at optage én besked, hold nede i 2 sekunder for "
+"håndfri. Stop optagelse: send optagelsen (håndfri fortsætter med at lytte)."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+"Stop svaret eller talen (afslutter også håndfri). Under optagelse: det "
+"første klik forlader håndfri, det næste klik annullerer optagelsen."
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "Oplæs svar (TTS)"
 
@@ -1854,6 +1926,10 @@ msgstr "Nyt Python-script"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Scriptnavn:"
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "Scriptnavn må ikke starte med et reserveret præfiks."
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1931,7 +2007,7 @@ msgid "My Scripts"
 msgstr "Mine scripts"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Indbyggede hjælpere er skrivebeskyttede. Brug Kopiér til Mine scripts for at"
@@ -2027,11 +2103,16 @@ msgstr "Dokumentet er skrivebeskyttet, eller egenskaber kan ikke skrives."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
 msgstr ""
-"Initialiseringsscriptet blev gemt i dokumentet, men delt-kerne-cachen blev "
-"ikke opdateret. =PY() kører muligvis stadig det forrige script."
+"Dokumentegenskaber kan ikke skrives (mangler eller UserDefinedProperties kan"
+" ikke skrives)."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "'{0}' starter med et reserveret præfiks."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2044,12 +2125,30 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Et script med navnet '{0}' findes allerede i dette dokument."
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "Scriptet '{0}' findes ikke i dette dokument."
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Dette dokument"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "Dokumentet blev lukket."
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "Scriptet '{0}' findes ikke i Mine scripts."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Scriptet '{0}' findes ikke i Mine scripts eller i dette dokument, så det "
+"blev ikke gemt."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Intet dokument er åbent."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2086,10 +2185,6 @@ msgstr "Et script med navnet '{0}' findes allerede i Mine scripts."
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Scriptet '{0}' er kopieret til Mine scripts."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Intet dokument er åbent."
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2100,13 +2195,13 @@ msgstr "Dokumentscriptet '{0}' er slettet."
 msgid "Deleted script '{0}'."
 msgstr "Scriptet '{0}' er slettet."
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Dokumentet blev lukket."
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "Dokumentet er ikke længere åbent."
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "Scriptkørsel mislykkedes."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2179,13 +2274,6 @@ msgid "Script executed successfully."
 msgstr "Script blev udført korrekt."
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Scriptet blev udført korrekt, men returnerede intet resultat og producerede "
-"intet output."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "Succes"
 
@@ -2231,6 +2319,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "Opdatering af scriptlisten fik timeout."
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Scriptkørsel mislykkedes."
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2590,6 +2682,42 @@ msgstr "{domain} '{helper}' fuldført. Skrev {rows} rækker. (tog {time})"
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' fuldført. (tog {time})"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Vision-hjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Matematik-hjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Enhedshjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Analyseshjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL-hjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Visualiseringshjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Kvantitative hjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Optimeringshjælpere"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Prognosehjælpere"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2657,6 +2785,10 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "Python-session nulstillet for dette dokument."
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr "Nulstil Python-session gælder for Writer-, Calc- og Draw-dokumenter."
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "Enhedshjælper mislykkedes."
@@ -2676,6 +2808,11 @@ msgstr "Kunne ikke indsætte resultat: {error} (tog {time})"
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "{domain} '{helper}' fuldført. Indsat: {preview} (tog {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "Plot indsat ({title}). (tog {time})"
 
@@ -2683,16 +2820,6 @@ msgstr "Plot indsat ({title}). (tog {time})"
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' fuldført. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' fuldført. Indsat: {preview} (tog {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Enheder '{helper}' fuldført. Indsat: {preview} (tog {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2749,14 +2876,6 @@ msgstr "Script gemt."
 msgid "A script is already running."
 msgstr "Et script kører allerede."
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr ""
-"Scriptet '{0}' findes ikke i Mine scripts eller i dette dokument, så det "
-"blev ikke gemt."
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Kør Python-script"
@@ -2801,6 +2920,11 @@ msgstr ""
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "Annulleret af brugeren."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "Stoppet efter {count} af {total} billeder."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

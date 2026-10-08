@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -285,6 +285,10 @@ msgstr "AI प्रदाता ने एक त्रुटि की सू�
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} नहीं मिला: {identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "किसी अन्य दस्तावेज़ के उत्तर की प्रतीक्षा की जा रही है..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO थ्रेड उल्लंघन"
@@ -356,6 +360,7 @@ msgid "Error: {0}"
 msgstr "त्रुटि: {0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "स्ट्रीम finish_reason=error के साथ समाप्त हुई"
 
@@ -392,6 +397,10 @@ msgstr "कृपया सेटिंग्स में मॉडल से�
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "कृपया सेटिंग्स में एक मान्य मॉडल चुनें (प्लेसहोल्डर नहीं)।"
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "नमस्ते, मैं आपका LibreOffice WriterAgent हूँ।"
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -464,55 +473,58 @@ msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "स्पीच-टू-टेक्स्ट एंडपॉइंट के लिए कोई भाषा-मॉडल क्लाइंट उपलब्ध नहीं है।"
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "नमस्ते, मैं आपका LibreOffice WriterAgent हूँ।"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "स्पीच अनुरोध विफल ({0}): {1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "स्पीच अनुरोध विफल: {0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "स्पीच अनुरोध विफल ({0})।"
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "स्पीच अनुरोध विफल।"
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "Kokoro वॉयस मॉडल डाउनलोड हो रहा है…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr "Kokoro डाउनलोड नहीं हो सका; OS स्पीच का उपयोग किया जा रहा है"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "Piper वॉयस {0} डाउनलोड हो रहा है…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "{0} डाउनलोड नहीं हो सका; Lessac का उपयोग किया जा रहा है"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr "{0} डाउनलोड नहीं हो सका; OS स्पीच का उपयोग किया जा रहा है"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "स्पीच अनुरोध विफल ({0}): {1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "स्पीच अनुरोध विफल: {0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "स्पीच अनुरोध विफल ({0})।"
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "स्पीच अनुरोध विफल।"
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr "Kokoro फोनेमाइज़र विफल; यह भाषा गलत पढ़ी जा सकती है।"
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr ""
+"Misaki नहीं मिला; Kokoro ने अंग्रेज़ी ध्वनियों (phonemes) का उपयोग किया"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr ""
+"गैर-अंग्रेज़ी आवाज़ के लिए Kokoro ने अंग्रेज़ी ध्वनियों (phonemes) का उपयोग "
+"किया"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -562,6 +574,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "कॉन्फ़िगर किए गए venv में webview (pywebview) आयात नहीं किया जा सका।"
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "प्रारंभिक स्क्रिप्ट सहेजी गई।"
 
@@ -712,7 +725,7 @@ msgstr "छवि सम्मिलित की गई"
 msgid "Images inserted"
 msgstr "छवियाँ सम्मिलित की गईं"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -915,6 +928,32 @@ msgstr "इस परिवर्तन को अस्वीकार कर�
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "दस्तावेज़ में स्ट्रीम किया गया टेक्स्ट लिखने में विफल: {0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr ""
+"ट्रैक किए गए संपादन को अंतिम रूप देने और उत्पन्न टेक्स्ट को सुरक्षित रखने "
+"में विफल: {0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+"स्ट्रीम किए गए संपादन को एक एकल ट्रैक किए गए परिवर्तन में समेटने में विफल। "
+"उत्पन्न टेक्स्ट को रखा गया था, लेकिन यह अभी भी कई ट्रैक किए गए परिवर्तनों के"
+" रूप में दिखाई दे सकता है।"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr ""
+"स्ट्रीम किए गए निरंतरता को एक एकल ट्रैक किए गए परिवर्तन में समेटने में विफल।"
+" टेक्स्ट को रखा गया था, लेकिन शायद इसकी समीक्षा न की जा सके।"
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1340,6 +1379,10 @@ msgstr "मूल्यांकन डैशबोर्ड"
 msgid "Debug"
 msgstr "डिबग"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[वॉयस संदेश]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "त्रुटि: टूलकिट अनुपलब्ध है"
@@ -1408,6 +1451,10 @@ msgstr "मॉडल बदलें (मॉक)"
 msgid "Slash commands:"
 msgstr "स्लैश कमांड:"
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "भेजें"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "स्वीकार करें"
@@ -1425,6 +1472,10 @@ msgid "Waiting for approval…"
 msgstr "अनुमोदन की प्रतीक्षा है…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "हैंड्स-फ़्री बंद"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "ऑडियो रिकॉर्ड हो रहा है… (%d ms मौन)"
@@ -1436,10 +1487,6 @@ msgstr "रिकॉर्ड करें"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "रिकॉर्डिंग रोकें"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "भेजें"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1475,6 +1522,10 @@ msgid "[No speech detected.]"
 msgstr "[कोई भाषण नहीं मिला।]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[हैंड्स-फ़्री बंद: कोई आवाज़ नहीं सुनी गई।]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1495,6 +1546,11 @@ msgstr "[पीयर सेंड के लिए इस साइडबार
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "हैंड्स-फ़्री रिकॉर्डिंग..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "हैंड्स-फ़्री… (%d ms मौन)"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1607,6 +1663,10 @@ msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[एजेंट बैकएंड '{0}' उपलब्ध नहीं है। सेटिंग्स (पथ, इंस्टॉल) की जाँच करें।]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "सोच रहा है..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1845,6 +1905,24 @@ msgid "Width:"
 msgstr "चौड़ाई:"
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+"भेजें। रिकॉर्ड: एक संदेश रिकॉर्ड करने के लिए क्लिक करें, हैंड्स-फ्री के लिए "
+"2 सेकंड तक दबाए रखें। रिकॉर्ड रोकें: रिकॉर्डिंग भेजें (हैंड्स-फ्री सुनना "
+"जारी रखता है)।"
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+"उत्तर या भाषण रोकें (हैंड्स-फ्री को भी समाप्त करता है)। रिकॉर्डिंग के दौरान:"
+" पहला क्लिक हैंड्स-फ्री से बाहर निकलता है, अगला क्लिक रिकॉर्डिंग रद्द कर "
+"देता है।"
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "प्रतिक्रियाएं बोलकर सुनाएं (TTS)"
 
@@ -1857,6 +1935,10 @@ msgstr "नया पायथन स्क्रिप्ट"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "स्क्रिप्ट का नाम:"
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "स्क्रिप्ट का नाम आरक्षित उपसर्ग से शुरू नहीं हो सकता।"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1934,7 +2016,7 @@ msgid "My Scripts"
 msgstr "मेरी स्क्रिप्ट्स"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "इन-बिल्ट हेल्पर्स केवल-पठनीय हैं। अनुकूलित करने के लिए 'मेरी स्क्रिप्ट्स में"
@@ -2035,11 +2117,16 @@ msgstr "दस्तावेज़ केवल-पढ़ने योग्य
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
 msgstr ""
-"आरंभीकरण स्क्रिप्ट को दस्तावेज़ पर सहेजा गया था, लेकिन साझा-कर्नेल कैश अपडेट"
-" नहीं हुआ। =PY() अभी भी पिछली स्क्रिप्ट चला सकता है।"
+"दस्तावेज़ गुण लिखे नहीं जा सकते (UserDefinedProperties अनुपस्थित या लिखने "
+"योग्य नहीं हैं)।"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "'{0}' एक आरक्षित उपसर्ग से शुरू होता है।"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2052,12 +2139,30 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "इस दस्तावेज़ में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है।"
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "स्क्रिप्ट '{0}' इस दस्तावेज़ में मौजूद नहीं है।"
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "यह दस्तावेज़"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "दस्तावेज़ बंद कर दिया गया था।"
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "स्क्रिप्ट '{0}' 'My Scripts' में मौजूद नहीं है।"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"स्क्रिप्ट '{0}' 'My Scripts' या इस दस्तावेज़ में नहीं है, इसलिए इसे सहेजा "
+"नहीं गया।"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "कोई दस्तावेज़ खुला नहीं है।"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2094,10 +2199,6 @@ msgstr "My Scripts में '{0}' नाम की एक स्क्रिप
 msgid "Copied script '{0}' to My Scripts."
 msgstr "'{0}' स्क्रिप्ट को My Scripts में कॉपी किया गया।"
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "कोई दस्तावेज़ खुला नहीं है।"
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2108,13 +2209,13 @@ msgstr "दस्तावेज़ स्क्रिप्ट '{0}' को ह
 msgid "Deleted script '{0}'."
 msgstr "स्क्रिप्ट '{0}' को हटा दिया गया।"
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "दस्तावेज़ बंद कर दिया गया था।"
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "दस्तावेज़ अब खुला नहीं है।"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "स्क्रिप्ट निष्पादन विफल रहा।"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2188,13 +2289,6 @@ msgid "Script executed successfully."
 msgstr "स्क्रिप्ट सफलतापूर्वक निष्पादित हुई।"
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"स्क्रिप्ट सफलतापूर्वक निष्पादित हुई, लेकिन कोई परिणाम नहीं मिला और कोई "
-"आउटपुट उत्पन्न नहीं हुआ।"
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "सफलता"
 
@@ -2241,6 +2335,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "स्क्रिप्ट सूची अपडेट का समय समाप्त हो गया।"
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "स्क्रिप्ट निष्पादन विफल रहा।"
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2604,6 +2702,42 @@ msgstr ""
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' पूर्ण हुआ। ({time} लगा)"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "विज़न हेल्पर्स"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "मैथ हेल्पर्स"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "इकाइयाँ सहायक"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "विश्लेषण सहायक"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL सहायक"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "दृश्य सहायक"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "मात्रात्मक सहायक"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "अनुकूलन सहायक"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "पूर्वानुमान सहायक"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2672,6 +2806,11 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "इस दस्तावेज़ के लिए पायथन सत्र रीसेट किया गया।"
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"पायथन सत्र रीसेट करें Writer, Calc, और Draw दस्तावेज़ों पर लागू होता है।"
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "Units हेल्पर विफल रहा।"
@@ -2691,6 +2830,12 @@ msgstr "परिणाम सम्मिलित करने में व�
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+"{domain} '{helper}' पूर्ण हुआ। सम्मिलित किया गया: {preview} ({time} लगा)"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "प्लॉट डाला गया ({title})। ({time} लगा)"
 
@@ -2698,16 +2843,6 @@ msgstr "प्लॉट डाला गया ({title})। ({time} लगा)"
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' पूर्ण हुआ। {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' पूर्ण हुआ। सम्मिलित किया गया: {preview} ({time} लगा)"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Units '{helper}' पूर्ण हुआ। डाला गया: {preview} ({time} लगा)"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2761,14 +2896,6 @@ msgstr "स्क्रिप्ट सहेजी गई।"
 msgid "A script is already running."
 msgstr "एक स्क्रिप्ट पहले से ही चल रही है।"
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr ""
-"स्क्रिप्ट '{0}' 'My Scripts' या इस दस्तावेज़ में नहीं है, इसलिए इसे सहेजा "
-"नहीं गया।"
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "पायथन स्क्रिप्ट चलाएँ"
@@ -2810,6 +2937,11 @@ msgstr ""
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "उपयोगकर्ता द्वारा रद्द किया गया।"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "{total} में से {count} छवियों के बाद रोक दिया गया।"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

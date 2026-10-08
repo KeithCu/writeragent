@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -283,6 +283,10 @@ msgstr "DI teikėjas pranešė apie klaidą. Bandykite dar kartą."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nerasta: {identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "Laukiama kito dokumento atsakymo..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO gijos pažeidimas"
@@ -354,6 +358,7 @@ msgid "Error: {0}"
 msgstr "Klaida: {0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "Srautas baigėsi su finish_reason=error"
 
@@ -390,6 +395,10 @@ msgstr "Nustatymuose nurodykite modelį (Model)."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Nustatymuose pasirinkite tinkamą modelį (ne vietos žymeklį)."
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "Sveiki, aš esu jūsų „LibreOffice WriterAgent“."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -461,58 +470,57 @@ msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Nėra kalbos modelio kliento, skirto „speech-to-text“ galiniam punktui."
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "Sveiki, aš esu jūsų „LibreOffice WriterAgent“."
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "Nepavyko įvykdyti kalbos užklausos ({0}): {1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "Nepavyko įvykdyti kalbos užklausos: {0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "Nepavyko įvykdyti kalbos užklausos ({0})."
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "Nepavyko įvykdyti kalbos užklausos."
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "Atsisiunčiamas „Kokoro“ balso modelis…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr ""
 "Nepavyko atsisiųsti „Kokoro“; naudojama operacinės sistemos kalbos funkcija"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "Atsisiunčiamas „Piper“ balsas {0}…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "Nepavyko atsisiųsti {0}; naudojamas „Lessac“"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr ""
 "Nepavyko atsisiųsti {0}; naudojama operacinės sistemos kalbos funkcija"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Nepavyko įvykdyti kalbos užklausos ({0}): {1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Nepavyko įvykdyti kalbos užklausos: {0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Nepavyko įvykdyti kalbos užklausos ({0})."
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "Nepavyko įvykdyti kalbos užklausos."
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr ""
-"„Kokoro“ fonemizatoriaus klaida; ši kalba gali būti perskaityta neteisingai."
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr "„Misaki“ nerasta; „Kokoro“ naudoja angliškas fonemas"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "„Kokoro“ naudoja angliškas fonemas ne angliškam balsui"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -562,6 +570,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Nepavyko importuoti „webview“ (pywebview) sukonfigūruotame venv."
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Inicijavimo scenarijus įrašytas."
 
@@ -715,7 +724,7 @@ msgstr "Paveikslėlis įterptas"
 msgid "Images inserted"
 msgstr "Įterpti paveikslėliai"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -921,6 +930,31 @@ msgstr "Atmesti šį pakeitimą"
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Nepavyko įrašyti srautinio teksto į dokumentą: {0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr ""
+"Nepavyko užbaigti sekamo redagavimo ir išsaugoti sugeneruoto teksto: {0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+"Nepavyko sujungti srautinio redagavimo į vieną sekamą pakeitimą. "
+"Sugeneruotas tekstas išsaugotas, tačiau jis vis dar gali būti rodomas kaip "
+"keli sekami pakeitimai."
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr ""
+"Nepavyko sujungti srautinio tęsinio į vieną sekamą pakeitimą. Tekstas "
+"išsaugotas, tačiau gali būti netinkamas peržiūrai."
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1344,6 +1378,10 @@ msgstr "Vertinimo skydelis"
 msgid "Debug"
 msgstr "Derinimas"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[Balso pranešimas]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Klaida: įrankių rinkinys nepasiekiamas"
@@ -1412,6 +1450,10 @@ msgstr "Perjungti modelį (bandomasis)"
 msgid "Slash commands:"
 msgstr "Pasvirųjų brūkšnių komandos:"
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "Siųsti"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "Priimti"
@@ -1429,6 +1471,10 @@ msgid "Waiting for approval…"
 msgstr "Laukiama patvirtinimo…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "Laisvų rankų režimas išjungtas"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "Įrašomas garsas… (%d ms tyla)"
@@ -1440,10 +1486,6 @@ msgstr "Įrašyti"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Stabdyti įrašymą"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Siųsti"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1479,6 +1521,10 @@ msgid "[No speech detected.]"
 msgstr "[Kalba neaptikta.]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Laisvų rankų režimas išjungtas: kalba negirdima.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1499,6 +1545,11 @@ msgstr ""
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "Įrašoma laisvų rankų režimu..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "Laisvų rankų režimas… (%d ms tyla)"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1612,6 +1663,10 @@ msgid ""
 msgstr ""
 "[Agento posistemė „{0}“ nepasiekiama. Patikrinkite nuostatas (kelią, "
 "diegimą).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Mąstoma..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1850,6 +1905,24 @@ msgid "Width:"
 msgstr "Plotis:"
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+"Siųsti. Įrašymas: spustelėkite norėdami įrašyti vieną žinutę, palaikykite 2 "
+"sekundes, kad įjungtumėte laisvų rankų režimą. Sustabdyti įrašymą: išsiųsti "
+"įrašą (laisvų rankų režimu klausomasi toliau)."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+"Sustabdyti atsakymą arba kalbą (taip pat išjungia laisvų rankų režimą). "
+"Įrašymo metu: pirmas spustelėjimas išjungia laisvų rankų režimą, kitas "
+"spustelėjimas atšaukia įrašymą."
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "Skaityti atsakymus garsiai (TTS)"
 
@@ -1862,6 +1935,10 @@ msgstr "Naujas Python scenarijus"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Scenarijaus pavadinimas:"
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "Skripto pavadinimas negali prasidėti rezervuotu priešdėliu."
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1939,7 +2016,7 @@ msgid "My Scripts"
 msgstr "Mano scenarijai"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Įtaisytieji pagalbiniai įrankiai yra tik skaitomi. Norėdami tinkinti, "
@@ -2035,11 +2112,16 @@ msgstr "Dokumentas yra tik skaitomas arba ypatybių negalima įrašyti."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
 msgstr ""
-"Inicijavimo scenarijus buvo įrašytas dokumente, tačiau bendrinamo branduolio"
-" podėlis nebuvo atnaujintas. =PY() vis dar gali vykdyti ankstesnį scenarijų."
+"Dokumento ypatybių nepavyko įrašyti (trūksta „UserDefinedProperties“ arba "
+"jos nepasiekiamos rašymui)."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "„{0}“ prasideda rezervuotu priešdėliu."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2052,12 +2134,30 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra."
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "Skriptas „{0}“ šiame dokumente neegzistuoja."
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Šis dokumentas"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "Dokumentas buvo uždarytas."
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "Skriptas „{0}“ neegzistuoja „Mano skriptuose“."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Scenarijus „{0}“ nėra „Mano scenarijuose“ arba šiame dokumente, todėl jis "
+"nebuvo įrašytas."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Nėra atidaryto dokumento."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2094,10 +2194,6 @@ msgstr "Scenarijus pavadinimu „{0}“ jau yra „Mano scenarijuose“."
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Scenarijus „{0}“ nukopijuotas į „Mano scenarijus“."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Nėra atidaryto dokumento."
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2108,13 +2204,13 @@ msgstr "Pašalintas dokumento scenarijus „{0}“."
 msgid "Deleted script '{0}'."
 msgstr "Pašalintas scenarijus „{0}“."
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Dokumentas buvo uždarytas."
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "Dokumentas nebėra atidarytas."
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "Scenarijaus vykdymas nepavyko."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2187,13 +2283,6 @@ msgid "Script executed successfully."
 msgstr "Scriptas sėkmingai įvykdytas."
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Scenarijus sėkmingai įvykdytas, tačiau negautas joks rezultatas ir nebuvo "
-"išvesties."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "Sėkmė"
 
@@ -2239,6 +2328,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "Baigėsi scenarijų sąrašo atnaujinimo laikas."
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Scenarijaus vykdymas nepavyko."
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2601,6 +2694,42 @@ msgstr ""
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} „{helper}“ baigė darbą. (užtruko {time})"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Regėjimo pagalbinės priemonės"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Matematikos pagalbinės priemonės"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Matavimo vienetų pagalbininkai"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Analizės pagalbininkai"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL pagalbininkai"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Vizualizacijos pagalbininkai"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Kiekybiniai pagalbininkai"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Optimizavimo pagalbininkai"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Prognozavimo pagalbininkai"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2670,6 +2799,12 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "Šio dokumento „Python“ seansas nustatytas iš naujo."
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"„Python“ seanso nustatymas iš naujo taikomas „Writer“, „Calc“ ir „Draw“ "
+"dokumentams."
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "Nepavyko paleisti vienetų pagalbinės priemonės."
@@ -2689,6 +2824,11 @@ msgstr "Nepavyko įterpti rezultato: {error} (truko {time})"
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "{domain} „{helper}“ baigta. Įterpta: {preview} (truko {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "Brėžinys įterptas ({title}). (užtruko {time})"
 
@@ -2696,16 +2836,6 @@ msgstr "Brėžinys įterptas ({title}). (užtruko {time})"
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz „{helper}“ baigta. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math „{helper}“ baigta. Įterpta: {preview} (truko {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Vienetai „{helper}“ baigti. Įterpta: {preview} (truko {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2761,14 +2891,6 @@ msgstr "Scenarijus įrašytas."
 msgid "A script is already running."
 msgstr "Scenarijus jau vykdomas."
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr ""
-"Scenarijus „{0}“ nėra „Mano scenarijuose“ arba šiame dokumente, todėl jis "
-"nebuvo įrašytas."
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Vykdyti „Python“ scenarijų"
@@ -2813,6 +2935,11 @@ msgstr ""
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "Vartotojo atšaukta."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "Sustabdyta po {count} iš {total} vaizdų."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

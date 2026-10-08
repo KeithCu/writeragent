@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -287,6 +287,10 @@ msgstr "Yapay zeka sağlayıcısı bir hata bildirdi. Tekrar deneyin."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} bulunamadı: {identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "Başka bir belgenin yanıtı bekleniyor..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO İş Parçacığı İhlali"
@@ -358,6 +362,7 @@ msgid "Error: {0}"
 msgstr "Hata: {0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "Akış finish_reason=error ile sonlandı"
 
@@ -394,6 +399,10 @@ msgstr "Lütfen Ayarlar'dan Modeli ayarlayın."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Lütfen Ayarlar'dan geçerli bir model seçin (yer tutucu değil)."
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "Merhaba, ben LibreOffice WriterAgent'ınızım."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -465,55 +474,55 @@ msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 "Konuşmadan metne uç noktası için hiçbir dil modeli istemcisi mevcut değil."
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "Merhaba, ben LibreOffice WriterAgent'ınızım."
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "Konuşma isteği başarısız oldu ({0}): {1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "Konuşma isteği başarısız oldu: {0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "Konuşma isteği başarısız oldu ({0})."
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "Konuşma isteği başarısız oldu."
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "Kokoro ses modeli indiriliyor…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr "Kokoro indirilemedi; işletim sistemi konuşma özelliği kullanılıyor"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "Piper sesi {0} indiriliyor…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "{0} indirilemedi; Lessac kullanılıyor"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr "{0} indirilemedi; işletim sistemi konuşma özelliği kullanılıyor"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Konuşma isteği başarısız oldu ({0}): {1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Konuşma isteği başarısız oldu: {0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Konuşma isteği başarısız oldu ({0})."
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "Konuşma isteği başarısız oldu."
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr "Kokoro fonemleyici başarısız oldu; bu dil yanlış okunabilir."
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr "Misaki bulunamadı; Kokoro İngilizce fonemleri kullanıldı"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro, İngilizce olmayan ses için İngilizce fonemleri kullandı"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -562,6 +571,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Yapılandırılan sanal ortamda webview (pywebview) içe aktarılamıyor."
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Başlatma betiği kaydedildi."
 
@@ -716,7 +726,7 @@ msgstr "Görüntü eklendi"
 msgid "Images inserted"
 msgstr "Görseller eklendi"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -919,6 +929,31 @@ msgstr "Bu değişikliği reddet"
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Belgeye akış metni yazılamadı: {0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr ""
+"İzlenen düzenleme sonlandırılamadı ve oluşturulan metin korunamadı: {0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+"Akış halindeki düzenleme tek bir izlenen değişikliğe dönüştürülemedi. "
+"Oluşturulan metin korundu ancak birden fazla izlenen değişiklik olarak "
+"görünebilir."
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr ""
+"Akış halindeki devamlılık tek bir izlenen değişikliğe dönüştürülemedi. Metin"
+" korundu ancak gözden geçirilemeyebilir."
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1342,6 +1377,10 @@ msgstr "Değerlendirme Panosu"
 msgid "Debug"
 msgstr "Hata Ayıklama"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[Sesli mesaj]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Hata: Araç takımı kullanılamıyor"
@@ -1410,6 +1449,10 @@ msgstr "Model değiştir (taslak)"
 msgid "Slash commands:"
 msgstr "Eğik çizgi komutları:"
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "Gönder"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "Kabul Et"
@@ -1427,6 +1470,10 @@ msgid "Waiting for approval…"
 msgstr "Onay bekleniyor…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "Eller serbest kapalı"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "Ses kaydediliyor… (%d ms sessizlik)"
@@ -1438,10 +1485,6 @@ msgstr "Kaydet"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Kaydı Durdur"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Gönder"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1476,6 +1519,10 @@ msgid "[No speech detected.]"
 msgstr "[Konuşma algılanmadı.]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Eller serbest kapalı: konuşma duyulmadı.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1496,6 +1543,11 @@ msgstr "[Eşler arası gönderim, bu kenar çubuğunda Sohbet modunu gerektirir.
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "Eller serbest kayıt..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "Eller serbest… (%d ms sessizlik)"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1608,6 +1660,10 @@ msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Düşünülüyor..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1847,6 +1903,24 @@ msgid "Width:"
 msgstr "Genişlik:"
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+"Gönder. Kayıt: bir mesaj kaydetmek için tıklayın, eller serbest modu için 2 "
+"saniye basılı tutun. Kaydı Durdur: kaydı gönderir (eller serbest modu "
+"dinlemeye devam eder)."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+"Yanıtı veya konuşmayı durdurun (ayrıca eller serbest modunu sonlandırır). "
+"Kayıt sırasında: ilk tıklama eller serbest modundan çıkarır, sonraki tıklama"
+" kaydı iptal eder."
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "Yanıtları sesli oku (TTS)"
 
@@ -1859,6 +1933,10 @@ msgstr "Yeni Python Betiği"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Betik adı:"
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "Betik adı ayrılmış bir ön ek ile başlayamaz."
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1936,7 +2014,7 @@ msgid "My Scripts"
 msgstr "Betiklerim"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Yerleşik yardımcılar salt okunurdur. Özelleştirmek için Betiklerime "
@@ -2030,11 +2108,16 @@ msgstr "Belge salt okunur veya özellikler yazılamıyor."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
 msgstr ""
-"Başlatma betiği belgeye kaydedildi ancak paylaşılan çekirdek önbelleği "
-"güncellenmedi. =PY() hala önceki betiği çalıştırıyor olabilir."
+"Belge özellikleri yazılamıyor (UserDefinedProperties eksik veya yazılamaz "
+"durumda)."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "'{0}' ayrılmış bir ön ek ile başlıyor."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2047,12 +2130,30 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "'{0}' adlı bir betik bu belgede zaten var."
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "'{0}' betiği bu belgede mevcut değil."
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Bu Belge"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "Belge kapatıldı."
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "'{0}' betiği Betiklerim'de mevcut değil."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"'{0}' betiği 'Betiğim' içinde veya bu belgede bulunmuyor, bu yüzden "
+"kaydedilmedi."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Açık bir belge yok."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2089,10 +2190,6 @@ msgstr "'{0}' adında bir betik zaten 'Betiklerim' içinde mevcut."
 msgid "Copied script '{0}' to My Scripts."
 msgstr "'{0}' betiği 'Betiklerim'e kopyalandı."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Açık bir belge yok."
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2103,13 +2200,13 @@ msgstr "Belge betiği '{0}' silindi."
 msgid "Deleted script '{0}'."
 msgstr "'{0}' betiği silindi."
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Belge kapatıldı."
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "Belge artık açık değil."
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "Betik yürütme başarısız oldu."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2181,12 +2278,6 @@ msgid "Script executed successfully."
 msgstr "Betik başarıyla çalıştırıldı."
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Betik başarıyla çalıştırıldı ancak bir sonuç döndürmedi ve çıktı üretmedi."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "Başarılı"
 
@@ -2232,6 +2323,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "Betik listesi güncellemesi zaman aşımına uğradı."
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Betik yürütme başarısız oldu."
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2602,6 +2697,42 @@ msgstr "{domain} '{helper}' tamamlandı. {rows} satır yazıldı. ({time} sürd�
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' tamamlandı. ({time} sürdü)"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Görsel Yardımcılar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Matematik Yardımcıları"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Birim Yardımcıları"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Analiz Yardımcıları"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL Yardımcıları"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Görselleştirme Yardımcıları"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Nicel Yardımcılar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Eniyileme Yardımcıları"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Tahmin Yardımcıları"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2670,6 +2801,11 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "Bu belge için Python oturumu sıfırlandı."
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"Python Oturumunu Sıfırla; Writer, Calc ve Draw belgeleri için geçerlidir."
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "Birim yardımcısı başarısız oldu."
@@ -2689,6 +2825,11 @@ msgstr "Sonuç eklenemedi: {error} ({time} sürdü)"
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "{domain} '{helper}' tamamlandı. Eklenen: {preview} ({time} sürdü)"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "Grafik eklendi ({title}). ({time} sürdü)"
 
@@ -2696,16 +2837,6 @@ msgstr "Grafik eklendi ({title}). ({time} sürdü)"
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' tamamlandı. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' tamamlandı. Eklendi: {preview} ({time} sürdü)"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "'{helper}' birimleri tamamlandı. Eklenen: {preview} ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2761,14 +2892,6 @@ msgstr "Betik kaydedildi."
 msgid "A script is already running."
 msgstr "Bir betik zaten çalışıyor."
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr ""
-"'{0}' betiği 'Betiğim' içinde veya bu belgede bulunmuyor, bu yüzden "
-"kaydedilmedi."
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Python Betiğini Çalıştır"
@@ -2813,6 +2936,11 @@ msgstr ""
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "Kullanıcı tarafından iptal edildi."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "{total} görselden {count} tanesinden sonra durduruldu."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

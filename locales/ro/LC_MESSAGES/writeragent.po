@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -286,6 +286,10 @@ msgstr "Furnizorul AI a raportat o eroare. Încercați din nou."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nu a fost găsit: {identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "Se așteaptă răspunsul altui document..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "Încălcare a firului de execuție UNO"
@@ -357,6 +361,7 @@ msgid "Error: {0}"
 msgstr "Eroare: {0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "Fluxul s-a încheiat cu finish_reason=error"
 
@@ -393,6 +398,10 @@ msgstr "Vă rugăm să setați Modelul în Setări."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Vă rugăm să selectați un model valid în Setări (nu un substituent)."
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "Bună, sunt WriterAgent-ul tău pentru LibreOffice."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -463,61 +472,59 @@ msgstr ""
 "Niciun client de model lingvistic nu este disponibil pentru punctul final de"
 " transformare a vorbirii în text."
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "Bună, sunt WriterAgent-ul tău pentru LibreOffice."
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "Cererea vocală a eșuat ({0}): {1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "Cererea vocală a eșuat: {0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "Cererea vocală a eșuat ({0})."
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "Cererea vocală a eșuat."
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "Se descarcă modelul vocal Kokoro…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr ""
 "Nu s-a putut descărca Kokoro; se utilizează funcția vocală a sistemului de "
 "operare"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "Se descarcă vocea Piper {0}…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "Nu s-a putut descărca {0}; se utilizează Lessac"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr ""
 "Nu s-a putut descărca {0}; se utilizează funcția vocală a sistemului de "
 "operare"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Cererea vocală a eșuat ({0}): {1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Cererea vocală a eșuat: {0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Cererea vocală a eșuat ({0})."
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "Cererea vocală a eșuat."
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr ""
-"Fonemizatorul Kokoro a eșuat; este posibil ca această limbă să fie citită "
-"incorect."
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr "Misaki nu a fost găsit; Kokoro a folosit foneme engleze"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Kokoro a folosit foneme engleze pentru o voce non-engleză"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -567,6 +574,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Nu se poate importa webview (pywebview) în venv-ul configurat."
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Scriptul de inițializare a fost salvat."
 
@@ -722,7 +730,7 @@ msgstr "Imagine inserată"
 msgid "Images inserted"
 msgstr "Imagini inserate"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -926,6 +934,31 @@ msgstr "Respinge această modificare"
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Nu s-a putut scrie textul transmis în document: {0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr ""
+"Eșec la finalizarea editării urmărite și la păstrarea textului generat: {0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+"Eșec la comprimarea editării transmise într-o singură modificare urmărită. "
+"Textul generat a fost păstrat, dar poate apărea în continuare ca modificări "
+"urmărite multiple."
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr ""
+"Eșec la comprimarea continuării transmise într-o singură modificare "
+"urmărită. Textul a fost păstrat, dar s-ar putea să nu poată fi revizuit."
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1353,6 +1386,10 @@ msgstr "Tablou de bord evaluare"
 msgid "Debug"
 msgstr "Depanare"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[Mesaj vocal]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Eroare: Setul de instrumente nu este disponibil"
@@ -1421,6 +1458,10 @@ msgstr "Schimbare model (mock)"
 msgid "Slash commands:"
 msgstr "Comenzi slash:"
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "Trimite"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "Acceptă"
@@ -1438,6 +1479,10 @@ msgid "Waiting for approval…"
 msgstr "Se așteaptă aprobarea…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "Hands-free oprit"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "Se înregistrează audio… (%d ms liniște)"
@@ -1449,10 +1494,6 @@ msgstr "Înregistrare"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Oprire înregistrare"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Trimite"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1488,6 +1529,10 @@ msgid "[No speech detected.]"
 msgstr "[Nu a fost detectată nicio voce.]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Hands-free oprit: nu s-a auzit nicio voce.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1509,6 +1554,11 @@ msgstr ""
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "Înregistrare hands-free..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "Hands-free… (%d ms liniște)"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1623,6 +1673,10 @@ msgid ""
 msgstr ""
 "[Backend-ul agentului „{0}” nu este disponibil. Verificați Setările (cale, "
 "instalare).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Se gândește..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1863,6 +1917,24 @@ msgid "Width:"
 msgstr "Lățime:"
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+"Trimite. Înregistrare: faceți clic pentru a înregistra un mesaj, mențineți "
+"apăsat 2 secunde pentru modul mâini libere. Oprire înreg.: trimite "
+"înregistrarea (modul mâini libere continuă să asculte)."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+"Oprește răspunsul sau vorbirea (încheie și modul mâini libere). În timpul "
+"înregistrării: primul clic părăsește modul mâini libere, următorul clic "
+"anulează înregistrarea."
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "Rostește răspunsurile cu voce tare (TTS)"
 
@@ -1875,6 +1947,10 @@ msgstr "Script Python nou"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Nume script:"
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "Numele scriptului nu poate începe cu un prefix rezervat."
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1952,7 +2028,7 @@ msgid "My Scripts"
 msgstr "Scripturile mele"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Ajutoarele integrate sunt doar pentru citire. Folosiți „Copiază în "
@@ -2050,12 +2126,16 @@ msgstr "Documentul este doar în citire sau proprietățile nu pot fi scrise."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
 msgstr ""
-"Scriptul de inițializare a fost salvat în document, dar memoria cache a "
-"nucleului partajat nu s-a actualizat. =PY() ar putea rula în continuare "
-"scriptul anterior."
+"Proprietățile documentului nu pot fi scrise (UserDefinedProperties lipsesc "
+"sau nu pot fi scrise)."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "„{0}” începe cu un prefix rezervat."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2069,12 +2149,30 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Un script numit „{0}” există deja în acest document."
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "Scriptul „{0}” nu există în acest document."
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Acest document"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "Documentul a fost închis."
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "Scriptul „{0}” nu există în „Scripturile mele”."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Scriptul „{0}” nu se află în „Scripturile mele” sau în acest document, deci "
+"nu a fost salvat."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Niciun document nu este deschis."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2111,10 +2209,6 @@ msgstr "Un script numit „{0}” există deja în Scripturile mele."
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Scriptul „{0}” a fost copiat în Scripturile mele."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Niciun document nu este deschis."
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2125,13 +2219,13 @@ msgstr "Scriptul de document „{0}” a fost șters."
 msgid "Deleted script '{0}'."
 msgstr "Scriptul „{0}” a fost șters."
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Documentul a fost închis."
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "Documentul nu mai este deschis."
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "Executarea scriptului a eșuat."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2203,13 +2297,6 @@ msgid "Script executed successfully."
 msgstr "Script executat cu succes."
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Scriptul a fost executat cu succes, dar nu a returnat niciun rezultat și nu "
-"a produs nicio ieșire."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "Succes"
 
@@ -2255,6 +2342,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "Actualizarea listei de scripturi a expirat."
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Executarea scriptului a eșuat."
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2613,6 +2704,42 @@ msgstr ""
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} „{helper}” finalizat. (a durat {time})"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Asistenți vizuali"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Asistenți matematici"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Asistenți unități"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Asistenți analiză"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "Asistenți SQL"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Asistenți vizualizare"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Asistenți cantitativi"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Asistenți optimizare"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Asistenți prognoză"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2683,6 +2810,11 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "Sesiunea Python a fost resetată pentru acest document."
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"Resetarea sesiunii Python se aplică documentelor Writer, Calc și Draw."
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "Asistentul de unități a eșuat."
@@ -2702,6 +2834,11 @@ msgstr "Inserarea rezultatului a eșuat: {error} (a durat {time})"
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "{domain} „{helper}” finalizat. Inserat: {preview} (durată: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "Grafic inserat ({title}). (a durat {time})"
 
@@ -2709,16 +2846,6 @@ msgstr "Grafic inserat ({title}). (a durat {time})"
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' finalizat. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' finalizat. Inserat: {preview} (a durat {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Unități „{helper}” finalizate. Inserat: {preview} (durată: {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2775,14 +2902,6 @@ msgstr "Script salvat."
 msgid "A script is already running."
 msgstr "Un script rulează deja."
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr ""
-"Scriptul „{0}” nu se află în „Scripturile mele” sau în acest document, deci "
-"nu a fost salvat."
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Execută script Python"
@@ -2828,6 +2947,11 @@ msgstr ""
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "Anulat de utilizator."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "Oprit după {count} din {total} imagini."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

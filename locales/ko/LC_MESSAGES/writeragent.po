@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -265,6 +265,10 @@ msgstr "AI 공급자가 오류를 보고했습니다. 다시 시도하세요."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type}을(를) 찾을 수 없음: {identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "다른 문서의 응답을 기다리는 중..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "UNO 스레드 위반"
@@ -325,6 +329,7 @@ msgid "Error: {0}"
 msgstr "오류: {0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "스트림이 finish_reason=error로 종료되었습니다."
 
@@ -359,6 +364,10 @@ msgstr "설정에서 모델을 설정하십시오."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "설정에서 유효한 모델을 선택하십시오(자리 표시자 아님)."
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "안녕하세요, LibreOffice WriterAgent입니다."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -425,55 +434,55 @@ msgstr ""
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr "음성-텍스트 변환 엔드포인트에 사용할 수 있는 언어 모델 클라이언트가 없습니다."
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "안녕하세요, LibreOffice WriterAgent입니다."
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "음성 요청 실패 ({0}): {1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "음성 요청 실패: {0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "음성 요청 실패 ({0})."
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "음성 요청 실패."
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "Kokoro 음성 모델 다운로드 중…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr "Kokoro를 다운로드할 수 없습니다; OS 음성을 사용합니다"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "Piper 음성 {0} 다운로드 중…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "{0}을(를) 다운로드할 수 없습니다; Lessac을 사용합니다"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr "{0}을(를) 다운로드할 수 없습니다; OS 음성을 사용합니다"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "음성 요청 실패 ({0}): {1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "음성 요청 실패: {0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "음성 요청 실패 ({0})."
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "음성 요청 실패."
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr "Kokoro 음소 변환기가 실패했습니다; 이 언어는 잘못 읽힐 수 있습니다."
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr "Misaki를 찾을 수 없음; Kokoro가 영어 음소를 사용함"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "비영어 음성에 대해 Kokoro가 영어 음소를 사용함"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -521,6 +530,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "구성된 가상 환경에서 webview(pywebview)를 가져올 수 없습니다."
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "초기화 스크립트가 저장되었습니다."
 
@@ -665,7 +675,7 @@ msgstr "이미지 삽입됨"
 msgid "Images inserted"
 msgstr "이미지 삽입됨"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -866,6 +876,28 @@ msgstr "이 변경 내용 거부"
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "문서에 스트리밍된 텍스트를 쓰는 데 실패했습니다: {0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr "추적된 편집을 완료하고 생성된 텍스트를 보존하는 데 실패했습니다: {0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+"스트리밍된 편집을 단일 추적 변경 내용으로 병합하는 데 실패했습니다. 생성된 텍스트는 유지되었으나, 여러 개의 추적 변경 내용으로 나타날"
+" 수 있습니다."
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr ""
+"스트리밍된 연속 편집을 단일 추적 변경 내용으로 병합하는 데 실패했습니다. 텍스트는 유지되었으나 검토가 불가능할 수 있습니다."
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1286,6 +1318,10 @@ msgstr "평가 대시보드"
 msgid "Debug"
 msgstr "디버그"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[음성 메시지]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "오류: 툴킷을 사용할 수 없음"
@@ -1354,6 +1390,10 @@ msgstr "모델 전환 (모의)"
 msgid "Slash commands:"
 msgstr "슬래시 명령어:"
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "보내기"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "수락"
@@ -1371,6 +1411,10 @@ msgid "Waiting for approval…"
 msgstr "승인 대기 중…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "핸즈프리 끄기"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "오디오 녹음 중… (%d ms 무음)"
@@ -1382,10 +1426,6 @@ msgstr "녹음"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "녹음 중지"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "보내기"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1417,6 +1457,10 @@ msgid "[No speech detected.]"
 msgstr "[음성이 감지되지 않았습니다.]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[핸즈프리 끄기: 음성이 감지되지 않음.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1435,6 +1479,11 @@ msgstr "[피어 전송을 사용하려면 이 사이드바에서 채팅 모드�
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "핸즈프리 녹음 중..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "핸즈프리… (%d ms 침묵)"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1543,6 +1592,10 @@ msgstr "[에이전트 백엔드 '{0}'을(를) 찾을 수 없습니다.]"
 msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr "[에이전트 백엔드 '{0}'을(를) 사용할 수 없습니다. 설정(경로, 설치)을 확인하십시오.]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "생각 중..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1770,6 +1823,21 @@ msgid "Width:"
 msgstr "너비:"
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+"전송. 녹음: 클릭하면 메시지 하나를 녹음하고, 2초간 누르면 핸즈프리 모드가 됩니다. 녹음 중지: 녹음 내용을 전송합니다(핸즈프리 "
+"모드는 계속 대기합니다)."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+"답변 또는 음성 중지(핸즈프리 모드도 종료). 녹음 중: 첫 번째 클릭은 핸즈프리 모드를 해제하고, 다음 클릭은 녹음을 취소합니다."
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "응답을 소리 내어 읽기(TTS)"
 
@@ -1782,6 +1850,10 @@ msgstr "새 Python 스크립트"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "스크립트 이름:"
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "스크립트 이름은 예약된 접두사로 시작할 수 없습니다."
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1859,7 +1931,7 @@ msgid "My Scripts"
 msgstr "내 스크립트"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr "내장 도우미는 읽기 전용입니다. 사용자 지정하려면 '내 스크립트로 복사'를 사용하세요."
 
@@ -1949,10 +2021,14 @@ msgstr "문서가 읽기 전용이거나 속성을 쓸 수 없습니다."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
-msgstr ""
-"초기화 스크립트가 문서에 저장되었지만 공유 커널 캐시가 업데이트되지 않았습니다. =PY()가 이전 스크립트를 계속 실행할 수 있습니다."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
+msgstr "문서 속성을 쓸 수 없습니다(UserDefinedProperties가 없거나 쓸 수 없는 상태입니다)."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "'{0}'은(는) 예약된 접두사로 시작합니다."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1965,12 +2041,28 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "'{0}'이라는 이름의 스크립트가 이 문서에 이미 존재합니다."
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "이 문서에 '{0}' 스크립트가 존재하지 않습니다."
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "이 문서"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "문서가 닫혔습니다."
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "내 스크립트에 '{0}' 스크립트가 존재하지 않습니다."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr "스크립트 '{0}'이(가) '내 스크립트' 또는 이 문서에 없으므로 저장되지 않았습니다."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "문서가 열려 있지 않습니다."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2007,10 +2099,6 @@ msgstr "'{0}'이라는 이름의 스크립트가 '내 스크립트'에 이미 �
 msgid "Copied script '{0}' to My Scripts."
 msgstr "'{0}' 스크립트를 '내 스크립트'로 복사했습니다."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "문서가 열려 있지 않습니다."
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2021,13 +2109,13 @@ msgstr "문서 스크립트 '{0}'을(를) 삭제했습니다."
 msgid "Deleted script '{0}'."
 msgstr "스크립트 '{0}'을(를) 삭제했습니다."
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "문서가 닫혔습니다."
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "문서가 더 이상 열려 있지 않습니다."
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "스크립트 실행에 실패했습니다."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2099,11 +2187,6 @@ msgid "Script executed successfully."
 msgstr "스크립트가 성공적으로 실행되었습니다."
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr "스크립트가 성공적으로 실행되었으나, 반환된 결과나 출력값이 없습니다."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "성공"
 
@@ -2148,6 +2231,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "스크립트 목록 업데이트 시간이 초과되었습니다."
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "스크립트 실행에 실패했습니다."
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2496,6 +2583,42 @@ msgstr "{domain} '{helper}' 완료. {rows}개의 행을 작성했습니다. (소
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' 완료. (소요 시간: {time})"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "비전 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "수학 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "단위 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "분석 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "시각화 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "계량 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "최적화 도우미"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "예측 도우미"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2557,6 +2680,10 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "이 문서에 대한 Python 세션이 초기화되었습니다."
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr "Python 세션 초기화는 Writer, Calc 및 Draw 문서에 적용됩니다."
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "단위 도우미가 실패했습니다."
@@ -2576,6 +2703,11 @@ msgstr "결과 삽입 실패: {error} ({time} 소요)"
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "{domain} '{helper}' 완료됨. 삽입됨: {preview} (소요 시간: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "플롯이 삽입되었습니다 ({title}). ({time} 소요)"
 
@@ -2583,16 +2715,6 @@ msgstr "플롯이 삽입되었습니다 ({title}). ({time} 소요)"
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' 완료됨. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' 완료됨. 삽입됨: {preview} ({time} 소요)"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "단위 '{helper}' 완료. 삽입됨: {preview} (소요 시간: {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2644,12 +2766,6 @@ msgstr "스크립트가 저장되었습니다."
 msgid "A script is already running."
 msgstr "스크립트가 이미 실행 중입니다."
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr "스크립트 '{0}'이(가) '내 스크립트' 또는 이 문서에 없으므로 저장되지 않았습니다."
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Python 스크립트 실행"
@@ -2690,6 +2806,11 @@ msgstr "이미지가 너무 커서 비전 워커로 보낼 수 없습니다({siz
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "사용자에 의해 취소되었습니다."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "{total}개의 이미지 중 {count}개 처리 후 중단됨."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

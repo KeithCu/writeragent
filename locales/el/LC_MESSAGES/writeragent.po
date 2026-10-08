@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -295,6 +295,10 @@ msgstr "Ο πάροχος AI ανέφερε ένα σφάλμα. Προσπαθ�
 msgid "{resource_type} not found: {identifier}"
 msgstr "Το {resource_type} δεν βρέθηκε: {identifier}"
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr "Αναμονή για απάντηση άλλου εγγράφου..."
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr "Παραβίαση νήματος UNO"
@@ -366,6 +370,7 @@ msgid "Error: {0}"
 msgstr "Σφάλμα: {0}"
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr "Η ροή τερματίστηκε με finish_reason=error"
 
@@ -404,6 +409,10 @@ msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr ""
 "Παρακαλώ επιλέξτε ένα έγκυρο μοντέλο στις Ρυθμίσεις (όχι ένα σύμβολο "
 "κράτησης θέσης)."
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "Γεια σας, είμαι ο WriterAgent του LibreOffice."
 
 #: plugin/audio/stt_service.py
 #, python-brace-format
@@ -477,58 +486,56 @@ msgstr ""
 "Δεν υπάρχει διαθέσιμος πελάτης γλωσσικού μοντέλου για το τελικό σημείο "
 "μετατροπής ομιλίας σε κείμενο."
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr "Γεια σας, είμαι ο WriterAgent του LibreOffice."
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr "Το αίτημα ομιλίας απέτυχε ({0}): {1}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr "Το αίτημα ομιλίας απέτυχε: {0}"
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr "Το αίτημα ομιλίας απέτυχε ({0})."
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr "Το αίτημα ομιλίας απέτυχε."
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr "Λήψη του μοντέλου φωνής Kokoro…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr ""
 "Αποτυχία λήψης του Kokoro· χρήση της ομιλίας του λειτουργικού συστήματος"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr "Λήψη της φωνής Piper {0}…"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr "Αποτυχία λήψης του {0}· χρήση του Lessac"
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr "Αποτυχία λήψης του {0}· χρήση της ομιλίας του λειτουργικού συστήματος"
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Το αίτημα ομιλίας απέτυχε ({0}): {1}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Το αίτημα ομιλίας απέτυχε: {0}"
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Το αίτημα ομιλίας απέτυχε ({0})."
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr "Το αίτημα ομιλίας απέτυχε."
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
-msgstr ""
-"Το phonemizer Kokoro απέτυχε· αυτή η γλώσσα ενδέχεται να αναγνωστεί "
-"εσφαλμένα."
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr "Το Misaki δεν βρέθηκε· χρησιμοποιήθηκαν αγγλικά φωνήματα Kokoro"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
+msgstr "Το Kokoro χρησιμοποίησε αγγλικά φωνήματα για μη αγγλική φωνή"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Installing Kokoro phonemizer…"
@@ -578,6 +585,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Αδυναμία εισαγωγής του webview (pywebview) στο ρυθμισμένο venv."
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr "Το σενάριο αρχικοποίησης αποθηκεύτηκε."
 
@@ -738,7 +746,7 @@ msgstr "Η εικόνα εισήχθη"
 msgid "Images inserted"
 msgstr "Εικόνες που εισήχθησαν"
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -943,6 +951,33 @@ msgstr "Απόρριψη αυτής της αλλαγής"
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
 msgstr "Αποτυχία εγγραφής κειμένου ροής στο έγγραφο: {0}"
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr ""
+"Αποτυχία οριστικοποίησης της παρακολουθούμενης επεξεργασίας και διατήρησης "
+"του παραχθέντος κειμένου: {0}"
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+"Αποτυχία σύμπτυξης της μεταδιδόμενης επεξεργασίας σε μία παρακολουθούμενη "
+"αλλαγή. Το παραχθέν κείμενο διατηρήθηκε, αλλά ενδέχεται να εμφανίζεται ως "
+"πολλαπλές παρακολουθούμενες αλλαγές."
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
+msgstr ""
+"Αποτυχία σύμπτυξης της μεταδιδόμενης συνέχειας σε μία παρακολουθούμενη "
+"αλλαγή. Το κείμενο διατηρήθηκε, αλλά ενδέχεται να μην είναι δυνατό να "
+"ελεγχθεί."
 
 #: plugin/writer/editselection.py
 msgid ""
@@ -1370,6 +1405,10 @@ msgstr "Πίνακας ελέγχου αξιολόγησης"
 msgid "Debug"
 msgstr "Αποσφαλμάτωση"
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr "[Φωνητικό μήνυμα]"
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Σφάλμα: Το εργαλειοθήκη δεν είναι διαθέσιμο"
@@ -1438,6 +1477,10 @@ msgstr "Εναλλαγή μοντέλου (προσομοίωση)"
 msgid "Slash commands:"
 msgstr "Εντολές slash:"
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "Αποστολή"
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr "Αποδοχή"
@@ -1455,6 +1498,10 @@ msgid "Waiting for approval…"
 msgstr "Αναμονή για έγκριση…"
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr "Hands-free ανενεργό"
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr "Εγγραφή ήχου… (%d ms σιωπής)"
@@ -1466,10 +1513,6 @@ msgstr "Εγγραφή"
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
 msgstr "Διακοπή εγγραφής"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Αποστολή"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1505,6 +1548,10 @@ msgid "[No speech detected.]"
 msgstr "[Δεν ανιχνεύθηκε ομιλία.]"
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr "[Hands-free ανενεργό: δεν ακούστηκε ομιλία.]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1527,6 +1574,11 @@ msgstr ""
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
 msgstr "Εγγραφή hands-free..."
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
+msgstr "Hands-free… (%d ms σιωπής)"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1640,6 +1692,10 @@ msgid ""
 msgstr ""
 "[Το υποσύστημα του πράκτορα '{0}' δεν είναι διαθέσιμο. Ελέγξτε τις Ρυθμίσεις"
 " (διαδρομή, εγκατάσταση).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Σκέψη..."
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1881,6 +1937,24 @@ msgid "Width:"
 msgstr "Πλάτος:"
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+"Αποστολή. Εγγραφή: κάντε κλικ για εγγραφή ενός μηνύματος, κρατήστε πατημένο "
+"για 2 δευτερόλεπτα για hands-free. Διακοπή εγγραφής: αποστολή της εγγραφής "
+"(το hands-free συνεχίζει την ακρόαση)."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+"Διακοπή της απάντησης ή της ομιλίας (τερματίζει επίσης το hands-free). Κατά "
+"την εγγραφή: το πρώτο κλικ απενεργοποιεί το hands-free, το επόμενο κλικ "
+"ακυρώνει την εγγραφή."
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr "Εκφώνηση απαντήσεων (TTS)"
 
@@ -1893,6 +1967,10 @@ msgstr "Νέο σενάριο Python"
 #: plugin/xdl_strings.py
 msgid "Script name:"
 msgstr "Όνομα σεναρίου:"
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
+msgstr "Το όνομα του σεναρίου δεν μπορεί να ξεκινά με δεσμευμένο πρόθεμα."
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1970,7 +2048,7 @@ msgid "My Scripts"
 msgstr "Τα σενάριά μου"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 "Οι ενσωματωμένοι βοηθοί είναι μόνο για ανάγνωση. Χρησιμοποιήστε την "
@@ -2072,12 +2150,16 @@ msgstr ""
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
 msgstr ""
-"Το σενάριο αρχικοποίησης αποθηκεύτηκε στο έγγραφο, αλλά η προσωρινή μνήμη "
-"του κοινόχρηστου πυρήνα δεν ενημερώθηκε. Το =PY() ενδέχεται να εκτελεί ακόμα"
-" το προηγούμενο σενάριο."
+"Οι ιδιότητες εγγράφου δεν μπορούν να εγγραφούν (λείπουν ή δεν είναι δυνατή η"
+" εγγραφή στις UserDefinedProperties)."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
+msgstr "Το '{0}' ξεκινά με δεσμευμένο πρόθεμα."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2091,12 +2173,30 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Ένα σενάριο με το όνομα '{0}' υπάρχει ήδη σε αυτό το έγγραφο."
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr "Το σενάριο '{0}' δεν υπάρχει σε αυτό το έγγραφο."
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Αυτό το έγγραφο"
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
-msgstr "Το έγγραφο έκλεισε."
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr "Το σενάριο '{0}' δεν υπάρχει στα «Τα σενάριά μου»."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+"Το σενάριο '{0}' δεν βρίσκεται στα «Δικά μου σενάρια» ή σε αυτό το έγγραφο, "
+"επομένως δεν αποθηκεύτηκε."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Δεν υπάρχει ανοιχτό έγγραφο."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2133,10 +2233,6 @@ msgstr "Ένα σενάριο με το όνομα '{0}' υπάρχει ήδη �
 msgid "Copied script '{0}' to My Scripts."
 msgstr "Το σενάριο '{0}' αντιγράφηκε στα «Τα σενάριά μου»."
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Δεν υπάρχει ανοιχτό έγγραφο."
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -2147,13 +2243,13 @@ msgstr "Το σενάριο εγγράφου '{0}' διαγράφηκε."
 msgid "Deleted script '{0}'."
 msgstr "Το σενάριο '{0}' διαγράφηκε."
 
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
+msgstr "Το έγγραφο έκλεισε."
+
 #: plugin/scripting/python_runner_ui.py
 msgid "The document is no longer open."
 msgstr "Το έγγραφο δεν είναι πλέον ανοιχτό."
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
-msgstr "Η εκτέλεση του σεναρίου απέτυχε."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "PythonScriptDialog could not be loaded from the extension."
@@ -2227,13 +2323,6 @@ msgid "Script executed successfully."
 msgstr "Το σενάριο εκτελέστηκε με επιτυχία."
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Το σενάριο εκτελέστηκε με επιτυχία, αλλά δεν επέστρεψε αποτέλεσμα και δεν "
-"παρήγαγε έξοδο."
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr "Επιτυχία"
 
@@ -2279,6 +2368,10 @@ msgstr ""
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
 msgstr "Έληξε το χρονικό όριο ενημέρωσης της λίστας σεναρίων."
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
+msgstr "Η εκτέλεση του σεναρίου απέτυχε."
 
 #: plugin/scripting/editor_host.py
 msgid "Saving the script timed out."
@@ -2648,6 +2741,42 @@ msgstr ""
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "Το {domain} '{helper}' ολοκληρώθηκε. (διάρκεια {time})"
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Βοηθοί όρασης"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Βοηθοί μαθηματικών"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Βοηθοί μονάδων"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Βοηθοί ανάλυσης"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "Βοηθοί SQL"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Βοηθοί οπτικοποίησης"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Βοηθοί ποσοτικής ανάλυσης"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Βοηθοί βελτιστοποίησης"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Βοηθοί πρόβλεψης"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2718,6 +2847,12 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr "Η περίοδος λειτουργίας Python επαναφέρθηκε για αυτό το έγγραφο."
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"Η επαναφορά της συνεδρίας Python εφαρμόζεται σε έγγραφα Writer, Calc και "
+"Draw."
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr "Το βοηθητικό πρόγραμμα μονάδων απέτυχε."
@@ -2737,6 +2872,12 @@ msgstr "Αποτυχία εισαγωγής αποτελέσματος: {error} 
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+"Ολοκληρώθηκε το {domain} '{helper}'. Εισήχθη: {preview} (διάρκεια {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr "Η γραφική παράσταση εισήχθη ({title}). (διάρκεια {time})"
 
@@ -2744,17 +2885,6 @@ msgstr "Η γραφική παράσταση εισήχθη ({title}). (διάρ
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
 msgstr "Το Viz '{helper}' ολοκληρώθηκε. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Το Math '{helper}' ολοκληρώθηκε. Εισήχθη: {preview} (διάρκεια {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"Οι μονάδες '{helper}' ολοκληρώθηκαν. Εισήχθησαν: {preview} (διάρκεια {time})"
 
 #: plugin/scripting/python_runner.py
 msgid "Info"
@@ -2812,14 +2942,6 @@ msgstr "Το σενάριο αποθηκεύτηκε."
 msgid "A script is already running."
 msgstr "Ένα σενάριο εκτελείται ήδη."
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr ""
-"Το σενάριο '{0}' δεν βρίσκεται στα «Δικά μου σενάρια» ή σε αυτό το έγγραφο, "
-"επομένως δεν αποθηκεύτηκε."
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr "Εκτέλεση σεναρίου Python"
@@ -2867,6 +2989,11 @@ msgstr ""
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
 msgstr "Ακυρώθηκε από τον χρήστη."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
+msgstr "Διακόπηκε μετά από {count} από {total} εικόνες."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format

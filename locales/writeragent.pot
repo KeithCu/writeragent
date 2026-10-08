@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 22:12-0400\n"
+"POT-Creation-Date: 2026-10-07 23:17-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -261,6 +261,10 @@ msgstr ""
 msgid "{resource_type} not found: {identifier}"
 msgstr ""
 
+#: plugin/framework/queue_executor.py
+msgid "Waiting for another document's reply..."
+msgstr ""
+
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
 msgstr ""
@@ -320,6 +324,7 @@ msgid "Error: {0}"
 msgstr ""
 
 #: plugin/framework/client/llm_client.py
+#: plugin/framework/client/base_provider_shim.py
 msgid "Stream ended with finish_reason=error"
 msgstr ""
 
@@ -353,6 +358,10 @@ msgstr ""
 
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr ""
+
+#: plugin/audio/tts_voices.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
 msgstr ""
 
 #: plugin/audio/stt_service.py
@@ -413,54 +422,54 @@ msgstr ""
 msgid "No language-model client is available for endpoint speech-to-text."
 msgstr ""
 
-#: plugin/audio/tts_service.py
-msgid "Hello, I'm your LibreOffice WriterAgent."
-msgstr ""
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0}): {1}"
-msgstr ""
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed: {0}"
-msgstr ""
-
-#: plugin/audio/tts_service.py
-#, python-brace-format
-msgid "Speech request failed ({0})."
-msgstr ""
-
-#: plugin/audio/tts_service.py
-msgid "Speech request failed."
-msgstr ""
-
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Downloading Kokoro voice model…"
 msgstr ""
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 msgid "Couldn't download Kokoro; using OS speech"
 msgstr ""
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Downloading Piper voice {0}…"
 msgstr ""
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using Lessac"
 msgstr ""
 
-#: plugin/audio/tts_service.py
+#: plugin/audio/tts_models.py
 #, python-brace-format
 msgid "Couldn't download {0}; using OS speech"
 msgstr ""
 
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr ""
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr ""
+
+#: plugin/audio/tts_endpoint.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr ""
+
+#: plugin/audio/tts_endpoint.py
+msgid "Speech request failed."
+msgstr ""
+
 #: plugin/audio/tts_service.py
-msgid "Kokoro phonemizer failed; this language may be misread."
+msgid "Misaki not found; Kokoro used English phonemes"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro used English phonemes for non-English voice"
 msgstr ""
 
 #: plugin/audio/kokoro_g2p.py
@@ -507,6 +516,7 @@ msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr ""
 
 #: plugin/calc/python/init_script_editor.py
+#: plugin/scripting/editor_ui_strings.py
 msgid "Initialization script saved."
 msgstr ""
 
@@ -644,7 +654,7 @@ msgstr ""
 msgid "Images inserted"
 msgstr ""
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/calc/python/geometric_recalc_core.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -829,6 +839,25 @@ msgstr ""
 #: plugin/writer/edit_review.py
 #, python-brace-format
 msgid "Failed to write streamed text to the document: {0}"
+msgstr ""
+
+#: plugin/writer/edit_review.py
+#, python-brace-format
+msgid ""
+"Failed to finalize the tracked edit and preserve the generated text: {0}"
+msgstr ""
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed edit into a single tracked change. The "
+"generated text was kept, but it may still appear as multiple tracked "
+"changes."
+msgstr ""
+
+#: plugin/writer/edit_review.py
+msgid ""
+"Failed to collapse the streamed continuation into a single tracked change. "
+"The text was kept, but may not be reviewable."
 msgstr ""
 
 #: plugin/writer/editselection.py
@@ -1245,6 +1274,10 @@ msgstr ""
 msgid "Debug"
 msgstr ""
 
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[Voice message]"
+msgstr ""
+
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr ""
@@ -1313,6 +1346,10 @@ msgstr ""
 msgid "Slash commands:"
 msgstr ""
 
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr ""
+
 #: plugin/chatbot/panel.py
 msgid "Accept"
 msgstr ""
@@ -1330,6 +1367,10 @@ msgid "Waiting for approval…"
 msgstr ""
 
 #: plugin/chatbot/panel.py
+msgid "Hands-free off"
+msgstr ""
+
+#: plugin/chatbot/panel.py
 #, python-format
 msgid "Recording audio… (%d ms silence)"
 msgstr ""
@@ -1340,10 +1381,6 @@ msgstr ""
 
 #: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
 msgid "Stop Rec"
-msgstr ""
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
 msgstr ""
 
 #: plugin/chatbot/panel.py
@@ -1376,6 +1413,10 @@ msgid "[No speech detected.]"
 msgstr ""
 
 #: plugin/chatbot/panel.py
+msgid "[Hands-free off: no speech heard.]"
+msgstr ""
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -1393,6 +1434,11 @@ msgstr ""
 
 #: plugin/chatbot/record_gesture.py
 msgid "Hands-free recording..."
+msgstr ""
+
+#: plugin/chatbot/record_gesture.py
+#, python-format
+msgid "Hands-free… (%d ms silence)"
 msgstr ""
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
@@ -1496,6 +1542,10 @@ msgstr ""
 #, python-brace-format
 msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Thinking..."
 msgstr ""
 
 #: plugin/chatbot/send_handlers.py
@@ -1713,6 +1763,18 @@ msgid "Width:"
 msgstr ""
 
 #: plugin/chatbot/panel_factory.py
+msgid ""
+"Send. Record: click to record one message, hold 2 seconds for hands-free. "
+"Stop Rec: send the recording (hands-free keeps listening)."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"Stop the reply or speech (also ends hands-free). While recording: the first "
+"click leaves hands-free, the next click cancels the recording."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
 msgid "Speak responses aloud (TTS)"
 msgstr ""
 
@@ -1724,6 +1786,10 @@ msgstr ""
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
 msgid "Script name:"
+msgstr ""
+
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot start with a reserved prefix."
 msgstr ""
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
@@ -1802,7 +1868,7 @@ msgid "My Scripts"
 msgstr ""
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/python_runner_ui.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
 
@@ -1892,8 +1958,13 @@ msgstr ""
 
 #: plugin/scripting/document_scripts.py
 msgid ""
-"Initialization script was saved on the document, but the shared-kernel cache"
-" did not update. =PY() may still run the previous script."
+"Document properties cannot be written (missing or unwriteable "
+"UserDefinedProperties)."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "'{0}' starts with a reserved prefix."
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
@@ -1907,11 +1978,27 @@ msgid "A script named '{0}' already exists in this document."
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Script '{0}' does not exist in this document."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
-msgid "The document was closed."
+#, python-brace-format
+msgid "Script '{0}' does not exist in My Scripts."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid ""
+"Script '{0}' is not in My Scripts or this document, so it was not saved."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
@@ -1949,10 +2036,6 @@ msgstr ""
 msgid "Copied script '{0}' to My Scripts."
 msgstr ""
 
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr ""
-
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Deleted document script '{0}'."
@@ -1963,12 +2046,12 @@ msgstr ""
 msgid "Deleted script '{0}'."
 msgstr ""
 
-#: plugin/scripting/python_runner_ui.py
-msgid "The document is no longer open."
+#: plugin/scripting/document_scripts.py
+msgid "The document was closed."
 msgstr ""
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "Script execution failed."
+#: plugin/scripting/python_runner_ui.py
+msgid "The document is no longer open."
 msgstr ""
 
 #: plugin/scripting/python_runner_ui.py
@@ -2041,11 +2124,6 @@ msgid "Script executed successfully."
 msgstr ""
 
 #: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
 msgid "Success"
 msgstr ""
 
@@ -2085,6 +2163,10 @@ msgstr ""
 
 #: plugin/scripting/editor_host.py
 msgid "The script list update timed out."
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+msgid "Script execution failed."
 msgstr ""
 
 #: plugin/scripting/editor_host.py
@@ -2413,6 +2495,42 @@ msgstr ""
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr ""
 
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr ""
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
@@ -2468,6 +2586,10 @@ msgstr ""
 msgid "Python session reset for this document."
 msgstr ""
 
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+
 #: plugin/scripting/units.py
 msgid "Units helper failed."
 msgstr ""
@@ -2487,22 +2609,17 @@ msgstr ""
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
+msgid "{domain} '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
 msgid "Plot inserted ({title}). (took {time})"
 msgstr ""
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
 msgid "Viz '{helper}' completed. {msg}"
-msgstr ""
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr ""
 
 #: plugin/scripting/python_runner.py
@@ -2553,12 +2670,6 @@ msgstr ""
 msgid "A script is already running."
 msgstr ""
 
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script '{0}' is not in My Scripts or this document, so it was not saved."
-msgstr ""
-
 #: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Run Python Script"
 msgstr ""
@@ -2598,6 +2709,11 @@ msgstr ""
 
 #: plugin/vision/vision_runner.py
 msgid "Cancelled by user."
+msgstr ""
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Stopped after {count} of {total} images."
 msgstr ""
 
 #: plugin/vision/vision_runner.py
