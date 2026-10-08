@@ -69,6 +69,9 @@ def test_stop_recording_process_returns_path():
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = MagicMock()
+    # _write_all rejects a write() that does not return a positive byte count.
+    # Without this, the known path hides the OSError and the stop line is never accepted.
+    proc.stdin.write.side_effect = lambda data: len(data)
     proc.wait.return_value = 0
     handoff = RecordingStopHandoff()
     handoff.note_ok("/tmp/x.wav")
@@ -115,7 +118,8 @@ def test_stop_recording_via_handoff_reaps_on_timeout():
 
     proc = MagicMock()
     proc.poll.return_value = None
-    proc.stdin = MagicMock()
+    # StringIO.write returns a length, so the stop line is sent and wait_for_path can time out.
+    proc.stdin = StringIO()
     drain = MagicMock()
     _recording_stderr_drains[id(proc)] = drain
 

@@ -366,10 +366,14 @@ def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPat
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
 
+    # __init__ calls respawn(). A fake script path would launch a real interpreter.
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
     worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True)
     worker.process = MagicMock()
     worker.process.poll.return_value = None
     worker.process.stdin = MagicMock()
+    # _write_all rejects a write() that does not return a positive byte count.
+    worker.process.stdin.write.side_effect = lambda data: len(data)
     worker.process.stdout = MagicMock()
     assert worker.tasks_executed == 0
 
@@ -390,10 +394,14 @@ def test_execute_late_drain_timeout_budget(monkeypatch: pytest.MonkeyPatch) -> N
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
 
+    # __init__ calls respawn(). A fake script path would launch a real interpreter.
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
     worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True, default_timeout_sec=30.0)
     worker.process = MagicMock()
     worker.process.poll.return_value = None
     worker.process.stdin = MagicMock()
+    # _write_all rejects a write() that does not return a positive byte count.
+    worker.process.stdin.write.side_effect = lambda data: len(data)
     worker.process.stdout = MagicMock()
 
     drain_calls: list[float] = []
