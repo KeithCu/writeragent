@@ -236,7 +236,7 @@ Once you’ve run these tests, you can document the **actual** chunk shapes and 
 
 ### 5.4 Empty final assistant text (tool loop)
 
-If a streamed tool-loop round ends with no `content` and no `tool_calls`, the sidebar shows `[No text from model; any tool changes were still applied.]` followed by `[Debug: round=…, finish_reason=…, content=…, usage=…]` from the accumulated API response ([`format_empty_model_response_debug`](../../plugin/chatbot/tool_loop_state.py)). Release builds also emit the same summary at **warning** level in `writeragent_debug.log`.
+If a streamed tool-loop round ends with no `content` and no `tool_calls`, the sidebar shows `[No text from model; any tool changes were still applied.]` followed by `[Debug: round=…, finish_reason=…, content=…, usage=…]` from the accumulated API response ([`format_empty_model_response_debug`](../../plugin/chatbot/tool_loop_state.py)). A `tool_calls` value that is not a list is reported as `tool_calls=present`. Release builds also emit the same summary at **warning** level in `writeragent_debug.log`.
 
 ---
 

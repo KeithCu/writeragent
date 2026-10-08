@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from enum import Enum, auto
-from typing import Any, Dict, List, Mapping, Optional, NamedTuple, cast
+from typing import Any, Dict, List, Mapping, Optional, NamedTuple, assert_never, cast
 
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.memory import format_upsert_memory_chat_line
@@ -86,11 +86,22 @@ def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any
     """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
     # Deep check-all run 32840960268: CHECK ERROR (CrossHair engine traceback) after 1:53.
     # crosshair: off
+    # What was wrong: the raw tool_calls value was passed into
+    # _describe_empty_response_tool_calls, whose @deal.pre accepts only None
+    # or a list. A provider dict or string passed this function's pre
+    # (response is a dict) and raised PreContractError under pytest. Release
+    # OXTs stub deal, so the helper's non-list branch printed "present".
+    # Why: call the helper only for None or a list. Any other shape is present.
+    raw_calls = response.get("tool_calls")
+    if raw_calls is None or type(raw_calls) is list:
+        calls_note = _describe_empty_response_tool_calls(raw_calls)
+    else:
+        calls_note = "present"
     parts = [
         f"round={round_num}",
         f"finish_reason={response.get('finish_reason')!r}",
         f"content={_describe_empty_response_content(response.get('content'))}",
-        f"tool_calls={_describe_empty_response_tool_calls(response.get('tool_calls'))}",
+        f"tool_calls={calls_note}",
     ]
     usage = response.get("usage")
     if isinstance(usage, dict) and usage:
@@ -193,6 +204,20 @@ def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     return f"[Running delegate ({domain})...]\n"
 
 
+def _result_note(result_data: Mapping[str, Any]) -> str:
+    """Chat label for a tool result.
+
+    What was wrong: ``dict.get("message", fallback)`` returns None when the
+    key is present and null, and four copies of that lookup rendered
+    ``[tool: None]``. Why: one label. A null or empty message falls through
+    to Unknown error, status, or done.
+    """
+    # crosshair: off
+    if result_data.get("status") == "error":
+        return result_data.get("message") or "Unknown error"
+    return result_data.get("message") or result_data.get("status") or "done"
+
+
 @deal.pre(
     # result_data is a real tool payload (nested dicts, long messages) — only require a plain dict.
     # Tiny ascii value caps here crashed live debug chat after sheets delegate (AFC eval).
@@ -203,8 +228,7 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     """Completion line for delegate gateway tools (domain shown; success is short)."""
     domain = domain_from_delegate_args(func_args)
     if result_data.get("status") == "error":
-        error_msg = result_data.get("message", "Unknown error")
-        return f"[delegate ({domain}) failed: {error_msg}]\n"
+        return f"[delegate ({domain}) failed: {_result_note(result_data)}]\n"
     from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 
     cache_block = format_research_cache_result_chat(result_data) if domain == "web_research" else ""
@@ -252,12 +276,12 @@ def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tupl
 def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
     """Chat append body for a tool result (error or success); does not mutate *result_data*."""
     # crosshair: off
+    note = _result_note(result_data)
     if result_data.get("status") == "error":
-        error_msg = result_data.get("message", "Unknown error")
         if is_delegate_gateway(func_name):
             detailed_text = format_delegate_result_chat_line(func_args, result_data)
         else:
-            detailed_text = f"[{func_name} failed: {error_msg}]\n"
+            detailed_text = f"[{func_name} failed: {note}]\n"
         raw_details = result_data.get("details", {})
         # Copy before popping traceback so callers' result_data is not mutated.
         details = dict(raw_details) if isinstance(raw_details, dict) else {}
@@ -269,7 +293,6 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
                 detailed_text += f"Traceback:\n{tb}\n"
         return detailed_text
 
-    note = result_data.get("message", result_data.get("status", "done"))
     if is_delegate_gateway(func_name):
         return format_delegate_result_chat_line(func_args, result_data)
     if func_name == "web_research":
@@ -281,15 +304,21 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
 
 
 @deal.post(lambda result: isinstance(result, bool))
-def is_replaced_zero_result(result_data: Mapping[str, Any], note: object) -> bool:
+def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
     """True when apply_document_content reported zero replacements (structured or legacy message)."""
     # crosshair: off
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
+    # What was wrong: ``replaced_count == 0`` is also true for False, so a
+    # boolean false counted as zero replacements and appended the debug
+    # params line. Why: only a real int zero counts. The legacy prefix is
+    # read from the result message.
     if type(result_data) is not dict:
         return False
-    if result_data.get("replaced_count") == 0:
+    count = result_data.get("replaced_count")
+    if type(count) is int and count == 0:
         return True
     # TODO(follow-up): drop legacy prefix once all callers emit replaced_count.
+    note = result_data.get("message")
     if type(note) is str:
         return note.strip().startswith("Replaced 0 occurrence")
     return False
@@ -321,7 +350,11 @@ class EventKind(Enum):
 
 class ToolLoopEvent(NamedTuple):
     kind: EventKind
-    data: Dict[str, Any] = {}
+    # What was wrong: ``data: Dict[str, Any] = {}`` is one dict shared by
+    # every event that omits data (NEXT_TOOL). NamedTuple evaluates that
+    # default once. typing.NamedTuple rejects a custom ``__new__``, so the
+    # omitted value is None. ``next_state`` treats None as {}.
+    data: Optional[Dict[str, Any]] = None
 
 
 # --- Effects ---
@@ -414,26 +447,42 @@ def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
     return not any(isinstance(e, banned) for e in effects)
 
 
+def _transition_invariants(state: ToolLoopState, event: ToolLoopEvent, result: FsmTransition[ToolLoopState]) -> bool:
+    """Stop latch, pending monotonicity, spawn exclusion, and the round bound.
+
+    What was wrong: nine stacked ``@deal.post`` / ``@deal.ensure`` lambdas
+    restated these checks on ``next_state``, so the signature was the spec.
+    How: each decorator was one boolean. Why: one predicate, still enforced
+    by a single ``@deal.ensure``. The Hypothesis oracles call this function.
+    """
+    # crosshair: off
+    if result.state.round_num < 0:
+        return False
+    if result.state.round_num > max(state.round_num + 1, state.max_rounds):
+        return False
+    if event.kind == EventKind.STOP_REQUESTED:
+        if not result.state.is_stopped:
+            return False
+        if not any(isinstance(effect, ExitLoopEffect) for effect in result.effects):
+            return False
+    if state.is_stopped:
+        if not result.state.is_stopped:
+            return False
+        if len(result.state.pending_tools) < len(state.pending_tools):
+            return False
+        if event.kind == EventKind.NEXT_TOOL and not any(isinstance(effect, ExitLoopEffect) for effect in result.effects):
+            return False
+    return stopped_effects_exclude_tool_spawns(result.state, result.effects)
+
+
 # --- State Machine Transition ---
 @deal.pre(lambda state, event: isinstance(state.max_rounds, int) and state.max_rounds > 0 and state.round_num >= 0)
-@deal.post(lambda result: result.state.round_num >= 0)
-@deal.ensure(
-    lambda state, event, result: event.kind != EventKind.STOP_REQUESTED
-    or any(isinstance(e, ExitLoopEffect) for e in result.effects)
-)
-@deal.ensure(lambda state, event, result: event.kind != EventKind.STOP_REQUESTED or result.state.is_stopped)
-@deal.ensure(lambda state, event, result: not state.is_stopped or result.state.is_stopped)
-@deal.ensure(lambda state, event, result: not state.is_stopped or len(result.state.pending_tools) >= len(state.pending_tools))
-@deal.ensure(lambda state, event, result: stopped_effects_exclude_tool_spawns(result.state, result.effects))
-@deal.ensure(
-    lambda state, event, result: event.kind != EventKind.NEXT_TOOL
-    or not state.is_stopped
-    or any(isinstance(e, ExitLoopEffect) for e in result.effects)
-)
-@deal.ensure(lambda state, event, result: result.state.round_num <= max(state.round_num + 1, state.max_rounds))
+@deal.ensure(_transition_invariants)
 def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[ToolLoopState]:
     """Pure transition function for the tool-calling loop."""
     # crosshair: off
+    # Omitted event data is None. Reads below need a dict.
+    event_data = event.data if event.data is not None else {}
     effects: List[Any] = []
 
     match event.kind:
@@ -447,9 +496,9 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             return FsmTransition(dataclasses.replace(state, is_stopped=True, status="Stopped"), effects)
 
         case EventKind.FINAL_DONE:
-            content = event.data.get("content")
+            content = event_data.get("content")
             if content:
-                effects.append(AddMessageEffect(role="assistant", content=content, reasoning_replay=reasoning_replay_from_assistant_response(event.data)))
+                effects.append(AddMessageEffect(role="assistant", content=content, reasoning_replay=reasoning_replay_from_assistant_response(event_data)))
                 effects.append(ToolLoopUIEffect(kind="append", text="\n"))
             effects.append(ToolLoopUIEffect(kind="status", text="Ready"))
             effects.append(ExitLoopEffect())
@@ -461,11 +510,13 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             return FsmTransition(dataclasses.replace(state, status="Error"), effects)
 
         case EventKind.STREAM_DONE:
-            response = event.data.get("response", {})
-            has_audio = event.data.get("has_audio", False)
+            # What was wrong: ``event_data.get("response", {})`` returns None
+            # when the key is present, and ``response.get`` then raised inside
+            # this pure function. The drain reported that as a stream error.
+            # Why: a non-dict payload is an empty response.
+            response = object_dict_or_empty(event_data.get("response"))
+            has_audio = event_data.get("has_audio", False)
             tool_calls = response.get("tool_calls")
-            if isinstance(tool_calls, list) and len(tool_calls) == 0:
-                tool_calls = None
             content = response.get("content")
             finish_reason = response.get("finish_reason")
 
@@ -577,24 +628,20 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
         case EventKind.TOOL_RESULT:
             from plugin.framework.errors import safe_json_loads
 
-            result = event.data.get("result", "")
-            func_name = event.data.get("func_name", "")
-            func_args_str = event.data.get("func_args_str", "")
-            call_id = event.data.get("call_id", "")
-            mutates_document = event.data.get("mutates_document", False)
+            result = event_data.get("result", "")
+            func_name = event_data.get("func_name", "")
+            func_args_str = event_data.get("func_args_str", "")
+            call_id = event_data.get("call_id", "")
+            mutates_document = event_data.get("mutates_document", False)
 
             result_data = object_dict_or_empty(safe_json_loads(result) if result else {})
             effects.append(ToolLoopUIEffect(kind="debug", text=f"Tool result: {result}"))
 
             func_args = object_dict_or_empty(safe_json_loads(func_args_str) if func_args_str else {})
 
-            if result_data.get("status") == "error":
-                note = result_data.get("message", "Unknown error")
-            else:
-                note = result_data.get("message", result_data.get("status", "done"))
             effects.append(ToolLoopUIEffect(kind="append", text=format_tool_result_chat_text(func_name, func_args, result_data)))
 
-            if func_name == "apply_document_content" and is_replaced_zero_result(result_data, note):
+            if func_name == "apply_document_content" and is_replaced_zero_result(result_data):
                 params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
                 effects.append(ToolLoopUIEffect(kind="append", text=f"[Debug: params {params_display}]\n"))
 
@@ -607,4 +654,5 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             effects.append(TriggerNextToolEffect())
             return FsmTransition(state, effects)
 
-    return FsmTransition(state, effects)
+    # Closed enum. A new EventKind must fail here instead of a no-op transition.
+    assert_never(event.kind)

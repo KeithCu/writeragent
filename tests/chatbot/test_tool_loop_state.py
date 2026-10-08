@@ -673,10 +673,62 @@ def test_format_tool_result_chat_text_success_and_delegate():
 
 
 def test_is_replaced_zero_result():
-    assert is_replaced_zero_result({"replaced_count": 0}, "ok") is True
-    assert is_replaced_zero_result({}, "Replaced 0 occurrences") is True
-    assert is_replaced_zero_result({"replaced_count": 2}, "ok") is False
-    assert is_replaced_zero_result({}, 42) is False
+    assert is_replaced_zero_result({"replaced_count": 0}) is True
+    assert is_replaced_zero_result({"message": "Replaced 0 occurrences"}) is True
+    assert is_replaced_zero_result({"replaced_count": 2}) is False
+    assert is_replaced_zero_result({}) is False
+    # False == 0, but a boolean is not a replacement count.
+    assert is_replaced_zero_result({"replaced_count": False}) is False
+
+
+def test_tool_loop_event_default_data_is_not_shared():
+    # typing.NamedTuple rejects a custom __new__, so the omitted value is None
+    # rather than one shared dict. A caller-supplied dict stays that object.
+    first = ToolLoopEvent(kind=EventKind.NEXT_TOOL)
+    second = ToolLoopEvent(kind=EventKind.NEXT_TOOL)
+    assert first.data is None
+    assert second.data is None
+    payload = {"k": 1}
+    held = ToolLoopEvent(kind=EventKind.NEXT_TOOL, data=payload)
+    assert held.data is payload
+
+
+def test_format_empty_model_response_debug_non_list_tool_calls():
+    from tests.harness.strip_bundle import deal_pre_present
+
+    for raw in ({"id": "x"}, "not-a-list"):
+        note = format_empty_model_response_debug(0, {"tool_calls": raw, "content": None})
+        assert "tool_calls=present" in note
+    if deal_pre_present(format_empty_model_response_debug):
+        assert "tool_calls=present" in format_empty_model_response_debug(0, {"tool_calls": "oops"})
+
+
+def test_stream_done_non_list_tool_calls_emits_empty_banner():
+    state = create_base_state()
+    event = create_event(EventKind.STREAM_DONE, response={"tool_calls": {"id": "x"}, "content": None, "finish_reason": "stop"})
+    tr = next_state(state, event)
+    append_texts = [e.text for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append"]
+    assert any("No text from model" in t for t in append_texts)
+    assert any("tool_calls=present" in t for t in append_texts)
+
+
+def test_stream_done_non_dict_response_is_empty_model():
+    state = create_base_state()
+    tr = next_state(state, create_event(EventKind.STREAM_DONE, response=None))
+    append_texts = [e.text for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append"]
+    assert any("No text from model" in t for t in append_texts)
+
+
+def test_format_tool_result_chat_text_null_message_uses_fallback():
+    assert format_tool_result_chat_text("my_tool", {}, {"status": "ok", "message": None}) == "[my_tool: ok]\n"
+    assert format_tool_result_chat_text("my_tool", {}, {"status": "error", "message": None}) == "[my_tool failed: Unknown error]\n"
+    assert format_tool_result_chat_text("my_tool", {}, {"message": None}) == "[my_tool: done]\n"
+    delegate = format_tool_result_chat_text(
+        "delegate_to_specialized_writer_toolset",
+        {"domain": "styles"},
+        {"status": "error", "message": None},
+    )
+    assert delegate == "[delegate (styles) failed: Unknown error]\n"
 
 
 def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
