@@ -27,7 +27,7 @@ def execute_code(
     default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
     max_timeout_sec: int | None = None,
 ) -> dict[str, Any]:
-    """Execute *code* under AST sandboxing; return §8-shaped dumb-JSON payload.
+    """Execute *code* under AST sandboxing; return a JSON object of status, result, stdout, and error.
 
     The host already clamps request timeouts to configured bounds (e.g. 1800s);
     the worker does not impose a second 600s clamp when max_timeout_sec is None.

@@ -2123,6 +2123,76 @@ def test_flatten_config_json_rejects_api_key() -> None:
         _flatten_config_json({"auth": {"api_key": "secret"}})
 
 
+def test_sticky_slots_scale_with_formula_workers() -> None:
+    """Four formula workers used to share one sticky listener slot."""
+    from compute_service.server import listener_thread_count, service_listener_threads, sticky_listener_slots
+
+    wide = ComputeSettings(workers=4, ocr_workers=0)
+    assert sticky_listener_slots(wide) == 4
+    pool_threads = service_listener_threads(wide)
+    vision_permits = 1
+    assert pool_threads >= wide.workers + vision_permits + sticky_listener_slots(wide) + 2
+
+    small = ComputeSettings(workers=2, ocr_workers=0)
+    assert service_listener_threads(small) == listener_thread_count(small.threads) == 8
+    assert sticky_listener_slots(small) == 3
+
+
+def test_worker_file_path_denied_is_http_400() -> None:
+    """The route returns 400. The worker re-check used to stay HTTP 200."""
+    from compute_service.server import _send_execution_result
+
+    status_holder: list[str] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        del resp_headers
+
+    out = _send_execution_result(
+        start_response,
+        {"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"},
+        "path-1",
+    )
+    parsed = json.loads(b"".join(out))
+    assert status_holder[0].startswith("400")
+    assert parsed.get("code") == "FILE_PATH_DENIED"
+    assert parsed.get("id") == "path-1"
+
+
+def test_wrong_method_is_405() -> None:
+    app = create_wsgi_app(
+        ComputeSettings(host="127.0.0.1", port=9, workers=1),
+        execute_fn=lambda **_kwargs: {"status": "ok"},
+        reset_fn=lambda _sid: {"status": "ok"},
+    )
+
+    def call(method: str, path: str) -> tuple[str, list[tuple[str, str]]]:
+        status_holder: list[str] = []
+        header_holder: list[tuple[str, str]] = []
+
+        def start_response(status: str, resp_headers: list) -> None:
+            status_holder.append(status)
+            header_holder.extend(resp_headers)
+
+        environ = {
+            "PATH_INFO": path,
+            "REQUEST_METHOD": method,
+            "QUERY_STRING": "",
+            "wsgi.input": io.BytesIO(b""),
+        }
+        app(environ, start_response)
+        return status_holder[0], header_holder
+
+    status, headers = call("POST", "/health")
+    assert status.startswith("405")
+    assert ("Allow", "GET") in headers
+    status, headers = call("GET", "/v1/execute")
+    assert status.startswith("405")
+    assert ("Allow", "POST") in headers
+    status, headers = call("GET", "/no-such")
+    assert status.startswith("404")
+
+
 def test_send_execution_result_drops_unencodable_id() -> None:
     """The 500 fallback must still write when req_id itself is not strict JSON."""
     from compute_service.server import _send_execution_result
@@ -2138,6 +2208,88 @@ def test_send_execution_result_drops_unencodable_id() -> None:
     assert status_holder[0].startswith("500")
     assert "id" not in parsed
     assert "JSON encode failed" in parsed.get("error", "")
+
+
+def test_partial_bind_address_in_use_raises() -> None:
+    """One family in use must not leave the server up on the other family.
+
+    ``socket.bind`` is read-only, so this holds 127.0.0.1 for real. ``::1``
+    can still bind that port. The server must raise and release it.
+    """
+    import errno
+
+    from compute_service.server import DualStackThreadPoolHTTPServer
+
+    holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    holder.bind(("127.0.0.1", 0))
+    port = holder.getsockname()[1]
+    try:
+        with pytest.raises(OSError) as excinfo:
+            DualStackThreadPoolHTTPServer(("127.0.0.1", port), _AcceptedConnectionHandler)
+        assert excinfo.value.errno == errno.EADDRINUSE
+        freed = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        try:
+            freed.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            freed.bind(("::1", port))
+        finally:
+            freed.close()
+    finally:
+        holder.close()
+
+
+def test_expect_100_continue_before_body() -> None:
+    """curl waits about a second unless the server answers 100-continue."""
+    from compute_service.server import WSGIDualStackServer
+
+    port = get_free_port()
+    seen: dict[str, str] = {}
+
+    def execute_fn(**kwargs):
+        seen["code"] = str(kwargs.get("code"))
+        return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
+
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn)
+    server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+    server.set_app(app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    time.sleep(0.15)
+    sock: socket.socket | None = None
+    try:
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        body = b'{"code":"result = 1"}'
+        request = (
+            "POST /v1/execute HTTP/1.1\r\n"
+            "Host: 127.0.0.1\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            "Expect: 100-continue\r\n"
+            "\r\n"
+        ).encode()
+        sock.sendall(request)
+        sock.settimeout(2)
+        interim = b""
+        while b"\r\n\r\n" not in interim:
+            chunk = sock.recv(1024)
+            assert chunk
+            interim += chunk
+        assert interim.startswith(b"HTTP/1.1 100")
+        sock.sendall(body)
+        rest = b""
+        deadline = time.monotonic() + 5
+        while b'"status"' not in rest and time.monotonic() < deadline:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            rest += chunk
+        assert b'"ok"' in rest
+        assert seen.get("code") == "result = 1"
+    finally:
+        if sock is not None:
+            sock.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
@@ -2800,30 +2952,42 @@ def test_gated_does_not_start_response_twice() -> None:
 
 
 def test_sticky_cap_leaves_isolated_execute_free() -> None:
-    """workers=4 and ocr off leaves one sticky listener slot. Isolated execute uses the other gate."""
+    """Sticky permits do not consume the isolated-execute gate.
+
+    workers=4 gets one sticky slot per formula worker. Filling those slots
+    returns 503 for another sticky call. An isolated call still runs.
+    """
+    from compute_service.server import sticky_listener_slots
+
     settings = ComputeSettings(workers=4, ocr_workers=0)
+    slots = sticky_listener_slots(settings)
+    assert slots == 4
     hold = threading.Event()
-    entered = threading.Event()
+    entered = threading.Semaphore(0)
 
     def execute_fn(**kwargs: Any) -> dict[str, Any]:
         if kwargs.get("session_id"):
-            entered.set()
+            entered.release()
             assert hold.wait(timeout=5)
         return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
     app = create_wsgi_app(settings, execute_fn=execute_fn)
     body = json.dumps({"code": "result = 1", "mode": "shared"}).encode("utf-8")
-    sticky: list[tuple[str, str | None]] = []
+    results: list[tuple[str, str | None]] = []
+    results_lock = threading.Lock()
 
-    def post_sticky() -> None:
-        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-hold")
-        sticky.append((status, parsed.get("code") if isinstance(parsed, dict) else None))
+    def post_sticky(sid: str) -> None:
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query=f"session_id={sid}")
+        with results_lock:
+            results.append((status, parsed.get("code") if isinstance(parsed, dict) else None))
 
-    thread = threading.Thread(target=post_sticky)
-    thread.start()
+    threads = [threading.Thread(target=post_sticky, args=(f"sticky-{i}",)) for i in range(slots)]
+    for thread in threads:
+        thread.start()
     try:
-        assert entered.wait(timeout=5)
-        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-next")
+        for _unused in range(slots):
+            assert entered.acquire(timeout=5)
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-overflow")
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
         isolated, _iheaders, ibody = _wsgi_post(
@@ -2835,8 +2999,10 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
         assert ibody.get("code") != "WORKER_POOL_BUSY"
     finally:
         hold.set()
-        thread.join(timeout=5)
-    assert sticky and sticky[0][0].startswith("200")
+        for thread in threads:
+            thread.join(timeout=5)
+    assert len(results) == slots
+    assert all(status.startswith("200") for status, _code in results)
 
 
 def test_invalid_base64_and_params_are_400() -> None:

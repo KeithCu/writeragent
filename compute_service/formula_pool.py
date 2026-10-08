@@ -93,6 +93,12 @@ class FormulaProcessPool(BaseProcessPool):
         now = time.monotonic()
         stale: list[tuple[str, BaseProcessWorker]] = []
         with self._cond:
+            # What was wrong: a pid that had already exited stayed in the
+            # stale list. Leasing that slot respawned the process just to
+            # reset a namespace that died with it.
+            # Why this change: reap first. The session is marked lost and
+            # the dead child is not started again.
+            self._reap_dead_sessions_unlocked()
             for sid, s in list(self._sessions.items()):
                 if now - s.last_active >= ttl:
                     stale.append((sid, s.worker))
@@ -108,14 +114,29 @@ class FormulaProcessPool(BaseProcessPool):
                 with self._cond:
                     sess = self._sessions.get(sid)
                     still_stale = sess is not None and sess.worker is worker and (time.monotonic() - sess.last_active) >= ttl
-                if not still_stale:
+                if not still_stale or sess is None:
                     continue
+                stale_sess = sess
                 res = self._reset_session_on_worker(leased, sid, timeout_sec=2.0)
+                # What was wrong: reset popped the id, then _forget_session
+                # popped it again. A request in between reserved the same id
+                # (often on this same worker), and that second pop marked the
+                # live reservation lost.
+                # Why this change: under the pool lock, mark lost only when
+                # the map is empty or still holds the object we reset. A new
+                # reservation is a different object and stays.
                 with self._cond:
-                    sid_active = sid in self._sessions
-                if res.get("status") == "ok" or not sid_active:
-                    evicted.append(sid)
-                    self._forget_session(sid, lost=True)
+                    current = self._sessions.get(sid)
+                    if res.get("status") == "ok":
+                        if current is None:
+                            self._mark_session_lost_unlocked(sid)
+                            evicted.append(sid)
+                        elif current is stale_sess:
+                            self._forget_session_unlocked(sid, lost=True)
+                            evicted.append(sid)
+                    elif current is None:
+                        self._mark_session_lost_unlocked(sid)
+                        evicted.append(sid)
         if evicted:
             log.info("Session TTL reaper evicted %d idle session(s): %s", len(evicted), evicted)
 
@@ -344,7 +365,9 @@ class FormulaProcessPool(BaseProcessPool):
         """
         with self._cond:
             self._reap_dead_sessions_unlocked()
-            session_was_lost = bool(self._lost_sessions.pop(session_id, None))
+            session_was_lost = session_id in self._lost_sessions
+            if session_was_lost:
+                self._lost_sessions.pop(session_id, None)
             sess = self._sessions.get(session_id)
             if sess is not None and sess.worker not in self.workers:
                 self._sessions.pop(session_id, None)
@@ -433,6 +456,9 @@ class FormulaProcessPool(BaseProcessPool):
                         self._sessions[session_id] = _Session(worker=leased, pid=proc.pid, last_active=time.monotonic())
                     self._lost_sessions.pop(session_id, None)
                 self._reap_dead_sessions_unlocked()
+                # A reservation whose pid is still None (spawn failed before a
+                # pid was recorded) is kept by _reap_dead_sessions_unlocked.
+                # Drop it here when this lease's process is not alive.
                 if mode == "shared" and session_id and not leased.is_alive():
                     sess = self._sessions.get(session_id)
                     if sess is not None and sess.worker is leased:
@@ -474,7 +500,7 @@ class FormulaProcessPool(BaseProcessPool):
             return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
 
         try:
-            payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, timeout_sec=max(1, int(eff_timeout)), init_script=init_script, req_id=req_id, wire=wire)
+            payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id, wire=wire)
         except ExecuteRequestError as exc:
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
@@ -530,12 +556,14 @@ class FormulaProcessPool(BaseProcessPool):
             self._finalize_session(leased, session_id, mode)
 
     @staticmethod
-    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", timeout_sec: int = 30, init_script: str | None = None, req_id: str | None = None, wire: str = WIRE_JSON_FORWARD) -> dict[str, Any]:
+    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None, wire: str = WIRE_JSON_FORWARD) -> dict[str, Any]:
         # Unknown wire used to be rewritten to json_forward and the cell ran.
         # ``pickle`` was a second payload (host_pack_data / split_grid) on the
         # same stdio envelope. It is rejected, not packed and not rewritten.
+        # timeout_sec is not set here. _run_execution overwrites it with the
+        # remaining budget before the child sees the payload.
         eff_wire = require_execute_wire(wire)
-        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "timeout_sec": timeout_sec, "init_script": init_script, "wire": eff_wire}
+        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script, "wire": eff_wire}
         blob = data_json
         if blob is None and data is not None:
             # Convenience for pool tests / in-process callers. The HTTP

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hmac
 import json
 import logging
@@ -56,63 +57,74 @@ _HTTP_DRAIN_SEC = 30.0
 _REQUEST_READ_TIMEOUT_SEC = 30.0
 # Socket write deadline for sending the response once computation completes.
 _REQUEST_WRITE_TIMEOUT_SEC = 30.0
-# The cell never ran. A proxy can retry. Eval errors and EXECUTION_TIMEOUT
-# stay HTTP 200 so the sheet shows the error instead of #N/A.
-# QUEUE_TIMEOUT is the same miss as the handler's pre-check. The pool
-# returns it when the accept deadline expires after that check; leaving it
-# out of this set answered HTTP 200 for a request that never leased a worker.
-# VISION_POOL_BUSY is that miss on /v1/vision (lease wait expired, no
-# worker). The route's accept-deadline pre-check is already 503; this code
-# was not in the set, so the same miss came back HTTP 200.
-# WORKER_CRASHED and EMPTY_RESPONSE are not in this set: the cell may have
-# run (OOM, segfault, missing frame). 503 would invite a retry that kills
-# another worker. Those codes are HTTP 500.
-_POOL_UNAVAILABLE = frozenset({
-    "WORKER_POOL_BUSY",
-    "SERVICE_SHUTDOWN",
-    "WORKER_SPAWN_FAILED",
-    "WORKER_PIPE_BROKEN",
-    "QUEUE_TIMEOUT",
-    "VISION_POOL_BUSY",
-    "VISION_UNAVAILABLE",
-})
-_POOL_FAILED = frozenset({
-    "WORKER_CRASHED",
-    "EMPTY_RESPONSE",
-})
-# Client input the vision pool rejects after the body is parsed.
-_CLIENT_REJECT = frozenset({
-    "INVALID_BASE64",
-    "INVALID_IMAGE",
-    "MISSING_IMAGE_SOURCE",
-})
-# OCR is configured off. Not a transient miss, so no Retry-After.
-_NOT_IMPLEMENTED = frozenset({
-    "VISION_SERVICE_DISABLED",
-})
+# The cell never ran for the 503 codes: a proxy can retry. Eval errors and
+# EXECUTION_TIMEOUT stay HTTP 200 so the sheet shows the error instead of #N/A.
+# WORKER_CRASHED and EMPTY_RESPONSE are 500: the cell may have run (OOM,
+# segfault, missing frame). 503 would invite a retry that kills another worker.
+# FILE_PATH_DENIED from the worker is the same client rejection as the route's
+# pre-check. Leaving it out answered HTTP 200 after the symlink re-check.
+_HTTP_STATUS_BY_CODE = {
+    "WORKER_POOL_BUSY": "503 Service Unavailable",
+    "SERVICE_SHUTDOWN": "503 Service Unavailable",
+    "WORKER_SPAWN_FAILED": "503 Service Unavailable",
+    "WORKER_PIPE_BROKEN": "503 Service Unavailable",
+    "QUEUE_TIMEOUT": "503 Service Unavailable",
+    "VISION_POOL_BUSY": "503 Service Unavailable",
+    "VISION_UNAVAILABLE": "503 Service Unavailable",
+    "WORKER_CRASHED": "500 Internal Server Error",
+    "EMPTY_RESPONSE": "500 Internal Server Error",
+    "INVALID_BASE64": "400 Bad Request",
+    "INVALID_IMAGE": "400 Bad Request",
+    "MISSING_IMAGE_SOURCE": "400 Bad Request",
+    "FILE_PATH_DENIED": "400 Bad Request",
+    # OCR is configured off. Not a transient miss, so no Retry-After.
+    "VISION_SERVICE_DISABLED": "501 Not Implemented",
+}
+_ROUTE_ALLOW = {
+    "/health": "GET",
+    "/v1/execute": "POST",
+    "/v1/session/reset": "POST",
+    "/v1/vision": "POST",
+}
 
 
 def listener_thread_count(max_threads: int | None) -> int:
-    """Listener threads for one ``WSGIDualStackServer``.
+    """Listener threads when the server is built with an explicit ``max_threads``.
 
     ``None`` is the class default of 16. A configured count keeps four spare
-    threads and never goes below 8. ``create_wsgi_app`` uses the same number
-    so the sticky cap cannot drift from the accept pool.
+    threads and never goes below 8. Tests and the benchmark pass ``max_threads``
+    this way. A running service uses ``service_listener_threads`` instead, so
+    the sticky cap cannot drift from the accept pool.
     """
     if max_threads is None:
         return 16
     return max(8, (max_threads or 2) + 4)
 
 
+def service_listener_threads(settings: ComputeSettings) -> int:
+    """Accept-pool size for one running compute service.
+
+    ``settings.threads`` is formula workers plus OCR workers. That count plus
+    four left one spare once vision and the two health threads were reserved,
+    so a second sticky workbook got 503 while other workers were idle. One
+    sticky slot per formula worker, the vision permit (present even when OCR
+    is off), and two threads for ``GET /health``. Small pools stay on the
+    historical floor from ``listener_thread_count``.
+    """
+    vision_permits = max(1, settings.ocr_workers)
+    sticky = max(1, settings.workers)
+    needed = settings.workers + vision_permits + sticky + 2
+    return max(listener_thread_count(settings.threads), needed)
+
+
 def sticky_listener_slots(settings: ComputeSettings) -> int:
     """How many sticky execute / session-reset requests may hold a listener.
 
     Isolated execute holds at most ``settings.workers`` threads and vision
-    holds ``max(1, ocr_workers)`` (the vision semaphore exists even when OCR
-    is off). Two listeners stay free for ``GET /health``.
+    holds ``max(1, ocr_workers)``. Two listeners stay free for ``GET /health``.
     """
     vision_permits = max(1, settings.ocr_workers)
-    spare = listener_thread_count(settings.threads) - 2 - settings.workers - vision_permits
+    spare = service_listener_threads(settings) - 2 - settings.workers - vision_permits
     return max(1, spare)
 
 ExecuteFn = Callable[..., dict[str, Any]]
@@ -221,20 +233,14 @@ def _infrastructure_status(payload: dict[str, Any]) -> str | None:
     """Map a worker payload to an HTTP status, or None to keep 200.
 
     503 is only the miss-and-retry set. A crash or empty frame is 500.
-    Bad vision input is 400. OCR disabled is 501.
+    Bad vision input and a denied OCR path are 400. OCR disabled is 501.
     """
     if payload.get("status") != "error":
         return None
     code = payload.get("code")
-    if code in _POOL_UNAVAILABLE:
-        return "503 Service Unavailable"
-    if code in _POOL_FAILED:
-        return "500 Internal Server Error"
-    if code in _CLIENT_REJECT:
-        return "400 Bad Request"
-    if code in _NOT_IMPLEMENTED:
-        return "501 Not Implemented"
-    return None
+    if not isinstance(code, str):
+        return None
+    return _HTTP_STATUS_BY_CODE.get(code)
 
 
 def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any) -> list[bytes]:
@@ -941,6 +947,17 @@ def create_wsgi_app(
                 route_fn=lambda start: _handle_vision(environ, start, settings),
             )
 
+        allow = _ROUTE_ALLOW.get(path)
+        if allow is not None:
+            # A known path with the wrong verb used to be 404, so clients
+            # retried the same method. Allow tells them which verb works.
+            body = b"Method Not Allowed"
+            start_response(
+                "405 Method Not Allowed",
+                [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", allow)],
+            )
+            return [body]
+
         start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
         return [b"Not Found"]
 
@@ -954,7 +971,8 @@ def create_wsgi_app(
 class DualStackThreadPoolHTTPServer(HTTPServer):
     """HTTPServer that listens on both IPv4 and IPv6 loopback (or a single host) using a ThreadPoolExecutor.
 
-    The thread pool capacity is ``listener_thread_count`` (at least 8, else W+4).
+    The thread pool capacity is ``service_listener_threads`` when the process
+    starts, or ``listener_thread_count`` for an explicit ``max_threads``.
     Isolated ``/v1/execute`` and ``/v1/vision`` each have a non-blocking semaphore.
     Sticky execute and ``/v1/session/reset`` share a smaller one. All three gates
     run before the request body is read. A miss is 503 Service Unavailable, so a
@@ -1009,7 +1027,15 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             except Exception:
                 bind_addresses = [(socket.AF_INET, host)]
 
+        # What was wrong: one family failing (port taken on 127.0.0.1, ::1
+        # free) logged a warning and kept serving. Clients on the failed
+        # family never connected, and the process still looked up.
+        # Why this change: EAFNOSUPPORT / EADDRNOTAVAIL means that family is
+        # not on this host. Any other error closes what did bind and raises.
+        bind_errors: list[OSError] = []
+        optional_family = {errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL}
         for family, ip in bind_addresses:
+            sock: socket.socket | None = None
             try:
                 sock = socket.socket(family, socket.SOCK_STREAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -1022,10 +1048,25 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 if port == 0:
                     port = sock.getsockname()[1]
                 self.sockets.append(sock)
+                sock = None
             except OSError as e:
-                print(f"Warning: Failed to bind to {ip}:{port} ({family}): {e}", file=sys.stderr)
+                if sock is not None:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                if e.errno in optional_family:
+                    log.warning("Address family unavailable for %s:%s: %s", ip, port, e)
+                    continue
+                log.warning("Failed to bind to %s:%s: %s", ip, port, e)
+                bind_errors.append(e)
 
-        if not self.sockets:
+        if bind_errors or not self.sockets:
+            # The executor was already created. Raising without shutdown leaks
+            # its threads; server_close drops them and any socket that bound.
+            self.server_close()
+            if bind_errors:
+                raise bind_errors[0]
             raise OSError(f"Could not bind to any address for {host}:{port}")
 
         self.socket: socket.socket = self.sockets[0]
@@ -1184,6 +1225,9 @@ class DeadlineRequestHandler(WSGIRequestHandler):
                 return
         finally:
             self._clear_header_deadline()
+        # A return above leaves this function after the finally. Reaching
+        # here means the request line and headers parsed.
+        self._send_100_continue_if_expected()
         handler = ServerHandler(
             self.rfile,
             cast("Any", self.wfile),
@@ -1195,6 +1239,21 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         # get_app lives on WSGIServer, which this handler is only mounted on.
         cast("Any", handler).request_handler = self
         handler.run(cast("Any", self.server).get_app())
+
+    def _send_100_continue_if_expected(self) -> None:
+        """Answer ``Expect: 100-continue`` before the app reads the body.
+
+        wsgiref never writes the interim response. curl then waits about a
+        second before sending a larger body.
+        """
+        expected = self.headers.get("Expect") if self.headers is not None else None
+        if not isinstance(expected, str) or expected.lower() != "100-continue":
+            return
+        try:
+            self.wfile.write(b"HTTP/1.1 100 Continue\r\n\r\n")
+            self.wfile.flush()
+        except Exception:
+            log.debug("100-continue write failed", exc_info=True)
 
     def _install_header_deadline(self) -> None:
         accept_time = getattr(self.server, "_accept_times", {}).get(id(self.connection))
@@ -1250,8 +1309,10 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
     server_port: int
     srv: Any
 
-    def __init__(self, host: str, port: int, max_threads: int | None = None) -> None:
-        effective_threads = listener_thread_count(max_threads)
+    def __init__(self, host: str, port: int, max_threads: int | None = None, *, listener_threads: int | None = None) -> None:
+        # listener_threads is the final pool size. Passing that number through
+        # max_threads would add four again.
+        effective_threads = listener_threads if listener_threads is not None else listener_thread_count(max_threads)
         DualStackThreadPoolHTTPServer.__init__(
             self,
             (host, port),
@@ -1286,7 +1347,7 @@ def run_server(settings: ComputeSettings) -> None:
         get_vision_pool(settings)
 
     try:
-        server = WSGIDualStackServer(settings.host, settings.port, max_threads=settings.threads)
+        server = WSGIDualStackServer(settings.host, settings.port, listener_threads=service_listener_threads(settings))
     except OSError as exc:
         print(f"Failed to bind {settings.host}:{settings.port}: {exc}", file=sys.stderr)
         raise

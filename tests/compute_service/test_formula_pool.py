@@ -1060,7 +1060,6 @@ class TestFormulaPoolSupervisor:
             data_json=b'{"x": NaN}',
             session_id=None,
             mode="isolated",
-            timeout_sec=5,
             init_script=None,
             req_id="wire",
         )
@@ -1090,7 +1089,6 @@ class TestFormulaPoolSupervisor:
                 data_json=None,
                 session_id=None,
                 mode="isolated",
-                timeout_sec=5,
                 init_script=None,
                 req_id="test-wire",
                 wire="bogus_wire",
@@ -1202,6 +1200,76 @@ class TestFormulaPoolSupervisor:
             assert ran.get("result") == 1
             assert owner.is_alive()
             assert owner.process is not None and owner.process.pid == pid
+        finally:
+            pool.shutdown()
+
+    def test_ttl_evict_keeps_session_reserved_during_reset(self) -> None:
+        """A reservation created after reset pops the id must not be marked lost.
+
+        _forget_session used to pop the id a second time. The request in
+        between had already reserved that id again.
+        """
+        from compute_service.formula_pool import _Session
+
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
+        try:
+            sid = "ttl-rereserve"
+            created = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="ttl-keep-1")
+            assert created.get("status") == "ok"
+            with pool._cond:
+                original = pool._sessions[sid].worker
+                pool._sessions[sid].last_active = time.monotonic() - 4000.0
+            other = next(w for w in pool.workers if w is not original)
+            real_reset = pool._reset_session_on_worker
+
+            def reset_then_rereserve(worker, session_id, timeout_sec=5.0):
+                res = real_reset(worker, session_id, timeout_sec=timeout_sec)
+                proc = other.process
+                with pool._cond:
+                    pool._sessions[session_id] = _Session(
+                        worker=other,
+                        pid=proc.pid if proc is not None and proc.poll() is None else None,
+                        last_active=time.monotonic(),
+                    )
+                    pool._lost_sessions.pop(session_id, None)
+                return res
+
+            with patch.object(pool, "_reset_session_on_worker", side_effect=reset_then_rereserve):
+                pool._evict_stale_sessions()
+            with pool._cond:
+                assert pool._sessions[sid].worker is other
+                assert sid not in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="uses SIGKILL")
+    def test_ttl_evict_dead_worker_does_not_respawn(self) -> None:
+        """An exited pid is marked lost. Eviction must not lease it and respawn."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
+        try:
+            sid = "ttl-dead"
+            created = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="ttl-dead-1")
+            assert created.get("status") == "ok"
+            worker = pool.workers[0]
+            proc = worker.process
+            assert proc is not None
+            proc.kill()
+            proc.wait(timeout=5)
+            calls: list[dict] = []
+
+            def spy(payload, timeout_sec, drain_timeout_sec=None):
+                calls.append(payload)
+                del timeout_sec, drain_timeout_sec
+                return {"status": "ok"}
+
+            with patch.object(worker, "execute", side_effect=spy):
+                pool._evict_stale_sessions()
+            assert calls == []
+            assert worker.process is proc
+            assert not worker.is_alive()
+            with pool._cond:
+                assert sid not in pool._sessions
+                assert sid in pool._lost_sessions
         finally:
             pool.shutdown()
 

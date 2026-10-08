@@ -51,11 +51,10 @@ COPY plugin/framework/json_utils.py /app/plugin/framework/json_utils.py
 COPY plugin/framework/thread_guard.py /app/plugin/framework/thread_guard.py
 COPY plugin/contrib/smolagents /app/plugin/contrib/smolagents
 COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
-# Host-side Cython flatten for large HTTP grids (python:3.12-slim → cp312 .so).
-# Formula workers unpack / pack ndarrays without this binary.
-COPY contrib/vec_pack /app/contrib/vec_pack
+# JSON-forward does not load the Cython flatten accelerator. Workers import
+# unpack helpers from payload_codec and must not pay for contrib/vec_pack.
 
-RUN python -m compileall -q /app/compute_service /app/plugin /app/contrib
+RUN python -m compileall -q /app/compute_service /app/plugin
 
 ENV PYTHONPATH=/app/pkgs:/app
 # Bind all container interfaces. HOST/PORT were unread; the process used
@@ -67,7 +66,10 @@ ENV PYTHON_COMPUTE_PORT=8000
 # or:
 #   -e PYTHON_COMPUTE_API_KEY=...
 # Match coolwsd security.python_compute.api_key when set.
-# The entrypoint refuses this wildcard bind when both are empty.
+# docker-entrypoint.sh only execs the server. ComputeSettings.validate
+# refuses this wildcard bind when no API key is set.
+# OCR is not in this image (ocr_workers defaults to 0). A vision request
+# returns VISION_UNAVAILABLE.
 
 RUN useradd -m appuser \
     && chmod 755 /app/compute_service/docker-entrypoint.sh \

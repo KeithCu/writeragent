@@ -73,6 +73,7 @@ _PICKLE_LOAD_ERRORS = (
     TypeError,
     OverflowError,
     RecursionError,
+    MemoryError,
 )
 
 
@@ -433,12 +434,24 @@ class BaseProcessWorker:
 
     def execute(self, payload: dict[str, Any], timeout_sec: float, drain_timeout_sec: float | None = None) -> dict[str, Any]:
         """Send request to worker process and await response with timeout."""
-        timeout_sec = max(0.01, float(timeout_sec))
+        # The read budget shrinks after a spawn. The error text keeps this
+        # original value so a handshake that used the whole budget does not
+        # report "exceeded 0 seconds".
+        budget_sec = max(0.01, float(timeout_sec))
+        timeout_sec = budget_sec
         with self.lock:
             # The pool reads this after the call. A respawn replaces the
             # kernel; session maps that still name this wrapper are stale.
             self.did_respawn = False
             start_t = time.monotonic()
+            # kill() during shutdown sets self.process to None. Reading it
+            # again for .pid or .stdin raised AttributeError and the request
+            # became 500 INTERNAL_ERROR. This snapshot is the child we talk to.
+            proc = self.process
+
+            def _pid() -> int | None:
+                return proc.pid if proc is not None else None
+
             def _fail(code: str, msg: str, *, kill: bool = True, timeout: bool = False) -> dict[str, Any]:
                 snippet = self._stderr_snippet()
                 if snippet:
@@ -450,10 +463,10 @@ class BaseProcessWorker:
                         # to late-drain, causing premature timeout and SIGKILL of healthy workers.
                         # Why this change: support drain_timeout_sec so callers can give late-drain a full budget.
                         eff_drain = timeout_sec if drain_timeout_sec is None else max(0.01, float(drain_timeout_sec))
-                        log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid if self.process else None)
+                        log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, budget_sec, self.worker_id, _pid())
                         self._start_late_drain(eff_drain)
                     else:
-                        log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid if self.process else None)
+                        log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, budget_sec, self.worker_id, _pid())
                         self.kill()
                 elif kill:
                     self.kill()
@@ -462,23 +475,23 @@ class BaseProcessWorker:
                     res["message"] = msg
                 return res
 
-            if not self.is_alive():
+            if proc is None or proc.poll() is not None:
                 # Respect request deadline: do not allow spawn handshake to exceed
                 # the remaining request budget.
                 spawn_budget = max(0.01, min(_SPAWN_READY_TIMEOUT_SEC, timeout_sec))
                 self.respawn(timeout_sec=spawn_budget)
                 self.did_respawn = True
-                if not self.is_alive():
+                proc = self.process
+                if proc is None or proc.poll() is not None:
                     return _fail("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", kill=False)
                 elapsed = time.monotonic() - start_t
                 timeout_sec = max(0.01, timeout_sec - elapsed)
 
-            assert self.process is not None
-            assert self.process.stdin is not None
-            assert self.process.stdout is not None
+            if proc.stdin is None or proc.stdout is None:
+                return _fail("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", kill=False)
 
             try:
-                write_pickle_frame(self.process.stdin, payload, max_payload_bytes=self.max_payload_bytes)
+                write_pickle_frame(proc.stdin, payload, max_payload_bytes=self.max_payload_bytes)
             except IpcFrameError as exc:
                 # Raised before any byte is written. The child is still the
                 # same kernel; killing it would drop every shared session.
@@ -488,7 +501,7 @@ class BaseProcessWorker:
 
             try:
                 resp = read_pickle_frame_with_timeout(
-                    self.process.stdout,
+                    proc.stdout,
                     timeout_sec,
                     is_alive=self.is_alive,
                     max_payload_bytes=self.max_payload_bytes,
@@ -497,7 +510,7 @@ class BaseProcessWorker:
             except subprocess.TimeoutExpired:
                 # Count timeouts toward worker tasks executed so hanging workers eventually recycle
                 self.tasks_executed += 1
-                return _fail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {int(timeout_sec)} seconds.", timeout=True)
+                return _fail("EXECUTION_TIMEOUT", f"Execution exceeded maximum timeout of {int(budget_sec)} seconds.", timeout=True)
             except Exception as exc:
                 return _fail("WORKER_CRASHED", f"{self.worker_name} error: {exc}")
             if resp is None or not isinstance(resp, dict):
