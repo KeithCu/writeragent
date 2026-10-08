@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.scripting.calc_range import ensure_rectangular_2d, is_calc_range_payload, pack_calc_range_envelope
+from plugin.scripting.calc_range import ensure_rectangular_2d, pack_calc_range_envelope
 from plugin.scripting.config_limits import python_max_data_cells_default
-from plugin.scripting.payload_codec import ForceBinary, host_pack_data, is_multi_data, is_split_grid, wire_cell_count
+from plugin.scripting.payload_codec import ForceBinary, host_pack_data, wire_cell_count
 
 
 from plugin.framework.deal_shim import deal
@@ -203,24 +203,11 @@ def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, forc
 
 
 def count_cells(data: Any) -> int:
-    """Return number of scalar cells in *data* for size guarding."""
-    if is_calc_range_payload(data):
-        shape = data.get("shape") or [0, 0]
-        return int(shape[0]) * int(shape[1]) if len(shape) == 2 else wire_cell_count(data.get("data"))
-    if is_multi_data(data):
-        return wire_cell_count(data)
-    if is_split_grid(data):
-        return wire_cell_count(data)
-    if data is None:
-        return 0
-    if not isinstance(data, (list, tuple)):
-        return 1
-    if not data:
-        return 0
-    first = data[0]
-    if isinstance(first, (list, tuple)):
-        return sum(len(row) for row in data)
-    return len(data)
+    """Return number of scalar cells in *data* for size guarding.
+
+    Same count as ``wire_cell_count`` (lists, envelopes, and ``None``).
+    """
+    return wire_cell_count(data)
 
 
 def check_python_multi_data_size(data: list[Any], *, max_cells: int | None = None) -> str | None:

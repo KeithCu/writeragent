@@ -80,6 +80,23 @@ def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
     return args[-1] if args else None
 
 
+def _numpy_scalar_item(v: Any) -> Any:
+    """Return ``v.item()`` for a NumPy scalar; otherwise ``v``.
+
+    Shared with ``calc_range._scalar``. The import stays local so the host
+    (LibreOffice Python, no NumPy) can import this module.
+    """
+    # crosshair: off  # numpy import sniff (same reason as _optional_numpy).
+    try:
+        import numpy as np  # local: safe on host; present in child for mixed grids
+        if isinstance(v, np.generic):
+            return v.item()
+    except Exception:
+        # numpy not present or v not a numpy scalar; fall through
+        pass
+    return v
+
+
 def _to_py(v: Any) -> Any:
     """Recursively convert numpy scalars and nested sequences to native Python types.
 
@@ -92,13 +109,9 @@ def _to_py(v: Any) -> Any:
     (docs/scripting/numpy-serialization.md): dropping it is an unpack change.
     """
     # crosshair: off  # recursive list/tuple Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
-    try:
-        import numpy as np  # local: safe on host; present in child for mixed grids
-        if isinstance(v, np.generic):
-            return v.item()
-    except Exception:
-        # numpy not present or v not a numpy scalar; fall through
-        pass
+    item = _numpy_scalar_item(v)
+    if item is not v:
+        return item
     if isinstance(v, (list, tuple)):
         return [_to_py(x) for x in v]
     return v
@@ -219,54 +232,32 @@ def load_cython_accelerator() -> None:
     # Search import targets in priority order. These four layouts are real
     # (checkout, audio_binaries, bare sys.path, legacy plugin.contrib). Skip
     # unifying with native_binaries.py — easy to drop the accelerator.
-    # 1. contrib.vec_pack (in-tree repository checkout)
-    try:
-        import contrib.vec_pack as _vp  # type: ignore
+    import importlib
 
-        fn2d = getattr(_vp, "fast_flatten_grid_2d", None)
-        fn1d = getattr(_vp, "fast_flatten_grid_1d", None)
+    for mod_name in (
+        "contrib.vec_pack",
+        "writeragent_vec",
+        "vec_pack",
+        "plugin.contrib.vec_pack",
+    ):
         if fn2d is not None and fn1d is not None:
-            loc = "contrib.vec_pack"
-    except ImportError:
-        pass
-    except Exception as exc:
-        log.warning("load_cython_accelerator exception: %s", exc)
-
-    # 2. writeragent_vec (installed under user_config_dir/audio_binaries or standalone package)
-    if fn2d is None or fn1d is None:
+            break
         try:
-            import writeragent_vec as _wv  # type: ignore
-
-            fn2d = getattr(_wv, "fast_flatten_grid_2d", None)
-            fn1d = getattr(_wv, "fast_flatten_grid_1d", None)
-            if fn2d is not None and fn1d is not None:
-                loc = "writeragent_vec"
+            mod = importlib.import_module(mod_name)
         except ImportError:
-            pass
-
-    # 3. vec_pack (direct module on sys.path)
-    if fn2d is None or fn1d is None:
-        try:
-            import vec_pack as _vp  # type: ignore
-
-            fn2d = getattr(_vp, "fast_flatten_grid_2d", None)
-            fn1d = getattr(_vp, "fast_flatten_grid_1d", None)
-            if fn2d is not None and fn1d is not None:
-                loc = "vec_pack"
-        except ImportError:
-            pass
-
-    # 4. plugin.contrib.vec_pack (legacy fallback)
-    if fn2d is None or fn1d is None:
-        try:
-            import plugin.contrib.vec_pack as _vp  # type: ignore
-
-            fn2d = getattr(_vp, "fast_flatten_grid_2d", None)
-            fn1d = getattr(_vp, "fast_flatten_grid_1d", None)
-            if fn2d is not None and fn1d is not None:
-                loc = "plugin.contrib.vec_pack"
-        except ImportError:
-            pass
+            continue
+        except Exception as exc:
+            # A broken install must not abort the search. The first layout
+            # already logged and continued; the later three only caught
+            # ImportError and would have crashed host pack.
+            log.warning("load_cython_accelerator exception importing %s: %s", mod_name, exc)
+            continue
+        candidate_2d = getattr(mod, "fast_flatten_grid_2d", None)
+        candidate_1d = getattr(mod, "fast_flatten_grid_1d", None)
+        if candidate_2d is not None and candidate_1d is not None:
+            fn2d = candidate_2d
+            fn1d = candidate_1d
+            loc = mod_name
 
     # Perform runtime canary test before activating global state
     if fn2d is not None and fn1d is not None:
@@ -322,7 +313,9 @@ def get_cython_status_info() -> tuple[bool, str | None, str]:
     """Return tuple of (is_active, source_location, status_line)."""
     if fast_flatten_grid_2d is not None:
         loc = _CYTHON_ACCELERATOR_LOCATION
-        if loc and loc != "active":
+        # Location is a module name (contrib.vec_pack, writeragent_vec, …) or
+        # missing. It is never the literal "active".
+        if loc:
             return True, loc, f"Cython Accelerator: Active (Optimized, source: {loc})"
         return True, loc, "Cython Accelerator: Active (Optimized)"
     if _CYTHON_ACCELERATOR_INACTIVE_REASON:
@@ -1115,10 +1108,19 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
         kind = getattr(dtype, "kind", None)
         if kind == "f":
             column_states[c] = 3
-        elif kind in ("i", "u") and st < 2:
-            column_states[c] = 2
-        elif kind == "b" and st == 0:
-            column_states[c] = 1
+        elif kind in ("i", "u"):
+            if st < 2:
+                column_states[c] = 2
+        elif kind == "b":
+            if st == 0:
+                column_states[c] = 1
+        else:
+            # What was wrong: kind "O" (and any other non f/i/u/b) returned
+            # without writing state, so a bool/int column stayed bool/int on
+            # the pure path and became float when the accelerator loaded.
+            # Cython ``_update_column_state`` sets state 3 for that else.
+            # float(val) already succeeded before this helper runs.
+            column_states[c] = 3
         return
     tname = tv.__name__
     if tname.startswith("bool"):
@@ -1179,11 +1181,26 @@ def _flatten_append_cell_slow(
                 if column_states[c] == 0:
                     column_states[c] = 1
             else:
-                buf_append(nan)
-                # np.str_ subclasses str. Storing it raw fails host unpickle
-                # (LibreOffice Python has no NumPy). str() yields a builtin str;
-                # an exact str is returned unchanged.
-                strings[idx] = str(val)
+                # np.str_ subclasses str and Cython PyUnicode_Check stores it
+                # before trying float. Storing it raw fails host unpickle
+                # (LibreOffice Python has no NumPy). str() yields a builtin str.
+                # What was wrong: every other unknown kind (dtype "O" with
+                # __float__) was also stringified here, so the same value was
+                # 1.5 before a text cell and "W" after one. Cython
+                # PyFloat_AsDouble keeps the float.
+                if isinstance(val, str):
+                    buf_append(nan)
+                    strings[idx] = str(val)
+                else:
+                    try:
+                        fval = float(cast("Any", val))
+                    except (TypeError, ValueError, OverflowError):
+                        buf_append(nan)
+                        strings[idx] = str(val)
+                    else:
+                        buf_append(fval)
+                        if column_states[c] != 3:
+                            _flatten_update_column_state(column_states, c, val)
             return
         tname = t.__name__
         if tname.startswith("bool"):
@@ -1224,12 +1241,26 @@ def _flatten_append_cell_slow(
             strings[idx] = str(val)
 
 
+def _split_grid_row_width(row: Any) -> int:
+    """Width of one 2D row.
+
+    What was wrong: ``len(row)`` on a later int raised ``TypeError`` once deal
+    was stripped (release / LibreOffice). Pack only declares ``ValueError``.
+    Why this works: a real row is a list or tuple. ``str`` has a length but is
+    not a row (``"ab"`` would otherwise look two cells wide).
+    """
+    # crosshair: off  # malformed row (Any), sibling of already-off grid validate.
+    if not isinstance(row, (list, tuple)):
+        raise ValueError(f"split_grid row is {type(row).__name__}, not a list or tuple")
+    return len(row)
+
+
 def _validate_rectangular_grid(grid_2d: list[list[Any]], ncols: int) -> None:
     """Reject jagged 2D grids before the flatten hot loop (Calc ranges are rectangular)."""
     # crosshair: off  # unbounded 2D grid (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with _deal_grid_ok.
     for row in grid_2d:
-        if len(row) != ncols:
-            row_lens = [len(r) for r in grid_2d]
+        if _split_grid_row_width(row) != ncols:
+            row_lens = [_split_grid_row_width(r) for r in grid_2d]
             log.error("payload_codec: uneven row lengths in 2D grid: %s", row_lens)
             raise ValueError(f"Uneven row lengths in data grid: {row_lens}")
 
@@ -1345,9 +1376,30 @@ def _flatten_grid_to_components(
 
     # Mostly-numeric Calc grids: try float(val) until non-numeric forces slow path.
     # None is handled in the fast path to avoid disabling it for empty cells.
-    # 1D and 2D each check the native buffer length, then fall back. A shared
-    # _try_accel helper would keep those checks from drifting; not extracted
-    # here because this is the flatten hot path.
+    def _try_accel(fn: Any, call_args: tuple[Any, ...], expected: int, *, label: str) -> bool:
+        """Bind accelerator output only when the buffer length matches the shape.
+
+        Both ranks used to duplicate this try/except. A length mismatch used to
+        be easy to update in one branch and not the other. A short native
+        buffer falls back to stdlib (buf_append still targets the original array).
+        """
+        nonlocal buf, strings, column_states, column_has_none, has_non_numeric
+        try:
+            accel_buf, accel_strings, accel_states, accel_none, accel_non = fn(*call_args)
+            if len(accel_buf) != expected:
+                raise ValueError(
+                    f"accelerator returned {len(accel_buf)} cells, shape needs {expected}"
+                )
+            buf = accel_buf
+            strings = accel_strings
+            column_states = accel_states
+            column_has_none = accel_none
+            has_non_numeric = accel_non
+            return True
+        except Exception as exc:
+            log.debug("payload_codec: Cython %s failed, falling back to stdlib: %s", label, exc)
+            return False
+
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         # Bugfix: the rectangular check ran only on the stdlib branch. A native
@@ -1358,25 +1410,10 @@ def _flatten_grid_to_components(
         _validate_rectangular_grid(grid_2d, ncols)
         use_stdlib = True
         if fast_flatten_grid_2d is not None:
-            try:
-                accel_buf, accel_strings, accel_states, accel_none, accel_non = fast_flatten_grid_2d(
-                    [list(row) if type(row) is tuple else row for row in grid_2d], ncols
-                )
-                expected = nrows * ncols
-                if len(accel_buf) != expected:
-                    raise ValueError(
-                        f"accelerator returned {len(accel_buf)} cells, shape needs {expected}"
-                    )
-                buf, strings, column_states, column_has_none, has_non_numeric = (
-                    accel_buf,
-                    accel_strings,
-                    accel_states,
-                    accel_none,
-                    accel_non,
-                )
-                use_stdlib = False
-            except Exception as e:
-                log.debug("payload_codec: Cython accelerator failed, falling back to stdlib: %s", e)
+            rows = [list(row) if type(row) is tuple else row for row in grid_2d]
+            use_stdlib = not _try_accel(
+                fast_flatten_grid_2d, (rows, ncols), nrows * ncols, label="accelerator"
+            )
 
         if use_stdlib:
             _stdlib_flatten_pass(_iter_split_grid_cells(grid_2d, is_2d=True))
@@ -1384,25 +1421,9 @@ def _flatten_grid_to_components(
         grid_1d = cast("list[Any]", grid)
         use_stdlib = True
         if fast_flatten_grid_1d is not None:
-            try:
-                accel_buf, accel_strings, accel_states, accel_none, accel_non = fast_flatten_grid_1d(grid_1d)
-                # Same length guard as the 2D branch. Assign only after it passes
-                # so a short native buffer is not what we return (buf_append
-                # still targets the original array on fallback).
-                if len(accel_buf) != len(grid_1d):
-                    raise ValueError(
-                        f"accelerator returned {len(accel_buf)} cells, shape needs {len(grid_1d)}"
-                    )
-                buf, strings, column_states, column_has_none, has_non_numeric = (
-                    accel_buf,
-                    accel_strings,
-                    accel_states,
-                    accel_none,
-                    accel_non,
-                )
-                use_stdlib = False
-            except Exception as e:
-                log.debug("payload_codec: Cython 1D accelerator failed, falling back to stdlib: %s", e)
+            use_stdlib = not _try_accel(
+                fast_flatten_grid_1d, (grid_1d,), len(grid_1d), label="1D accelerator"
+            )
 
         if use_stdlib:
             _stdlib_flatten_pass(_iter_split_grid_cells(grid_1d, is_2d=False))
@@ -1530,7 +1551,9 @@ def host_pack_data(
                 return host_pack_split_grid(grid)
 
             # Otherwise calculate full shape for threshold check
-            grid_shape: tuple[int, ...] = (nrows, max((len(r) for r in grid), default=0)) if is_2d else (nrows,)
+            grid_shape: tuple[int, ...] = (
+                (nrows, max((_split_grid_row_width(r) for r in grid), default=0)) if is_2d else (nrows,)
+            )
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
                 return host_pack_split_grid(grid)
 
@@ -2011,7 +2034,7 @@ def child_unpack_data(wire: Any, *, _depth: int = 0) -> Any:
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: child_unpack_data maximum recursion depth exceeded")
     try:
-        from plugin.scripting.calc_range import is_calc_range_payload, materialize_calc_range
+        from plugin.scripting.calc_range import materialize_calc_range
 
         if is_calc_range_payload(wire):
             return materialize_calc_range(wire)
@@ -2160,13 +2183,17 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         raise
 
 
-def _container_has_packable_nested(obj: Any, _depth: int = 0) -> bool:
-    """True when *obj* contains ndarray/dict containers that need per-element packing."""
+def _container_has_packable_nested(obj: Any, _depth: int = 0, *, _np: Any) -> bool:
+    """True when *obj* contains ndarray/dict containers that need per-element packing.
+
+    ``_np`` is resolved once by the caller. Recursion must not call
+    ``_optional_numpy()`` again. A module-level cache would also hide the
+    ``sys.modules['numpy'] = None`` tests.
+    """
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: maximum recursion depth exceeded")
-    np = _optional_numpy()
-    containers = (dict, np.ndarray) if np is not None else (dict,)
+    containers = (dict, _np.ndarray) if _np is not None else (dict,)
 
     if isinstance(obj, containers):
         return True
@@ -2174,7 +2201,9 @@ def _container_has_packable_nested(obj: Any, _depth: int = 0) -> bool:
         for item in obj:
             if isinstance(item, containers):
                 return True
-            if isinstance(item, (list, tuple)) and _container_has_packable_nested(item, _depth=_depth + 1):
+            if isinstance(item, (list, tuple)) and _container_has_packable_nested(
+                item, _depth=_depth + 1, _np=_np
+            ):
                 return True
     return False
 
@@ -2189,7 +2218,8 @@ def _needs_elementwise_pack(obj: Any, _depth: int = 0) -> bool:
         return True
     if not isinstance(obj, (list, tuple)) or not obj:
         return False
-    return any(_container_has_packable_nested(item, _depth=_depth + 1) for item in obj)
+    np = _optional_numpy()
+    return any(_container_has_packable_nested(item, _depth=_depth + 1, _np=np) for item in obj)
 
 
 @deal.pre(lambda result, *_unused, **__: True)

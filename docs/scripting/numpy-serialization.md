@@ -541,6 +541,7 @@ A high-performance Cython implementation of the flattening loop has been develop
 - **Architecture comparison**: v1 vs v3 delta is **~1%** — flattening is **memory-bound**, not SIMD-bound. User CPUs are effectively all v3-capable; **v2 would be a fine ISA floor**, but bumping CI/Makefile wheels to v2/v3 buys almost nothing.
 - **Build policy**: release wheels stay on generic **x86-64** — not because users need v1 compatibility, but because changing release build defaults is not worth maintainer time for ~1% gain. **Rebenchmarking is fine**; flipping release defaults is not, unless the pack loop changes materially. Full rationale: [cython-extension.md](cython-extension.md#why-we-still-build-generic-x86-64-june-2026).
 - **Dynamic Loading**: The system dynamically detects the binary and falls back to the optimized Pure Python implementation on other platforms.
+- **Column kinds**: pure Python matches Cython when an unknown dtype kind (for example `"O"`) still accepts `float()`: the column is `float`, and an earlier text cell does not turn that value into `str`. Unicode (`np.str_`) stays text. Contract: [serialization-verification.md](serialization-verification.md).
 
 #### Priority 1 — Profile inside LibreOffice (gate for everything else)
 

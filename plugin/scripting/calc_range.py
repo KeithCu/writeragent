@@ -587,14 +587,10 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
 
 
 def _scalar(v: Any) -> Any:
-    try:
-        import numpy as np
+    """Unwrap one object-array cell. Same NumPy-scalar step as ``payload_codec._to_py``."""
+    from plugin.scripting.payload_codec import _numpy_scalar_item
 
-        if isinstance(v, np.generic):
-            return v.item()
-    except (TypeError, ValueError, AttributeError):
-        pass
-    return v
+    return _numpy_scalar_item(v)
 
 
 def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:

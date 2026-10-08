@@ -462,6 +462,27 @@ def test_uneven_row_lengths_rejected_on_host_pack() -> None:
         host_pack_data([[1, 2], [3]], force="always")
 
 
+def test_non_sequence_row_raises_valueerror() -> None:
+    """A scalar or string row is ValueError, not TypeError from len().
+
+    Deal's pre rejects the grid before the body. The release build strips
+    deal, and that path used to raise TypeError.
+    """
+    from tests.harness.strip_bundle import expect_pre_or_body
+
+    with pytest.raises(ValueError, match="not a list or tuple"):
+        payload_codec._split_grid_row_width(3)
+    with pytest.raises(ValueError, match="not a list or tuple"):
+        payload_codec._validate_rectangular_grid([[1, 2], 3], 2)
+    with pytest.raises(ValueError, match="not a list or tuple"):
+        payload_codec._validate_rectangular_grid([[1, 2], "ab"], 2)
+    for grid in ([[1, 2], 3], [[1, 2], "ab"]):
+        expect_pre_or_body(lambda grid=grid: host_pack_data(grid), body_exc=ValueError)
+        expect_pre_or_body(
+            lambda grid=grid: host_pack_data(grid, force="always"), body_exc=ValueError
+        )
+
+
 def test_column_kinds_for_grid_jagged_raises() -> None:
     """The kinds helper used to return [] and hide the flatten ValueError."""
     with pytest.raises(ValueError, match="Uneven row lengths"):
@@ -668,6 +689,80 @@ def test_decimal_fraction_encoding_ignores_earlier_text() -> None:
         assert same_col[1][0] == pytest.approx(1.5)
         assert same_col[1][1] == pytest.approx(0.25)
         assert wire["column_kinds"] == ["float", "float"]
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        _check()
+
+
+class _ObjectKind:
+    kind = "O"
+
+
+class _WeirdFloat:
+    """dtype.kind 'O' whose float() succeeds. str() is 'W' so a stringify shows up."""
+
+    dtype = _ObjectKind()
+
+    def __float__(self) -> float:
+        return 1.5
+
+    def __str__(self) -> str:
+        return "W"
+
+
+def test_unknown_dtype_kind_promotes_column_like_cython() -> None:
+    """kind 'O' that float() accepts is a float column on both packers.
+
+    The pure path used to leave the column bool while Cython set float.
+    """
+    from plugin.scripting.payload_codec import column_kinds_for_grid
+
+    grid = [[True, 0], [_WeirdFloat(), 0]]
+    with cython_accelerator_context(enabled=False):
+        assert column_kinds_for_grid(grid) == ["float", "int"]
+    if payload_codec.fast_flatten_grid_2d is not None:
+        assert column_kinds_for_grid(grid) == ["float", "int"]
+
+
+def test_unknown_dtype_kind_numeric_regardless_of_string_position() -> None:
+    """The same object is a float before or after a text cell.
+
+    The slow path used to str() an unknown dtype kind, so ['x', Weird()]
+    became the text 'W' while [Weird(), 'x'] stayed 1.5.
+    """
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    weird = _WeirdFloat()
+
+    def _check() -> None:
+        before = host_unpack_split_grid(host_pack_split_grid([[weird, "x"]]))
+        assert before[0][0] == pytest.approx(1.5)
+        assert type(before[0][0]) is float
+        assert before[0][1] == "x"
+        after_wire = host_pack_split_grid([["x", weird]])
+        assert "W" not in after_wire["strings"].values()
+        after = host_unpack_split_grid(after_wire)
+        assert after[0][0] == "x"
+        assert after[0][1] == pytest.approx(1.5)
+        assert type(after[0][1]) is float
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        _check()
+
+
+def test_numpy_str_stays_text_on_split_grid() -> None:
+    """Unicode scalars stay text. float() must not eat a zip-code-like np.str_."""
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    def _check() -> None:
+        wire = host_pack_split_grid([[np.str_("02138")]])
+        assert "02138" in wire["strings"].values()
+        assert host_unpack_split_grid(wire) == [["02138"]]
 
     with cython_accelerator_context(enabled=False):
         _check()
