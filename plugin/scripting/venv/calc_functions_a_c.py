@@ -31,6 +31,7 @@ from .calc_functions_util import (
     _multi_criteria_mask,
     _npf_result,
     _serial_to_date,
+    _to_float_a as _to_float_a,
     match_criteria,
 )
 from .coerce import is_missing_value
