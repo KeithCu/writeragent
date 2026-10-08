@@ -344,7 +344,10 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
             plain = obj.item()
         except Exception:
             return obj
-        if plain is not obj:
+        # clongdouble.item() returns another clongdouble, not a builtin
+        # complex. Recursing on that never finishes. complex64/128 .item()
+        # is a builtin complex, which is a pickle leaf.
+        if plain is not obj and not isinstance(plain, np_mod.generic):
             return _coerce_host_pickle_scalar(plain, pd_mod)
     return obj
 
@@ -473,7 +476,8 @@ def _pil_image_to_payload(img: Any) -> dict[str, Any]:
 # One container level missed {"sheets": [df, df]} and [{"stats": df}]. Those
 # took child_pack_result, which raises ValueError and drops a successful cell.
 # Deeper than this is treated as a plain container (child_pack / pickle reject).
-# Not payload_codec._MAX_UNPACK_DEPTH (1000) or find_image_payloads (12):
+# Not payload_codec._MAX_UNPACK_DEPTH (128; ~1000 is CPython's recursion
+# limit) or find_image_payloads (12):
 # this walk only looks for DataFrame/ndarray/figure wrappers a few levels down.
 _CUSTOM_SERIALIZE_MAX_DEPTH = 8
 
@@ -603,6 +607,11 @@ def _temporal_ndarray_to_python(arr: Any, pd_mod: Any) -> Any:
     """datetime64/timedelta64 ndarray → nested Python lists of stdlib values."""
     if arr.ndim == 0:
         return _temporal_cell_to_stdlib(arr.item() if hasattr(arr, "item") else arr, pd_mod)
+    if arr.ndim > 2:
+        # What was wrong: rank 3+ used shape[0] x shape[1] and dropped the
+        # remaining axes. Why this works: one plane at a time, same as
+        # child_pack_result. The caller coerces timedelta to fractional days.
+        return [_temporal_ndarray_to_python(arr[i], pd_mod) for i in range(int(arr.shape[0]))]
     # Iterate datetime64 scalars — .tolist() on datetime64[ns] yields Python ints (ns), not datetimes.
     flat = [_temporal_cell_to_stdlib(v, pd_mod) for v in arr.ravel()]
     if arr.ndim == 1:
@@ -635,15 +644,55 @@ def _serialize_result_impl(obj: Any) -> Any:
         if isinstance(obj, np_mod.ndarray):
             kind = _dtype_kind(obj)
             if kind in ("M", "m"):
-                return child_pack_result(_temporal_ndarray_to_python(obj, pd_mod))
+                # What was wrong: timedelta64 became datetime.timedelta and
+                # skipped _coerce_host_pickle_tree. Under BINARY_MIN_CELLS the
+                # host unpickler rejected it; at or above that, split_grid
+                # stored "1 day, 0:00:00" instead of fractional days.
+                # DataFrame and Series already coerce. datetime64 was already
+                # ISO text; coercion leaves that string as-is.
+                # Why this works: _coerce_host_pickle_scalar turns timedelta
+                # into total_seconds()/86400 before pack.
+                return child_pack_result(
+                    _coerce_host_pickle_tree(_temporal_ndarray_to_python(obj, pd_mod), pd_mod)
+                )
+            if kind == "O":
+                # What was wrong: an object ndarray under BINARY_MIN_CELLS
+                # took the list path, and _cell_for_json leaves np.int64,
+                # datetime, Decimal, and Fraction untouched, so the pickle
+                # check raised. At >= 100 cells split_grid already normalizes
+                # them. DataFrame and Series coerce; this arm did not.
+                # Why this works: tolist() then the same tree coercer as the
+                # container arm. Numeric kinds stay on the ndarray fast path.
+                return child_pack_result(_coerce_host_pickle_tree(obj.tolist(), pd_mod))
             return child_pack_result(obj)
+        if isinstance(obj, (np_mod.datetime64, np_mod.timedelta64)):
+            # What was wrong: np.timedelta64 subclasses np.integer, so the
+            # branch below called child_pack_result and int() raised
+            # TypeError on the datetime.timedelta from .item(). The old
+            # arm returned that timedelta and the pickle check rejected it.
+            # datetime64 was already an ISO string; coercion leaves it as-is.
+            return _coerce_host_pickle_scalar(obj, pd_mod)
         if isinstance(obj, (np_mod.integer, np_mod.floating, np_mod.bool_)):
             return child_pack_result(obj)
-        if isinstance(obj, np_mod.datetime64):
-            return _temporal_cell_to_stdlib(obj, pd_mod)
-        if isinstance(obj, np_mod.timedelta64):
-            return _temporal_cell_to_stdlib(obj, pd_mod)
     if pd_mod is not None:
+        def _pack_coerced_grid(grid: Any) -> Any:
+            # What was wrong: a frame under BINARY_MIN_CELLS took the list
+            # path, and _cell_for_json only rewrites None. numpy.bool_,
+            # np.int64, Decimal, and Fraction then failed the host unpickler.
+            # At >= 100 cells split_grid flatten already converts them. The
+            # container arm below already coerces; this branch did not.
+            # Why this works: _coerce_host_pickle_tree unwraps np.generic
+            # via .item(), float()s Decimal/Fraction, and maps pd.NA in
+            # _temporal_cell_to_stdlib before .item().
+            # Considered doing this inside _cell_for_json so every small
+            # list is pickle-safe. Not yet: that helper is also host_pack_data
+            # for small grids; _numpy_scalar_item().item() on datetime64 /
+            # timedelta64 is a nanosecond or day int, not the ISO or
+            # fractional-day value this function emits; pd.NA and temporal
+            # policy live here, and moving them would import pandas into
+            # payload_codec.
+            return child_pack_result(_coerce_host_pickle_tree(grid, pd_mod))
+
         if isinstance(obj, pd_mod.DataFrame):
             df: Any = obj
             columns = [_column_label(c) for c in df.columns]
@@ -654,6 +703,7 @@ def _serialize_result_impl(obj: Any) -> Any:
             # list-of-lists for mixed so strings/None go through the split_grid strings map
             # instead of the old per-row to_dict("records") which defeated binary envelopes.
             # datetime64/timedelta64 skip the numeric path — astype(float64) is Unix epoch, not ISO.
+
             if len(df) == 0 or len(df.columns) == 0:
                 data_part: Any = []
             else:
@@ -664,10 +714,10 @@ def _serialize_result_impl(obj: Any) -> Any:
                         data_part = child_pack_result(arr)
                     else:
                         grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
-                        data_part = child_pack_result(grid)
+                        data_part = _pack_coerced_grid(grid)
                 except Exception:
                     grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
-                    data_part = child_pack_result(grid)
+                    data_part = _pack_coerced_grid(grid)
             return {
                 "__wa_payload__": PAYLOAD_DATAFRAME,
                 "columns": columns,
@@ -685,9 +735,10 @@ def _serialize_result_impl(obj: Any) -> Any:
                     if kind is not None and _is_numeric_wire_kind(kind):
                         packed = child_pack_result(arr)
                     else:
-                        packed = child_pack_result([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
+                        # Same coerce as _pack_coerced_grid. tolist() keeps np.int64.
+                        packed = _pack_coerced_grid([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
                 except Exception:
-                    packed = child_pack_result([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
+                    packed = _pack_coerced_grid([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
             if name is not None:
                 return {
                     "__wa_payload__": PAYLOAD_DATAFRAME,

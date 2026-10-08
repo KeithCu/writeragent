@@ -416,6 +416,36 @@ def test_calc_range_1x1_none_arithmetic_produces_nan():
     assert (blank != 5) is True
 
 
+def test_empty_calc_range_to_numpy_matches_shape():
+    """A 0-row range is shape (0, 0). np.array([]) would be (0,)."""
+    import numpy as np
+
+    empty = CalcRange([])
+    assert empty.shape == (0, 0)
+    assert empty.to_numpy().shape == (0, 0)
+    assert empty.to_numpy(dtype=object).shape == (0, 0)
+    assert empty.to_numpy().dtype == np.float64
+
+
+def test_materialize_calc_range_split_grid_inner():
+    """CalcRange.__init__ materializes. The wrapper must not unpack first."""
+    from plugin.scripting.calc_range import materialize_calc_range, pack_calc_range_envelope
+    from plugin.scripting.payload_codec import host_pack_data
+
+    grid = [[1, 2], [3, 4]]
+    wire = pack_calc_range_envelope(
+        grid,
+        address="  Sheet1.A1  ",
+        pack_inner=lambda rows: host_pack_data(rows, force="always"),
+    )
+    rng = materialize_calc_range(wire)
+    assert rng.values == [[1, 2], [3, 4]]
+    assert rng.address == "Sheet1.A1"
+    bare = materialize_calc_range(host_pack_data(grid, force="always"))
+    assert bare.values == [[1, 2], [3, 4]]
+    assert bare.address is None
+
+
 def test_materialize_calc_range_address_strip():
     """materialize_calc_range strips whitespace from address hints."""
     from plugin.scripting.calc_range import materialize_calc_range, pack_calc_range_envelope

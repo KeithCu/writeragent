@@ -316,6 +316,38 @@ def test_serialize_result_small_numeric_dataframe_spills_body():
     assert named_grid[1] == [pytest.approx(0.0)]
 
 
+def test_serialize_result_small_object_dataframe_is_host_pickleable():
+    """Object/extension frames under BINARY_MIN_CELLS must not leak unpickleable cells.
+
+    What was wrong: the list path left numpy.bool_, np.int64, Decimal, and
+    Fraction in the nested list, and _reject_host_unpickleable raised. The
+    same frames at or above 100 cells already succeeded via split_grid flatten.
+    """
+    from decimal import Decimal
+    from fractions import Fraction
+
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    nullable = serialize_result(pd.DataFrame({"a": pd.array([True, None], dtype="boolean")}))
+    assert nullable["data"] == [[True], [None]]
+    assert type(nullable["data"][0][0]) is bool
+
+    ints = serialize_result(pd.DataFrame({"a": [np.int64(1), np.int64(2)]}))
+    assert ints["data"] == [[1], [2]]
+    assert type(ints["data"][0][0]) is int
+
+    exact = serialize_result(pd.DataFrame({"d": [Decimal("1.5")], "f": [Fraction(1, 4)]}))
+    assert exact["data"] == [[1.5, 0.25]]
+    assert type(exact["data"][0][0]) is float
+    assert type(exact["data"][0][1]) is float
+
+    series = serialize_result(pd.Series([np.int64(3), np.int64(4)]))
+    assert series == [3, 4]
+    assert type(series[0]) is int
+
+
 def test_serialize_result_empty_dataframe_and_series():
     """0-row DataFrame / named empty Series → header-only envelope. Not a codec gap."""
     pd = pytest.importorskip("pandas")
@@ -366,6 +398,66 @@ def test_serialize_result_datetime64_ndarray_is_iso_not_unix_epoch():
     out = to_calc_compatible(serialize_result(arr))
     assert out[0] == "2026-06-25T00:00:00"
     assert out[1] == "2026-06-26T00:00:00"
+
+
+def test_serialize_result_timedelta64_ndarray_is_fractional_days():
+    """timedelta64 must be fractional days on both sides of BINARY_MIN_CELLS."""
+    import io
+
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("pandas")
+    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from plugin.scripting.payload_codec import BINARY_MIN_CELLS, host_unpack_data, is_split_grid
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    small = np.array([np.timedelta64(0, "D"), np.timedelta64(1, "D")])
+    assert host_unpack_data(serialize_result(small)) == [0.0, 1.0]
+    assert serialize_result(np.timedelta64(1, "D")) == 1.0
+
+    large = np.arange(BINARY_MIN_CELLS).astype("timedelta64[D]")
+    wire = serialize_result(large)
+    assert is_split_grid(wire)
+    back = host_unpack_data(wire)
+    assert back[0] == 0.0
+    assert back[1] == 1.0
+    assert "day" not in str(back[1])
+
+    cube = np.arange(8).astype("timedelta64[D]").reshape(2, 2, 2)
+    assert host_unpack_data(serialize_result(cube)) == [
+        [[0.0, 1.0], [2.0, 3.0]],
+        [[4.0, 5.0], [6.0, 7.0]],
+    ]
+
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": serialize_result(small)})
+    buf.seek(0)
+    unpacked = read_pickle_frame(buf, require_dict=True)
+    assert host_unpack_data(unpacked["result"]) == [0.0, 1.0]
+
+
+def test_serialize_result_small_object_ndarray_is_host_pickleable():
+    """An object ndarray under the threshold must coerce, not raise."""
+    import io
+
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from plugin.scripting.payload_codec import BINARY_MIN_CELLS, host_unpack_data, is_split_grid
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    small = np.array([np.int64(1), np.int64(2)], dtype=object)
+    assert serialize_result(small) == [1, 2]
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": serialize_result(small)})
+    buf.seek(0)
+    unpacked = read_pickle_frame(buf, require_dict=True)
+    assert host_unpack_data(unpacked["result"]) == [1, 2]
+
+    large = np.array([np.int64(i) for i in range(BINARY_MIN_CELLS)], dtype=object)
+    wire = serialize_result(large)
+    assert is_split_grid(wire)
+    back = host_unpack_data(wire)
+    assert back[0] == 0
+    assert back[-1] == BINARY_MIN_CELLS - 1
 
 
 def test_serialize_result_multiindex_columns_and_categorical():

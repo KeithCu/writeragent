@@ -234,5 +234,16 @@ def inverse_ensure_for(*, crosshair: bool) -> Any:
     return deal.ensure
 
 
+def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:  # pyright: ignore[reportUnusedFunction]  # imported by payload_codec and calc_range
+    """Pick the contract predicate once at import.
+
+    Do not branch on ``UNDER_CROSSHAIR`` inside ``@deal.pre``; CrossHair would
+    explore both arms. ``pytest_fn`` defaults to always-true when only the
+    CrossHair domain is restricted.
+    """
+    # crosshair: off  # import-time selector; covering both arms is the bug this avoids.
+    return crosshair_fn if UNDER_CROSSHAIR else pytest_fn
+
+
 # format_address → parse_address and column_to_index → index_to_column.
 inverse_ensure = inverse_ensure_for(crosshair=_CROSSHAIR)

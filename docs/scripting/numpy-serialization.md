@@ -245,31 +245,33 @@ This section keeps **codec / wire** invariants only.
 #### Supported input shape (wire)
 
 - **2D data must be rectangular:** every row has the same length. Calc `=PY(code; range)` passes UNO range blocks this way; empty cells are `None` in a full-width row, not missing list elements.
-- **Uneven row lengths** (jagged nested lists) are **unsupported**. [`_flatten_grid_to_components`](../../plugin/scripting/payload_codec.py) logs an error and raises `ValueError` if row lengths differ. We do not pad short rows.
+- **Uneven row lengths** raise `ValueError` on the split_grid path ([`_validate_rectangular_grid`](../../plugin/scripting/payload_codec.py) / [`_flatten_grid_to_components`](../../plugin/scripting/payload_codec.py)). We do not pad short rows. A grid under [`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py), or `force="never"`, is returned by `grid_from_nested_list` unchanged, including jagged rows. `child_pack_result` treats a non-rectangular result as a list of rows rather than one grid. `=PY` still pre-normalizes with `ensure_rectangular_2d`. A row that is not a list or tuple raises `ValueError` on pack and on child list materialization (`list(row)` used to raise `TypeError`).
 - User scripts materialize ranges as [`CalcRange`](../../plugin/scripting/calc_range.py) (always 2D). Host packing uses rectangular `list[list]` via `ensure_rectangular_2d` — **not** flat 1D lists for rows/columns.
 
 #### Formal verification
 
 The split-grid codec is the project's reference Tier-0 verification target: `deal` contracts on pack/unpack functions, optional CrossHair concolic checking, and pytest round-trip oracles. The A/B suite ([`tests/scripting/test_serialization_ab.py`](../../tests/scripting/test_serialization_ab.py) + Hypothesis + venv worker harness) compares `force="always"` (split_grid) vs `force="never"` (nested list) on small varied grids. See [`serialization-verification.md`](serialization-verification.md); background in [`../framework/formal-verification.md`](../framework/formal-verification.md).
 
-**Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../../plugin/scripting/payload_codec.py), except integers outside ±2^53, which the float64 buffer rounds ([Int fidelity](../calc/py-data-shapes.md)). Optimized `frombuffer` paths are a performance implementation of that contract.
+**Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../../plugin/scripting/payload_codec.py), except integers outside ±2^53, which the float64 buffer rounds ([Int fidelity](../calc/py-data-shapes.md)), integers `float()` rejects (stored as decimal text), and complex values (stored as text so the imaginary part is not dropped). Optimized `frombuffer` paths are a performance implementation of that contract.
 
 #### Split-Grid encoding (host pack)
 
 | Cell value | `buffer` (float64) | `strings` |
 |------------|-------------------|-----------|
 | `None` (empty Calc cell) | `NaN` | — |
-| `int` / `float` | numeric value | — |
+| `int` / `float` that `float()` accepts | numeric value (ints past ±2^53 round) | — |
+| `int` that `float()` rejects (`10**400`) | `NaN` | decimal text |
 | `bool` | `0.0` / `1.0` | — |
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index |
+| Python `complex` or a NumPy complex scalar | `NaN` | `str(val)`, imaginary part kept |
 
-Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank).
+Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `serialize_result` runs `_coerce_host_pickle_tree` on list/dict results, on DataFrame/Series object grids, on object-ndarray `tolist()` output, and on datetime64/timedelta64 arrays (timedelta becomes fractional days) before that pack. A rectangular list whose cells are themselves lists or tuples is not one split_grid: each row is packed on its own, so a list of grids is not stringified.
 
 #### Child materialization (ingress, before CalcRange wrap)
 
 | Grid type | Child sees inside the envelope |
 |-----------|--------------------------------|
-| **Pure numeric** (`strings` empty) | `np.ndarray` float64; empty Calc cells → **`np.nan`** |
+| **Pure numeric** (`strings` empty) | `np.ndarray`; empty Calc cells → **`np.nan`**. Uniform float, and mixed column kinds with no strings, are the `np.frombuffer` view (`WRITEABLE=False`). Uniform int (`astype`) and bool (`==`) are writable copies. Do not `.copy()` the float path; `CalcRange.to_numpy()` is the writable copy for `=PY()` |
 | **Mixed** (any string cells) | Nested `list[list]`; empty/NaN slots → **`None`** |
 
 After unpack, `=PY()` exposes a `CalcRange` (see [data shapes](../calc/py-data-shapes.md)). Use `np.nansum` / masks when ignoring holes.
@@ -283,7 +285,7 @@ After unpack, `=PY()` exposes a `CalcRange` (see [data shapes](../calc/py-data-s
 | Large numeric array (≥ 100 cells, rank 1 or 2) | `split_grid` on wire; host unpack → nested lists (NaN preserved). Rank 3+ is a list of planes, not one envelope. Complex is not cast to float64 (imaginary part would be dropped); it takes the strings map |
 | Large string or object ndarray (≥ 100 cells) | `tolist()` then the same strings map as a Python list (not `astype(float64)`) |
 
-Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN](../calc/py-data-shapes.md#empty-cells-vs-nan). Host unpack preserves buffer NaN as `float('nan')`; `to_calc_compatible` maps `None` → `""` and leaves NaN as a double for Calc. A mixed result's `None` follows that rule only at or above `BINARY_MIN_CELLS` (NaN hole → Calc error). Below the threshold the nested list keeps `None` and spills a blank. Child mixed unpack still restores `None`. Pure-bool grids below the threshold become float64 on child ingest; split_grid keeps bool via `column_kinds`. Egress of bool is `1.0`/`0.0` either way.
+Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN](../calc/py-data-shapes.md#empty-cells-vs-nan). Host unpack preserves buffer NaN as `float('nan')`; `to_calc_compatible` maps `None` → `""` and leaves NaN as a double for Calc. A mixed result's `None` follows that rule only at or above `BINARY_MIN_CELLS` (NaN hole → Calc error). Below the threshold the nested list keeps `None` and spills a blank. Child mixed unpack still restores `None`. Pure-bool grids below the threshold become float64 on child ingest. `split_grid` restores bool (or int) in the child only when every column is that one kind. A mixed numeric grid (int next to float, or a bool column next to an int column, no strings) stays one float64 ndarray in the child; host unpack still restores per-column Python types. Do not switch the child to an object array to match the host. A single column that mixes bool and int is one kind: int wins, so `[[True], [1]]` on split_grid unpacks as `1`, not `True` (`force="never"` and the under-threshold list path keep `True`). Do not add a per-cell bool mask; `True` and `1` are the same float64, and the mask would be a second side channel the Cython flattener would also have to emit. Egress of bool is `1.0`/`0.0` either way. A rectangular tuple-of-tuples becomes a list-of-lists on egress (`grid = [list(row) for row in result]`, then `grid_from_nested_list`). `host_unpack_data` restores a tuple only when the wire value is still a tuple; this path does not send tuples. Split_grid cannot keep row container types.
 
 #### Dates on the wire
 
@@ -291,7 +293,7 @@ Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN]
 
 - Ingress serial floats stay floats. The bridge does not sniff NumberFormat, and the worker does not guess datetime/timedelta from strings (no Settings checkbox; use `to_pandas(date_cols=…)`).
 - `=PY()` egress converts Python/pandas/numpy temporals to **naive ISO strings** (or timedelta as fractional days) at the venv/`to_calc_compatible` edges. Tz offsets are stripped.
-- datetime64 **columns and arrays** are converted by `serialize_result` before pack, so they never hit `astype(float64)` (that cast is Unix-epoch units, not Calc serials). A direct `child_pack_result` / `child_pack_split_grid` on a `datetime64` or `timedelta64` ndarray raises `ValueError` instead of emitting epoch-day floats or nanosecond integers.
+- datetime64 **columns and arrays** are converted by `serialize_result` before pack, so they never hit `astype(float64)` (that cast is Unix-epoch units, not Calc serials). timedelta64 **arrays and scalars** become fractional days (`total_seconds()/86400`) the same way, below and above `BINARY_MIN_CELLS`. A bare timedelta64 ndarray used to raise under the threshold and stringify as `"1 day, 0:00:00"` at or above it. Rank 3+ temporal arrays convert one plane at a time. A direct `child_pack_result` / `child_pack_split_grid` on a `datetime64` or `timedelta64` ndarray raises `ValueError` instead of emitting epoch-day floats or nanosecond integers.
 - Large mixed grids still stringify stdlib `datetime` into the sparse `strings` map.
 
 **Do not add** a datetime mask, column-kind `'date'`, or Calc-serial encoding on the float64 buffer. The split-grid fast path stays uniform numeric (`i`/`u`/`f`/`b`). A first-class temporal lane would lose `frombuffer` or duplicate the strings map for no UNO benefit — Calc still cannot accept datetime objects from the add-in.
@@ -541,6 +543,7 @@ A high-performance Cython implementation of the flattening loop has been develop
 - **Architecture comparison**: v1 vs v3 delta is **~1%** — flattening is **memory-bound**, not SIMD-bound. User CPUs are effectively all v3-capable; **v2 would be a fine ISA floor**, but bumping CI/Makefile wheels to v2/v3 buys almost nothing.
 - **Build policy**: release wheels stay on generic **x86-64** — not because users need v1 compatibility, but because changing release build defaults is not worth maintainer time for ~1% gain. **Rebenchmarking is fine**; flipping release defaults is not, unless the pack loop changes materially. Full rationale: [cython-extension.md](cython-extension.md#why-we-still-build-generic-x86-64-june-2026).
 - **Dynamic Loading**: The system dynamically detects the binary and falls back to the optimized Pure Python implementation on other platforms.
+- **Column kinds**: pure Python matches Cython when an unknown dtype kind (for example `"O"`) still accepts `float()`: the column is `float`, and an earlier text cell does not turn that value into `str`. Unicode (`np.str_`) stays text. Contract: [serialization-verification.md](serialization-verification.md).
 
 #### Priority 1 — Profile inside LibreOffice (gate for everything else)
 
@@ -591,6 +594,7 @@ See [Host pack hot path — pure-Python optimizations](#host-pack-hot-path--pure
 - **Identity Type Checks**: Fast path uses `type(val) is float/int/str` and `val is None` / `val is True or val is False` — not `isinstance()` per cell.
 - **Regular Grid Validation**: `_validate_rectangular_grid` runs once before the 2D stdlib loop; the cell loop has no per-row length branch.
 - **Unified Stdlib Cell Loop**: `_iter_split_grid_cells` yields `(col_idx, flat_idx, val)` row-major for 1D and 2D; a single inlined `_stdlib_flatten_pass` block handles both shapes. Slow tail still delegates to `_flatten_append_cell_slow` (strings, NumPy scalars, post-string cells).
+- **Module-level numeric store**: `_store_numeric_cell` writes the float64-or-text decision. It used to be a closure rebuilt inside `_flatten_append_cell_slow` on every slow-path cell.
 - **Integer Keys**: Sparse `strings` dictionary uses integer keys, bypassing $O(\text{cells})$ string allocations.
 
 #### Priority 4 — Host: opaque `split_grid` pass-through (if egress/unpack hot)
@@ -689,7 +693,7 @@ A secondary series of high-impact, zero-dependency stdlib and NumPy micro-optimi
   Validate once via `_validate_rectangular_grid` before the stdlib cell loop. The hot loop uses `_iter_split_grid_cells` with direct `enumerate(row)` — no per-row length checks during flattening.
 
   ```python
-  _validate_rectangular_grid(grid_2d, ncols)
+  ncols = _validate_rectangular_grid(grid_2d)
   _stdlib_flatten_pass(_iter_split_grid_cells(grid_2d, is_2d=True))
   ```
 

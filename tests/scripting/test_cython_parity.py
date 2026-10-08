@@ -27,6 +27,7 @@ from tests.scripting.serialization_ab_support import (
     VenvTransformCase,
     all_codec_ab_cases,
     assert_cython_vs_python_parity,
+    cython_accelerator_context,
     prepare_grid,
     venv_transform_cases,
     rectangular_grid,
@@ -89,6 +90,35 @@ def test_hypothesis_cython_sum_parity(grid: list[Any] | list[list[Any]]) -> None
     """Fuzz: Cython vs Pure Python sum parity."""
     assume(hypothesis_grid_ok(grid))
     assert_cython_vs_python_parity(grid, VENV_CODE_SUM, label="hypothesis sum")
+
+
+def test_huge_int_and_complex_scalar_pack_parity() -> None:
+    """Accelerator and stdlib must both stringify overflow ints and complex scalars.
+
+    These cells are not in the always-vs-never corpus: force="never" keeps the
+    raw int or complex, and split_grid stores text on purpose.
+    """
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import host_pack_split_grid, host_unpack_split_grid
+
+    huge = 10**400
+    grids: list[list[Any] | list[list[Any]]] = [
+        [[huge, -huge]],
+        [["02138", huge]],
+        [huge, 1, -huge],
+        ["x", -huge],
+        [[np.complex64(1 + 2j), np.complex128(1 + 2j), np.clongdouble(1 + 2j)]],
+        [["z", np.complex64(1 + 2j)]],
+    ]
+    for grid in grids:
+        with cython_accelerator_context(enabled=False):
+            py_wire = host_pack_split_grid(grid)
+            py_back = host_unpack_split_grid(py_wire)
+        with cython_accelerator_context(enabled=True):
+            cy_wire = host_pack_split_grid(grid)
+            cy_back = host_unpack_split_grid(cy_wire)
+        assert py_wire["strings"] == cy_wire["strings"]
+        assert py_back == cy_back
 
 
 def test_custom_object_parity():

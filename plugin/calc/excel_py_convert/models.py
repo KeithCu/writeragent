@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 # Cast/docs aliases only — CrossHair cannot proxy Literal in parameters or dataclass
-# fields on the type heap (use str there; same rule as payload_codec ColumnKind).
+# fields on the type heap (use str there).
 HeaderMode = Literal["true", "false", "omit"]
 DepRole = Literal["data", "ordering"]
 

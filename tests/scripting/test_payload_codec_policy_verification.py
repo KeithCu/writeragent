@@ -31,6 +31,7 @@ from plugin.scripting.payload_codec import (
     PAYLOAD_MULTI_DATA,
     PAYLOAD_SPLIT_GRID,
     cell_count,
+    host_pack_data,
     host_pack_split_grid,
     host_unpack_data,
     is_calc_range_payload,
@@ -113,8 +114,13 @@ def test_cell_count_overflow_pre_fails_closed() -> None:
         cell_count((DEAL_MAX_ROW_INDEX + 2,))
     with pytest.raises(deal.PreContractError):
         cell_count(tuple([1] * (DEAL_MAX_SHAPE_RANK + 1)))
+    # min_cells is a cell-count threshold, not a shape side. SHAPE_DIM+1 and
+    # the bench flag 1000 must pack. One past a full Calc column still fails.
+    assert should_use_binary_envelope((1,), min_cells=1000) is False
+    assert should_use_binary_envelope((1,), min_cells=DEAL_MAX_SHAPE_DIM + 1) is False
+    assert host_pack_data([[1.0]], min_cells=1000) == [[1.0]]
     with pytest.raises(deal.PreContractError):
-        should_use_binary_envelope((1,), min_cells=DEAL_MAX_SHAPE_DIM + 1)
+        should_use_binary_envelope((1,), min_cells=DEAL_MAX_ROW_INDEX + 2)
     # Product grid uses sheet bounds; SHAPE_DIM+1 stays legal (Population A1:H1517).
     assert is_numeric_grid([0] * (DEAL_MAX_SHAPE_DIM + 1)) is True
     assert is_numeric_grid([[0] * (DEAL_MAX_SHAPE_DIM + 1)]) is True

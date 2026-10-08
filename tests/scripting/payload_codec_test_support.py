@@ -188,9 +188,7 @@ def legacy_b64_child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         arr = np.frombuffer(raw, dtype=np.float64)
         if not is_1d:
             arr = arr.reshape((nrows, ncols))
-        return _apply_column_kinds_to_ndarray(
-            arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
-        )
+        return _apply_column_kinds_to_ndarray(arr, uniform=uniform)
 
     flat_list = np.frombuffer(raw, dtype=np.float64).tolist()
     for i, val in enumerate(flat_list):
