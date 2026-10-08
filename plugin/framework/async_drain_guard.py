@@ -95,9 +95,12 @@ def drain_owner_scope(owner_name: str) -> Generator[None, None, None]:
 
     A different owner name raises :class:`NestedDrainOwnerError`. The same name
     re-enters and increments the depth counter (``pump_ui_idle`` skips VCL when
-    depth > 1). ``run_stream_drain_loop`` still refuses any current owner before
-    taking this scope. The owner may call :func:`pump_ui_idle`; other code must
-    use :func:`process_events_to_idle`, which no-ops VCL while owned.
+    depth > 1). ``run_stream_drain_loop`` takes this scope, or
+    ``acquire_drain_owner("stream")``, directly: that same name is allowed and
+    a different name raises. ``run_async_worker_with_drain`` still refuses any
+    current owner, including ``"stream"``, before it spawns a worker. The owner
+    may call :func:`pump_ui_idle`; other code must use
+    :func:`process_events_to_idle`, which no-ops VCL while owned.
     """
     previous_owner = acquire_drain_owner(owner_name)
     try:

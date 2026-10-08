@@ -1154,7 +1154,12 @@ def _watch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
         flags: list[list[bool]] = [saw_terminal]
 
         def _watched_put(item: Any, *args: Any, **kwargs: Any) -> None:
-            if isinstance(item, tuple) and item and item[0] in _TERMINAL_WATCH_KINDS:
+            # What was wrong: only a tuple counted as terminal. The drain also
+            # accepts a list and a bare StreamQueueKind, so those still got a
+            # second STREAM_DONE from the worker wrapper. Why: use the same
+            # kind extraction as the drain.
+            kind, _data = _stream_item_kind_data(item)
+            if kind in _TERMINAL_WATCH_KINDS:
                 with _terminal_watch_lock:
                     active = list(flags)
                 for flag in active:

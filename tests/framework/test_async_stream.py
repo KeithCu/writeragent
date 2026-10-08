@@ -304,6 +304,36 @@ def test_worker_error_put_then_raise_queues_single_error():
     assert "recovered" in applied
 
 
+def test_non_tuple_terminal_skips_wrapper_stream_done():
+    """A list or bare kind is terminal, so the wrapper must not add STREAM_DONE."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    def _run(terminal):
+        ctx = MagicMock()
+        toolkit = DummyToolkit()
+        shared: queue.Queue = queue.Queue()
+        done = []
+
+        def worker(worker_q):
+            worker_q.put(terminal)
+
+        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+            run_async_worker_with_drain(
+                ctx,
+                worker,
+                lambda _text, _is_thinking: None,
+                lambda item: done.append(item),
+                lambda _err: None,
+                q=shared,
+            )
+
+        assert shared.empty()
+        assert done == [terminal]
+
+    _run([StreamQueueKind.STREAM_DONE, "from-list"])
+    _run(StreamQueueKind.STREAM_DONE)
+
+
 def test_run_async_worker_with_drain_toolkit_failure_formats_error():
     """No-toolkit path must pass format_error_payload dict to on_error_fn."""
     from plugin.framework.async_stream import run_async_worker_with_drain

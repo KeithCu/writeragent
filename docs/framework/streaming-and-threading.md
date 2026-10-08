@@ -12,10 +12,10 @@ References: OpenAI [Streaming](https://platform.openai.com/docs/api-reference/st
 2. [Streaming when tools are in the request](#2-streaming-when-tools-are-in-the-request)
 3. [Reasoning / thinking in the stream](#3-reasoning--thinking-in-the-stream)
 4. [Summary table](#4-summary-table)
-5. [Testing with OpenRouter](#5-testing-with-openrouter)
+5. [Testing with your endpoint](#5-testing-with-your-endpoint)
 6. [Implementation: Streaming deltas](#6-implementation-streaming-deltas)
-7. [Error Handling and UI Threading](#7-error-handling-and-ui-threading)
-8. [Parallel Tool Calling](#8-parallel-tool-calling)
+7. [Event Loop and UI Threading](#7-event-loop-and-ui-threading)
+8. [Tool Execution and Queuing](#8-tool-execution-and-queuing)
 9. [Producer-Side Batching of Display Text & Global Audit (2026-05)](#9-producer-side-batching-of-display-text--global-audit-2026-05)
 
 ---
@@ -510,6 +510,8 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 - The decision to ship the primary-path win + the detailed "what remains" record here, rather than attempting a complete rollout in one PR, was explicit and user-approved.
 
 This section exists so that future developers (or a later focused pass) have a single, authoritative place that explains both the mechanism and the exact remaining surface area.
+
+The section below is the earlier blocking pump (`Queue.get` plus `pump_ui_idle` inside the send). Section 7 is the current event-driven drain: each slice returns to VCL, and the blocking `get` remains only when `AsyncCallback` cannot be armed.
 
 # writeragent2 Threading Bug Fix: Why the "Background Thread" Was Actually Freezing/Crashing the UI
 
