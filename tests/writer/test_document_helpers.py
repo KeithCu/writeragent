@@ -1060,7 +1060,12 @@ def test_writer_has_math_ole_logs_exception(caplog):
     with caplog.at_level(logging.DEBUG, logger="writeragent.document"):
         has_math = _writer_has_math_ole(doc)
     assert has_math is False
-    assert any("Failed checking Math OLE" in record.message for record in caplog.records)
+    # Release strips log.debug; returning False is the behavior that must survive.
+    from plugin.doc import document_helpers as document_helpers_mod
+    from tests.harness.strip_bundle import module_source_contains
+
+    if module_source_contains(document_helpers_mod, "Failed checking Math OLE"):
+        assert any("Failed checking Math OLE" in record.message for record in caplog.records)
 
 
 def test_get_document_context_for_chat_writer_uno_object_error():

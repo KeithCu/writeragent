@@ -211,6 +211,11 @@ def test_sql_is_result_handles_missing_duckdb_sql(caplog):
     with patch("plugin.scripting.domain_registry._resolve_fn", side_effect=ImportError("No module named 'plugin.scripting.duckdb_sql'")):
         with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
             assert spec.is_result({"some": "result"}) is False
+    # Release strips log.debug; returning False is the behavior that must survive.
+    from plugin.scripting import domain_registry as domain_registry_mod
+    from tests.harness.strip_bundle import module_source_contains
+
+    if module_source_contains(domain_registry_mod, "is_result module unavailable"):
         assert "Domain sql is_result module unavailable" in caplog.text
 
 

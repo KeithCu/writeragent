@@ -266,7 +266,12 @@ class TestEndpointImageProvider:
         assert paths == []
         assert "aborted" in err
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
-        assert any("Image generation cancelled by Stop" in r.message for r in caplog.records)
+        # Release strips log.debug; empty paths and no ERROR must still hold.
+        from plugin.writer.images import image_utils as image_utils_mod
+        from tests.harness.strip_bundle import module_source_contains
+
+        if module_source_contains(image_utils_mod, "Image generation cancelled by Stop"):
+            assert any("Image generation cancelled by Stop" in r.message for r in caplog.records)
 
 
     @patch('plugin.framework.client.llm_client.init_logging')

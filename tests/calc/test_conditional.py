@@ -145,5 +145,10 @@ def test_entry_to_dict_logs_exceptions(caplog):
     with caplog.at_level(logging.DEBUG, logger="writeragent.calc"):
         d = _entry_to_dict(entry, 0)
     assert d == {"index": 0}
-    assert any("Failed getting operator" in record.message for record in caplog.records)
+    # Release strips log.debug; the empty dict above is the behavior that must survive.
+    from plugin.calc import conditional as conditional_mod
+    from tests.harness.strip_bundle import module_source_contains
+
+    if module_source_contains(conditional_mod, "Failed getting operator"):
+        assert any("Failed getting operator" in record.message for record in caplog.records)
 

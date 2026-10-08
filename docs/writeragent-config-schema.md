@@ -42,16 +42,17 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `edit_selection_system_prompt` | `string` | `""` |  |  |
 | `calc_prompt_max_tokens` | `int` | `4096` |  |  |
 | `is_openrouter` | `boolean` | `false` |  |  |
-| `parallel_tool_calls` | `boolean` | `true` |  |  |
+| `parallel_tool_calls` | `boolean` | `false` |  |  |
 | `openrouter_chat_extra` | `dict` | `{}` |  |  |
 | `text_analytics_sentiment_engine` | `string` | `"transformers"` |  |  |
 | `text_analytics_sentiment_model` | `string` | `"cardiffnlp/twitter-xlm-roberta-base-sentiment"` |  |  |
+| `doc_agent_edit_review_mode` | `string` | `"off"` |  |  |
 
 ## Core services (config, events, logging) (`core`)
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
-| `log_level` | `string` | `"DEBUG"` |  | Internal. Log Level Options: DEBUG (Debug), INFO (Info), WARN (Warning), ERROR (Error) |
+| `log_level` | `string` | `"WARN"` |  | Internal. Log Level Options: DEBUG (Debug), INFO (Info), WARN (Warning), ERROR (Error) |
 
 ## Agent Communication Protocol (`agent_backend`)
 
@@ -61,6 +62,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `path` | `string` | `""` |  | Internal. Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://localhost:8000 for Hermes). Empty = try default. |
 | `args` | `string` | `""` |  | Internal. Optional arguments for the selected backend (space-separated). |
 | `acp_agent_name` | `string` | `""` |  | Internal. Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent. |
+| `prompt_for_permission` | `boolean` | `true` |  | Ask for confirmation before allowing the agent to use tools (read files, execute commands, etc.) |
 
 ## Speech (`audio`)
 

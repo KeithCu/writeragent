@@ -783,7 +783,12 @@ def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
         )
     assert action == "stop"
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
-    assert any("Connection closed by user stop" in r.message for r in caplog.records)
+    # Release strips log.debug; "stop" and the absence of ERROR must still hold.
+    from plugin.framework.client import http_transport as http_transport_mod
+    from tests.harness.strip_bundle import module_source_contains
+
+    if module_source_contains(http_transport_mod, "Connection closed by user stop"):
+        assert any("Connection closed by user stop" in r.message for r in caplog.records)
 
 
 def test_transport_get_connection_disables_auto_open():

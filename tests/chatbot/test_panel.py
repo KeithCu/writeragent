@@ -1727,10 +1727,15 @@ class TestPanelR3Fixes:
             _stop_tts()
             mock_stop.assert_called_once()
 
+        # Release strips log.debug; the call must still not raise.
+        from plugin.chatbot import panel as panel_mod
+        from tests.harness.strip_bundle import module_source_contains
+
         with patch("plugin.audio.tts_service.stop_speech", side_effect=RuntimeError("audio err")), \
              patch("plugin.chatbot.panel.log.debug") as mock_log_debug:
             _stop_tts()  # must not raise
-            mock_log_debug.assert_called_once()
+            if module_source_contains(panel_mod, "stop_speech failed"):
+                mock_log_debug.assert_called_once()
 
     def test_mouse_listeners_removed_on_dispose(self) -> None:
         from plugin.chatbot.panel import attach_record_mouse_listener, attach_stop_mouse_listener
