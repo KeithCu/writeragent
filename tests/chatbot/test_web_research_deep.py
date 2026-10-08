@@ -985,8 +985,17 @@ def test_stop_loop_returns_promptly_when_checker_flips(monkeypatch):
     t.join(timeout=1.0)
     elapsed = time.monotonic() - t0
 
-    assert not t.is_alive(), "Run loop did not exit promptly"
-    assert elapsed < 1.0, "Wait loop took too long to notice stop_checker"
+    try:
+        assert not t.is_alive(), "Run loop did not exit promptly"
+        assert elapsed < 1.0, "Wait loop took too long to notice stop_checker"
+    finally:
+        # The 0.5s Stop join returns while this worker is still in sleep(1.0).
+        # The next test counts every live deep-research thread in the process.
+        # Release pytest is one process in file order, so reap it here.
+        for thread in _alive_deep_threads():
+            thread.join(timeout=2)
+    assert _alive_deep_threads() == []
+
 
 def test_stop_joins_the_running_pool_worker():
     """A sibling already inside run_web_agent must finish before Stop returns.

@@ -814,7 +814,9 @@ _check-lo-python:
 
 test-uno: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
-	PYTHONUNBUFFERED=1 $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+	# Release runs this from a /tmp tree with no .venv. The spill UNO test
+	# needs the checkout interpreter (matplotlib); VIRTUAL_ENV is stripped below.
+	PYTHONUNBUFFERED=1 WRITERAGENT_PROJECT_ROOT="$(PROJECT_ROOT)" $(LO_PYTHON_UNSET) $(LO_PYTHON_ENV) "$(LO_PYTHON)" -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 # Same office process, N times: stress Draw factory-open / close (URP DisposedException flakes).
 # FILTER defaults to the Draw native suite. PAIR=tree-math | dup-move expands --pair.

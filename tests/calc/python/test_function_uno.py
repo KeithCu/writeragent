@@ -192,6 +192,30 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def _project_venv() -> str:
+    """Checkout ``.venv`` that has an interpreter.
+
+    ``parents[3]`` of this file is the repo during ``make test``, and the
+    stripped temp tree during ``make release``. A configured venv with no
+    interpreter is ``VENV_NOT_FOUND``, so ``=PY()`` never spills. Release
+    exports ``WRITERAGENT_PROJECT_ROOT`` from the checkout Makefile.
+    """
+
+    def _has_python(venv: Path) -> bool:
+        return (venv / "bin" / "python").is_file() or (venv / "Scripts" / "python.exe").is_file()
+
+    for parent in Path(__file__).resolve().parents:
+        venv = parent / ".venv"
+        if _has_python(venv):
+            return str(venv)
+    root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
+    if root:
+        venv = Path(root) / ".venv"
+        if _has_python(venv):
+            return str(venv)
+    raise AssertionError("project .venv not found (release tree needs WRITERAGENT_PROJECT_ROOT)")
+
+
 @native_test
 def test_py_multi_document_spill_and_plot(ctx):
     """When a blank doc is open, =PY in a second doc spills and inserts plots in the second doc."""
@@ -200,7 +224,7 @@ def test_py_multi_document_spill_and_plot(ctx):
     from plugin.framework.config import _resolve_config_path_from_ctx
     from plugin.scripting.venv_worker import PythonWorkerManager
 
-    repo_venv = str(Path(__file__).resolve().parents[3] / ".venv")
+    repo_venv = _project_venv()
     profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
     try:
         profile_cfgs.add(_resolve_config_path_from_ctx(ctx))
