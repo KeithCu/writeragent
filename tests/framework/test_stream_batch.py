@@ -44,6 +44,16 @@ def test_batching_stream_queue_auto_flush_on_boundary():
     assert raw.empty()
 
 
+def test_discard_then_control_put_leaves_queue_empty():
+    """discard() wins the lock before a later control put, so the item is dropped."""
+    raw = queue.Queue()
+    bq = BatchingStreamQueue(raw, batch_interval=10.0)
+    bq.put((StreamQueueKind.CHUNK, "dropped"))
+    bq.discard()
+    bq.put((StreamQueueKind.STREAM_DONE, None))
+    assert raw.empty()
+
+
 def test_batching_stream_queue_callbacks():
     """The content_cb / thinking_cb helpers feed the batcher."""
     raw = queue.Queue()

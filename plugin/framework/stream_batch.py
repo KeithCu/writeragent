@@ -263,12 +263,19 @@ class BatchingStreamQueue:
                     self._append_display_locked(kind, data or "")
                 return
 
-        # Any other kind (including bare kinds or control tuples) is a boundary
-        self.flush()
+        # Any other kind (including bare kinds or control tuples) is a boundary.
+        # What was wrong: flush() released the lock, then raw.put ran after a
+        # separate _dropped check. discard() could set _dropped in that gap
+        # and the control item (STREAM_DONE) still landed on the queue.
+        # Why: emit, the dropped check, and the put share this lock.
+        # discard() then either runs wholly before (item dropped) or wholly
+        # after (item already queued). Unbounded Queue.put does not take
+        # this lock, so the timer flush cannot deadlock.
         with self._lock:
             if self._dropped:
                 return
-        self._raw.put(item)
+            self._emit_pending_locked()
+            self._raw.put(item)
 
     def flush(self) -> None:
         """Force immediate emission of any pending display text (one joined string per kind)."""

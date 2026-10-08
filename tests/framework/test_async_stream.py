@@ -1212,6 +1212,39 @@ def test_stop_on_first_batch_item_applies_pulled_display_text():
     assert any(text == " /thinking\n" for text in texts)
 
 
+def test_stop_tail_drops_string_kind():
+    """A bare "chunk" string is not display text. Stop must not apply it or error."""
+    q = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put(("chunk", "bad"))
+    q.put((StreamQueueKind.STREAM_DONE, "nope"))
+    applied: list[str] = []
+    errors: list[object] = []
+    stopped: list[bool] = []
+    checks = [0]
+
+    def stop_checker() -> bool:
+        checks[0] += 1
+        return checks[0] > 1
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda text, _is_thinking: applied.append(text),
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: stopped.append(True),
+        on_error=errors.append,
+        stop_checker=stop_checker,
+    )
+    assert job_done[0] is True
+    assert stopped == [True]
+    assert errors == []
+    assert "hello" in applied
+    assert "bad" not in applied
+
+
 def test_stop_applies_flushed_batcher_text():
     q = queue.Queue()
     applied = []
@@ -1730,6 +1763,47 @@ def test_async_callback_rearm_breaks_reference_cycles(monkeypatch: pytest.Monkey
 
     finally:
         gc.enable()
+
+
+def test_async_callback_rearm_runs_both_queued_slices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two slices queued before either notify both run. A fire after close does not."""
+    from plugin.framework import async_stream
+
+    class FakeSliceCallback:
+        def __init__(self, fn):
+            self.fn = fn
+
+        def notify(self, _aData=None):
+            self.fn()
+
+    monkeypatch.setattr(async_stream, "_new_xcallback", FakeSliceCallback)
+
+    class FakeService:
+        def __init__(self) -> None:
+            self.calls: list[FakeSliceCallback] = []
+
+        def addCallback(self, cb, _data):
+            self.calls.append(cb)
+
+    service = FakeService()
+    rearm = async_stream._AsyncCallbackRearm(service)
+    ran: list[str] = []
+    try:
+        rearm.post(lambda: ran.append("a"))
+        rearm.post(lambda: ran.append("b"))
+        for _step in range(8):
+            if not service.calls:
+                break
+            service.calls.pop(0).notify()
+        else:
+            raise AssertionError("rearm kept scheduling")
+        assert ran == ["a", "b"]
+        rearm.close()
+        rearm._enqueue(lambda: ran.append("late"))
+        assert ran == ["a", "b"]
+        assert service.calls == []
+    finally:
+        rearm.close()
 
 
 def test_async_callback_for_drain_rearm_keeps_testing_flag(monkeypatch: pytest.MonkeyPatch) -> None:

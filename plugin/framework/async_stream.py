@@ -128,23 +128,23 @@ class _DrainState:
     job_done: list[bool]
     current_content: list[Any] = field(default_factory=list)
     current_thinking: list[Any] = field(default_factory=list)
-    thinking_open: list[bool] = field(default_factory=lambda: [False])
+    thinking_open: bool = False
     # NEXT_TOOL is not terminal. A true on_stream_done return is applied
     # only after the rest of this already-pulled batch (see _process_batch).
     defer_next_tool_exit: bool = False
 
     def close_thinking(self) -> None:
         # crosshair: off
-        if self.thinking_open[0]:
+        if self.thinking_open:
             self.apply_chunk_fn(" /thinking\n", True)
-            self.thinking_open[0] = False
+            self.thinking_open = False
 
     def flush_buffers(self) -> None:
         # crosshair: off
         if self.current_thinking:
-            if not self.thinking_open[0]:
+            if not self.thinking_open:
                 self.apply_chunk_fn("[Thinking] ", True)
-                self.thinking_open[0] = True
+                self.thinking_open = True
             self.apply_chunk_fn("".join(self.current_thinking), True)
             self.current_thinking.clear()
         if self.current_content:
@@ -312,9 +312,18 @@ def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
 
 
 def _apply_display_item(state: _DrainState, item: Any) -> None:
-    """Apply one CHUNK or THINKING. Other kinds are left undispatched."""
+    """Apply one CHUNK or THINKING. Other kinds are left undispatched.
+
+    What was wrong: ``StreamQueueKind`` is a ``str`` enum, so ``==`` treated a
+    bare ``"chunk"`` string as CHUNK. ``_process_batch`` rejects that tag.
+    Stop showed it. Why: only a real member is display text. A non-member in
+    the stop tail is dropped with the other control items. Calling
+    ``on_error`` here would turn Stop into a failure.
+    """
     # crosshair: off
     raw_kind, data = _stream_item_kind_data(item)
+    if not isinstance(raw_kind, StreamQueueKind):
+        return
     if raw_kind == StreamQueueKind.CHUNK:
         _handle_chunk(state, data, item)
     elif raw_kind == StreamQueueKind.THINKING:
@@ -653,7 +662,8 @@ class _AsyncCallbackRearm:
 
     _service: Any
     _lock: threading.Lock
-    _target: Callable[[], None] | None
+    _pending: list[Callable[[], None]]
+    _closed: bool
     _callback: Any
     _timer: _IdleRearmThread
 
@@ -661,17 +671,45 @@ class _AsyncCallbackRearm:
         # crosshair: off
         self._service = service
         self._lock = threading.Lock()
-        self._target = None
+        self._pending = []
+        self._closed = False
         # Created on the main thread. The timer thread only calls addCallback.
         self._callback = _new_xcallback(self._notify)
         self._timer = _IdleRearmThread()
 
+    def _enqueue(self, fn: Callable[[], None]) -> None:
+        """Queue one slice. A second writer cannot replace it.
+
+        What was wrong: ``post`` and the idle timer both wrote ``_target``,
+        then both called ``addCallback``. The idle fire could already be past
+        its generation check, so it overwrote the new slice. Both ``notify``
+        calls then ran that stale closure, which returned on the generation
+        mismatch, and nothing re-armed. The drain kept the pump owner.
+        How: one slot, two writers.
+        Why: append this closure. ``notify`` runs one and pokes again if more
+        are waiting, so a late idle callback cannot replace a slice already
+        queued.
+        """
+        # crosshair: off
+        with self._lock:
+            if self._closed:
+                return
+            self._pending.append(fn)
+        self._poke()
+
     def _notify(self) -> None:
         # crosshair: off
         with self._lock:
-            target = self._target
-        if target is not None:
-            target()
+            if not self._pending:
+                return
+            fn = self._pending.pop(0)
+            more = bool(self._pending)
+        try:
+            fn()
+        finally:
+            # A slice that closes the drain clears _service. _poke then no-ops.
+            if more:
+                self._poke()
 
     def _poke(self) -> None:
         # crosshair: off
@@ -687,24 +725,18 @@ class _AsyncCallbackRearm:
     def post(self, fn: Callable[[], None]) -> None:
         # crosshair: off
         self._timer.cancel()
-        with self._lock:
-            self._target = fn
-        self._poke()
+        self._enqueue(fn)
 
     def post_after(self, delay: float, fn: Callable[[], None]) -> None:
         # crosshair: off
-        def _fire() -> None:
-            with self._lock:
-                self._target = fn
-            self._poke()
-
-        self._timer.arm(delay, _fire)
+        self._timer.arm(delay, lambda: self._enqueue(fn))
 
     def close(self) -> None:
         # crosshair: off
         self._timer.stop()
         with self._lock:
-            self._target = None
+            self._closed = True
+            self._pending.clear()
             self._callback = None
             self._service = None
 
@@ -942,11 +974,8 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
         _run_stream_drain_blocking(state, toolkit, stop_checker, flush_pending)
         return
     try:
-        # Same-name nesting is legal for a peer execute under an existing scope.
-        # A different drain owner (e.g. MCP) must be rejected so pumps do not conflict.
-        existing_owner = get_drain_owner()
-        if existing_owner is not None and existing_owner != "stream":
-            raise NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
+        # Same-name "stream" re-entry is allowed. acquire_drain_owner raises
+        # NestedDrainOwnerError for a different owner (for example MCP).
         _EventDrain(state, scheduler, stop_checker, flush_pending).start()
     except NestedDrainOwnerError as exc:
         error_payload = format_error_payload(exc)
@@ -1011,14 +1040,10 @@ def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: A
     job_done = state.job_done
     on_error = state.on_error
     try:
-        # What was wrong: commit 8ea060d0d rejected any existing_owner even when it was
-        # "stream", breaking dual-deck peer send drains with NestedDrainOwnerError.
-        # How it happened: get_drain_owner() was checked for any truthy value.
-        # Why this change: only reject when existing_owner != "stream". Same-name nesting
-        # is handled by drain_owner_scope (depth counter) and pump_ui_idle (skips nested VCL).
-        existing_owner = get_drain_owner()
-        if existing_owner is not None and existing_owner != "stream":
-            raise NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
+        # What was wrong: commit 8ea060d0d rejected any existing owner, including
+        # "stream", and dual-deck peer sends raised NestedDrainOwnerError.
+        # Why: drain_owner_scope("stream") allows that same name and raises for
+        # a different one. The depth counter makes pump_ui_idle skip nested VCL.
         with drain_owner_scope("stream"):
             while not job_done[0]:
                 if stop_checker and stop_checker():
@@ -1322,17 +1347,19 @@ def run_async_worker_with_drain(
     resolved_apply_chunk = apply_chunk_fn or _noop_chunk
     resolved_on_error = on_error_fn or _noop_error
 
-    def _call_done_on_stopped() -> None:
-        # Mirror on_stream_done_wrapper: try with a sentinel item first, then
-        # fall back to zero-arg for callbacks that don't accept arguments.
-        # Without this, a TypeError from on_done_fn() propagates out of on_stopped()
-        # uncaught, turning a clean Stop into a spurious error in the drain loop.
-        # _done_fn is narrowed to non-None by the guard below (if on_done_fn).
-        _done_fn = on_done_fn
-        assert _done_fn is not None
-        _call_item_or_zero_arg(_done_fn, None)
+    if on_done_fn is not None:
+        done_fn = on_done_fn
 
-    resolved_on_stopped = on_stopped_fn or (_call_done_on_stopped if on_done_fn else _noop_stopped)
+        def _call_done_on_stopped() -> None:
+            # Mirror on_stream_done_wrapper. _call_item_or_zero_arg picks the
+            # arity before the call, so a TypeError from the body is not retried.
+            _call_item_or_zero_arg(done_fn, None)
+
+        stopped_fallback: Callable[[], None] = _call_done_on_stopped
+    else:
+        stopped_fallback = _noop_stopped
+
+    resolved_on_stopped = on_stopped_fn or stopped_fallback
 
     # Chat's tool loop passes flush_pending so Stop emits text still inside
     # the 250ms batcher. This helper accepted a batcher and only flushed it
