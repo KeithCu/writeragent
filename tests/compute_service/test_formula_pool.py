@@ -1504,8 +1504,14 @@ class TestFormulaHttpEndpoint:
 
             t1.start()
             t2.start()
-            t1.join(timeout=5)
-            t2.join(timeout=5)
+            # What was wrong: join(5) returned while both executes were still
+            # inside a cold Windows worker spawn, so results stayed {}.
+            # The pool timeout is 15s and lease_specific is bounded by it
+            # (GHA 37719557033).
+            # Why: wait past that budget plus process-start slack. A hung
+            # lease still fails; a slow spawn can finish.
+            t1.join(timeout=45)
+            t2.join(timeout=45)
 
             assert results[0].get("status") == "ok"
             assert results[0].get("result") == 42

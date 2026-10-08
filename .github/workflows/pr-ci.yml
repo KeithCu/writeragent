@@ -176,6 +176,19 @@ jobs:
         # returned — duration blow-up, not a single hung test).
         timeout-minutes: ${{ matrix.os == 'windows-latest' && 40 || 25 }}
         run: |
+          # macOS CI: the first matplotlib.pyplot import scans fonts and
+          # exceeds the 30s sandbox budget (GHA 37719597720). Build that
+          # cache once here. Formula workers and in-process execute_code
+          # inherit MPLCONFIGDIR; scrub_subprocess_env keeps it.
+          export MPLCONFIGDIR="${RUNNER_TEMP}/matplotlib"
+          export MPLBACKEND=Agg
+          mkdir -p "$MPLCONFIGDIR"
+          if [ -x .venv/bin/python ]; then
+            PY=.venv/bin/python
+          else
+            PY=.venv/Scripts/python.exe
+          fi
+          "$PY" -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot"
           if [ "${{ inputs.pytest_serial }}" = "true" ]; then
             export PYTEST_WORKERS=0
           fi

@@ -237,7 +237,16 @@ def impower(inumber: Any, number: Any) -> str:
     try:
         c = _to_complex(inumber)
         p = float(number)
-        return _from_complex(c**p)
+        result = c**p
+        # What was wrong: macOS libm returns a non-finite complex for
+        # (1+1j)**inf and does not raise. _from_complex then printed
+        # "nannani" (nan concatenated, because nan > 0 is false). Linux
+        # raises OverflowError, which this except already maps to #VALUE!
+        # (GHA 37719597720).
+        # Why: a non-finite power is the same failure as that overflow.
+        if not (math.isfinite(result.real) and math.isfinite(result.imag)):
+            return "#VALUE!"
+        return _from_complex(result)
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return "#VALUE!"
 

@@ -1,5 +1,4 @@
 import pytest
-import sys
 
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.writer.edit_review import (
@@ -1019,7 +1018,6 @@ def test_do_extend_selection_failure_visible(monkeypatch):
     assert "simulated stream failure" in messages[0][2]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the child imports LibreOffice pyuno, which is built for LO's bundled Python, not the venv")
 def test_document_helpers_unohelper_import_error():
     """Verify document_helpers handles unohelper ImportError gracefully."""
     import os
@@ -1028,8 +1026,20 @@ def test_document_helpers_unohelper_import_error():
     from pathlib import Path
 
     repo_root = str(Path(__file__).resolve().parents[2])
+    # What was wrong: macOS fix_uno_import.py puts LibreOffice uno.py on the
+    # venv path without pyuno. text_helpers imports uno, uno.py imports pyuno,
+    # and the child died before the unohelper handler (GHA 37719597720).
+    # Windows was skipped because that .pth loads LO's native pyuno.
+    # Why: stub pyuno and uno first, same as the analyzer-import test, so
+    # this child never loads the office binary.
     code = (
-        "import sys\n"
+        "import sys, types\n"
+        "if 'pyuno' not in sys.modules:\n"
+        "    _pyuno = types.ModuleType('pyuno')\n"
+        "    _pyuno.getComponentContext = lambda: None\n"
+        "    sys.modules['pyuno'] = _pyuno\n"
+        "if 'uno' not in sys.modules:\n"
+        "    sys.modules['uno'] = types.ModuleType('uno')\n"
         "class _BlockedImporter:\n"
         "    def find_spec(self, fullname, path, target=None):\n"
         "        if fullname == 'unohelper' or fullname.startswith('unohelper.'):\n"

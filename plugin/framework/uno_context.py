@@ -454,8 +454,17 @@ def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
     substring anywhere in the path (e.g. "my_assets/x.png" -> "my_x.png").
     Why this change: use removeprefix("assets/") after lstrip("/") to only
     remove the leading assets/ prefix.
+    What was wrong on Windows: os.path.join does not rewrite a "/" already
+    inside the next component, so "my_assets/icon.png" became
+    assets\\my_assets/icon.png and failed the endswith check
+    (GHA 37719557033).
+    Why: normpath the relative remainder so separators match the platform.
     """
-    clean = icon_filename.lstrip("/").removeprefix("assets/")
+    clean = icon_filename.replace("\\", "/").lstrip("/").removeprefix("assets/")
+    # normpath("") is "."; an empty remainder must stay empty so the join
+    # remains under assets/ rather than collapsing to the assets directory.
+    if clean:
+        clean = os.path.normpath(clean)
     root = os.path.dirname(get_plugin_dir())
     return (os.path.join(root, "assets", clean), os.path.join(root, "extension", "assets", clean))
 
