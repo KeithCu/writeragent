@@ -836,7 +836,7 @@ def coth(x: Any) -> float:
 
 
 def countif(r: Any, crit: Any) -> float:
-    r_flat = np.asarray(r).ravel()
+    r_flat = np.asarray(r, dtype=object).ravel()
     cnt = 0
     for val in r_flat:
         if match_criteria(val, crit):
@@ -852,7 +852,7 @@ def countifs(*args: Any) -> float | str:
     cond_ranges = []
     criteria = []
     for i in range(0, len(args), 2):
-        cond_ranges.append(np.asarray(args[i]).ravel())
+        cond_ranges.append(np.asarray(args[i], dtype=object).ravel())
         criteria.append(args[i + 1])
     if not cond_ranges:
         return 0.0
@@ -964,8 +964,13 @@ def csc(x: Any) -> float:
 
 
 def csch(x: Any) -> float:
+    # What was wrong: csch(1000) raised OverflowError because math.sinh(1000) overflowed.
+    # How it happened: except block only caught ValueError, TypeError, ZeroDivisionError.
+    # Why this change fixes it: 1 / sinh(huge) approaches 0.0, so OverflowError maps to 0.0.
     try:
         return float(1.0 / math.sinh(float(x)))
+    except OverflowError:
+        return 0.0
     except (ValueError, TypeError, ZeroDivisionError):
         return float("nan")
 

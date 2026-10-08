@@ -12,21 +12,25 @@ from __future__ import annotations
 import datetime as dt
 import math
 import re
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 import numpy as np
 
 from .calc_functions_util import (
     _build_holiday_set,
+    _calc_sort_key,
+    _clean_paired_arrays,
     _collect_a_values,
     _criteria_numbers,
     _extract_numeric_array,
     _find_text_cut,
     _npf_result,
     _parse_weekend,
+    _scipy_stats,
     _serial_to_date,
     match_criteria,
 )
+from .coerce import is_missing_value
 
 
 
@@ -89,8 +93,9 @@ def na() -> float:
 
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
     try:
-        import scipy.stats as st
-
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
         # int(float(+inf)) and int() of an oversized count raise OverflowError.
         # The old except only named ValueError, so that input escaped. Excel
         # NEGBINOMDIST is #NUM!, which this module returns as NaN.
@@ -100,28 +105,12 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
         if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
             return float("nan")
         return float(st.nbinom.pmf(k, r_val, prob))
-    except (ValueError, TypeError, ImportError, OverflowError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> float:
-    sd = _serial_to_date(start_date)
-    ed = _serial_to_date(end_date)
-    if sd is None or ed is None:
-        return float("nan")
-    if sd > ed:
-        sign = -1
-        sd, ed = ed, sd
-    else:
-        sign = 1
-    h_dates = _build_holiday_set(holidays)
-    curr = sd
-    days = 0
-    while curr <= ed:
-        if curr.weekday() < 5 and curr not in h_dates:
-            days += 1
-        curr += dt.timedelta(days=1)
-    return float(sign * days)
+    return networkdays_intl(start_date, end_date, weekend=1, holidays=holidays)
 
 
 def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
@@ -141,13 +130,23 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
         return float("nan")
 
     h_dates = _build_holiday_set(holidays)
-    curr = sd
-    days = 0
+    total_days = (ed - sd).days + 1
+    weeks = total_days // 7
+    workdays_per_week = 7 - len(wk_days)
+    days = weeks * workdays_per_week
+
+    curr = sd + dt.timedelta(days=weeks * 7)
     while curr <= ed:
-        if curr.weekday() not in wk_days and curr not in h_dates:
+        if curr.weekday() not in wk_days:
             days += 1
         curr += dt.timedelta(days=1)
-    return float(sign * days)
+
+    if h_dates:
+        for h in h_dates:
+            if sd <= h <= ed and h.weekday() not in wk_days:
+                days -= 1
+
+    return float(sign * max(0, days))
 
 
 def nominal(effect_rate: Any, npery: Any) -> float:
@@ -167,8 +166,9 @@ def nominal(effect_rate: Any, npery: Any) -> float:
 
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     try:
-        import scipy.stats as st
-
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
         x_val = float(x)
         m = float(mean)
         s = float(stdev)
@@ -178,46 +178,45 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         if cum:
             return float(st.norm.cdf(x_val, loc=m, scale=s))
         return float(st.norm.pdf(x_val, loc=m, scale=s))
-    except (ValueError, TypeError, ImportError):
+    except (ValueError, TypeError):
         return float("nan")
 
 
 def norminv(prob: Any, mean: Any, stdev: Any) -> float:
     try:
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
         p = float(prob)
         m = float(mean)
         s = float(stdev)
         if p <= 0 or p >= 1 or s <= 0:
             return float("nan")
-        # A missing scipy install raises ImportError. negbinomdist/normdist
-        # already return NaN for that; this used to crash the formula.
-        import scipy.stats
-
-        return float(scipy.stats.norm.ppf(p, loc=m, scale=s))
-    except (ValueError, TypeError, ImportError):
+        return float(st.norm.ppf(p, loc=m, scale=s))
+    except (ValueError, TypeError):
         return float("nan")
 
 
 def normsdist(z: Any) -> float:
     try:
-        # Same missing-scipy ImportError as norminv.
-        import scipy.stats
-
-        return float(scipy.stats.norm.cdf(float(z)))
-    except (ValueError, TypeError, ImportError):
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
+        return float(st.norm.cdf(float(z)))
+    except (ValueError, TypeError):
         return float("nan")
 
 
 def normsinv(prob: Any) -> float:
     try:
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
         p = float(prob)
         if p <= 0 or p >= 1:
             return float("nan")
-        # Same missing-scipy ImportError as norminv.
-        import scipy.stats
-
-        return float(scipy.stats.norm.ppf(p))
-    except (ValueError, TypeError, ImportError):
+        return float(st.norm.ppf(p))
+    except (ValueError, TypeError):
         return float("nan")
 
 
@@ -241,12 +240,9 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
 
 
 def npv(rate: Any, *args: Any) -> float:
-    # numpy-financial.npv discounts from t=0, so values[0] is not discounted.
-    # Excel/Calc NPV discounts the first cash flow by one period. The test
-    # locks 100/1.1 + 200/1.21. Do not call npf.npv for this helper.
-    # Text rate used to raise ValueError from the bare float() call. rate == -1
-    # makes every denominator (1 + r) ** k zero and raised ZeroDivisionError.
-    # Both are Excel #VALUE! / #NUM!, returned here as NaN.
+    # What was wrong: npv treated blank and non-numeric cells as 0.0, which consumed a discount period.
+    # How it happened: lines 258-259 caught ValueError/TypeError and appended 0.0 to cash flows.
+    # Why this change fixes it: Excel and Calc NPV ignore empty cells and non-numeric entries.
     try:
         r = float(rate)
     except (ValueError, TypeError, OverflowError):
@@ -255,11 +251,15 @@ def npv(rate: Any, *args: Any) -> float:
         return float("nan")
     vals = []
     for arg in args:
-        for v in np.asarray(arg).ravel():
+        for v in np.asarray(arg, dtype=object).ravel():
+            if v is None or is_missing_value(v) or isinstance(v, (bool, np.bool_)):
+                continue
             try:
-                vals.append(float(v))
-            except (ValueError, TypeError):
-                vals.append(0.0)
+                vf = float(v)
+                if not math.isnan(vf):
+                    vals.append(vf)
+            except (ValueError, TypeError, OverflowError):
+                continue
     res = 0.0
     try:
         for i, v in enumerate(vals):
@@ -270,11 +270,15 @@ def npv(rate: Any, *args: Any) -> float:
 
 
 def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
+    # What was wrong: numbervalue("1,5", ",") returned 15.0 because default grp_sep="," stripped the comma.
+    # How it happened: when only dec_sep was passed, grp_sep retained default "," and stripped dec_sep.
+    # Why this change fixes it: when grp_sep equals dec_sep, group separator stripping is skipped.
     try:
         s = str(text).strip()
         if not s:
             return 0.0
-        s = s.replace(str(grp_sep), "")
+        if str(grp_sep) != str(dec_sep):
+            s = s.replace(str(grp_sep), "")
         if str(dec_sep) != ".":
             s = s.replace(str(dec_sep), ".")
         return float(s)
@@ -410,51 +414,44 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
 
 def pearson(data1: Any, data2: Any) -> float:
     try:
-        d1 = np.asarray(data1).ravel()
-        d2 = np.asarray(data2).ravel()
-        if len(d1) != len(d2):
+        cleaned = _clean_paired_arrays(data1, data2)
+        if cleaned is None:
             return float("nan")
-        mask1 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d1])
-        mask2 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d2])
-        mask = mask1 & mask2
-        d1_clean = np.asarray(d1[mask], dtype=float)
-        d2_clean = np.asarray(d2[mask], dtype=float)
+        d1_clean, d2_clean = cleaned
         if len(d1_clean) <= 1:
             return float("nan")
-        import scipy.stats  # type: ignore[import-untyped]
-
-        corr, _p = scipy.stats.pearsonr(d1_clean, d2_clean)
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
+        corr, _p = st.pearsonr(d1_clean, d2_clean)
         return float(cast("float", corr))
     except (ValueError, TypeError):
         return float("nan")
 
 
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
+    # What was wrong: percentrank rounded instead of truncating, sig < 1 returned a value,
+    # and code contained leftover debugging musings.
+    # How it happened: line 468 used np.round(res, sig) and did not validate sig >= 1.
+    # Why this change fixes it: truncates at 10^sig per Excel/Calc spec, validates sig >= 1, and removes musings.
     try:
         d = np.asarray(data, dtype=float).ravel()
         d = d[np.isfinite(d)]
         if len(d) == 0:
             return float("nan")
         val = float(x)
-        sig = int(significance)
+        sig = int(float(significance))
+        if sig < 1:
+            return float("nan")
         d_sorted = np.sort(d)
         if val < d_sorted[0] or val > d_sorted[-1]:
             return float("nan")
-        # Calc PERCENTRANK acts differently if x is in data vs interpolation
-        # Using percentileofscore with weak for rank approximation, then dividing
-        # But wait, scipy.stats.percentileofscore returns a percentage (0-100).
-        # We need a value between 0 and 1.
 
-        # A more exact match to Excel/Calc PERCENTRANK.INC
-        # It's better to implement manually to match Calc.
-        # find index
         n = len(d)
         if n == 1:
             return 1.0
-        # Check if x is in array
         idx = np.searchsorted(d_sorted, val)
         if d_sorted[idx] == val:
-            # count occurrences less than val
             count_less = np.sum(d < val)
             res = count_less / (n - 1)
         else:
@@ -463,10 +460,10 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             r0, r1 = np.sum(d < x0) / (n - 1), np.sum(d < x1) / (n - 1)
             res = r0 + (r1 - r0) * (val - x0) / (x1 - x0)
 
-        return float(np.round(res, sig))
+        factor = 10**sig
+        truncated = math.floor(round(res, sig + 4) * factor) / factor
+        return float(truncated)
     except (ValueError, TypeError, IndexError, OverflowError):
-        # int(+inf) and np.round(..., huge) raise OverflowError. The old
-        # except missed both, so a bad significance crashed. Excel is #NUM!.
         return float("nan")
 
 
@@ -506,12 +503,14 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
         m = float(mean)
         if k < 0 or m < 0:
             return float("nan")
-        import scipy.stats
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
 
         if cumulative:
-            return float(scipy.stats.poisson.cdf(k, m))
+            return float(st.poisson.cdf(k, m))
         else:
-            return float(scipy.stats.poisson.pmf(k, m))
+            return float(st.poisson.pmf(k, m))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -567,13 +566,18 @@ def quartile(r: Any, q: Any) -> float:
 
 
 def rank(val: Any, r: Any, order: int | float = 0) -> float:
-    # The list comprehension called float() with no guard, so a text cell in
-    # the range raised ValueError before the target try/except could run.
+    # What was wrong: rank accepted NaN, and strings/bools through float(), and one text cell aborted the whole call.
+    # How it happened: arr = [float(x) for x in np.asarray(r).ravel() if x is not None and x != ""] raised ValueError or included NaN.
+    # Why this change fixes it: uses _extract_numeric_array(r, propagate_nan=False) to extract numbers, ignoring text, bools, and NaNs.
     try:
-        arr = [float(x) for x in np.asarray(r).ravel() if x is not None and x != ""]
         target = float(val)
+        if math.isnan(target):
+            return float("nan")
         descending = int(float(order)) == 0
     except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    arr = _extract_numeric_array(r, propagate_nan=False).tolist()
+    if not arr:
         return float("nan")
     if descending:
         arr.sort(reverse=True)
@@ -585,10 +589,22 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float:
         return float("nan")
 
 
+def _translate_calc_replacement(rep: str) -> str:
+    def _sub(m: re.Match[str]) -> str:
+        s = m.group(0)
+        if s == "$$":
+            return "$"
+        if s == "$&":
+            return r"\g<0>"
+        return rf"\g<{s[1:]}>"
+
+    return re.sub(r"\$\$|\$&|\$[0-9]+", _sub, rep)
+
+
 def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "") -> str | float:
-    # re.error (re.PatternError on 3.13, an alias of re.error) from an invalid
-    # pattern or a bad replacement backref used to propagate out of findall /
-    # search / sub. Callers expect the module NaN error value.
+    # What was wrong: regex replacement used Python \1 syntax, not Calc $1 / $& / $$.
+    # How it happened: replacement string was passed directly to re.sub, where $ has no backreference meaning.
+    # Why this change fixes it: translates $n -> \g<n>, $& -> \g<0>, $$ -> $ before calling re.sub.
     try:
         if text is None:
             text = ""
@@ -609,7 +625,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "")
             if m:
                 return m.group(1) if m.groups() else m.group(0)
             return ""
-        rep_str = str(replacement)
+        rep_str = _translate_calc_replacement(str(replacement))
         if "g" in str(flags).lower():
             return re.sub(expr_str, rep_str, text_str, flags=re_flags)
         return re.sub(expr_str, rep_str, text_str, count=1, flags=re_flags)
@@ -630,19 +646,10 @@ def rept(text: Any, n: Any) -> str | float:
 
 
 def rsq(data_y: Any, data_x: Any) -> float:
-    # dtype=float raises ValueError on a text cell. Return NaN instead.
-    try:
-        y = np.asarray(data_y, dtype=float).ravel()
-        x = np.asarray(data_x, dtype=float).ravel()
-    except (ValueError, TypeError):
+    cleaned = _clean_paired_arrays(data_y, data_x)
+    if cleaned is None:
         return float("nan")
-    # None becomes a length-1 array. Combining it with a longer partner, or
-    # two different lengths, raised IndexError / ValueError on the mask.
-    # Excel RSQ is #N/A for a length mismatch; this module uses NaN.
-    if y.size != x.size:
-        return float("nan")
-    mask = ~np.isnan(y) & ~np.isnan(x)
-    y, x = y[mask], x[mask]
+    y, x = cleaned
     if len(y) < 2:
         return float("nan")
     corr = np.corrcoef(x, y)[0, 1]
@@ -657,13 +664,21 @@ def sec(x: Any) -> float:
 
 
 def sech(x: Any) -> float:
+    # What was wrong: sech(1000) raised OverflowError.
+    # How it happened: math.cosh(float(x)) raises OverflowError on large x, and except only caught (ValueError, TypeError, ZeroDivisionError).
+    # Why this change fixes it: catches OverflowError and returns 0.0 (since 1/cosh(x) -> 0 as x -> inf).
     try:
         return float(1.0 / math.cosh(float(x)))
+    except OverflowError:
+        return 0.0
     except (ValueError, TypeError, ZeroDivisionError):
         return float("nan")
 
 
 def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
+    # What was wrong: seriessum with negative base and fractional power returned a complex number.
+    # How it happened: Python evaluates (-x)**float as complex, which was returned directly.
+    # Why this change fixes it: returns NaN when term/result is complex or non-finite, matching Calc #NUM!.
     try:
         x_val = float(x)
         n_val = float(n)
@@ -671,39 +686,36 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
         coeffs = np.asarray(coefficients).ravel()
         res = 0.0
         for i, c in enumerate(coeffs):
-            res += float(c) * (x_val ** (n_val + i * m_val))
-        return res
+            term = float(c) * (x_val ** (n_val + i * m_val))
+            if isinstance(term, complex):
+                return float("nan")
+            res += term
+        if isinstance(res, complex) or not math.isfinite(res):
+            return float("nan")
+        return float(res)
     except Exception:
         return float("nan")
 
 
 def skew(*args: Any) -> float:
-    try:
-        import scipy.stats
-    except ImportError:
+    st = _scipy_stats()
+    if st is None:
         return float("nan")
     arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
     if len(arr) < 3 or np.std(arr, ddof=1) == 0:
         return float("nan")
     try:
-        res = float(scipy.stats.skew(arr, bias=False))
+        res = float(st.skew(arr, bias=False))
         return res if math.isfinite(res) else float("nan")
     except Exception:
         return float("nan")
 
 
 def slope(data_y: Any, data_x: Any) -> float:
-    # dtype=float raises ValueError on a text cell. Return NaN instead.
-    try:
-        y = np.asarray(data_y, dtype=float).ravel()
-        x = np.asarray(data_x, dtype=float).ravel()
-    except (ValueError, TypeError):
+    cleaned = _clean_paired_arrays(data_y, data_x)
+    if cleaned is None:
         return float("nan")
-    # Same length-mismatch raise as rsq. Excel SLOPE is #N/A; this module uses NaN.
-    if y.size != x.size:
-        return float("nan")
-    mask = ~np.isnan(y) & ~np.isnan(x)
-    y, x = y[mask], x[mask]
+    y, x = cleaned
     if len(y) < 2:
         return float("nan")
     mx, my = np.mean(x), np.mean(y)
@@ -713,17 +725,25 @@ def slope(data_y: Any, data_x: Any) -> float:
 
 
 def small(r: Any, k: Any) -> float:
-    # float() on a text cell, or a non-numeric k, used to raise ValueError.
+    # What was wrong: small accepted NaN, text, and bools in ranges, breaking sort or giving wrong results.
+    # How it happened: sorted(float(x) for x in np.asarray(r).ravel() if x is not None and x != "") converted text/bools and kept NaNs.
+    # Why this change fixes it: uses _extract_numeric_array(r, propagate_nan=False) to extract only real numeric values.
     try:
-        arr = sorted(float(x) for x in np.asarray(r).ravel() if x is not None and x != "")
         ki = int(float(k))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    return float(arr[ki - 1]) if 0 < ki <= len(arr) else float("nan")
+    arr = _extract_numeric_array(r, propagate_nan=False)
+    if ki <= 0 or ki > len(arr):
+        return float("nan")
+    arr_sorted = np.sort(arr)
+    return float(arr_sorted[ki - 1])
 
 
 def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list[Any] | float:
-    arr = np.asarray(range_arr)
+    # What was wrong: sort stringified mixed ranges (corrupting numbers to text) and reversed ties on descending sort.
+    # How it happened: np.asarray(range_arr) without dtype=object coerced mixed types to strings; order[::-1] inverted tie order.
+    # Why this change fixes it: uses dtype=object, _calc_sort_key for mixed-type comparison, and stable sort with reverse flag.
+    arr = np.asarray(range_arr, dtype=object)
     if arr.size == 0:
         return []
     # Text, blank, and a bare number are 0-d. arr.shape[1] then raised
@@ -738,8 +758,9 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     except (ValueError, TypeError, OverflowError):
         return float("nan")
     if arr.ndim == 1:
-        out = np.sort(arr) if asc else np.sort(arr)[::-1]
-        return out.tolist()
+        indices = list(range(arr.size))
+        indices.sort(key=lambda i: _calc_sort_key(arr[i]), reverse=not asc)
+        return arr[indices].tolist()
     if bool(by_col):
         # Excel SORT(..., by_col=TRUE) orders columns by the sort_index-th ROW
         # (1-based; arr[si - 1, :]). The old path keyed off a column and then
@@ -747,18 +768,15 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
         # An index outside 1..nrows fell back to row 0. Excel is #VALUE!.
         if si < 1 or si > arr.shape[0]:
             return float("nan")
-        key = arr[si - 1, :]
-        order = np.argsort(key)
-        if not asc:
-            order = order[::-1]
-        return arr[:, order].tolist()
+        col_indices = list(range(arr.shape[1]))
+        col_indices.sort(key=lambda c: _calc_sort_key(arr[si - 1, c]), reverse=not asc)
+        return arr[:, col_indices].tolist()
     # A column index outside 1..ncols fell back to column 0. Excel is #VALUE!.
     if si < 1 or si > arr.shape[1]:
         return float("nan")
-    order = np.argsort(arr[:, si - 1])
-    if not asc:
-        order = order[::-1]
-    return arr[order].tolist()
+    row_indices = list(range(arr.shape[0]))
+    row_indices.sort(key=lambda r: _calc_sort_key(arr[r, si - 1]), reverse=not asc)
+    return arr[row_indices].tolist()
 
 
 def _sort_order_sign(val: Any) -> int | None:
@@ -779,15 +797,11 @@ def _sort_order_sign(val: Any) -> int | None:
     return 1 if num >= 0 else -1
 
 
-def _index_key(flat: Any) -> Callable[[int], Any]:
-    def _key(i: int) -> Any:
-        return flat[i]
-
-    return _key
-
-
 def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list[Any] | float:
-    arr = np.asarray(range_arr)
+    # What was wrong: sortby stringified mixed ranges and inverted tie order on descending keys.
+    # How it happened: np.asarray(range_arr) without dtype=object stringified data; secondary keys weren't stably preserved.
+    # Why this change fixes it: uses dtype=object, _calc_sort_key, and stable backward multi-key sort preserving tie order.
+    arr = np.asarray(range_arr, dtype=object)
     if arr.size == 0:
         return []
     # A scalar range is 0-d. arr[order] raised IndexError ("too many indices").
@@ -818,7 +832,7 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     n = int(arr.shape[0] if arr.ndim > 1 else arr.size)
     keys: list[tuple[Any, bool]] = []
     for key, sign in specs:
-        flat = np.asarray(key).ravel()
+        flat = np.asarray(key, dtype=object).ravel()
         # Slicing a shorter key and indexing arr[order] dropped the leftover
         # rows. Excel returns #VALUE! when a by_array length does not match.
         if int(flat.size) != n:
@@ -826,21 +840,13 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         keys.append((flat, sign >= 0))
 
     try:
-        if len(keys) == 1:
-            flat, asc = keys[0]
-            order_arr = np.argsort(flat)
-            if not asc:
-                order_arr = order_arr[::-1]
-        else:
-            # Stable sort from the last key back to the first so ties keep the
-            # secondary order. A single np.argsort cannot see those keys.
-            order_list = list(range(n))
-            for flat, asc in reversed(keys):
-                order_list.sort(key=_index_key(flat), reverse=not asc)
-            order_arr = np.asarray(order_list)
+        order_list = list(range(n))
+        for flat, asc in reversed(keys):
+            target_flat = flat
+            order_list.sort(key=lambda idx: _calc_sort_key(target_flat[idx]), reverse=not asc)
         if arr.ndim == 1:
-            return arr.ravel()[order_arr].tolist()
-        return arr[order_arr].tolist()
+            return arr.ravel()[order_list].tolist()
+        return arr[order_list].tolist()
     except (TypeError, ValueError):
         return float("nan")
 
@@ -883,19 +889,11 @@ def stdevpa(*args: Any) -> float:
 
 def steyx(data_y: Any, data_x: Any) -> float:
     from plugin.scripting.venv.calc_functions_i_m import intercept
-    from plugin.scripting.venv.calc_functions_n_s import slope
 
-    # dtype=float raises ValueError on a text cell. Return NaN instead.
-    try:
-        y = np.asarray(data_y, dtype=float).ravel()
-        x = np.asarray(data_x, dtype=float).ravel()
-    except (ValueError, TypeError):
+    cleaned = _clean_paired_arrays(data_y, data_x)
+    if cleaned is None:
         return float("nan")
-    # Same length-mismatch raise as rsq. Excel STEYX is #N/A; this module uses NaN.
-    if y.size != x.size:
-        return float("nan")
-    mask = ~np.isnan(y) & ~np.isnan(x)
-    y, x = y[mask], x[mask]
+    y, x = cleaned
     n = len(y)
     if n < 3:
         return float("nan")

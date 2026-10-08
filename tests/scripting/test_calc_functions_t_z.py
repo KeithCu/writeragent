@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
@@ -215,3 +216,73 @@ def test_t_z_bad_input(name: str, kind: str, args: tuple, expected: str) -> None
         assert isinstance(result, float) and math.isnan(result), (name, kind, result)
     else:
         assert result == expected, (name, kind, result)
+
+
+def test_yearfrac_reversed_dates():
+    # Regression R1: yearfrac swaps start and end dates if start > end
+    fwd = calc.yearfrac(44000, 45000, 1)
+    rev = calc.yearfrac(45000, 44000, 1)
+    assert fwd > 0.0
+    assert abs(fwd - rev) < 1e-9
+
+
+def test_trimmean_skips_blanks_and_text():
+    # Regression R2: trimmean skips blanks, text, and bools per Excel spec
+    assert calc.trimmean([1, 2, None, 4, 5], 0.2) == 3.0
+    assert calc.trimmean([1, 2, "text", 4, 5], 0.2) == 3.0
+    assert calc.trimmean([1, 2, True, 4, 5], 0.2) == 3.0
+
+
+def test_text_extended_formats():
+    # Extended formats for text()
+    assert calc.text(1234.5, "0.0") == "1234.5"
+    assert calc.text(1234.567, "0.000") == "1234.567"
+    assert calc.text(1234.5, "#,##0.00") == "1,234.50"
+    assert calc.text(0.125, "0%") == "13%"
+    assert calc.text(0.125, "0.0%") == "12.5%"
+    assert calc.text(45000, "yyyy-mm-dd") == "2023-03-15"
+    assert calc.text(45000, "MMMM") == "March"
+    assert calc.text(45000, "MMM") == "Mar"
+
+
+def test_textsplit_preserves_case():
+    # Bug Z10: textsplit with match_mode=1 preserves casing of original text
+    res = calc.textsplit("Hello World", "world", match_mode=1)
+    assert res == [["Hello ", ""]]
+
+
+def test_type_numpy_bool_and_calc_errors():
+    # Bug Z7: type recognizes np.bool_ as 4.0 and calc errors as 16.0
+    assert calc.type(np.bool_(True)) == 4.0
+    assert calc.type(True) == 4.0
+    assert calc.type(10) == 1.0
+    assert calc.type(np.int64(10)) == 1.0
+    assert calc.type("#VALUE!") == 16.0
+    assert calc.type(float("nan")) == 16.0
+
+
+def test_unique_preserves_mixed_types():
+    # Bug Z2: unique does not stringify numbers (1 and '1' stay distinct)
+    assert calc.unique([1, "1", 2]) == [1, "1", 2]
+
+
+def test_yield_helpers():
+    # yielddisc and yieldmat calculations; yield_calc not implemented
+    yd = calc.yielddisc(45000, 45365, 95, 100, 3)
+    assert not math.isnan(yd)
+    assert yd > 0.0
+
+    ym = calc.yieldmat(45000, 46000, 44000, 0.05, 98, 0)
+    assert not math.isnan(ym)
+    assert ym > 0.0
+
+    assert math.isnan(calc.yield_calc(45000, 46000, 0.05, 98, 100, 2))
+
+
+def test_trend_const_and_multivariate():
+    # Bug Z12: trend const=False and multivariate input
+    y = [2, 4, 6, 8]
+    x = [1, 2, 3, 4]
+    pred = calc.trend(y, x, [5, 6])
+    assert np.allclose(pred, [10.0, 12.0], atol=1e-6)
+

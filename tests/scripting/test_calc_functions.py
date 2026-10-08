@@ -163,7 +163,8 @@ def test_helper_names_complete():
     from plugin.scripting.calc_functions_common import HELPER_NAMES
 
     exported = {name for name in dir(calc) if not name.startswith("_") and callable(getattr(calc, name))}
-    assert HELPER_NAMES <= exported
+    assert "py_str" in HELPER_NAMES
+    assert HELPER_NAMES == exported
 
 
 def test_tier_d_helpers():
@@ -504,7 +505,7 @@ def test_isblank_isna_ifna_are_not_the_same_check():
     assert calc.ifna(lambda: float("nan"), "alt") == "alt"
 
 
-def test_yearfrac_basis_matches_days360_and_can_be_negative():
+def test_yearfrac_basis_matches_days360_and_swaps_dates():
     import datetime as dt
 
     start, end = 44927, 45292
@@ -515,7 +516,7 @@ def test_yearfrac_basis_matches_days360_and_can_be_negative():
     actual = (ed - sd).days
     assert calc.yearfrac(start, end, 2) == actual / 360.0
     assert calc.yearfrac(start, end, 3) == actual / 365.0
-    assert calc.yearfrac(end, start, 0) == -calc.yearfrac(start, end, 0)
+    assert calc.yearfrac(end, start, 0) == calc.yearfrac(start, end, 0)
     from plugin.scripting.venv.calc_functions_a_c import _year_frac
 
     assert _year_frac(float(start), float(end), 0) == calc.yearfrac(start, end, 0)
@@ -758,11 +759,11 @@ def test_mround_halves_away_from_zero():
     assert calc.mround(1.23, 0.5) == 1.0
 
 
-def test_mround_zero_multiple_is_nan():
-    # Excel/Calc MROUND(n, 0) is #DIV/0!. The helper used to return 0.0.
-    assert math.isnan(calc.mround(10, 0))
-    assert math.isnan(calc.mround(0, 0))
-    assert math.isnan(calc.mround(-4, 0.0))
+def test_mround_zero_multiple_returns_zero():
+    # LO ScInterpreter::ScMRound (analysis.cxx) returns 0.0 when multiple is 0.
+    assert calc.mround(10, 0) == 0.0
+    assert calc.mround(0, 0) == 0.0
+    assert calc.mround(-4, 0.0) == 0.0
     assert calc.mround(10, 2) == 10.0
 
 
@@ -851,16 +852,15 @@ def test_time_wraps_modulo_one_day_and_rejects_negative_remainder():
     assert math.isnan(calc.time("x", 0, 0))
 
 
-def test_trimmean_text_or_bad_percent_is_nan():
-    assert math.isnan(calc.trimmean(["a", 1.0, 2.0], 0.2))
+def test_trimmean_skips_blanks_and_text():
+    # Excel/Calc TRIMMEAN skips blanks, text, and booleans in ranges; propagates errors and checks percent.
+    assert calc.trimmean(["a", 1.0, 2.0], 0.2) == 1.5
     assert math.isnan(calc.trimmean([1.0, "#VALUE!", 3.0], 0.2))
     assert math.isnan(calc.trimmean([1.0, 2.0, 3.0], "bad"))
     assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.4) == 3.0
-    # dtype=float used to coerce these, then ~isnan dropped NaN/None and
-    # averaged the rest. Excel TRIMMEAN is #VALUE! for any non-numeric cell.
-    assert math.isnan(calc.trimmean([1.0, "2", 3.0, 4.0, 5.0], 0.2))
-    assert math.isnan(calc.trimmean([1.0, True, 3.0, 4.0, 5.0], 0.2))
-    assert math.isnan(calc.trimmean([1.0, None, 3.0, 4.0, 5.0], 0.2))
+    assert calc.trimmean([1.0, "2", 3.0, 4.0, 5.0], 0.2) == 3.25
+    assert calc.trimmean([1.0, True, 3.0, 4.0, 5.0], 0.2) == 3.25
+    assert calc.trimmean([1.0, None, 3.0, 4.0, 5.0], 0.2) == 3.25
     assert math.isnan(calc.trimmean([1.0, float("nan"), 3.0, 4.0, 5.0], 0.2))
     assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.2) == 3.0
 
@@ -921,10 +921,10 @@ def test_xmatch_wildcards_and_xlookup_horizontal_scalar():
     assert calc.xmatch("a?ple", names, 2) == 1.0
     assert calc.xmatch("a*", names, 2, -1) == 3.0
     assert math.isnan(calc.xmatch("z*", names, 2))
-    # Same wildcard helper as xlookup, including its case-sensitive match.
+    # Same wildcard helper as xlookup (wildcard matching is case-insensitive in Excel/Calc).
     assert calc.xlookup("ap*", names, [10, 20, 30, 40], "missing", 2) == 10
-    assert math.isnan(calc.xmatch("Ap*", names, 2))
-    assert calc.xlookup("Ap*", names, [10, 20, 30, 40], "missing", 2) == "missing"
+    assert calc.xmatch("Ap*", names, 2) == 1.0
+    assert calc.xlookup("Ap*", names, [10, 20, 30, 40], "missing", 2) == 10
     assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30]]) == 20
     assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
     assert calc.xlookup("b", [["a"], ["b"], ["c"]], [[10], [20], [30]]) == 20
@@ -1021,10 +1021,10 @@ def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     assert calc.xor() == "#VALUE!"
 
 
-def test_yield_stubs_stay_nan():
+def test_yield_functions():
     assert math.isnan(calc.yield_calc(1, 2, 0.05, 95, 100, 2))
-    assert math.isnan(calc.yielddisc(1, 2, 95, 100))
-    assert math.isnan(calc.yieldmat(1, 2, 0, 0.05, 95))
+    assert calc.yielddisc(1, 2, 95, 100) > 0
+    assert calc.yieldmat(1, 2, 0, 0.05, 95) > 0
 
 
 def test_sort_by_col_uses_row_key_and_keeps_shape():
@@ -1088,10 +1088,10 @@ def test_n_s_text_cells_return_nan():
     assert math.isnan(calc.odd("x"))
     assert calc.odd(2) == 3.0
     assert calc.odd(-2) == -3.0
-    assert math.isnan(calc.rank(1, [1, "a", 3]))
+    assert calc.rank(1, [1, "a", 3]) == 2.0
     assert calc.rank(2, [1, 2, 3]) == 2.0
     assert calc.rank(1, [1, "", 2]) == 2.0
-    assert math.isnan(calc.small([1, "a", 3], 1))
+    assert calc.small([1, "a", 3], 1) == 1.0
     assert math.isnan(calc.small([1.0, 5.0, 3.0], "k"))
     assert calc.small([1.0, 5.0, 3.0], 1) == 1.0
     assert math.isnan(calc.rsq([1.0, "a"], [1.0, 2.0]))
@@ -1143,7 +1143,8 @@ def test_workday_intl_invalid_weekend_is_nan():
 def test_averagea_counts_blank_as_zero():
     # Skipping "" made (10 + 20) / 2 == 15. Calc AVERAGEA(10,"",20) is 10.
     assert calc.averagea([10.0, "", 20.0]) == 10.0
-    assert calc.averagea([10.0, None, 20.0]) == 10.0
+    # Empty cells (None) are skipped in *A functions per Z3/A2.
+    assert calc.averagea([10.0, None, 20.0]) == 15.0
     assert calc.averagea([10.0, "  ", 20.0]) == 10.0
     # A real zero and text still count. TRUE is 1. All blanks average to 0.
     assert calc.averagea([10.0, 0.0, 20.0]) == 10.0

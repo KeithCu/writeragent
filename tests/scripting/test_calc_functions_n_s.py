@@ -88,8 +88,8 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("pearson", ([1, 2], [1, 2, 3]), "nan", "pearson-out-of-range"),
     ("percentrank", ("text", 1), "nan", "percentrank-text"),
     ("percentrank", ("", 1), "nan", "percentrank-blank"),
-    # Significance 0 rounds 2/3 to 1. np.round uses bankers' rounding only on .5.
-    ("percentrank", ([1, 2, 3, 4], 3, 0), 1.0, "percentrank-zero-significance"),
+    # Significance < 1 returns NaN (#NUM! in Excel/Calc).
+    ("percentrank", ([1, 2, 3, 4], 3, 0), "nan", "percentrank-zero-significance"),
     ("percentrank", ([1, 2, 3, 4], 3, _INF), "nan", "percentrank-out-of-range"),
     ("permut", ("text", 2), "nan", "permut-text"),
     ("permut", ("", 2), "nan", "permut-blank"),
@@ -207,3 +207,84 @@ def _assert_calc_result(result: object, expected: object) -> None:
 def test_n_s_bad_inputs(name: str, args: tuple[object, ...], expected: object) -> None:
     result = getattr(calc, name)(*args)
     _assert_calc_result(result, expected)
+
+
+def test_networkdays_large_span():
+    # Weekday counting via week arithmetic; should not hang on large spans
+    res = calc.networkdays(1, 70000)
+    assert not math.isnan(res)
+    assert res > 0.0
+
+
+def test_npv_skips_non_numeric():
+    # Bug Z6: npv skips blank and text cells without consuming a period
+    base = calc.npv(0.1, 100, 100)
+    with_blank = calc.npv(0.1, 100, None, 100)
+    with_text = calc.npv(0.1, 100, "text", 100)
+    assert abs(with_blank - base) < 1e-9
+    assert abs(with_text - base) < 1e-9
+
+
+def test_numbervalue_grp_equals_dec():
+    # Bug Z4: numbervalue("1,5", ",") should not drop grp when grp==dec
+    assert calc.numbervalue("1,5", ",") == 1.5
+
+
+def test_percentrank_truncation_and_validation():
+    # Bug Z9: sig < 1 returns NaN, and values are truncated rather than rounded
+    assert math.isnan(calc.percentrank([1, 2, 3, 4], 3, 0))
+    assert math.isnan(calc.percentrank([1, 2, 3, 4], 3, -1))
+    # 2.5 in [1, 2, 3, 4] is at percentile 0.5; truncated to 1 digit is 0.5
+    assert calc.percentrank([1, 2, 3, 4], 2.5, 1) == 0.5
+
+
+def test_rank_small_extract_numeric():
+    # Bug Z15: rank and small ignore NaN, text, and bools
+    assert calc.rank(3, [1, float("nan"), 3]) == 1.0
+    assert calc.rank(3, [1, "a", 3]) == 1.0
+    assert calc.rank(3, [1, True, 3]) == 1.0
+
+    assert calc.small([1, float("nan"), 3], 1) == 1.0
+    assert calc.small([1, "a", 3], 1) == 1.0
+    assert calc.small([1, True, 3], 1) == 1.0
+
+
+def test_regex_calc_replacement_syntax():
+    # Bug Z13: regex replacement supports Calc $1, $&, $$ syntax
+    assert calc.regex("abc-123", "([a-z]+)-([0-9]+)", "$2-$1") == "123-abc"
+    assert calc.regex("abc", "b", "[$&]") == "a[b]c"
+    assert calc.regex("abc", "b", "$$") == "a$c"
+
+
+def test_sech_overflow():
+    # Bug Z8: sech(1000) returns 0.0 on overflow instead of crashing
+    assert calc.sech(1000) == 0.0
+    assert calc.sech(-1000) == 0.0
+
+
+def test_seriessum_complex_returns_nan():
+    # Bug Z14: negative base with fractional power returns NaN, not complex
+    res = calc.seriessum(-2, 0.5, 1, [1, 1])
+    assert isinstance(res, float)
+    assert math.isnan(res)
+
+
+def test_sort_sortby_dtype_object_and_ties():
+    # Bug Z2 & Z11: mixed-type ranges stay uncorrupted and descending sort preserves ties
+    sorted_mixed = calc.sort([["a", 10], ["b", 9]], 2)
+    assert sorted_mixed == [["b", 9], ["a", 10]]
+    # Ties preserved in descending sort
+    ties = [[1, "first"], [1, "second"]]
+    assert calc.sort(ties, 1, -1) == [[1, "first"], [1, "second"]]
+
+    # sortby preserves mixed types
+    res_sortby = calc.sortby([["a", 10], ["b", 9]], [10, 9])
+    assert res_sortby == [["b", 9], ["a", 10]]
+
+
+def test_rsq_slope_steyx_paired_clean():
+    # Clean paired arrays mask out NaNs consistently across rsq, slope, steyx
+    assert calc.rsq([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 1.0
+    assert calc.slope([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 2.0
+    assert calc.steyx([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 0.0
+

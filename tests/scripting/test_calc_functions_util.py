@@ -147,9 +147,10 @@ def test_to_float_a():
 
 
 def test_collect_a_values():
+    # None is skipped (blank cell), while "" and "text" evaluate to 0.0
     res = _collect_a_values([1.0, 2.0], True, False, "text", "", None, [3.0, np.bool_(True)])
     assert isinstance(res, np.ndarray)
-    assert np.allclose(res, [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, 0.0, 3.0, 1.0])
+    assert np.allclose(res, [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, 3.0, 1.0])
     empty_res = _collect_a_values()
     assert len(empty_res) == 0
 
@@ -360,6 +361,89 @@ def test_dollar_fraction_terms():
     assert _dollar_fraction_terms(float("-inf"), 4) is None
     assert _dollar_fraction_terms(float("nan"), 4) is None
     assert _dollar_fraction_terms(10**400, 4) is None
+
+
+def test_match_criteria_wildcards_and_case():
+    # Case insensitivity
+    assert match_criteria("Apple", "apple") is True
+    assert match_criteria("apple", "Apple") is True
+    assert match_criteria("Banana", "<>banana") is False
+
+    # Wildcards: *, ?, and ~ escape
+    assert match_criteria("apple", "*pp*") is True
+    assert match_criteria("apple", "a??le") is True
+    assert match_criteria("apple", "*x*") is False
+    assert match_criteria("a*b", "a~*b") is True
+    assert match_criteria("ab", "a~*b") is False
+    assert match_criteria("a?b", "a~?b") is True
+    assert match_criteria("acb", "a~?b") is False
+
+    # Blank matching: "=" matches empty/None, "<>" matches non-blank
+    assert match_criteria("", "=") is True
+    assert match_criteria(None, "=") is True
+    assert match_criteria("hello", "=") is False
+    assert match_criteria("", "<>") is False
+    assert match_criteria(None, "<>") is False
+    assert match_criteria("hello", "<>") is True
+
+    # Operator allowlist: invalid operators like "><" do not match
+    assert match_criteria(5, "><5") is False
+    assert match_criteria(5, "=>5") is False
+
+
+def test_is_calc_error_helper():
+    from plugin.scripting.venv.calc_functions_util import _is_calc_error
+
+    assert _is_calc_error(float("nan")) is True
+    assert _is_calc_error(np.nan) is True
+    assert _is_calc_error("#VALUE!") is True
+    assert _is_calc_error("#N/A") is True
+    assert _is_calc_error("#REF!") is True
+    assert _is_calc_error("#hashtag") is False
+    assert _is_calc_error("#1") is False
+    assert _is_calc_error("hello") is False
+    assert _is_calc_error(123) is False
+    assert _is_calc_error(True) is False
+
+
+def test_calc_sort_key():
+    from plugin.scripting.venv.calc_functions_util import _calc_sort_key
+
+    # Order: numbers < text (case-insensitive) < bools < blanks/errors
+    k_num = _calc_sort_key(10)
+    k_str = _calc_sort_key("apple")
+    k_str_upper = _calc_sort_key("APPLE")
+    k_bool = _calc_sort_key(True)
+    k_blank = _calc_sort_key(None)
+    k_err = _calc_sort_key("#VALUE!")
+    k_nan = _calc_sort_key(float("nan"))
+
+    assert k_num[0] == 0
+    assert k_str[0] == 1
+    assert k_bool[0] == 2
+    assert k_blank[0] == 3
+    assert k_err[0] == 3
+    assert k_nan[0] == 3
+
+    assert k_num < k_str < k_bool < k_blank
+    assert k_str == k_str_upper
+
+
+def test_clean_paired_arrays():
+    from plugin.scripting.venv.calc_functions_util import _clean_paired_arrays
+
+    # Clean paired extraction
+    res = _clean_paired_arrays([1, 2, np.nan, 4], [10, 20, 30, 40])
+    assert res is not None
+    y, x = res
+    assert np.array_equal(y, [1.0, 2.0, 4.0])
+    assert np.array_equal(x, [10.0, 20.0, 40.0])
+
+    # Length mismatch returns None
+    assert _clean_paired_arrays([1, 2], [1, 2, 3]) is None
+
+    # Text cells return None
+    assert _clean_paired_arrays(["a", "b"], [1, 2]) is None
 
 
 

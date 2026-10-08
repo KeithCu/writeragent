@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, cast
 
@@ -18,10 +19,14 @@ import numpy as np
 
 from .calc_functions_util import (
     _build_holiday_set,
+    _clean_paired_arrays,
     _collect_a_values,
+    _extract_numeric_array,
     _find_match_index,
     _find_text_cut,
+    _is_calc_error,
     _parse_weekend,
+    _scipy_stats,
     _serial_to_date,
 )
 from .coerce import _LO_ERROR_TOKENS, is_missing_value
@@ -78,11 +83,13 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
         t = int(float(tails))
         if d < 1 or t not in (1, 2) or val < 0:
             return float("nan")
-        import scipy.stats
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
 
         # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
         # and 2 * (1 - cdf(val)) for 2 tails
-        p = scipy.stats.t.sf(val, d)
+        p = st.t.sf(val, d)
         return float(p if t == 1 else 2 * p)
     except (ValueError, TypeError, OverflowError):
         # int(float("inf")) on tails raises OverflowError. The handler only
@@ -91,14 +98,43 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
         return float("nan")
 
 
-# Excel/Calc numeric formats, not Python format specs. "0.00" in the format
-# mini-language is zero-padding with precision 0, so text(1234.5, "0.00") was
-# "1e+03". Stripping "#" and "," from "#,##0" also dropped the thousands separator.
-_TEXT_NUMBER_FORMATS: dict[str, tuple[int, bool]] = {"0": (0, False), "0.00": (2, False), "#,##0": (0, True)}
+# Excel/Calc numeric formats, not Python format specs.
+_TEXT_NUMBER_FORMATS: dict[str, tuple[int, bool]] = {
+    "0": (0, False),
+    "0.0": (1, False),
+    "0.00": (2, False),
+    "0.000": (3, False),
+    "#,##0": (0, True),
+    "#,##0.0": (1, True),
+    "#,##0.00": (2, True),
+    "#,##0.000": (3, True),
+}
+
+_PERCENT_FORMATS: dict[str, int] = {
+    "0%": 0,
+    "0.0%": 1,
+    "0.00%": 2,
+}
+
+_DATE_FORMATS: dict[str, str] = {
+    "yyyy-mm-dd": "%Y-%m-%d",
+    "yyyy/mm/dd": "%Y/%m/%d",
+    "dd/mm/yyyy": "%d/%m/%Y",
+    "mm/dd/yyyy": "%m/%d/%Y",
+    "dd-mm-yyyy": "%d-%m-%Y",
+    "yyyy": "%Y",
+    "yy": "%y",
+    "mm": "%m",
+    "dd": "%d",
+    "mmm": "%b",
+    "mmmm": "%B",
+    "ddd": "%a",
+    "dddd": "%A",
+}
 
 
 def _format_number_pattern(value: float, places: int, grouped: bool) -> str:
-    """Round half away from zero and apply one of the three numeric TEXT specs."""
+    """Round half away from zero and apply numeric TEXT specs."""
     if not math.isfinite(value):
         return str(value)
     quant = Decimal(1).scaleb(-places)
@@ -110,7 +146,10 @@ def _format_number_pattern(value: float, places: int, grouped: bool) -> str:
             return "0"
         return f"{whole:,}" if grouped else str(whole)
     negative = rounded < 0
-    body = f"{abs(rounded):.{places}f}"
+    if grouped:
+        body = f"{abs(rounded):,.{places}f}"
+    else:
+        body = f"{abs(rounded):.{places}f}"
     return f"-{body}" if negative else body
 
 
@@ -123,14 +162,17 @@ def text(val: Any, fmt: Any) -> str:
             return _format_number_pattern(float(val), places, grouped)
         except (ValueError, TypeError, OverflowError, InvalidOperation):
             return str(val)
-    if fmt_str == "MMMM":
+    if fmt_str in _PERCENT_FORMATS:
+        places = _PERCENT_FORMATS[fmt_str]
         try:
-            return dt.date.fromordinal(int(float(val)) + 693594).strftime("%B")
-        except (ValueError, TypeError, OverflowError):
+            formatted = _format_number_pattern(float(val) * 100, places, False)
+            return f"{formatted}%"
+        except (ValueError, TypeError, OverflowError, InvalidOperation):
             return str(val)
-    if fmt_str == "MMM":
+    date_fmt = _DATE_FORMATS.get(fmt_str.lower())
+    if date_fmt is not None:
         try:
-            return dt.date.fromordinal(int(float(val)) + 693594).strftime("%b")
+            return dt.date.fromordinal(int(float(val)) + 693594).strftime(date_fmt)
         except (ValueError, TypeError, OverflowError):
             return str(val)
     return str(val)
@@ -173,25 +215,35 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str:
     return str(delim).join(parts)
 
 
+def _split_text(text: str, delimiter: str, case_insensitive: bool) -> list[str]:
+    if not delimiter:
+        raise ValueError("empty separator")
+    if case_insensitive:
+        return re.split(re.escape(delimiter), text, flags=re.IGNORECASE)
+    return text.split(delimiter)
+
+
 def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_empty: Any = False, match_mode: Any = 0, pad_with: Any = float("nan")) -> Any:
-    # A simplified version of textsplit returning a 2D array or 1D array.
+    # What was wrong: textsplit with match_mode=1 lowercased the whole string, modifying output casing.
+    # How it happened: s = s.lower() altered the text before splitting.
+    # Why this change fixes it: uses re.split with re.IGNORECASE on the original text so casing is preserved.
     try:
         s = str(text)
-        if match_mode == 1:
-            s = s.lower()
-            if col_delimiter:
-                col_delimiter = str(col_delimiter).lower()
-            if row_delimiter:
-                row_delimiter = str(row_delimiter).lower()
+        ci = (match_mode == 1)
 
-        # very simplified logic for textsplit just to pass basic tests
+        if col_delimiter is None and row_delimiter is None:
+            return float("nan")
+
         if row_delimiter is not None:
-            rows = s.split(str(row_delimiter))
+            rows = _split_text(s, str(row_delimiter), ci)
             if ignore_empty:
                 rows = [r for r in rows if r]
             res = []
             for r in rows:
-                cols = r.split(str(col_delimiter))
+                if col_delimiter is not None:
+                    cols = _split_text(r, str(col_delimiter), ci)
+                else:
+                    cols = [r]
                 if ignore_empty:
                     cols = [c for c in cols if c]
                 res.append(cols)
@@ -202,7 +254,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
                     row.append(pad_with)
             return res
         else:
-            cols = s.split(str(col_delimiter))
+            cols = _split_text(s, str(col_delimiter), ci)
             if ignore_empty:
                 cols = [c for c in cols if c]
             return [cols]
@@ -248,63 +300,70 @@ def tinv(prob: Any, df: Any) -> float:
         d = float(df)
         if p <= 0 or p > 1 or d < 1:
             return float("nan")
-        import scipy.stats
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
 
         # TINV is the 2-tailed inverse
-        return float(scipy.stats.t.ppf(1 - p / 2, d))
+        return float(st.t.ppf(1 - p / 2, d))
     except (ValueError, TypeError):
         return float("nan")
 
 
 def trend(*args: Any) -> Any:
     try:
-        import numpy as np
-
-        data_y = np.asarray(args[0]).ravel()
-        # Excel TREND returns #VALUE! for an empty known_y. lstsq on a (0, k)
-        # design matrix succeeds and used to return [].
-        if data_y.size == 0:
+        if not args:
             return "#VALUE!"
-        if len(args) > 1:
-            data_x = np.asarray(args[1])
+        data_y = np.asarray(args[0], dtype=float).ravel()
+        if data_y.size == 0 or np.any(np.isnan(data_y)):
+            return "#VALUE!"
+        if len(args) > 1 and args[1] is not None:
+            data_x = np.asarray(args[1], dtype=float)
             if data_x.ndim == 1:
                 data_x = data_x[:, np.newaxis]
+            elif data_x.ndim == 2 and data_x.shape[0] != data_y.shape[0] and data_x.shape[1] == data_y.shape[0]:
+                data_x = data_x.T
         else:
-            data_x = np.arange(1, len(data_y) + 1)[:, np.newaxis]
+            data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
 
-        if len(args) > 2:
-            new_data_x = np.asarray(args[2])
+        if np.any(np.isnan(data_x)):
+            return "#VALUE!"
+
+        if len(args) > 2 and args[2] is not None:
+            new_data_x = np.asarray(args[2], dtype=float)
             if new_data_x.ndim == 1:
                 new_data_x = new_data_x[:, np.newaxis]
+            elif new_data_x.ndim == 2 and new_data_x.shape[1] != data_x.shape[1] and new_data_x.shape[0] == data_x.shape[1]:
+                new_data_x = new_data_x.T
         else:
             new_data_x = data_x
 
-        c, _unused, _unused2, _unused3 = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)
-        return (np.c_[new_data_x, np.ones(new_data_x.shape[0])] @ c).tolist()
+        if np.any(np.isnan(new_data_x)):
+            return "#VALUE!"
+
+        const = bool(args[3]) if len(args) > 3 else True
+
+        if const:
+            A = np.c_[data_x, np.ones(data_x.shape[0])]
+            c, _unused, _unused2, _unused3 = np.linalg.lstsq(A, data_y, rcond=None)
+            pred = np.c_[new_data_x, np.ones(new_data_x.shape[0])] @ c
+        else:
+            c, _unused, _unused2, _unused3 = np.linalg.lstsq(data_x, data_y, rcond=None)
+            pred = new_data_x @ c
+
+        return pred.tolist()
     except Exception:
         return "#VALUE!"
 
 
 def trimmean(r: Any, percent: Any) -> float:
-    # Excel TRIMMEAN returns #VALUE! when any cell is non-numeric. dtype=float
-    # coerced numeric text and bools, turned None into NaN, and ~isnan then
-    # dropped those NaNs so the rest were averaged. Reject anything that is
-    # not a real number. Sibling stats report that failure as NaN.
+    # What was wrong: trimmean returned NaN if any cell was blank, text, or bool.
+    # How it happened: 0b2a3e0e rejected non-numeric cells instead of skipping them.
+    # Why this change fixes it: uses _extract_numeric_array(r, propagate_nan=True) to ignore empty cells, text, and bools per Excel/Calc spec, while propagating formula errors.
     try:
-        cells = np.asarray(r, dtype=object).ravel()
-        nums: list[float] = []
-        for cell in cells:
-            val = cell.item() if isinstance(cell, np.generic) else cell
-            # bool is a subclass of int; Excel treats it as non-numeric here.
-            if isinstance(val, bool) or not isinstance(val, (int, float)):
-                return float("nan")
-            number = float(val)
-            if math.isnan(number):
-                return float("nan")
-            nums.append(number)
-        if not nums:
+        arr = _extract_numeric_array(r, propagate_nan=True)
+        if len(arr) == 0 or np.any(np.isnan(arr)):
             return float("nan")
-        arr = np.asarray(nums, dtype=float)
         p = float(percent)
         if p < 0 or p >= 1:
             return float("nan")
@@ -319,77 +378,57 @@ def trimmean(r: Any, percent: Any) -> float:
 
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
     try:
-        d1 = np.asarray(data1).ravel()
-        d2 = np.asarray(data2).ravel()
-        type_num = int(float(type_))
-
-        if type_num == 1:
-            if len(d1) != len(d2):
-                return float("nan")
-            mask1 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d1])
-            mask2 = np.array([isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x) for x in d2])
-            mask = mask1 & mask2
-            d1_clean = np.asarray(d1[mask], dtype=float)
-            d2_clean = np.asarray(d2[mask], dtype=float)
-        else:
-            d1_clean = np.asarray([x for x in d1 if isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x)], dtype=float)
-            d2_clean = np.asarray([x for x in d2 if isinstance(x.item() if hasattr(x, "item") else x, (int, float)) and not math.isnan(x.item() if hasattr(x, "item") else x)], dtype=float)
         t = int(float(tails))
         type_num = int(float(type_))
-        if t not in (1, 2) or type_num not in (1, 2, 3) or len(d1_clean) < 2 or len(d2_clean) < 2:
+        if t not in (1, 2) or type_num not in (1, 2, 3):
             return float("nan")
-        import scipy.stats
 
         if type_num == 1:
-            # Paired
-            res = scipy.stats.ttest_rel(d1_clean, d2_clean)
-        elif type_num == 2:
-            # Two-sample equal variance
-            res = scipy.stats.ttest_ind(d1_clean, d2_clean, equal_var=True)
+            cleaned = _clean_paired_arrays(data1, data2)
+            if cleaned is None:
+                return float("nan")
+            d1_clean, d2_clean = cleaned
         else:
-            # Two-sample unequal variance
-            res = scipy.stats.ttest_ind(d1_clean, d2_clean, equal_var=False)
+            d1_clean = _extract_numeric_array(data1, propagate_nan=False)
+            d2_clean = _extract_numeric_array(data2, propagate_nan=False)
+
+        if len(d1_clean) < 2 or len(d2_clean) < 2:
+            return float("nan")
+
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
+
+        if type_num == 1:
+            res = st.ttest_rel(d1_clean, d2_clean)
+        elif type_num == 2:
+            res = st.ttest_ind(d1_clean, d2_clean, equal_var=True)
+        else:
+            res = st.ttest_ind(d1_clean, d2_clean, equal_var=False)
 
         p = float(cast("float", res[1]))
         if t == 1:
             p /= 2.0
-
         return float(p)
     except (ValueError, TypeError, OverflowError):
-        # int(float(tails)) and int(float(type_)) raise OverflowError on inf.
-        # That escaped the ValueError/TypeError handler, so TTEST raised
-        # instead of the NaN used for any other tail or type outside 1..2 / 1..3.
         return float("nan")
 
 
-def _is_calc_error(val: Any) -> bool:
-    """NaN (NA()) or a real Calc error token. "#hashtag" is text, not an error."""
-    if isinstance(val, str):
-        return val.strip() in _LO_ERROR_TOKENS
-    if isinstance(val, bool):
-        return False
-    if isinstance(val, (float, np.floating)):
-        return math.isnan(float(val))
-    return False
-
-
 def type(val: Any) -> float:
-    # is_missing_value is true for NaN and for #VALUE!/#N/A/..., so those took
-    # the number branch (1). LO/Excel TYPE is 16 for errors. Checking any
-    # string that starts with "#" also classified "#hashtag" as an error.
+    # What was wrong: type(np.bool_) returned 1.0 (number) instead of 4.0 (logical), and had duplicate return 1.0.
+    # How it happened: isinstance(val, bool) only matched Python bool, and np.bool_ fell through to np.integer/np.floating.
+    # Why this change fixes it: checks isinstance(val, (bool, np.bool_)) for 4.0 and removes the duplicate return.
     if _is_calc_error(val):
         return 16.0
-    if isinstance(val, bool):
+    if isinstance(val, (bool, np.bool_)):
         return 4.0
-    if isinstance(val, (int, float)) or isinstance(val, (np.integer, np.floating)):
+    if isinstance(val, (int, float, np.integer, np.floating)):
         return 1.0
     if isinstance(val, str):
         return 2.0
     if isinstance(val, (list, np.ndarray)):
         return 64.0
-    # Blank cell (None). An empty string is text and already returned 2.
-    if val is None or is_missing_value(val):
-        return 1.0
+    # Blank cell (None) or unknown falls back to 1.0.
     return 1.0
 
 
@@ -414,22 +453,22 @@ def unicode(text: Any) -> float:
 
 
 def _unique_items(items: list[Any], exactly_once: bool) -> list[Any]:
+    # What was wrong: kept a redundant seen list with an O(n) membership check inside an O(n) loop (O(n^2)).
+    # How it happened: seen.append was checked with `item not in seen`.
+    # Why this change fixes it: Python 3.7+ dict preserves insertion order; counts dict gives keys in order in O(n).
     counts: dict[Any, int] = {}
-    seen: list[Any] = []
     for item in items:
         counts[item] = counts.get(item, 0) + 1
-        if item not in seen:
-            seen.append(item)
     if exactly_once:
-        return [item for item in seen if counts[item] == 1]
-    return seen
+        return [item for item, c in counts.items() if c == 1]
+    return list(counts.keys())
 
 
 def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[Any]:
-    # `ndim == 1 or not by_col` flattened every cell whenever by_col was falsy,
-    # and the row comparison ran only for a truthy by_col. Calc/Excel by_col
-    # false uniques rows; true uniques columns. exactly_once is unique_only.
-    data = np.asarray(arr)
+    # What was wrong: unique stringified mixed-type ranges (treating 1 and '1' as duplicates).
+    # How it happened: np.asarray(arr) without dtype=object coerced mixed types to strings.
+    # Why this change fixes it: uses np.asarray(arr, dtype=object) to preserve individual cell types.
+    data = np.asarray(arr, dtype=object)
     if data.size == 0:
         return []
     once = bool(unique_only)
@@ -537,13 +576,15 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
         b = float(beta)
         if val < 0 or a <= 0 or b <= 0:
             return float("nan")
-        import scipy.stats
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
 
         # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
         if cumulative:
-            return float(scipy.stats.weibull_min.cdf(val, a, scale=b))
+            return float(st.weibull_min.cdf(val, a, scale=b))
         else:
-            return float(scipy.stats.weibull_min.pdf(val, a, scale=b))
+            return float(st.weibull_min.pdf(val, a, scale=b))
     except (ValueError, TypeError):
         return float("nan")
 
@@ -809,8 +850,9 @@ def xor(*args: Any) -> bool | float | str:
 
 
 def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
-    # Old body divided actual days by 360 for basis 0, 2, and 4 and swapped
-    # dates, so bond helpers disagreed with days360.
+    # What was wrong: yearfrac returned negative values when start_date > end_date.
+    # How it happened: 7e5b3e96 dropped the date swap, but Excel and LibreOffice GetYearFrac swap start and end dates.
+    # Why this change fixes it: swaps s and e when s > e so duration is always non-negative.
     from plugin.scripting.venv.calc_functions_d_h import days360
 
     try:
@@ -821,6 +863,8 @@ def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
         return float("nan")
     if b < 0 or b > 4:
         return float("nan")
+    if s > e:
+        s, e = e, s
     if b == 0 or b == 4:
         counted = days360(s, e, b == 4)
         if math.isnan(counted):
@@ -840,18 +884,46 @@ def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
 
 
 def yield_calc(settlement: Any, maturity: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    # Approximate stub
+    """Yield of a security that pays periodic interest. Not implemented in lightweight runtime."""
     return float("nan")
 
 
 def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
-    # Approximate stub
-    return float("nan")
+    """Annual yield of a discounted security (e.g. Treasury bill)."""
+    try:
+        p = float(pr)
+        red = float(redemption)
+        b = int(float(basis))
+        if p <= 0 or red <= 0 or b < 0 or b > 4:
+            return float("nan")
+        yf = yearfrac(settlement, maturity, b)
+        if math.isnan(yf) or yf <= 0:
+            return float("nan")
+        return float(((red - p) / p) / yf)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
 
 
 def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, basis: Any = 0) -> float:
-    # Approximate stub
-    return float("nan")
+    """Annual yield of a security that pays interest at maturity."""
+    try:
+        r = float(rate)
+        p = float(pr)
+        b = int(float(basis))
+        if r < 0 or p <= 0 or b < 0 or b > 4:
+            return float("nan")
+        dim_b = yearfrac(issue, maturity, b)
+        dis_b = yearfrac(issue, settlement, b)
+        dsm_b = yearfrac(settlement, maturity, b)
+        if math.isnan(dim_b) or math.isnan(dis_b) or math.isnan(dsm_b) or dsm_b <= 0:
+            return float("nan")
+        denom = (p / 100.0) + r * dis_b
+        if denom == 0:
+            return float("nan")
+        num = (1.0 + r * dim_b) / denom - 1.0
+        return float(num / dsm_b)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
 
 
 def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
@@ -872,8 +944,10 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
             return float("nan")
 
         z = (m - val) / (s / math.sqrt(n))
-        import scipy.stats
+        st = _scipy_stats()
+        if st is None:
+            return float("nan")
 
-        return float(scipy.stats.norm.sf(z))
+        return float(st.norm.sf(z))
     except (ValueError, TypeError):
         return float("nan")
