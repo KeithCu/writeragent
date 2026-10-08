@@ -120,7 +120,10 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - A legacy `b64` buffer that is non-alphabet, bad padding, or non-ASCII raises `ValueError` (`validate=True`). `binascii.Error` and `UnicodeEncodeError` used to escape `@deal.raises` as `RaisesContractError` because deal matches exact types. Production wire uses `buffer` bytes; `b64encode` output still decodes
 - The row-count split_grid shortcut in `host_pack_data` requires a non-empty first row. Zero-width rows use `cell_count`
 - `column_kinds` length matches column count
-- Buffer byte length is a multiple of 8 (float64 cells)
+- Buffer byte length is a multiple of `_FLOAT64_BYTES` (8, one float64 cell)
+- A dataframe whose `data` is an ndarray counts as `data.size` cells. The old arm treated every non-list as one cell, so `describe_wire_value` logged `cells~1`
+- `host_unpack_data` keeps unrecognized dataframe keys (shallow copy, then replaces `data`). Rebuilding only `__wa_payload__` / `columns` / `data` used to drop them
+- A numeric `split_grid` with mixed `column_kinds` (int next to float, or bool next to int, empty `strings`) stays float64 in the child. Per-column Python types are restored on the host. The child casts only when every column is the same kind
 - When `strings == {}`, child unpack returns ndarray (pytest); when strings present, returns list (`@deal.ensure` on `child_unpack_split_grid`)
 - Jagged 2D grids raise `ValueError` via `@deal.raises` on `_flatten_grid_to_components`
 - `host_pack_multi_data` produces a multi_data envelope with one item per input grid

@@ -1180,7 +1180,7 @@ def test_split_grid_numpy_scalars_in_lists():
 
 
 def test_split_grid_boolean_roundtrip_fidelity():
-    """Verify that boolean columns roundtrip perfectly to True/False in mixed grids under the 'bool' ColumnKind."""
+    """Verify that boolean columns roundtrip perfectly to True/False in mixed grids under the 'bool' column kind."""
     pytest.importorskip("numpy")
     
     # 2D mixed grid containing booleans, strings, and None
@@ -1473,6 +1473,30 @@ def test_dataframe_envelope_roundtrips_through_host_unpack():
     # After unpack, inner should be list-of-lists
     assert isinstance(data, list) and len(data) == 2
     assert data[0] == [10, "x"] or data[0][0] == 10
+
+
+def test_wire_cell_count_ndarray_dataframe_uses_size():
+    """An ndarray body is rows*cols, not the non-list fallback of 1."""
+    np = pytest.importorskip("numpy")
+    arr = np.zeros((2, 3))
+    env = {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": ["a", "b", "c"], "data": arr}
+    assert wire_cell_count(env) == 6
+    assert "cells~1" not in describe_wire_value(env)
+    assert "cells~6" in describe_wire_value(env)
+
+
+def test_host_unpack_dataframe_keeps_extra_keys():
+    """Unknown envelope fields survive. Rebuilding only the three known keys dropped them."""
+    env = {
+        "__wa_payload__": PAYLOAD_DATAFRAME,
+        "columns": ["a"],
+        "data": [[1], [2]],
+        "index": ["r0", "r1"],
+    }
+    unpacked = host_unpack_data(env)
+    assert unpacked["index"] == ["r0", "r1"]
+    assert unpacked["columns"] == ["a"]
+    assert unpacked["data"] == [[1], [2]]
 
 
 def test_dataframe_host_unpack_preserves_split_grid_for_numeric():

@@ -25,8 +25,9 @@ split pack/unpack without serialization A/B tests
 Depth caps differ on purpose. ``_MAX_UNPACK_DEPTH`` (128) bounds recursive
 unpack and pack. It stays well under CPython's default recursion limit
 (~1000) so a cycle raises ``ValueError`` here instead of ``RecursionError``.
-``find_image_payloads`` stops at 12 because image trees are shallow
-(past that it returns ``[]``). The venv ``_CUSTOM_SERIALIZE_MAX_DEPTH`` (8)
+``find_image_payloads`` stops at ``_MAX_IMAGE_DEPTH`` (12) because image
+trees are shallow (past that it returns ``[]``). The venv
+``_CUSTOM_SERIALIZE_MAX_DEPTH`` (8)
 bounds custom-type walks and then treats the value as a plain container.
 """
 from __future__ import annotations
@@ -37,7 +38,7 @@ import math
 import os
 import sys
 import tempfile
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_COL_INDEX,
@@ -58,6 +59,9 @@ _DEAL_RETURN = object()
 # before RecursionError. No identity set on pack/unpack: that would skip a
 # shared subtree (see find_image_payloads).
 _MAX_UNPACK_DEPTH = 128
+# Image trees are shallow. Deeper returns [] instead of raising, so a cyclic
+# or huge result still finishes the walk. Not _MAX_UNPACK_DEPTH.
+_MAX_IMAGE_DEPTH = 12
 # host_unpack_data's contract, including OverflowError from int(inf) on an
 # int column. venv_worker catches this same tuple so a bad envelope after
 # the script has run is WORKER_IPC_ERROR, not a replay.
@@ -370,8 +374,8 @@ MAX_BENCH_CELLS = 100_000
 ForceBinary = str
 # Envelope ``dtype`` tag only. The buffer codec hardcodes array.array("d") and np.float64.
 SPLIT_GRID_WIRE_DTYPE = "float64"
-ColumnKind = Literal["int", "float", "bool"]
-"""Wire column kind tag. Use ``str`` in function annotations (CrossHair cannot proxy ``Literal``)."""
+# array.array("d") / np.float64 item size. Buffer length must be a multiple of this.
+_FLOAT64_BYTES = 8
 
 
 def _is_grid_sequence(grid: object) -> bool:
@@ -565,9 +569,7 @@ def find_image_payloads(
     images are reported once.
     """
     # crosshair: off  # recursive Any dict/list (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
-    # 12, not _MAX_UNPACK_DEPTH: image trees are shallow. Deeper returns []
-    # instead of raising, so a cyclic or huge result still finishes the walk.
-    if _depth > 12:
+    if _depth > _MAX_IMAGE_DEPTH:
         return []
     if is_image_payload(obj):
         return [obj]
@@ -1041,6 +1043,12 @@ def wire_cell_count(data: Any) -> int:
     if data is None:
         return 0
     if type(data) not in (list, tuple):
+        # What was wrong: a dataframe whose data is an ndarray is not a
+        # list, so this returned 1 and describe_wire_value logged cells~1.
+        # Host size guards only see host-packed lists; this is the debug count.
+        # Why this works: _is_ndarray does not import NumPy. .size is rows*cols.
+        if _is_ndarray(data):
+            return int(data.size)
         return 1
     if not data:
         return 0
@@ -1422,7 +1430,7 @@ def _flatten_grid_to_components(
         if use_stdlib:
             _stdlib_flatten_pass(_iter_split_grid_cells(grid_1d, is_2d=False))
 
-    # Map the final column states to ColumnKind strings with single-pass promotions
+    # Map the final column states to "int" / "float" / "bool" with single-pass promotions
     column_kinds: list[str] = []
     for c in range(num_cols):
         state = column_states[c]
@@ -1463,7 +1471,7 @@ def _flatten_grid_to_components(
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: all(isinstance(key, int) for key in _deal_return(*a, result=result).get("strings", {})))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result).get("column_kinds"), list))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result).get("shape"), list))
-@deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and (len(r["buffer"]) == 0 if not grid else len(r["buffer"]) % 8 == 0))
+@deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and (len(r["buffer"]) == 0 if not grid else len(r["buffer"]) % _FLOAT64_BYTES == 0))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and len(r.get("column_kinds", [])) == (0 if not grid else (r["shape"][1] if len(r["shape"]) == 2 else 1)))
 @deal.raises(ValueError)
 def host_pack_split_grid(
@@ -1654,10 +1662,10 @@ def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> 
         raw = bytes(raw)
     elif not isinstance(raw, bytes):
         raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'")
-    if len(raw) % 8 != 0:
+    if len(raw) % _FLOAT64_BYTES != 0:
         # Same message as array.array('d').frombytes on a truncated byte string.
         raise ValueError("bytes length not a multiple of item size")
-    nvals = len(raw) // 8
+    nvals = len(raw) // _FLOAT64_BYTES
     if nvals != expected_cells:
         raise ValueError(
             f"split_grid buffer has {nvals} values but shape {list(envelope['shape'])} needs {expected_cells}"
@@ -1799,14 +1807,17 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
     if is_split_grid(wire):
         return host_unpack_split_grid(wire, as_nested_list=as_nested_list)
     if is_dataframe_payload(wire):
-        cols = wire.get("columns") or []
-        inner = wire.get("data")
-        unpacked_inner = host_unpack_data(inner, as_nested_list=as_nested_list, _depth=_depth + 1)
-        return {
-            "__wa_payload__": PAYLOAD_DATAFRAME,
-            "columns": cols,
-            "data": unpacked_inner,
-        }
+        # What was wrong: rebuilding only __wa_payload__/columns/data dropped
+        # any other envelope field (index, dtypes). The producer sets only
+        # those three today.
+        # Why this works: shallow-copy and replace data so a future field
+        # survives. data is still unpacked.
+        unpacked_inner = host_unpack_data(
+            wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1
+        )
+        out = dict(wire)
+        out["data"] = unpacked_inner
+        return out
     # Plain dict only: CrossHair AttrDict is isinstance(dict) but blows up on __ch_pytype__ when iterating.
     # OrderedDict and other mappings come back as-is, nested envelopes still packed.
     # child_pack_result rebuilds plain dicts, so production does not hit this.
