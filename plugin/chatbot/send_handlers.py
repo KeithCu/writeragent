@@ -19,7 +19,8 @@ import logging
 from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
 
 from plugin.framework.i18n import _
-from plugin.framework.async_stream import StreamQueueKind, defer_until_drain_done, run_async_worker_with_drain, run_blocking_in_thread
+from plugin.framework.async_stream import StreamQueueKind, defer_until_drain_done, run_async_worker_with_drain
+from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.errors import (
     AgentParsingError,
     NetworkError,

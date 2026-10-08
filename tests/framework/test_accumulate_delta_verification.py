@@ -39,7 +39,7 @@ def test_hypothesis_format_agent_tool_stream_line_invariants(prefix: str, data: 
     assert prefix in res
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
-_CROSSHAIR_TARGET = "plugin.framework.async_stream.accumulate_delta"
+_CROSSHAIR_TARGET = "plugin.framework.stream_delta.accumulate_delta"
 
 
 def _find_crosshair() -> str | None:

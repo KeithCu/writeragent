@@ -244,7 +244,7 @@ If a streamed tool-loop round ends with no `content` and no `tool_calls`, the si
 
 We chose the **lightweight, dependency-free** approach:
 
-- We copied **[`accumulate_delta`](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/_deltas.py)** from the OpenAI Python SDK into **`plugin/framework/async_stream.py`**.
+- We copied **[`accumulate_delta`](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/_deltas.py)** from the OpenAI Python SDK into **`plugin/framework/stream_delta.py`** (re-exported from `async_stream`).
 - This function handles the complex logic of merging partial tool call arguments (which can be split across many chunks) and concatenating content strings.
 - logic: `accumulate_delta(snapshot, delta)` -> updates snapshot in place.
 
@@ -404,7 +404,7 @@ The net visual effect for the user was **micro-stutter** during long assistant a
 
 ### The `BatchingStreamQueue` contract (the single source of truth)
 
-See the full class and docstring in [`plugin/framework/async_stream.py`](../../plugin/framework/async_stream.py) (`BatchingStreamQueue`).
+See the full class and docstring in [`plugin/framework/stream_batch.py`](../../plugin/framework/stream_batch.py) (`BatchingStreamQueue`). `run_async_worker_with_drain` in [`async_stream.py`](../../plugin/framework/async_stream.py) still branches on `isinstance(q, BatchingStreamQueue)` so Stop can flush that batcher.
 
 Key guarantees the implementation provides:
 
@@ -429,8 +429,9 @@ The **primary user-visible chat streaming path** was updated:
   - `_start_tool_calling_async` creates both the raw queue and a `BatchingStreamQueue` wrapper and stores them on the current `TurnController` (`queue` / `batcher`).
   - `_spawn_llm_worker` and `_spawn_final_stream` accept either a raw `Queue` or a `BatchingStreamQueue`. When the latter is supplied they use the `.content_cb()` / `.thinking_cb()` helpers (or the equivalent manual `batched.put(...)` + `batched.flush()` before every boundary put).
   - All terminal / control puts in those two workers now do `if batched: batched.flush()` before emitting `STREAM_DONE`, `FINAL_DONE`, `STOPPED`, `ERROR`, etc.
-- `plugin/framework/async_stream.py`:
+- `plugin/framework/stream_batch.py`:
   - The `BatchingStreamQueue` class itself.
+- `plugin/framework/async_stream.py`:
   - `run_async_worker_with_drain` was made batcher-aware so any code path that goes through the generic runner automatically gets correct flush-on-boundary + terminal behavior.
 - `tests/framework/test_async_stream.py`:
   - Four new unit tests covering join-on-flush, auto-flush on boundary, the callback helpers, and simulated timer expiry.
@@ -496,7 +497,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 
 ### Cross references
 
-- Implementation: `plugin/framework/async_stream.py` (`BatchingStreamQueue`, the defensive bits in `run_async_worker_with_drain`)
+- Implementation: `plugin/framework/stream_batch.py` (`BatchingStreamQueue`) and `plugin/framework/async_stream.py` (the `isinstance` branch and flush in `run_async_worker_with_drain`)
 - Primary wiring: `plugin/chatbot/tool_loop.py` (turn `batcher`, `_spawn_llm_worker`, `_spawn_final_stream`)
 - Tests: `tests/framework/test_async_stream.py` (the four new batcher tests)
 - UX context & scroll work: [../chat/rich-text-control-sidebar.md](../chat/rich-text-control-sidebar.md) (`reveal_rich_control_caret`)
