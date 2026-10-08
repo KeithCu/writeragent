@@ -594,6 +594,7 @@ See [Host pack hot path — pure-Python optimizations](#host-pack-hot-path--pure
 - **Identity Type Checks**: Fast path uses `type(val) is float/int/str` and `val is None` / `val is True or val is False` — not `isinstance()` per cell.
 - **Regular Grid Validation**: `_validate_rectangular_grid` runs once before the 2D stdlib loop; the cell loop has no per-row length branch.
 - **Unified Stdlib Cell Loop**: `_iter_split_grid_cells` yields `(col_idx, flat_idx, val)` row-major for 1D and 2D; a single inlined `_stdlib_flatten_pass` block handles both shapes. Slow tail still delegates to `_flatten_append_cell_slow` (strings, NumPy scalars, post-string cells).
+- **Module-level numeric store**: `_store_numeric_cell` writes the float64-or-text decision. It used to be a closure rebuilt inside `_flatten_append_cell_slow` on every slow-path cell.
 - **Integer Keys**: Sparse `strings` dictionary uses integer keys, bypassing $O(\text{cells})$ string allocations.
 
 #### Priority 4 — Host: opaque `split_grid` pass-through (if egress/unpack hot)

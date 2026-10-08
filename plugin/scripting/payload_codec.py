@@ -1165,7 +1165,9 @@ def _cell_for_json(value: Any) -> Any:
     This applies to small grids (< BINARY_MIN_CELLS) and list results that do not use the split_grid envelope.
 
     Named on purpose. Do not inline it into ``grid_from_nested_list``: this is
-    the list-path hook that must not start rewriting NaN.
+    the list-path hook that must not start rewriting NaN. The body is a
+    placeholder: ``None`` stays ``None``, and every other value is returned
+    unchanged.
     """
     if value is None:
         return None
@@ -1285,6 +1287,29 @@ def _numeric_cell_to_float(val: Any) -> float | _AsText:
         return _AS_TEXT
 
 
+def _store_numeric_cell(
+    cell: Any,
+    idx: int,
+    *,
+    buf_append: Any,
+    strings: dict[int, str],
+    nan: float,
+) -> bool:
+    """Write one float64 cell. Return False when the cell was stored as text.
+
+    Module-level so the slow path does not allocate this helper on every text
+    cell. ``_flatten_append_cell_slow`` used to nest it and rebuild it per call.
+    """
+    # crosshair: off  # Any cell; sibling of the already-off flatten loops.
+    fval = _numeric_cell_to_float(cell)
+    if fval is _AS_TEXT:
+        buf_append(nan)
+        strings[idx] = str(cell)
+        return False
+    buf_append(fval)
+    return True
+
+
 def _flatten_append_cell_slow(
     val: Any,
     c: int,
@@ -1299,16 +1324,6 @@ def _flatten_append_cell_slow(
     """Full per-cell flatten semantics (None, strings, NumPy scalars, column metadata)."""
     # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
 
-    def _store_numeric(cell: Any) -> bool:
-        """Write a float64 cell. Return False when the cell was stored as text."""
-        fval = _numeric_cell_to_float(cell)
-        if fval is _AS_TEXT:
-            buf_append(nan)
-            strings[idx] = str(cell)
-            return False
-        buf_append(fval)
-        return True
-
     if val is None:
         buf_append(nan)
         column_has_none[c] = True
@@ -1318,7 +1333,7 @@ def _flatten_append_cell_slow(
             column_states[c] = 1
     elif type(val) is int:
         # Huge ints are text. float(10**400) used to raise out of this branch.
-        if _store_numeric(val) and column_states[c] < 2:
+        if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] < 2:
             column_states[c] = 2
     elif type(val) is float:
         buf_append(val)
@@ -1329,13 +1344,13 @@ def _flatten_append_cell_slow(
         if dtype is not None:
             kind = getattr(dtype, "kind", None)
             if kind == "f":
-                if _store_numeric(val):
+                if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan):
                     column_states[c] = 3
             elif kind in ("i", "u"):
-                if _store_numeric(val) and column_states[c] < 2:
+                if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] < 2:
                     column_states[c] = 2
             elif kind == "b":
-                if _store_numeric(val) and column_states[c] == 0:
+                if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] == 0:
                     column_states[c] = 1
             else:
                 # np.str_ subclasses str and Cython PyUnicode_Check stores it
@@ -1350,18 +1365,18 @@ def _flatten_append_cell_slow(
                 if isinstance(val, str):
                     buf_append(nan)
                     strings[idx] = str(val)
-                elif _store_numeric(val) and column_states[c] != 3:
+                elif _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] != 3:
                     _flatten_update_column_state(column_states, c, val)
             return
         tname = t.__name__
         if tname.startswith("bool"):
-            if _store_numeric(val) and column_states[c] == 0:
+            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] == 0:
                 column_states[c] = 1
         elif tname.startswith(("int", "uint")):
-            if _store_numeric(val) and column_states[c] < 2:
+            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] < 2:
                 column_states[c] = 2
         elif tname.startswith("float"):
-            if _store_numeric(val):
+            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan):
                 column_states[c] = 3
         elif not isinstance(val, str):
             # Bugfix: the fast path and Cython ``_flatten_cell`` float() a
@@ -1373,7 +1388,7 @@ def _flatten_append_cell_slow(
             # pickle-leaf coerce. Strings stay text (zip codes). A value
             # ``float()`` rejects (huge Fraction, Python complex) is text via
             # ``_numeric_cell_to_float``.
-            if _store_numeric(val) and column_states[c] != 3:
+            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] != 3:
                 _flatten_update_column_state(column_states, c, val)
         else:
             buf_append(nan)
