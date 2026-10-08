@@ -81,10 +81,19 @@
       "priority": "high",
       "tool": "crosshair+deal+hypothesis",
       "functions_contracted": [
-        "accumulate_delta",
         "_format_agent_tool_stream_line"
       ],
-      "crosshair_target": "plugin.framework.async_stream.accumulate_delta",
+      "crosshair_target": "plugin.framework.async_stream._format_agent_tool_stream_line",
+      "ci_integration": true
+    },
+    "stream_delta.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "crosshair+deal+hypothesis",
+      "functions_contracted": [
+        "accumulate_delta"
+      ],
+      "crosshair_target": "plugin.framework.stream_delta.accumulate_delta",
       "ci_integration": true
     },
     "json_utils.py": {

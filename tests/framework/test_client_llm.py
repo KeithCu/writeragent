@@ -327,7 +327,7 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
     # continuation (new index, empty id/name, remainder of arguments).
     # accumulate_delta keeps both slots; coalesce_split_tool_calls then
     # merges the phantom into the real call and rebases index to 0.
-    # Merge unit coverage lives in test_async_stream.py; this test is the
+    # Merge unit coverage lives in test_stream_delta.py; this test is the
     # stream_request_with_tools end-to-end + raw/accumulated logging path.
     mock_responses = [
         b'data: {"id":"chunk-1","model":"gpt-oss","provider":"Cerebras","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"query\\":\\"part"}}]}}]}\n\n',

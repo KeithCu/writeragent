@@ -433,8 +433,8 @@ The **primary user-visible chat streaming path** was updated:
   - The `BatchingStreamQueue` class itself.
 - `plugin/framework/async_stream.py`:
   - `run_async_worker_with_drain` was made batcher-aware so any code path that goes through the generic runner automatically gets correct flush-on-boundary + terminal behavior.
-- `tests/framework/test_async_stream.py`:
-  - Four new unit tests covering join-on-flush, auto-flush on boundary, the callback helpers, and simulated timer expiry.
+- `tests/framework/test_stream_batch.py`:
+  - Unit tests covering join-on-flush, auto-flush on boundary, the callback helpers, and simulated timer expiry.
 - Documentation:
   - See [../chat/rich-text-control-sidebar.md](../chat/rich-text-control-sidebar.md) for formatted sidebar behavior; producer batching is described in this section.
   - This section (here) is the detailed permanent record.
@@ -499,7 +499,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 
 - Implementation: `plugin/framework/stream_batch.py` (`BatchingStreamQueue`) and `plugin/framework/async_stream.py` (the `isinstance` branch and flush in `run_async_worker_with_drain`)
 - Primary wiring: `plugin/chatbot/tool_loop.py` (turn `batcher`, `_spawn_llm_worker`, `_spawn_final_stream`)
-- Tests: `tests/framework/test_async_stream.py` (the four new batcher tests)
+- Tests: `tests/framework/test_stream_batch.py` (producer batcher tests)
 - UX context & scroll work: [../chat/rich-text-control-sidebar.md](../chat/rich-text-control-sidebar.md) (`reveal_rich_control_caret`)
 - Original plan / todo items: the conversation transcript and the todo list that existed at the moment the change landed (items such as `boundary-flush-audit`, `wire-acp-and-other-backends`, `flush-for-rerender-clear`, etc. were deliberately cancelled / marked "deferred to global audit" rather than completed).
 
