@@ -668,6 +668,8 @@ class BaseProcessPool:
                     # the child as soon as the reaper ran.
                     self._worker_last_active[w] = time.monotonic()
 
+        # 0 disables the reaper, same as None. A zero interval would spin, and
+        # treating 0 as "evict immediately" would kill workers that just spawned.
         if self.idle_worker_ttl_sec is not None and self.idle_worker_ttl_sec > 0:
             self._start_idle_reaper()
 

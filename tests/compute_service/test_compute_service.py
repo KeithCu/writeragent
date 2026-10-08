@@ -384,7 +384,8 @@ class TestComputeHttp:
             assert hold.wait(timeout=10)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
-        # 1 worker, semaphore size 1. Total server pool threads = max(4, 1 + 2) = 4.
+        # 1 worker, semaphore size 1. Explicit max_threads=1 is listener_thread_count:
+        # max(8, n + 4) = 8. A semaphore miss is a fast 503 and does not hold a thread.
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
@@ -410,9 +411,10 @@ class TestComputeHttp:
                 except Exception as exc:
                     out_list.append((599, str(exc)))
 
-            # Six posters, one worker permit. Listener threads are max(4, 1 + 2) = 4,
-            # so extra accepts queue instead of pinning every thread. Health must still
-            # return, and the five executes that miss the permit must 503.
+            # Six posters, one worker permit. Listener threads are max(8, 1 + 4) = 8.
+            # The semaphore is non-blocking: a miss is a fast 503 and does not hold
+            # a listener. Health must still return, and the five executes that miss
+            # the permit must 503.
             for idx in range(6):
                 p = threading.Thread(target=_post, args=(results[idx],))
                 p.start()
@@ -1873,6 +1875,23 @@ class TestSessionResetHttp:
         assert status.startswith("200")
         assert body.get("error") == "boom"
 
+    def test_execute_worker_fault_inside_result_json_stays_200(self) -> None:
+        """Formula wraps WORKER_EXECUTION_ERROR in result_json. Those bytes stay 200.
+
+        Re-statusing them to 500 would hide the cell text behind #N/A. The
+        dict-shaped code (no result_json) is the 500 path.
+        """
+        raw = b'{"status":"error","code":"WORKER_EXECUTION_ERROR","error":"boom","stdout":""}'
+
+        def failed(**_kwargs):
+            return {"status": "error", "code": "WORKER_EXECUTION_ERROR", "result_json": raw}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=failed)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("200")
+        assert body.get("code") == "WORKER_EXECUTION_ERROR"
+        assert body.get("error") == "boom"
+
     def test_expired_accept_deadline_does_not_run(self) -> None:
         """Queue time counts against the cell timeout. A late request does not run."""
 
@@ -2125,10 +2144,11 @@ class _AcceptedConnectionHandler:
 
 class TestListenerQueue:
     def test_busy_listener_pool_queues_instead_of_503(self) -> None:
-        """A full listener queue used to answer 503 and close the socket.
+        """A busy accept pool queues the connection. It does not 503 and close it.
 
-        Extra accepted connections wait for a thread. Operators add workers
-        when the server is slow.
+        The executor queue is unbounded, so an extra accept waits for a thread.
+        A worker or vision semaphore miss is a different gate: non-blocking,
+        HTTP 503, and it does not hold a listener.
         """
         from compute_service.server import DualStackThreadPoolHTTPServer
 
@@ -2143,7 +2163,7 @@ class TestListenerQueue:
         try:
             server.executor.submit(_occupy)
             assert running.wait(timeout=2)
-            # One waiting item is the old cap (one queued request per listener).
+            # The queue has no cap. One extra task waits instead of a 503.
             server.executor.submit(_occupy)
             deadline = time.monotonic() + 2
             while server.executor._work_queue.qsize() < 1 and time.monotonic() < deadline:
@@ -2185,6 +2205,48 @@ def test_sticky_slots_scale_with_formula_workers() -> None:
     small = ComputeSettings(workers=2, ocr_workers=0)
     assert service_listener_threads(small) == listener_thread_count(small.threads) == 8
     assert sticky_listener_slots(small) == 3
+
+
+@pytest.mark.parametrize("code", ["VISION_WORKER_ERROR", "WORKER_EXECUTION_ERROR"])
+def test_dict_worker_fault_is_http_500(code: str) -> None:
+    """A worker fault with no result_json is 500. It used to fall through to 200."""
+    from compute_service.server import _send_execution_result
+
+    status_holder: list[str] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        del resp_headers
+
+    out = _send_execution_result(
+        start_response,
+        {"status": "error", "code": code, "error": "worker blew up"},
+        "fault-1",
+    )
+    parsed = json.loads(b"".join(out))
+    assert status_holder[0].startswith("500")
+    assert parsed.get("code") == code
+    assert parsed.get("id") == "fault-1"
+
+
+def test_result_json_worker_fault_bytes_are_forwarded_at_200() -> None:
+    """The host must not re-dumps or re-status a forwarded cell body."""
+    from compute_service.server import _send_execution_result
+
+    raw = b'{"status":"error","code":"WORKER_EXECUTION_ERROR","error":"boom"}'
+    status_holder: list[str] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        del resp_headers
+
+    out = _send_execution_result(
+        start_response,
+        {"status": "error", "code": "WORKER_EXECUTION_ERROR", "result_json": raw},
+        "cell-1",
+    )
+    assert status_holder[0].startswith("200")
+    assert out == [raw]
 
 
 def test_worker_file_path_denied_is_http_400() -> None:
@@ -2798,6 +2860,16 @@ def test_session_reset_passes_bounded_timeout() -> None:
     assert parsed.get("status") == "ok"
     assert len(seen) == 1
     assert 0 < seen[0] <= 5.0
+
+
+def test_vision_missing_image_is_400_with_code() -> None:
+    """A vision request with no image used to be a generic 400 with no code."""
+    app = create_wsgi_app(ComputeSettings())
+    payload = json.dumps({"id": "no-image", "helper": "extract_text"}).encode("utf-8")
+    status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+    assert status.startswith("400")
+    assert body.get("code") == "MISSING_IMAGE_SOURCE"
+    assert body.get("id") == "no-image"
 
 
 def test_vision_rejects_image_and_file_path_together() -> None:

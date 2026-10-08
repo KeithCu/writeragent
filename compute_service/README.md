@@ -180,14 +180,14 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
-| **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
+| **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone). A formula `WORKER_EXECUTION_ERROR` inside forwarded `result_json` stays 200 so the sheet shows the text | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
 | **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), a vision path that is empty, missing, not a regular file, or unreadable (`INVALID_FILE_PATH`, `FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`), vision `image_b64` and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, a vision image that is not valid base64 (`INVALID_BASE64`, `INVALID_IMAGE`, `MISSING_IMAGE_SOURCE`), or `Transfer-Encoding: chunked` on any POST | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, the execute frame exceeds the IPC limit (`PAYLOAD_TOO_LARGE`), the result frame does (`RESULT_TOO_LARGE`), or a vision image is larger than 32 MiB (`FILE_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
 | **`501 Not Implemented`** | `/v1/vision` when OCR is off (`VISION_SERVICE_DISABLED`, `ocr_workers=0`) | `{"id"?: "...", "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "..."}` |
 | **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). Sticky execute and session reset share a listener cap; a miss is the same 503. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
-| **`500 Internal Server Error`**| Unhandled server exception, JSON encoding failure, worker-side session reset error, or a worker that died or returned no frame (`WORKER_CRASHED`, `EMPTY_RESPONSE`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`500 Internal Server Error`**| Unhandled server exception, JSON encoding failure, worker-side session reset error, a worker that died or returned no frame (`WORKER_CRASHED`, `EMPTY_RESPONSE`), or a dict-shaped internal fault (`VISION_WORKER_ERROR`, `WORKER_EXECUTION_ERROR`). A `WORKER_EXECUTION_ERROR` wrapped in forwarded `result_json` stays HTTP 200 | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 
 ---
 
@@ -248,8 +248,8 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_MAX_TIMEOUT_SEC` | Upper bound clamp for `timeout_ms` | `600` |
 | `PYTHON_COMPUTE_WORKERS` | Number of formula worker subprocesses. `PYTHON_COMPUTE_MAX_WORKERS` is an accepted alias. | `2` |
 | `PYTHON_COMPUTE_WORKER_MAX_TASKS` | Tasks before recycling formula worker | `500` |
-| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. `PYTHON_COMPUTE_SESSION_TTL_SEC` is an accepted alias. | `3600` (1 hour) |
-| `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. | `3600` (1 hour) |
+| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. `0` disables eviction (the reaper does not start). `PYTHON_COMPUTE_SESSION_TTL_SEC` is an accepted alias. | `3600` (1 hour) |
+| `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. `0` disables eviction (the reaper does not start). | `3600` (1 hour) |
 | `PYTHON_COMPUTE_OCR_WORKERS` | Dedicated OCR/Vision worker subprocesses | `0` (disabled by default) |
 | `PYTHON_COMPUTE_OCR_TIMEOUT_SEC` | OCR/Vision execution timeout in seconds | `60` |
 | `PYTHON_COMPUTE_OCR_MAX_TASKS` | Tasks before recycling OCR worker process | `100` |

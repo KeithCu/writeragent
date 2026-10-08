@@ -80,6 +80,8 @@ class FormulaProcessPool(BaseProcessPool):
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
 
+        # 0 disables the reaper. A zero interval would spin, and treating 0 as
+        # "evict immediately" would drop sessions at startup.
         if self.shared_kernel_ttl_sec > 0:
             self._start_session_ttl_reaper()
 

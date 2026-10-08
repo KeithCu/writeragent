@@ -62,6 +62,10 @@ _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # EXECUTION_TIMEOUT stay HTTP 200 so the sheet shows the error instead of #N/A.
 # WORKER_CRASHED and EMPTY_RESPONSE are 500: the cell may have run (OOM,
 # segfault, missing frame). 503 would invite a retry that kills another worker.
+# VISION_WORKER_ERROR and a dict-shaped WORKER_EXECUTION_ERROR are the same
+# class: the fault is the response body, not a forwarded cell. A formula
+# WORKER_EXECUTION_ERROR inside result_json stays 200; see
+# _send_execution_result.
 # FILE_PATH_DENIED from the worker is the same client rejection as the route's
 # pre-check. Leaving it out answered HTTP 200 after the symlink re-check.
 # The other allowlist failures are the same class: the client named the path.
@@ -76,6 +80,8 @@ _HTTP_STATUS_BY_CODE = {
     "VISION_UNAVAILABLE": "503 Service Unavailable",
     "WORKER_CRASHED": "500 Internal Server Error",
     "EMPTY_RESPONSE": "500 Internal Server Error",
+    "WORKER_EXECUTION_ERROR": "500 Internal Server Error",
+    "VISION_WORKER_ERROR": "500 Internal Server Error",
     "INVALID_BASE64": "400 Bad Request",
     "INVALID_IMAGE": "400 Bad Request",
     "MISSING_IMAGE_SOURCE": "400 Bad Request",
@@ -270,8 +276,11 @@ def _error(
 def _infrastructure_status(payload: dict[str, Any]) -> str | None:
     """Map a worker payload to an HTTP status, or None to keep 200.
 
-    503 is only the miss-and-retry set. A crash or empty frame is 500.
-    Bad vision input and a denied OCR path are 400. OCR disabled is 501.
+    503 is only the miss-and-retry set. A crash, an empty frame, or a
+    dict-shaped worker fault (``WORKER_EXECUTION_ERROR``,
+    ``VISION_WORKER_ERROR``) is 500. Bad vision input and a denied OCR
+    path are 400. OCR disabled is 501. Raw ``result_json`` never reaches
+    this map.
     """
     if payload.get("status") != "error":
         return None
@@ -294,7 +303,11 @@ def _send_execution_result(
     when an unmapped ``status: error`` is a server fault (session reset).
     Mapped codes, including 413, come from ``_HTTP_STATUS_BY_CODE``.
     Every ``_start_json`` path shares one encode guard. Raw ``result_json``
-    bytes are already encoded and stay outside it.
+    bytes are already encoded and stay outside it. Those bytes are always
+    200: *error_status* applies only to a dict with no ``result_json``.
+    ``reset_session`` does not return ``result_json``, so its 500 override
+    is not skipped. A formula ``WORKER_EXECUTION_ERROR`` is inside those
+    bytes on purpose; re-statusing them would hide the cell text behind #N/A.
     """
     if isinstance(result_payload, dict):
         raw_out = result_payload.get("result_json")
@@ -312,8 +325,6 @@ def _send_execution_result(
         http_status = "200 OK"
 
     try:
-        if isinstance(result_payload, dict):
-            _inject_req_id(result_payload, req_id)
         return _start_json(start_response, http_status, result_payload)
     except (TypeError, ValueError) as e:
         err_body: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {e}"}
@@ -891,7 +902,7 @@ def _handle_vision(
         return _error(start_response, "400 Bad Request", "Provide image_b64 or file_path, not both.", code="INVALID_REQUEST", req_id=req_id)
 
     if not image_str and not path_str:
-        return _error(start_response, "400 Bad Request", "Missing image input: either 'image_b64'/'image' (base64 string buffer) or 'file_path' (server path) is required.", req_id=req_id)
+        return _error(start_response, "400 Bad Request", "Missing image input: either 'image_b64'/'image' (base64 string buffer) or 'file_path' (server path) is required.", code="MISSING_IMAGE_SOURCE", req_id=req_id)
 
     if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
         return _error(start_response, "400 Bad Request", "file_path is not under ocr.allow_paths (default deny).", code="FILE_PATH_DENIED", req_id=req_id)
@@ -1085,6 +1096,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._dual_shutdown_request = False
         self._serving = False
         self._accept_times: dict[int, float] = {}
+        # The executor queue is unbounded. Semaphores bound execution (a miss
+        # is a fast 503 and does not hold a listener). A connection flood can
+        # still grow this queue and _accept_times. That stays acceptable while
+        # the only client is loopback coolwsd.
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
 
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
