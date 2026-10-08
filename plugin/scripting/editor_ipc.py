@@ -31,6 +31,7 @@ from plugin.scripting.editor_errors import (
     failure_message,
 )
 from plugin.scripting.ipc import (
+    _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     pack_pickle_frame,
@@ -83,8 +84,7 @@ def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
         frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     except IpcFrameError as exc:
         raise ValueError("Editor message exceeds maximum payload size") from exc
-    stream.write(frame)
-    stream.flush()
+    _write_all(stream, frame)
 
 
 def message_type(message: dict[str, Any]) -> str:

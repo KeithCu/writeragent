@@ -224,6 +224,91 @@ def test_bad_length_prefix_restores_blocking_mode():
         os.close(write_fd)
 
 
+def test_write_pickle_frame_retries_short_writes():
+    """A raw pipe write can return one byte. The frame must still be complete."""
+
+    class Short:
+        def __init__(self) -> None:
+            self.buf = bytearray()
+
+        def write(self, data: bytes) -> int:
+            piece = bytes(data[:1])
+            if not piece:
+                return 0
+            self.buf += piece
+            return 1
+
+        def flush(self) -> None:
+            return None
+
+    stream = Short()
+    write_pickle_frame(stream, {"a": 1})
+    assert read_pickle_frame(io.BytesIO(stream.buf), require_dict=True) == {"a": 1}
+
+
+def test_write_json_line_retries_short_writes():
+    class Short:
+        def __init__(self) -> None:
+            self.parts: list[str] = []
+
+        def write(self, data: str) -> int:
+            if not data:
+                return 0
+            self.parts.append(data[:1])
+            return 1
+
+        def flush(self) -> None:
+            return None
+
+    stream = Short()
+    write_json_line(stream, {"status": "ready"})
+    assert "".join(stream.parts) == '{"status": "ready"}\n'
+
+
+def test_write_pickle_frame_zero_length_write_raises():
+    class Stuck:
+        def write(self, data: bytes) -> int:
+            return 0
+
+        def flush(self) -> None:
+            return None
+
+    with pytest.raises(OSError, match="zero bytes"):
+        write_pickle_frame(Stuck(), {"a": 1})
+
+
+def test_read_frame_payload_loops_on_short_reads():
+    frame = pack_pickle_frame({"a": 1})
+
+    class OneByte:
+        def __init__(self) -> None:
+            self.i = 0
+
+        def read(self, n: int) -> bytes:
+            if self.i >= len(frame):
+                return b""
+            piece = frame[self.i : self.i + 1]
+            self.i += 1
+            return piece
+
+    payload = read_frame_payload(OneByte())
+    assert payload is not None
+    assert unpack_pickle_frame(payload) == {"a": 1}
+
+
+def test_read_frame_payload_short_header_then_eof_is_none():
+    state = {"n": 0}
+
+    class ShortEOF:
+        def read(self, n: int) -> bytes:
+            state["n"] += 1
+            if state["n"] == 1:
+                return b"\x00\x00"
+            return b""
+
+    assert read_frame_payload(ShortEOF()) is None
+
+
 def test_json_line_roundtrip():
     buf = io.StringIO()
     write_json_line(buf, {"status": "ready"})
@@ -318,6 +403,117 @@ def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     with pytest.raises(subprocess.TimeoutExpired):
         ipc._readline_with_timeout_win32(stream, 0.01, 1024)
     assert slept == [0.0]
+
+
+def test_win32_partial_json_line_times_out_then_resumes(monkeypatch):
+    """Queued bytes without a newline must not block in readline past the deadline."""
+    from plugin.scripting import ipc
+
+    partial = b'{"status": "partial"'
+    rest = b"}\n"
+    stage = {"phase": "partial"}
+
+    def peek(fd: int) -> int:
+        if stage["phase"] == "partial":
+            return len(partial)
+        if stage["phase"] == "wait":
+            return 0
+        return len(rest)
+
+    def fake_read(fd: int, n: int) -> bytes:
+        if stage["phase"] == "partial":
+            stage["phase"] = "wait"
+            return partial
+        return rest
+
+    class Stream:
+        def __init__(self) -> None:
+            self.readline_calls = 0
+
+        def fileno(self) -> int:
+            return 7
+
+        def readline(self, limit: int = -1) -> str:
+            self.readline_calls += 1
+            raise AssertionError("readline")
+
+    stream = Stream()
+    clock = {"t": 0.0}
+
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", peek)
+    monkeypatch.setattr(ipc.os, "read", fake_read)
+    monkeypatch.setattr(ipc.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(ipc.time, "sleep", lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        ipc._readline_with_timeout_win32(stream, 0.2, 1024)
+    assert stream.readline_calls == 0
+
+    clock["t"] = 0.0
+    stage["phase"] = "rest"
+    assert ipc._readline_with_timeout_win32(stream, 1.0, 1024) == '{"status": "partial"}\n'
+    assert stream.readline_calls == 0
+
+
+def test_oversize_pending_json_line_is_restored(monkeypatch):
+    """A line over max_bytes must still be pending, not dropped mid-line."""
+    from plugin.scripting import ipc
+
+    chunk = b"x" * 20
+    reads = {"n": 0}
+
+    def fake_read(fd: int, n: int) -> bytes:
+        reads["n"] += 1
+        return chunk
+
+    class Stream:
+        def fileno(self) -> int:
+            return 3
+
+        def readline(self, limit: int = -1) -> str:
+            raise AssertionError("readline")
+
+    stream = Stream()
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: len(chunk))
+    monkeypatch.setattr(ipc.os, "read", fake_read)
+    with pytest.raises(ValueError, match="exceeds"):
+        ipc._readline_with_timeout_win32(stream, 1.0, 10)
+    assert reads["n"] == 1
+    with pytest.raises(ValueError, match="exceeds"):
+        ipc._readline_with_timeout_win32(stream, 1.0, 10)
+    assert reads["n"] == 1
+
+
+def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
+    """timeout_sec=None must not skip a partial saved by a timed read."""
+    from plugin.scripting import ipc
+
+    partial = b'{"a": 1'
+    stage = {"phase": "partial"}
+
+    def peek(fd: int) -> int:
+        return len(partial) if stage["phase"] == "partial" else 0
+
+    def fake_read(fd: int, n: int) -> bytes:
+        stage["phase"] = "wait"
+        return partial
+
+    class Stream:
+        def fileno(self) -> int:
+            return 7
+
+        def readline(self, limit: int = -1) -> str:
+            return "}\n"
+
+    stream = Stream()
+    clock = {"t": 0.0}
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", peek)
+    monkeypatch.setattr(ipc.os, "read", fake_read)
+    monkeypatch.setattr(ipc.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(ipc.time, "sleep", lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
+    with pytest.raises(subprocess.TimeoutExpired):
+        ipc._readline_with_timeout_win32(stream, 0.2, 1024)
+    assert read_json_line(stream) == {"a": 1}
 
 
 def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
@@ -499,6 +695,17 @@ def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
     with pytest.raises(RuntimeError, match="does not match"):
         ipc.exchange_tool_call("get_named_python_script", {})
     assert len(drained) == 1
+
+
+def test_drain_without_fileno_does_not_read():
+    """A stream with no fd cannot be drained without blocking."""
+    from plugin.scripting import ipc
+
+    class NoFd:
+        def read(self, n: int = -1) -> bytes:
+            raise AssertionError(f"read({n})")
+
+    ipc._drain_queued_pipe_bytes(NoFd(), timeout_sec=5)
 
 
 def test_drain_queued_pipe_bytes_returns_when_idle():

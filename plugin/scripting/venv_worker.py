@@ -36,6 +36,7 @@ from plugin.scripting.config_limits import (
 )
 from plugin.scripting.ipc import (
     _stop_requested,
+    _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
     IpcFrameError,
@@ -955,16 +956,9 @@ class PythonWorkerManager:
 
         def _writer() -> None:
             try:
-                # Bugfix: bufsize=0 makes stdin a raw FileIO. write() can return a short count.
-                # Ignoring short writes corrupts the length-prefixed frame protocol.
-                view = memoryview(payload)
-                written = 0
-                while written < len(view):
-                    n = stdin.write(view[written:])
-                    if not n:
-                        raise OSError("zero bytes written to pipe")
-                    written += n
-                stdin.flush()
+                # Short writes on a raw pipe (bufsize=0) desync the length prefix.
+                # _write_all loops; this thread only bounds how long that can block.
+                _write_all(stdin, payload)
             except Exception as exc:
                 errors.append(exc)
 
