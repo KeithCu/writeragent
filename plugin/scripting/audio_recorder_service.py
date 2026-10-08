@@ -455,22 +455,35 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     """
     from plugin.audio.stt_service import uses_local_stt
     from plugin.framework.client.errors import is_audio_unsupported_error
-    from plugin.framework.client.model_fetcher import get_stt_model, get_text_model, set_native_audio_support
-    from plugin.framework.config import get_current_endpoint
+    from plugin.framework.client.model_fetcher import get_stt_model, set_native_audio_support
     from plugin.framework.i18n import _
 
     if not host.audio_wav_path or not (_is_400_input_validation(error) or is_audio_unsupported_error(error)):
         return False
 
-    current_model = get_text_model()
-    current_endpoint = get_current_endpoint()
-    log.warning("Model %s failed native audio, caching and falling back to STT" % current_model)
-    set_native_audio_support(current_model, current_endpoint, supported=False)
+    turn = getattr(host, "_turn", None)
+    # What was wrong: try_native_audio_stt_fallback called get_text_model() and get_current_endpoint()
+    # when marking native audio unsupported.
+    # How it happened: if the user switched models in the UI combobox mid-turn while the first request was in flight,
+    # re-reading the global combobox/config state marked the newly chosen model as unsupported rather than
+    # the model the audio was actually sent to.
+    # Why this change fixes it: read text_model and endpoint from the turn captured at send time when audio
+    # was attached, matching the PR #1390 fix for _cleanup_audio.
+    turn_model = getattr(turn, "text_model", None)
+    turn_endpoint = getattr(turn, "endpoint", None)
+    if not turn_model:
+        from plugin.framework.client.model_fetcher import get_text_model
+        from plugin.framework.config import get_current_endpoint
+
+        turn_model = get_text_model()
+        turn_endpoint = get_current_endpoint()
+    if turn_model:
+        log.warning("Model %s failed native audio, caching and falling back to STT", turn_model)
+        set_native_audio_support(turn_model, turn_endpoint, supported=False)
 
     stt_model = get_stt_model()
     # Local Whisper does not need an endpoint model id. Endpoint STT still does.
     local_stt = uses_local_stt()
-    turn = getattr(host, "_turn", None)
     retry_q = None
     if turn is not None and getattr(turn, "alive", False):
         retry_q = getattr(turn, "batcher", None) or getattr(turn, "queue", None)

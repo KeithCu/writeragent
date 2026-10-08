@@ -210,6 +210,8 @@ def test_native_audio_stt_fallback_replaces_db_row():
     host._turn.alive = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
+    host._turn.text_model = "chat-model"
+    host._turn.endpoint = "https://example"
 
     # Session has the audio-included message in memory
     audio_msg = {"role": "user", "content": [{"type": "text", "text": "typed query"}, {"type": "input_audio"}]}
@@ -227,13 +229,14 @@ def test_native_audio_stt_fallback_replaces_db_row():
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
         patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
         patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
-        patch("plugin.framework.client.model_fetcher.set_native_audio_support"),
+        patch("plugin.framework.client.model_fetcher.set_native_audio_support") as mock_set_support,
         patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
         patch("plugin.scripting.audio_recorder_service.os.remove"),
     ):
         recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
 
     assert recovered is True
+    mock_set_support.assert_called_once_with("chat-model", "https://example", supported=False)
     assert len(host.session.messages) == 1
     assert host.session.messages[0]["content"] == "typed query\nspoken words"
 
@@ -255,6 +258,8 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     host._turn.alive = True
     host._turn.batcher = None
     host._turn.queue = MagicMock()
+    host._turn.text_model = "chat-model"
+    host._turn.endpoint = "https://example"
 
     def _stopped(_path, _model):
         host._terminal_status = "Stopped"
@@ -278,3 +283,39 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     texts = [str(call.args[0]) for call in host._append_response.call_args_list]
     assert any("Falling back to STT" in text for text in texts)
     assert not any("No speech detected" in text for text in texts)
+
+
+def test_native_audio_stt_fallback_uses_turn_model_on_mid_turn_change():
+    """If model is changed in combobox mid-turn, fallback marks the turn's model unsupported, not the new one."""
+    from plugin.scripting.audio_recorder_service import try_native_audio_stt_fallback
+
+    host = MagicMock()
+    host.audio_wav_path = "/fake/a.wav"
+    host._terminal_status = "Ready"
+    host._active_query_text = "typed query"
+    host._active_client = MagicMock()
+    host._turn.alive = True
+    host._turn.batcher = None
+    host._turn.queue = MagicMock()
+    host._turn.text_model = "turn-captured-model"
+    host._turn.endpoint = "https://captured-endpoint"
+
+    audio_msg = {"role": "user", "content": [{"type": "text", "text": "typed query"}, {"type": "input_audio"}]}
+    host.session.messages = [audio_msg]
+    host.session.db = MagicMock()
+    host.session.db.get_messages.return_value = [{"role": "user", "content": "[Voice message]"}]
+    host._transcribe_audio.return_value = "spoken words"
+
+    with (
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="newly-selected-model"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://new-endpoint"),
+        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
+        patch("plugin.framework.client.model_fetcher.set_native_audio_support") as mock_set_support,
+        patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
+        patch("plugin.scripting.audio_recorder_service.os.remove"),
+    ):
+        recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
+
+    assert recovered is True
+    mock_set_support.assert_called_once_with("turn-captured-model", "https://captured-endpoint", supported=False)
+

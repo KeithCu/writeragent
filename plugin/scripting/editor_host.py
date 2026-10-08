@@ -24,13 +24,9 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import Any, Callable, cast
 
 from plugin.framework.worker_pool import get_subprocess_creationflags
-
-if TYPE_CHECKING:
-    import subprocess as subprocess_types
-
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
@@ -59,6 +55,13 @@ from plugin.scripting.venv_worker import (
 )
 
 log = logging.getLogger(__name__)
+
+# Toolkit createMessageBox constants
+_BOX_QUERYBOX = 4
+_BOX_BUTTONS_YES_NO_CANCEL = 4
+_BOX_RESULT_CANCEL = 0
+_BOX_RESULT_YES = 2
+_BOX_RESULT_NO = 3
 
 
 # --- Launcher ---
@@ -258,6 +261,7 @@ class EditorSessionState:
     pending_load: dict[str, Any] | None = None
     pending_on_save: EditorSaveCallback | None = None
     pending_on_closed: Callable[[], None] | None = None
+    save_token: object | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     target_key: tuple[str, str, str, str, str, str] = field(init=False)
 
@@ -274,20 +278,18 @@ class PersistentEditor:
     _stderr_tail_chars: int
     _stderr_tail_max_chars: int
     _ready_event: threading.Event
-    _closed_event: threading.Event
     _save_lock: threading.Lock
 
     def __init__(self) -> None:
-        self._proc: subprocess_types.Popen[bytes] | None = None
+        self._proc: subprocess.Popen[bytes] | None = None
         self._stdin_lock = threading.Lock()
         self._reader_thread: BackgroundHandle | None = None
         self._stderr_thread: BackgroundHandle | None = None
         self._stderr_tail_lock = threading.Lock()
-        self._stderr_tail = deque[str]()
+        self._stderr_tail = deque()
         self._stderr_tail_chars = 0
         self._stderr_tail_max_chars = 65536
         self._ready_event = threading.Event()
-        self._closed_event = threading.Event()
         self._save_lock = threading.Lock()
         self._save_token: object | None = None
 
@@ -327,6 +329,9 @@ class PersistentEditor:
             return
         if self.focused_id == session_id:
             self.focused_id = next(iter(self.sessions), None)
+        if not self.sessions:
+            self.run_script_doc = None
+            self.run_script_doc_url = None
         if call_closed and state.on_closed is not None:
             try:
                 state.on_closed()
@@ -349,14 +354,13 @@ class PersistentEditor:
         return self._proc.poll() is None
 
     @property
-    def proc(self) -> subprocess_types.Popen[bytes] | None:
+    def proc(self) -> subprocess.Popen[bytes] | None:
         return self._proc
 
-    def start(self, proc: subprocess_types.Popen[bytes]) -> None:
+    def start(self, proc: subprocess.Popen[bytes]) -> None:
         """Start the reader thread for the spawned process."""
         self._proc = proc
         self._ready_event.clear()
-        self._closed_event.clear()
         with self._stderr_tail_lock:
             self._stderr_tail.clear()
             self._stderr_tail_chars = 0
@@ -384,11 +388,12 @@ class PersistentEditor:
                     proc.kill()
         except OSError:
             pass
-        try:
-            if proc.stdin:
-                proc.stdin.close()
-        except Exception:
-            pass
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
+            try:
+                if stream:
+                    stream.close()
+            except Exception:
+                pass
 
     def send(self, message: dict[str, Any], *, session: EditorSessionState | None = None) -> None:
         """Thread-safe write to child stdin. Session messages get ``session_id`` + ``target``."""
@@ -416,18 +421,15 @@ class PersistentEditor:
                 detail = self.read_stderr_tail()
                 raise RuntimeError(f"Editor process closed stdin. {detail}") from e
 
-    def read_stderr_tail(self, max_bytes: int = 65536) -> str:
-        """Return stderr already captured by the drain thread.
-
-        A second ``select``/read on the same pipe races that thread and can
-        drop the traceback from a spawn-failure dialog.
-        """
+    def read_stderr_tail(self, max_chars: int = 65536, max_bytes: int | None = None) -> str:
+        """Return stderr already captured by the drain thread."""
+        limit = max_chars if max_bytes is None else max_bytes
         with self._stderr_tail_lock:
             if not self._stderr_tail:
                 return ""
             text = "\n".join(self._stderr_tail)
-        if len(text) > max_bytes:
-            return text[-max_bytes:].strip()
+        if len(text) > limit:
+            return text[-limit:].strip()
         return text.strip()
 
     def _append_stderr_line(self, line: str) -> None:
@@ -478,6 +480,10 @@ class PersistentEditor:
             log.debug("editor stderr drain failed", exc_info=True)
         finally:
             try:
+                if sys.platform != "win32":
+                    ready, _unused_w, _unused_x = select.select([stderr], [], [], 0.05)
+                    if not ready:
+                        return
                 remainder = stderr.read()
                 if remainder:
                     for piece in remainder.decode("utf-8", errors="replace").splitlines():
@@ -491,8 +497,8 @@ class PersistentEditor:
         """Wait for ``ready`` while pumping LibreOffice UI events."""
         from plugin.framework.uno_context import process_events_to_idle
 
-        deadline = time.time() + timeout_sec
-        while time.time() < deadline:
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
             if self._ready_event.is_set():
                 return True
             if self._proc is None:
@@ -504,7 +510,7 @@ class PersistentEditor:
             try:
                 process_events_to_idle(ctx)
             except Exception:
-                pass
+                log.debug("process_events_to_idle failed while waiting for ready", exc_info=True)
             time.sleep(0.05)
         if not self._ready_event.is_set():
             log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, self._proc is not None, self.read_stderr_tail())
@@ -541,7 +547,7 @@ class PersistentEditor:
             if still_ours and proc.poll() is None:
                 self.terminate()
 
-    def _read_editor_message(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> dict[str, Any] | None:
+    def _read_editor_message(self, proc: subprocess.Popen[bytes], stdout: Any) -> dict[str, Any] | None:
         """Read one editor frame with a deadline so a partial length prefix cannot hang."""
         msg = read_pickle_frame_with_timeout(
             stdout,
@@ -557,7 +563,7 @@ class PersistentEditor:
             raise ValueError("Editor message must be a dict")
         return msg
 
-    def _read_loop_select(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> None:
+    def _read_loop_select(self, proc: subprocess.Popen[bytes], stdout: Any) -> None:
         """POSIX: use select() to poll the pipe with periodic liveness checks."""
         while proc.poll() is None:
             ready, _unused_w, _unused_x = select.select([stdout], [], [], 0.5)
@@ -571,7 +577,7 @@ class PersistentEditor:
             else:
                 log.warning("editor_host: ignored incoming message from old process")
 
-    def _read_loop_blocking(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> None:
+    def _read_loop_blocking(self, proc: subprocess.Popen[bytes], stdout: Any) -> None:
         """Windows: peek-with-timeout so a partial frame cannot block ReadFile forever."""
         while proc.poll() is None:
             try:
@@ -600,199 +606,189 @@ class PersistentEditor:
         self.run_script_doc = doc
         self.run_script_doc_url = document_scripts_identity(doc) if doc is not None else None
 
-    def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
-        kind = message_type(msg)
-        if kind in SCRIPT_PICKER_MESSAGE_TYPES:
+    def _on_picker(self, kind: str, msg: dict[str, Any]) -> None:
+        target_session = self.resolve_incoming(msg)
 
-            def _handle_picker() -> None:
-                try:
-                    handle_editor_script_message(
-                        kind,
-                        msg,
-                        ctx=self.ctx,
-                        # Launch document, not whichever window is focused now.
-                        # _resolve_run_script_doc used to return the active doc, so a
-                        # focus change saved the script into the newly focused file.
-                        session_doc=self.run_script_doc,
-                        session_doc_url=self.run_script_doc_url,
-                        send=self.send,
-                    )
-                except Exception as e:
-                    # What was wrong: only TimeoutError from executor.execute was
-                    # caught. Any other exception (disposed document, config/UNO
-                    # error, send() rejecting a payload over 16 MB) left
-                    # _dispatch_incoming, the reader loop's blanket except marked
-                    # the reader failed, and terminate() killed the editor —
-                    # unsaved buffer included. Save and close already wrap their
-                    # bodies; the picker did not.
-                    # Why this works: the picker reports the error on the pipe
-                    # and the reader stays up. A second failure while sending
-                    # that frame is logged here so it cannot escape either.
-                    log.exception("Editor script picker failed")
-                    try:
-                        self.send({"type": "error", "message": str(e), "traceback": exception_traceback(e)})
-                    except Exception:
-                        log.exception("Editor script picker could not send the error frame")
+        def _picker_send(reply: dict[str, Any]) -> None:
+            self.send(reply, session=target_session)
 
+        def _handle_picker() -> None:
             try:
-                # What was wrong: save and close pass timeout=_marshal_timeout(),
-                # but the script picker called execute() with no timeout. The
-                # pipe reader blocks inside that call, so a picker the UI thread
-                # never starts held Monaco's reader for QueueExecutor's 30s
-                # default. The TimeoutError branch below never saw the same
-                # budget as save/close. Why this works: the reader gives up on
-                # that shared deadline and reports the timeout.
-                self.executor.execute(_handle_picker, timeout=self._marshal_timeout())
-            except TimeoutError:
-                log.exception("Editor script picker timed out")
-                self.send({"type": "error", "message": _("The script list update timed out.")})
-            return
-
-        if kind == "dirty":
-            state = self.resolve_incoming(msg)
-            if state is not None:
-                state.dirty = bool(msg.get("dirty"))
-            return
-
-        if kind == "save":
-            state = self.resolve_incoming(msg)
-            if state is None:
-                return
-            code = msg.get("code")
-            if not isinstance(code, str):
-                code = ""
-
-            save_as_plain = bool(msg.get("save_as_plain"))
-            data_binding = msg.get("data_binding")
-            if data_binding is not None and not isinstance(data_binding, str):
-                data_binding = str(data_binding)
-            action = msg.get("action", "cell_save")
-            if not isinstance(action, str):
-                action = "cell_save"
-            captured = state
-            token = object()
-            self._save_token = token
-
-            def _send_save(payload: dict[str, Any]) -> None:
-                with self._save_lock:
-                    if self._save_token is not token:
-                        return
-                    # A deferred Run delivers on a later UI turn. A newer save
-                    # replaces this token, so a late result must not clear dirty.
-                    if payload.get("type") == "saved" or payload.get("ok"):
-                        captured.dirty = False
-                    self.send(payload, session=captured)
-
-            def _handle_save() -> None:
+                handle_editor_script_message(
+                    kind,
+                    msg,
+                    ctx=self.ctx,
+                    # Launch document, not whichever window is focused now.
+                    session_doc=self.run_script_doc,
+                    session_doc_url=self.run_script_doc_url,
+                    send=_picker_send,
+                )
+            except Exception as e:
+                log.exception("Editor script picker failed")
                 try:
-                    on_save = captured.on_save
-                    if on_save is not None:
-                        result = on_save(code, save_as_plain, data_binding, action)
-                    else:
-                        result = {"type": "saved", "ok": True}
-                    if isinstance(result, DeferredEditorResult):
-                        # What was wrong: Monaco Run ran execute_and_insert_result
-                        # inside this UI-thread handler. The venv wait froze
-                        # LibreOffice for the whole script.
-                        # How: the pipe reader blocks in executor.execute until
-                        # on_save returns, and on_save waited for the venv.
-                        # Why this works: on_save returns a DeferredEditorResult
-                        # after the fast library write. start() uses the native
-                        # prepare/finish split, so only the venv wait leaves the
-                        # UI thread. The saved/error frame is sent when it
-                        # finishes. pending_load stays for the Save click that
-                        # queued a mode switch; this Run must not consume it.
-                        def deliver(payload: dict[str, Any]) -> None:
-                            if not isinstance(payload, dict):
-                                payload = {"type": "error", "message": _("Script execution failed.")}
-                            try:
-                                _send_save(payload)
-                            except Exception:
-                                log.exception("Editor run result could not be sent")
+                    _picker_send({"type": "error", "message": str(e), "traceback": exception_traceback(e)})
+                except Exception:
+                    log.exception("Editor script picker could not send the error frame")
 
+        try:
+            self.executor.execute(_handle_picker, timeout=self._marshal_timeout())
+        except TimeoutError:
+            log.exception("Editor script picker timed out")
+            try:
+                _picker_send({"type": "error", "message": _("The script list update timed out.")})
+            except Exception:
+                # What was wrong: self.send was called bare on timeout. If the pipe
+                # was closed, the exception escaped the handler and reader loop terminated the editor.
+                # Why this change fixes it: wrap in try/except and log.warning with exc_info.
+                log.warning("Editor script picker could not send timeout error frame", exc_info=True)
+
+    def _on_dirty(self, msg: dict[str, Any]) -> None:
+        state = self.resolve_incoming(msg)
+        if state is not None:
+            state.dirty = bool(msg.get("dirty"))
+
+    def _on_save(self, msg: dict[str, Any]) -> None:
+        state = self.resolve_incoming(msg)
+        if state is None:
+            return
+        code = msg.get("code")
+        if not isinstance(code, str):
+            code = ""
+
+        save_as_plain = bool(msg.get("save_as_plain"))
+        data_binding = msg.get("data_binding")
+        if data_binding is not None and not isinstance(data_binding, str):
+            data_binding = str(data_binding)
+        action = msg.get("action", "cell_save")
+        if not isinstance(action, str):
+            action = "cell_save"
+        captured = state
+        token = object()
+        with self._save_lock:
+            self._save_token = token
+            captured.save_token = token
+
+        def _send_save(payload: dict[str, Any]) -> None:
+            with self._save_lock:
+                # A deferred Run delivers on a later UI turn. A newer save
+                # replaces this token, so a late result must not clear dirty.
+                if self._save_token is not token or captured.save_token is not token:
+                    return
+                if payload.get("type") == "saved" or payload.get("ok"):
+                    captured.dirty = False
+                self.send(payload, session=captured)
+
+        def _handle_save() -> None:
+            with self._save_lock:
+                if self._save_token is not token or captured.save_token is not token:
+                    # What was wrong: executor.execute(..., timeout) raising TimeoutError
+                    # did not cancel the queued _handle_save. The save would run later,
+                    # after the user was already told "Saving timed out".
+                    # Why this change fixes it: check save token before running on_save.
+                    log.warning("Editor save skipped: timed out or superseded")
+                    return
+            try:
+                on_save = captured.on_save
+                if on_save is not None:
+                    result = on_save(code, save_as_plain, data_binding, action)
+                else:
+                    result = {"type": "saved", "ok": True}
+                if isinstance(result, DeferredEditorResult):
+                    def deliver(payload: dict[str, Any]) -> None:
+                        if not isinstance(payload, dict):
+                            payload = {"type": "error", "message": _("Script execution failed.")}
                         try:
-                            result.start(deliver)
-                        except Exception as e:
-                            log.exception("Editor run failed to start")
-                            _send_save(
-                                {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
-                            )
-                        return
-                    if not isinstance(result, dict):
-                        result = {"type": "saved", "ok": True}
-                    if result.get("type") == "saved" or result.get("ok"):
-                        captured.dirty = False
-                    _send_save(result)
-                    pending = captured.pending_load
-                    if pending is not None and (result.get("type") == "saved" or result.get("ok")):
-                        next_on_save = captured.pending_on_save
-                        next_on_closed = captured.pending_on_closed
-                        captured.pending_load = None
-                        captured.pending_on_save = None
-                        captured.pending_on_closed = None
-                        self.end_session(captured.session_id, call_closed=True)
-                        if next_on_save is not None:
-                            _activate_load(pending, next_on_save, next_on_closed or (lambda: None))
-                except Exception as e:
-                    # What was wrong: a failure while sending the save error
-                    # frame escaped the reader and tore the editor down.
-                    # How it happened: the save body was wrapped, but
-                    # _send_save in this except was not. send() rejecting the
-                    # payload (over 16 MB, or a pipe that already closed)
-                    # left _handle_save, executor.execute re-raised it, and
-                    # the reader loop's blanket except called terminate().
-                    # Why this works: the same nested guard as the script
-                    # picker logs a second failure and keeps the reader up.
-                    log.exception("Editor save handler failed")
+                            _send_save(payload)
+                        except Exception:
+                            log.exception("Editor run result could not be sent")
+
                     try:
+                        result.start(deliver)
+                    except Exception as e:
+                        log.exception("Editor run failed to start")
                         _send_save(
                             {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
                         )
-                    except Exception:
-                        log.exception("Editor save handler could not send the error frame")
+                    return
+                if not isinstance(result, dict):
+                    result = {"type": "saved", "ok": True}
+                if result.get("type") == "saved" or result.get("ok"):
+                    captured.dirty = False
+                _send_save(result)
+                pending = captured.pending_load
+                if pending is not None and (result.get("type") == "saved" or result.get("ok")):
+                    next_on_save = captured.pending_on_save
+                    next_on_closed = captured.pending_on_closed
+                    captured.pending_load = None
+                    captured.pending_on_save = None
+                    captured.pending_on_closed = None
+                    self.end_session(captured.session_id, call_closed=True)
+                    if next_on_save is not None:
+                        _activate_load(pending, next_on_save, next_on_closed or (lambda: None))
+            except Exception as e:
+                log.exception("Editor save handler failed")
+                try:
+                    _send_save(
+                        {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
+                    )
+                except Exception:
+                    log.exception("Editor save handler could not send the error frame")
 
+        try:
+            self.executor.execute(_handle_save, timeout=self._marshal_timeout())
+        except TimeoutError:
+            log.exception("Editor save handler timed out")
+            with self._save_lock:
+                self._save_token = None
+                captured.save_token = None
             try:
-                self.executor.execute(_handle_save, timeout=self._marshal_timeout())
-            except TimeoutError:
-                log.exception("Editor save handler timed out")
-                with self._save_lock:
-                    self._save_token = None
                 self.send(
                     {"type": "error", "message": _("Saving the script timed out.")},
                     session=captured,
                 )
-            return
+            except Exception:
+                # What was wrong: self.send was called bare on save timeout. A broken pipe
+                # escaped _dispatch_incoming and triggered terminate(), tearing down the editor.
+                # Why this change fixes it: catch exception and log.warning with exc_info.
+                log.warning("Editor save handler could not send timeout error frame", exc_info=True)
 
-        if kind in ("closed", "cancel"):
-            log.info("editor_host _dispatch_incoming: received close/cancel kind=%r", kind)
-            state = self.resolve_incoming(msg)
-            captured_id = state.session_id if state is not None else ""
-            captured_on_closed = state.on_closed if state is not None else None
+    def _on_close(self, kind: str, msg: dict[str, Any]) -> None:
+        log.info("editor_host _dispatch_incoming: received close/cancel kind=%r", kind)
+        state = self.resolve_incoming(msg)
+        captured_id = state.session_id if state is not None else ""
+        captured_on_closed = state.on_closed if state is not None else None
 
-            def _handle_close() -> None:
-                try:
-                    if captured_on_closed is not None:
-                        captured_on_closed()
-                except Exception:
-                    log.exception("Editor on_closed failed")
-                finally:
-                    self._closed_event.set()
-                    live = self.lookup(captured_id) if captured_id else None
-                    if live is not None and live.on_closed is captured_on_closed:
-                        self.sessions.pop(captured_id, None)
-                        if self.focused_id == captured_id:
-                            self.focused_id = next(iter(self.sessions), None)
-                        if not self.sessions:
-                            set_active_session(None)
-
+        def _handle_close() -> None:
             try:
-                self.executor.execute(_handle_close, timeout=self._marshal_timeout())
-            except TimeoutError:
-                # A busy UI thread used to raise out of the pipe reader and
-                # terminate the editor child.
-                log.exception("Editor close handler timed out")
-            return
+                if captured_on_closed is not None:
+                    captured_on_closed()
+            except Exception:
+                log.exception("Editor on_closed failed")
+            finally:
+                if captured_id:
+                    self.end_session(captured_id, call_closed=False)
+                if not self.sessions:
+                    set_active_session(None)
 
+        try:
+            self.executor.execute(_handle_close, timeout=self._marshal_timeout())
+        except TimeoutError:
+            log.exception("Editor close handler timed out")
+
+    def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
+        kind = message_type(msg)
+        if kind in SCRIPT_PICKER_MESSAGE_TYPES:
+            self._on_picker(kind, msg)
+            return
+        if kind == "dirty":
+            self._on_dirty(msg)
+            return
+        if kind == "save":
+            self._on_save(msg)
+            return
+        if kind in ("closed", "cancel"):
+            self._on_close(kind, msg)
+            return
         if kind == "ready":
             self._ready_event.set()
             return
@@ -811,24 +807,9 @@ class PersistentEditor:
                         except Exception:
                             log.exception("Editor on_closed failed during disconnect")
             finally:
-                self._closed_event.set()
                 for state in snapshot:
-                    self.sessions.pop(state.session_id, None)
+                    self.end_session(state.session_id, call_closed=False)
                 if not self.sessions:
-                    self.focused_id = None
-                    # What was wrong: unexpected exit cleared the sessions and
-                    # the active session but left run_script_doc /
-                    # run_script_doc_url pointing at the launch document.
-                    # How it happened: _handle_disconnect copied the session
-                    # cleanup and skipped the two fields
-                    # terminate_persistent_editor clears. The picker still reads
-                    # them, so a later message targeted that document and the
-                    # UNO reference kept it alive.
-                    # Why this works: the empty-session path drops both fields.
-                    # A replacement session registered before this callback is
-                    # left alone, including a launch document it already set.
-                    self.run_script_doc = None
-                    self.run_script_doc_url = None
                     set_active_session(None)
 
         try:
@@ -843,7 +824,7 @@ _PERSISTENT_EDITOR = PersistentEditor()
 class EditorSession:
     """One editor session wrapper, delegating to the PersistentEditor singleton."""
 
-    _proc: subprocess_types.Popen[bytes]
+    _proc: subprocess.Popen[bytes]
     _on_save: EditorSaveCallback
     _on_closed: Callable[[], None]
     _executor: QueueExecutor
@@ -851,7 +832,7 @@ class EditorSession:
 
     def __init__(
         self,
-        proc: "subprocess_types.Popen[bytes]",
+        proc: subprocess.Popen[bytes],
         *,
         on_save: EditorSaveCallback,
         on_closed: Callable[[], None],
@@ -877,30 +858,26 @@ class EditorSession:
     def send(self, message: dict[str, Any]) -> None:
         _PERSISTENT_EDITOR.send(message)
 
-    def read_stderr_tail(self, max_bytes: int = 65536) -> str:
-        return _PERSISTENT_EDITOR.read_stderr_tail(max_bytes)
+    def read_stderr_tail(self, max_chars: int = 65536, max_bytes: int | None = None) -> str:
+        return _PERSISTENT_EDITOR.read_stderr_tail(max_chars=max_chars, max_bytes=max_bytes)
 
     def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
         return _PERSISTENT_EDITOR.wait_for_ready(ctx, timeout_sec)
 
-    def _finish(self) -> None:
+    def _finish(self, *, clearing: bool = False) -> None:
         if self.session_id:
             live = _PERSISTENT_EDITOR.lookup(self.session_id)
             if live is not None and live.on_save is self._on_save:
-                # What was wrong: every replace ended the session here with
-                # call_closed=False, before on_save and before on_closed.
-                # How: launch_monaco_editor calls set_active_session first, so
-                # the focused buffer was already gone when load overwrote it.
-                # A dirty calc cell, Run Script, init script, or LaTeX buffer
-                # was discarded with nothing written back.
-                # Why this works: a dirty window that is still running stays
-                # registered. launch_monaco_editor confirms or queues a save
-                # before it gets here. Discard sets replace_confirmed, and
-                # _register_load_session ends that target with on_closed.
-                # A dead process still ends here so the map does not keep a
-                # session whose window is gone.
-                if not (live.dirty is True and _PERSISTENT_EDITOR.is_running):
-                    _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=False)
+                # What was wrong: every session switch called _finish which called
+                # end_session(call_closed=False). When _register_load_session ran later,
+                # the old session was already gone from the sessions map, so on_closed
+                # never fired for clean buffers during target switch.
+                # Why this change fixes it: when switching to another session (clearing=False),
+                # _finish does not end the session. _register_load_session ends the previous
+                # session with call_closed=True. Only when clearing=True (session is None)
+                # or when the subprocess has died does _finish end the session (with call_closed=True).
+                if clearing or not _PERSISTENT_EDITOR.is_running:
+                    _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=True)
 
         global _ACTIVE_SESSION
         with _SESSION_LOCK:
@@ -916,31 +893,38 @@ def get_active_session() -> EditorSession | None:
 def set_active_session(session: EditorSession | None) -> None:
     global _ACTIVE_SESSION
     with _SESSION_LOCK:
-        # _finish keeps a dirty running buffer. The confirm/flush gate in
-        # launch_monaco_editor runs before this, so a replace does not drop
-        # unsaved edits on the way into _register_load_session.
-        if session is not None and _ACTIVE_SESSION is not None and _ACTIVE_SESSION is not session:
-            _ACTIVE_SESSION._finish()
         if session is None and _ACTIVE_SESSION is not None:
-            _ACTIVE_SESSION._finish()
+            old = _ACTIVE_SESSION
+            _ACTIVE_SESSION = None
+            old._finish(clearing=True)
+            return
+        if session is not None and _ACTIVE_SESSION is not None and _ACTIVE_SESSION is not session:
+            old = _ACTIVE_SESSION
+            old._finish(clearing=False)
         _ACTIVE_SESSION = session
 
 
 def terminate_persistent_editor() -> None:
     """Force terminate the background Monaco editor process."""
-    # What was wrong: sessions and focused_id were cleared with no lock, and
-    # run_script_doc / run_script_doc_url kept pointing at the document the
-    # dead editor was launched for. The picker reads those two fields, so a
-    # later message still targeted that document.
-    # Why this works: the clear holds the same lock as the active session,
-    # and both document fields go back to None. terminate() stays outside
-    # the lock so a reader blocked in set_active_session is not stuck behind
-    # the process wait.
+    # What was wrong: terminate_persistent_editor cleared sessions without calling
+    # on_closed, and left _ACTIVE_SESSION stale. The next set_active_session then called
+    # _finish on a dead session.
+    # Why this change fixes it: snapshot sessions and call on_closed on each, reset _ACTIVE_SESSION
+    # to None under _SESSION_LOCK, and terminate the subprocess closing all standard streams.
+    global _ACTIVE_SESSION
     with _SESSION_LOCK:
+        snapshot = list(_PERSISTENT_EDITOR.sessions.values())
         _PERSISTENT_EDITOR.sessions.clear()
         _PERSISTENT_EDITOR.focused_id = None
         _PERSISTENT_EDITOR.run_script_doc = None
         _PERSISTENT_EDITOR.run_script_doc_url = None
+        _ACTIVE_SESSION = None
+    for state in snapshot:
+        if state.on_closed is not None:
+            try:
+                state.on_closed()
+            except Exception:
+                log.exception("Editor on_closed failed during terminate")
     _PERSISTENT_EDITOR.terminate()
 
 
@@ -992,7 +976,7 @@ def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
 def monaco_open_expected(ctx: Any) -> tuple[str | None, bool]:
     """Return (venv python exe, True) when Run Python Script should use Monaco."""
     exe, ok = monaco_editor_available(ctx)
-    return exe, ok and bool(exe)
+    return exe, ok
 
 
 def monaco_session_needs_flush() -> bool:
@@ -1006,21 +990,6 @@ def monaco_session_needs_flush() -> bool:
     # ``is True`` so a MagicMock stand-in for the editor does not look dirty.
     return focused.dirty is True
 
-
-def calc_cell_session_needs_flush() -> bool:
-    """True when the running Monaco buffer has unsaved edits.
-
-    What was wrong: this returned True only for ``mode == "calc_cell"``.
-    Opening a cell while Run Python Script, the init script, or LaTeX was
-    dirty skipped the confirm. ``run_python_dialog`` never called this, so a
-    dirty cell was dropped the other way when Run Python Script opened.
-    How: ``launch_monaco_editor`` then ``set_active_session`` → ``_finish``
-    → ``end_session(call_closed=False)``, and the next load overwrote the
-    buffer. ``on_save`` never ran, so the edits were not written.
-    Why this works: any dirty focused buffer counts. ``launch_monaco_editor``
-    asks before replace, for every mode, in both directions.
-    """
-    return monaco_session_needs_flush()
 
 
 def focused_monaco_buffer_label() -> str:
@@ -1041,13 +1010,6 @@ def focused_monaco_buffer_label() -> str:
             return resource
         return _("the LaTeX formula")
     return target.get("resource", "")
-
-
-def last_calc_cell_address() -> str:
-    focused = _PERSISTENT_EDITOR.focused()
-    if focused is None:
-        return ""
-    return focused.target.get("cell_address", "")
 
 
 def _dirty_blocks_replace(state: EditorSessionState) -> bool:
@@ -1081,12 +1043,11 @@ def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
             return "cancel"
         smgr = ctx.getServiceManager()
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        # QUERYBOX=4, BUTTONS_YES_NO_CANCEL=4. Results: YES=2, NO=3, CANCEL=0.
-        box = toolkit.createMessageBox(window, 4, 4, title, message)
+        box = toolkit.createMessageBox(window, _BOX_QUERYBOX, _BOX_BUTTONS_YES_NO_CANCEL, title, message)
         result = int(box.execute())
-        if result == 2:
+        if result == _BOX_RESULT_YES:
             return "save"
-        if result == 3:
+        if result == _BOX_RESULT_NO:
             return "discard"
         return "cancel"
     except Exception:
@@ -1153,10 +1114,16 @@ def _register_load_session(
             f"Refusing to replace dirty Monaco session {blocked.session_id} ({blocked.mode})"
         )
 
-    if mode == "run_script" and "run_script_doc" in ipc_message:
-        # Queued save-then-load still carries the document. The direct launch
-        # path pops it before this call and has already stored it.
-        _PERSISTENT_EDITOR.set_run_script_document(ipc_message.get("run_script_doc"))
+    # What was wrong: opening a cell after Run Script kept the old document UNO
+    # reference in _PERSISTENT_EDITOR.run_script_doc until disconnect or terminate.
+    # Why this change fixes it: reset run_script_doc to None when mode is not run_script.
+    if mode == "run_script":
+        if "run_script_doc" in ipc_message:
+            # Queued save-then-load still carries the document. The direct launch
+            # path pops it before this call and has already stored it.
+            _PERSISTENT_EDITOR.set_run_script_document(ipc_message.get("run_script_doc"))
+    else:
+        _PERSISTENT_EDITOR.set_run_script_document(None)
     ipc_message.pop("run_script_doc", None)
     ipc_message.pop("doc", None)
 
@@ -1287,6 +1254,8 @@ def launch_monaco_editor(
     if ipc_message.get("mode") == "run_script":
         run_script_doc = ipc_message.pop("run_script_doc", None)
         _PERSISTENT_EDITOR.set_run_script_document(run_script_doc)
+    else:
+        _PERSISTENT_EDITOR.set_run_script_document(None)
 
     if _PERSISTENT_EDITOR.is_running:
         log.info("editor_host: reusing running Monaco background process")

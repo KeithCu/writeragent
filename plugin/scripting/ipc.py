@@ -520,7 +520,14 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         message = response.get("message") or response.get("error") or "Stopped by user."
         raise UserStopped(str(message))
     if response.get("status") == "error":
-        raise RuntimeError(response.get("message", response.get("error", "Unknown error")))
+        # What was wrong: exchange_tool_call dropped response.get("code") when raising RuntimeError.
+        # How: RuntimeError was instantiated with only the message/error string.
+        # Why this change fixes it: copy the code attribute onto the raised RuntimeError so callers can inspect it.
+        err = RuntimeError(response.get("message", response.get("error", "Unknown error")))
+        code = response.get("code")
+        if code is not None:
+            setattr(err, "code", code)
+        raise err
     return response.get("result", {})
 
 

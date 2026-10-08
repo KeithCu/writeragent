@@ -76,7 +76,7 @@ class MockFinder(MetaPathFinder, Loader):
 
 sys.meta_path.insert(0, MockFinder())
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
@@ -302,17 +302,18 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
         if _domain_excluded(domain if isinstance(domain, str) else None):
             continue
         if domain:
+            from plugin.scripting.host_rpc import singularize_domain
+
             namespace = domain
             # Strip prefix if it matches domain (e.g. footnotes_insert -> insert)
             prefix = domain
             if domain.endswith("s"):
-                # Handle plurals (footnotes -> footnote)
                 singular = domain[:-1]
                 if name.startswith(singular + "_"):
                     prefix = singular
                 elif name.startswith(domain + "_"):
                     prefix = domain
-            
+
             if name.startswith(prefix + "_"):
                 rest = name[len(prefix) + 1 :]
             else:
@@ -321,7 +322,7 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
             # Break up "core" tools by document type
             doc_types = getattr(tool, "doc_types", []) or []
             uno_services = getattr(tool, "uno_services", []) or []
-            
+
             # Infer doc_types from uno_services if missing
             if not doc_types and uno_services:
                 inferred = set()
@@ -345,11 +346,8 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
             rest = name
 
         # Singularize namespace for nicer usage: footnote.insert instead of footnotes.insert
-        if namespace == "indexes":
-            namespace = "index"
-        elif namespace.endswith("s") and namespace not in ("images", "styles", "forms"):
-            # Very basic singularization
-            namespace = namespace[:-1]
+        from plugin.scripting.host_rpc import singularize_domain
+        namespace = singularize_domain(namespace)
 
         # Catch hyphen/underscore spellings that only show up as the namespace key.
         if _domain_excluded(namespace):
@@ -388,7 +386,9 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '',
         '',
         'def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:',
-        '    """Send a tool call to the LibreOffice host and block for the result."""',
+        '    """Send a tool call to the LibreOffice host and block for the result.',
+        '    Strips None kwargs so tool defaults apply.',
+        '    """',
         '    kwargs = {k: v for k, v in kwargs.items() if v is not None}',
         '    # Compute workers set this before importing plugin code. They have no',
         '    # office and no host pipe. The branch below would call get_ctx();',
@@ -401,7 +401,12 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '',
         '            return execute_tool(tool_name, kwargs, caller="script")',
         '        except Exception as e:',
-        '            raise RuntimeError(f"Failed to execute tool in-process: {e}") from e',
+        '            # Keep error .code from the RPC exception instead of dropping it',
+        '            code = getattr(e, "code", None)',
+        '            err = RuntimeError(f"Failed to execute tool in-process: {e}")',
+        '            if code is not None:',
+        '                setattr(err, "code", code)',
+        '            raise err from e',
         '',
         '    from plugin.scripting.ipc import exchange_tool_call',
         '',
@@ -421,11 +426,33 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
     # Domain tools whitelist for host-side enforcement
     domain_tools_map = {}
+    tool_methods_map = {}
     for ns, tool_list in sorted(groups.items()):
         domain_tools_map[ns] = sorted([t.name for _, t in tool_list if t.name])
+        for short_name, t in tool_list:
+            if t.name:
+                tool_methods_map[t.name] = (ns, short_name)
 
     pretty_map = pprint.pformat(domain_tools_map, indent=4, width=120)
     lines.append(f"DOMAIN_TOOLS = {pretty_map}")
+    lines.append("")
+    pretty_methods = pprint.pformat(tool_methods_map, indent=4, width=120)
+    lines.append(f"TOOL_METHODS = {pretty_methods}")
+    lines.append("")
+    import builtins
+
+    builtin_names = set(dir(builtins))
+    all_exports = sorted(
+        {re.sub(r"\W", "_", ns) for ns in groups if re.sub(r"\W", "_", ns) not in builtin_names}
+        | {
+            "DOMAIN_TOOLS",
+            "TOOL_METHODS",
+            "WORKFLOW_TASK_PREFIXES",
+            "get_active_document_type",
+        }
+    )
+    pretty_all = pprint.pformat(all_exports, indent=4, width=120)
+    lines.append(f"__all__ = {pretty_all}")
     lines.append("")
     lines.append("")
 
@@ -465,7 +492,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
                     if "*" not in all_params_list:
                         all_params_list.append("*")
                     all_params_list.append(f'{extra}: str | None = None')
-                    all_params = ", ".join(all_params_list)
+            all_params = ", ".join(all_params_list)
             if rpc_pairs:
                 kwargs_body = ", " + ", ".join(f"{schema_key}={py_name}" for schema_key, py_name in rpc_pairs)
             else:
@@ -504,8 +531,6 @@ def main():
     # Bootstrap the registry
     from plugin.main import get_tools
 
-    # We need a mock environment because get_tools() might trigger bootstrap()
-    # which expects a UNO context. But ToolRegistry itself doesn't need much.
     with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
         _config_in_scratch_dir(tmp_dir)
         registry = get_tools()
@@ -516,6 +541,20 @@ def main():
         # Venv scripts do not run that loop, so the whole tier stays off the proxy.
         all_tools = registry.get_tools(filter_doc_type=False, exclude_tiers=frozenset())
         all_tools = [t for t in all_tools if getattr(t, "tier", None) != "specialized_control"]
+
+        seen_tools: dict[str, Any] = {}
+        for t in all_tools:
+            if t.name in seen_tools:
+                prev = seen_tools[t.name]
+                if getattr(prev, "parameters", None) != getattr(t, "parameters", None):
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Tool %r registered with differing parameters across classes (%s vs %s)",
+                        t.name,
+                        type(prev).__name__,
+                        type(t).__name__,
+                    )
+            seen_tools[t.name] = t
 
         print(generate_module(all_tools))
 

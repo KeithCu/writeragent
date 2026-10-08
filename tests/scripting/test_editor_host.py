@@ -144,6 +144,98 @@ def test_editor_save_error_send_failure_stays_in_dispatch():
     assert pe.executor.execute.called
 
 
+def test_editor_script_picker_timeout_send_failure_is_logged_and_stays_in_dispatch(caplog):
+    """If the timeout error frame fails to send, log warning with exc_info and do not raise."""
+    import logging
+
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = TimeoutError()
+
+    def _send(message, *, session=None):
+        raise BrokenPipeError("pipe closed")
+
+    pe.send = _send  # type: ignore[method-assign]
+    with caplog.at_level(logging.WARNING):
+        pe._dispatch_incoming({"type": "request_scripts"})
+    assert "could not send timeout error frame" in caplog.text
+
+
+def test_editor_save_timeout_send_failure_is_logged_and_stays_in_dispatch(caplog):
+    """If the save timeout frame fails to send, log warning with exc_info and do not raise."""
+    import logging
+
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = TimeoutError()
+    pe.register_session(
+        launch_mod.EditorSessionState(
+            session_id="s1",
+            mode="calc_cell",
+            target={"cell": "A1"},
+            on_save=MagicMock(),
+        )
+    )
+
+    def _send(message, *, session=None):
+        raise BrokenPipeError("pipe closed")
+
+    pe.send = _send  # type: ignore[method-assign]
+    with caplog.at_level(logging.WARNING):
+        pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert "could not send timeout error frame" in caplog.text
+
+
+def test_editor_save_timeout_prevents_late_save():
+    """A save that completes on the UI thread after timeout must not invoke on_save."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    queued_task = []
+    pe.executor.execute.side_effect = lambda fn, timeout=None: (queued_task.append(fn), (_ for _ in ()).throw(TimeoutError()))[1]
+    mock_on_save = MagicMock()
+    state = launch_mod.EditorSessionState(
+        session_id="s1",
+        mode="calc_cell",
+        target={"cell": "A1"},
+        on_save=mock_on_save,
+    )
+    state.dirty = True
+    pe.register_session(state)
+    pe.send = MagicMock()
+
+    pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert pe._save_token is None
+    assert state.save_token is None
+    assert len(queued_task) == 1
+
+    # Simulate UI thread running the queued task after timeout expired:
+    queued_task[0]()
+    mock_on_save.assert_not_called()
+
+
+def test_editor_save_clears_session_dirty():
+    """Successful save must set session.dirty to False."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    state = launch_mod.EditorSessionState(
+        session_id="s1",
+        mode="calc_cell",
+        target={"cell": "A1"},
+        on_save=MagicMock(return_value={"type": "save_result", "ok": True}),
+    )
+    state.dirty = True
+    pe.register_session(state)
+    pe.send = MagicMock()
+
+    pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert state.dirty is False
+
+
 def test_launch_monaco_editor_reuses_running_process():
     ctx = MagicMock()
     sent_messages: list[dict] = []
@@ -537,7 +629,6 @@ def test_monaco_session_needs_flush_any_mode():
             state.dirty = True
             pe.register_session(state)
             assert launch_mod.monaco_session_needs_flush() is True
-            assert launch_mod.calc_cell_session_needs_flush() is True
             state.dirty = False
             assert launch_mod.monaco_session_needs_flush() is False
     finally:
@@ -897,6 +988,38 @@ def test_different_target_replaces_focused_session():
     pe.focused_id = None
 
 
+def test_target_switch_with_active_session_calls_on_closed():
+    """Switching targets via set_active_session and _register_load_session calls on_closed on old session."""
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+    proc = MagicMock()
+    proc.poll.return_value = None
+    closed: list[str] = []
+
+    try:
+        s1 = launch_mod.EditorSession(proc, on_save=MagicMock(), on_closed=lambda: closed.append("s1"))
+        launch_mod.set_active_session(s1)
+        launch_mod._register_load_session(
+            {"type": "load", "mode": "calc_cell", "cell_address": "A1"},
+            MagicMock(),
+            lambda: closed.append("session1_closed"),
+        )
+
+        s2 = launch_mod.EditorSession(proc, on_save=MagicMock(), on_closed=lambda: closed.append("s2"))
+        launch_mod.set_active_session(s2)
+        launch_mod._register_load_session(
+            {"type": "load", "mode": "calc_cell", "cell_address": "B1"},
+            MagicMock(),
+            lambda: closed.append("session2_closed"),
+        )
+
+        assert "session1_closed" in closed
+        assert pe.focused().target["cell_address"] == "B1"  # type: ignore[union-attr]
+    finally:
+        _reset_persistent_editor()
+
+
 def test_resolve_editor_python_missing_venv_mentions_settings():
     with patch("plugin.framework.config.get_config_str", return_value=""):
         exe, err = launch_mod.resolve_editor_python(MagicMock())
@@ -1097,10 +1220,35 @@ def test_terminate_persistent_editor_resets_run_script_doc_under_lock():
         assert pe.run_script_doc is None
         assert pe.run_script_doc_url is None
     finally:
-        pe.sessions.clear()
-        pe.focused_id = None
-        pe.run_script_doc = None
-        pe.run_script_doc_url = None
+        _reset_persistent_editor()
+
+
+def test_terminate_persistent_editor_calls_on_closed_and_clears_active():
+    """terminate_persistent_editor must call on_closed on active sessions and clear _ACTIVE_SESSION."""
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+    closed: list[str] = []
+    proc = MagicMock()
+    proc.poll.return_value = None
+
+    try:
+        s = launch_mod.EditorSession(proc, on_save=MagicMock(), on_closed=lambda: closed.append("active"))
+        launch_mod.set_active_session(s)
+        state = launch_mod.EditorSessionState(
+            session_id="s1",
+            mode="calc_cell",
+            target={"cell": "A1"},
+            on_closed=lambda: closed.append("state"),
+        )
+        pe.register_session(state)
+        with patch.object(pe, "terminate"):
+            launch_mod.terminate_persistent_editor()
+
+        assert "state" in closed
+        assert launch_mod.get_active_session() is None
+    finally:
+        _reset_persistent_editor()
 
 
 def test_handle_disconnect_clears_run_script_document():
