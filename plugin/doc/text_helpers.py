@@ -15,6 +15,7 @@ load ``document_helpers`` → chat context / ``DocumentService``.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
@@ -741,3 +742,51 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_text_cursor_at_range failed")
         return None
+
+
+# Bugfix: what was wrong: ast_source_offset used str.splitlines(), which splits on form feed (\x0c),
+# vertical tab (\x0b), U+2028, U+2029, and other Unicode breaks that Python AST line counting does not.
+# How it happened: Python standard str.splitlines() has broader line break semantics than the Python lexer/AST.
+# Why this change fixes it: split lines strictly on \r\n, \r, or \n, matching Python AST line numbering,
+# and precompute line start offsets for O(1) random-access lookups.
+_AST_LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
+
+
+def line_starts_exact(src: str) -> list[int]:
+    """Find line start character offsets splitting only on \\r\\n, \\r, or \\n."""
+    starts = [0]
+    for m in _AST_LINE_BREAK_RE.finditer(src):
+        starts.append(m.end())
+    return starts
+
+
+def ast_source_offset(
+    src: str,
+    lineno: int,
+    col: int,
+    *,
+    line_starts: list[int] | None = None,
+) -> int:
+    """Map AST ``(lineno, col_offset)`` to an absolute character index in *src*.
+
+    On Python 3.8+, ``col_offset`` / ``end_col_offset`` are UTF-8 *byte* offsets
+    within the line — not Unicode character indices. Convert before slicing *src*
+    so a non-ASCII prefix cannot shift the rewrite window.
+    """
+    if lineno < 1 or col < 0:
+        return -1
+    if line_starts is None:
+        line_starts = line_starts_exact(src)
+    if lineno > len(line_starts):
+        return -1
+    line_start = line_starts[lineno - 1]
+    line_end = line_starts[lineno] if lineno < len(line_starts) else len(src)
+    line = src[line_start:line_end]
+    raw = line.encode("utf-8")
+    if col > len(raw):
+        return -1
+    # If *col* landed mid-codepoint, back up to a valid UTF-8 boundary.
+    while col > 0 and col < len(raw) and (raw[col] & 0xC0) == 0x80:
+        col -= 1
+    return line_start + len(raw[:col].decode("utf-8"))
+
