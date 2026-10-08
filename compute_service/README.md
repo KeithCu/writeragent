@@ -80,7 +80,7 @@ request shapes, why multipart exists, and the plan to retire peel.
   ```
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
-  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON:
+  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`) does not consume that flag:
   ```json
   {
     "id": "req-123",
@@ -132,7 +132,7 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
 
 ### 4. Vision & OCR Endpoint (`POST /v1/vision`)
 
-Evaluates heavy document/image OCR and layout structure extraction in a dedicated, isolated worker subprocess pool. Supports both in-memory image buffers (`image_b64`) and server-local/mounted filesystem paths (`file_path`).
+Evaluates heavy document/image OCR and layout structure extraction in a dedicated, isolated worker subprocess pool. Supports an in-memory image buffer (`image_b64`) or a server-local path (`file_path`). Sending both is `400` with `INVALID_REQUEST`.
 
 - **Request Schema (Option A: In-Memory Base64 Buffer)**:
   ```json
@@ -181,10 +181,10 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), vision `params` that is not an object, or a vision image that is not valid base64 (`INVALID_BASE64`, `INVALID_IMAGE`, `MISSING_IMAGE_SOURCE`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), vision `image_b64` and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, or a vision image that is not valid base64 (`INVALID_BASE64`, `INVALID_IMAGE`, `MISSING_IMAGE_SOURCE`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
-| **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, or calculation result frame exceeds IPC limit (`RESULT_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
+| **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, the execute frame exceeds the IPC limit (`PAYLOAD_TOO_LARGE`), or the result frame does (`RESULT_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
 | **`501 Not Implemented`** | `/v1/vision` when OCR is off (`VISION_SERVICE_DISABLED`, `ocr_workers=0`) | `{"id"?: "...", "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "..."}` |
 | **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). Sticky execute and session reset share a listener cap; a miss is the same 503. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception, JSON encoding failure, worker-side session reset error, or a worker that died or returned no frame (`WORKER_CRASHED`, `EMPTY_RESPONSE`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |

@@ -63,6 +63,14 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     image_bytes_raw = req.get("image_bytes")
 
     image_bytes: bytes
+    has_bytes = isinstance(image_bytes_raw, (bytes, bytearray)) and len(image_bytes_raw) > 0
+    if file_path and has_bytes:
+        return {
+            "id": req_id,
+            "status": "error",
+            "code": "INVALID_REQUEST",
+            "error": "Provide image bytes or file_path, not both.",
+        }
     if file_path:
         image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
         if err_body is not None:

@@ -1206,7 +1206,7 @@ class TestFormulaPoolSupervisor:
     def test_ttl_evict_keeps_session_reserved_during_reset(self) -> None:
         """A reservation created after reset pops the id must not be marked lost.
 
-        _forget_session used to pop the id a second time. The request in
+        A second drop of the same id used to pop it again. The request in
         between had already reserved that id again.
         """
         from compute_service.formula_pool import _Session
@@ -1554,6 +1554,38 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_payload_too_large_keeps_session_reset(self) -> None:
+        """A frame that never reaches the child must not consume session_reset."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "unrun-lost"
+            created = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="warm")
+            assert created.get("status") == "ok"
+            worker = pool.live_session_worker(sid)
+            assert worker is not None
+            saved_cap = worker.max_payload_bytes
+            with pool._cond:
+                pool._lost_sessions[sid] = time.monotonic()
+            worker.max_payload_bytes = 32
+            try:
+                rejected = pool.execute(
+                    code="result = 1",
+                    data={"blob": "x" * 200},
+                    session_id=sid,
+                    mode="shared",
+                    req_id="too-big",
+                )
+            finally:
+                worker.max_payload_bytes = saved_cap
+            assert rejected.get("code") == "PAYLOAD_TOO_LARGE"
+            with pool._cond:
+                assert sid in pool._lost_sessions
+            nxt = pool.execute(code="result = 2", session_id=sid, mode="shared", req_id="after")
+            assert nxt.get("status") == "ok"
+            assert nxt.get("session_reset") is True
+        finally:
+            pool.shutdown()
+
     def test_concurrent_first_calls_same_session(self) -> None:
         """Concurrent first calls for the same session_id must reserve and route to the same worker."""
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
@@ -1732,8 +1764,8 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_forget_session_helper(self) -> None:
-        """_forget_session drops session and optionally records it as lost."""
+    def test_drop_session_helper(self) -> None:
+        """_drop_session drops a session and optionally records it as lost."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             w = pool.workers[0]
@@ -1742,12 +1774,12 @@ class TestFormulaHttpEndpoint:
                 pool._sessions["drop-lost"] = _Session(worker=w, pid=100, last_active=time.monotonic())
                 pool._sessions["drop-clean"] = _Session(worker=w, pid=100, last_active=time.monotonic())
 
-            pool._forget_session("drop-lost", lost=True)
+            pool._drop_session("drop-lost", lost=True)
             with pool._cond:
                 assert "drop-lost" not in pool._sessions
                 assert "drop-lost" in pool._lost_sessions
 
-            pool._forget_session("drop-clean", lost=False)
+            pool._drop_session("drop-clean", lost=False)
             with pool._cond:
                 assert "drop-clean" not in pool._sessions
                 assert "drop-clean" not in pool._lost_sessions

@@ -2728,11 +2728,43 @@ def test_bearer_scheme_case_insensitive() -> None:
     assert status == "401 Unauthorized"
 
 
+def test_session_reset_passes_bounded_timeout() -> None:
+    """The accept-time deadline is the reset lease budget, capped at 5s."""
+    seen: list[float] = []
+
+    def fake_reset(sid: str, timeout_sec: float = 5.0) -> dict[str, Any]:
+        del sid
+        seen.append(timeout_sec)
+        return {"status": "ok"}
+
+    app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
+    status, _headers, parsed = _wsgi_post(
+        app,
+        b'{"id": "reset-budget"}',
+        path="/v1/session/reset",
+        query="session_id=s123",
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == "200 OK"
+    assert parsed.get("status") == "ok"
+    assert len(seen) == 1
+    assert 0 < seen[0] <= 5.0
+
+
+def test_vision_rejects_image_and_file_path_together() -> None:
+    app = create_wsgi_app(ComputeSettings())
+    payload = json.dumps({"id": "both", "image_b64": "YQ==", "file_path": "/tmp/x.png"}).encode("utf-8")
+    status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+    assert status.startswith("400")
+    assert body.get("code") == "INVALID_REQUEST"
+    assert body.get("id") == "both"
+
+
 def test_session_reset_worker_error_returns_500() -> None:
     """Worker-side reset failure is server fault and returns HTTP 500 (not 400)."""
     settings = ComputeSettings()
 
-    def fake_reset(sid: str) -> dict[str, Any]:
+    def fake_reset(sid: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "error", "error": "Worker failed to clear namespace"}
 
     app = create_wsgi_app(settings, reset_fn=fake_reset)
@@ -2752,7 +2784,7 @@ def test_session_reset_infra_error_returns_503() -> None:
     """Infrastructure failure during reset returns HTTP 503."""
     settings = ComputeSettings()
 
-    def fake_reset(sid: str) -> dict[str, Any]:
+    def fake_reset(sid: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Pool busy"}
 
     app = create_wsgi_app(settings, reset_fn=fake_reset)

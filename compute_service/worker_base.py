@@ -276,7 +276,6 @@ class BaseProcessWorker:
     lock: threading.Lock
     _lifecycle_lock: threading.Lock
     tasks_executed: int
-    did_respawn: bool
     recover_on_timeout: bool
     on_process_exit: Callable[[int], None] | None
     _drain_state: _DrainState
@@ -300,7 +299,6 @@ class BaseProcessWorker:
         # across spawn, so reap must not take ``lock``.
         self._lifecycle_lock = threading.Lock()
         self.tasks_executed = 0
-        self.did_respawn = False
         self._stderr_drain: StderrTail | None = None
         # idle: no timeout drain. draining: late frame still on the pipe.
         # release_wait: release_worker already ran and must re-idle after the
@@ -440,9 +438,6 @@ class BaseProcessWorker:
         budget_sec = max(0.01, float(timeout_sec))
         timeout_sec = budget_sec
         with self.lock:
-            # The pool reads this after the call. A respawn replaces the
-            # kernel; session maps that still name this wrapper are stale.
-            self.did_respawn = False
             start_t = time.monotonic()
             # kill() during shutdown sets self.process to None. Reading it
             # again for .pid or .stdin raised AttributeError and the request
@@ -480,7 +475,6 @@ class BaseProcessWorker:
                 # the remaining request budget.
                 spawn_budget = max(0.01, min(_SPAWN_READY_TIMEOUT_SEC, timeout_sec))
                 self.respawn(timeout_sec=spawn_budget)
-                self.did_respawn = True
                 proc = self.process
                 if proc is None or proc.poll() is not None:
                     return _fail("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", kill=False)
@@ -491,6 +485,9 @@ class BaseProcessWorker:
                 return _fail("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", kill=False)
 
             try:
+                # No deadline on this write. A child that stops reading stdin
+                # can block this thread while worker.lock is held. The read
+                # side is bounded. Left for later.
                 write_pickle_frame(proc.stdin, payload, max_payload_bytes=self.max_payload_bytes)
             except IpcFrameError as exc:
                 # Raised before any byte is written. The child is still the
@@ -626,7 +623,6 @@ class BaseProcessPool:
         self._worker_last_active: dict[BaseProcessWorker, float] = {}
         self._cond = threading.Condition(self._lock)
         self._reaper_stop_event = threading.Event()
-        self._idle_reaper_thread: threading.Thread | None = None
         self._recycle_queue: queue.Queue[BaseProcessWorker | None] = queue.Queue()
         self._recycle_thread: threading.Thread = threading.Thread(
             target=self._recycle_loop,
@@ -636,6 +632,9 @@ class BaseProcessPool:
         self._recycle_thread.start()
 
         if self.num_workers > 0:
+            # Workers spawn one at a time, each waiting on its ready handshake
+            # (up to _SPAWN_READY_TIMEOUT_SEC). Spawning them in parallel would
+            # cut startup roughly with the worker count. Left for later.
             for i in range(self.num_workers):
                 w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, recover_on_timeout=recover_on_timeout, on_process_exit=on_process_exit, default_timeout_sec=default_timeout_sec)
                 self.workers.append(w)
@@ -665,7 +664,7 @@ class BaseProcessPool:
     def _start_idle_reaper(self) -> None:
         ttl = cast("float", self.idle_worker_ttl_sec)
         interval = max(0.02, min(ttl / 6.0, 300.0))
-        self._idle_reaper_thread = self._start_reaper(
+        self._start_reaper(
             name=f"{self.worker_name}-idle-reaper",
             interval=interval,
             fn=self._evict_idle_workers,
@@ -741,9 +740,9 @@ class BaseProcessPool:
     def lease_any(self, timeout_sec: float) -> BaseProcessWorker | None:
         """Acquire a protocol-ready worker, or a dead slot the caller will respawn.
 
-        The dead slot is not idle. ``execute`` performs the handshake and
-        sets ``did_respawn``; release idles the worker only after that
-        handshake or after a response frame is consumed.
+        The dead slot is not idle. ``execute`` performs the handshake;
+        release idles the worker only after that handshake or after a
+        response frame is consumed.
         """
         deadline = time.monotonic() + max(0.0, float(timeout_sec))
         while True:

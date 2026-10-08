@@ -77,6 +77,9 @@ _HTTP_STATUS_BY_CODE = {
     "INVALID_IMAGE": "400 Bad Request",
     "MISSING_IMAGE_SOURCE": "400 Bad Request",
     "FILE_PATH_DENIED": "400 Bad Request",
+    "INVALID_REQUEST": "400 Bad Request",
+    "RESULT_TOO_LARGE": "413 Payload Too Large",
+    "PAYLOAD_TOO_LARGE": "413 Payload Too Large",
     # OCR is configured off. Not a transient miss, so no Retry-After.
     "VISION_SERVICE_DISABLED": "501 Not Implemented",
 }
@@ -243,21 +246,29 @@ def _infrastructure_status(payload: dict[str, Any]) -> str | None:
     return _HTTP_STATUS_BY_CODE.get(code)
 
 
-def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any) -> list[bytes]:
-    """Send worker result (raw JSON bytes, pool error status, or serialized dict)."""
+def _send_execution_result(
+    start_response: Any,
+    result_payload: Any,
+    req_id: Any,
+    *,
+    error_status: str = "200 OK",
+) -> list[bytes]:
+    """Send worker result (raw JSON bytes, pool error status, or serialized dict).
+
+    Eval errors stay HTTP 200 so the sheet shows them. Pass *error_status*
+    when an unmapped ``status: error`` is a server fault (session reset).
+    Mapped codes, including 413, come from ``_HTTP_STATUS_BY_CODE``.
+    """
     if isinstance(result_payload, dict):
         raw_out = result_payload.get("result_json")
         if isinstance(raw_out, (bytes, bytearray)) and raw_out:
             return _start_raw_json(start_response, "200 OK", bytes(raw_out))
-        # RESULT_TOO_LARGE / PAYLOAD_TOO_LARGE -> 413 Payload Too Large (non-retryable)
-        code = result_payload.get("code")
-        if code in ("RESULT_TOO_LARGE", "PAYLOAD_TOO_LARGE"):
-            _inject_req_id(result_payload, req_id)
-            return _start_json(start_response, "413 Payload Too Large", result_payload)
         infra = _infrastructure_status(result_payload)
         _inject_req_id(result_payload, req_id)
         if infra is not None:
             return _start_json(start_response, infra, result_payload)
+        if result_payload.get("status") == "error" and error_status != "200 OK":
+            return _start_json(start_response, error_status, result_payload)
 
     try:
         if isinstance(result_payload, dict):
@@ -293,21 +304,21 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
             raw_timeout = conn.gettimeout()
             previous_timeout = float(raw_timeout) if isinstance(raw_timeout, (int, float)) else None
             conn.settimeout(1.0)
-        except Exception:
+        except OSError:
             previous_timeout = None
     try:
         to_drain = min(content_length, max_bytes)
         wsgi_input = environ.get("wsgi.input")
         if wsgi_input is not None:
             wsgi_input.read(to_drain)
-    except Exception:
+    except OSError:
         pass
     finally:
         # The 1s drain budget must not become the write timeout for the error response.
         if conn is not None and previous_timeout is not None:
             try:
                 conn.settimeout(previous_timeout)
-            except Exception:
+            except OSError:
                 pass
 
 
@@ -324,7 +335,7 @@ def _set_write_deadline(environ: dict[str, Any]) -> None:
     if conn is not None:
         try:
             conn.settimeout(_REQUEST_WRITE_TIMEOUT_SEC)
-        except Exception:
+        except OSError:
             pass
 
 
@@ -334,11 +345,16 @@ def _validate_source_text(
     limit: int,
     label: str,
     required: bool,
+    max_bytes: int | None = None,
 ) -> str | None:
-    """Validate and return text from part, or raise ExecuteRequestError."""
+    """Validate and return text from part, or raise ExecuteRequestError.
+
+    Character length is checked after UTF-8 decode. *max_bytes* rejects a
+    part before that decode; the HTTP body cap is the right bound.
+    """
     if isinstance(raw, (bytes, bytearray)):
-        if len(raw) > limit * 4:
-            raise ExecuteRequestError(f"{label} exceeds max_code_chars ({limit}).", code="CODE_TOO_LARGE")
+        if max_bytes is not None and len(raw) > max_bytes:
+            raise ExecuteRequestError(f"{label} exceeds max body size ({max_bytes} bytes).", code="CODE_TOO_LARGE")
         if len(raw) == 0:
             if required:
                 raise ExecuteRequestError(f"Missing '{label}' string parameter.")
@@ -681,7 +697,7 @@ def _handle_execute(
     req_id = parts.req_id
 
     try:
-        code = _validate_source_text(parts.code, limit=settings.max_code_chars, label="code", required=True)
+        code = _validate_source_text(parts.code, limit=settings.max_code_chars, label="code", required=True, max_bytes=settings.max_body_bytes)
         assert code is not None
 
         if parts.has_session_id:
@@ -699,7 +715,7 @@ def _handle_execute(
         if mode != "shared" and session_id:
             raise ExecuteRequestError("session_id URL query parameter is only permitted with mode='shared'.")
 
-        init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False)
+        init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False, max_bytes=settings.max_body_bytes)
     except ExecuteRequestError as exc:
         return _error(start_response, "400 Bad Request", str(exc), code=exc.code, req_id=req_id)
 
@@ -762,17 +778,24 @@ def _handle_session_reset(
     deadline = _request_deadline(environ.get("compute.accept_time"), settings.default_timeout_sec)
 
     def _reset(start_t: float) -> list[bytes]:
-        result_payload = run_reset(session_id)
+        # reset_session defaults to 5s and used to ignore the accept-time
+        # deadline. Cap at that default; floor so a just-expired clock still returns.
+        remaining = deadline - time.monotonic()
+        timeout_sec = min(5.0, max(0.01, remaining))
+        result_payload = run_reset(session_id, timeout_sec=timeout_sec)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         status = result_payload.get("status") if isinstance(result_payload, dict) else None
         log.info("done /v1/session/reset id=%r session=%r status=%r duration=%.2fms", req_id, session_id, status, duration_ms)
 
         if isinstance(result_payload, dict) and result_payload.get("status") == "error":
-            infra = _infrastructure_status(result_payload)
-            # Worker reset failure is 500 Internal Server Error (server fault) unless an infra code
-            http_status = infra if infra is not None else "500 Internal Server Error"
-            _inject_req_id(result_payload, req_id)
-            return _start_json(start_response, http_status, result_payload)
+            # Unmapped reset failures are a server fault (500). Mapped codes
+            # (503, 413, 400) stay on the shared table.
+            return _send_execution_result(
+                start_response,
+                result_payload,
+                req_id,
+                error_status="500 Internal Server Error",
+            )
 
         ok_resp: dict[str, Any] = {"status": "ok"}
         return _start_json(start_response, "200 OK", _inject_req_id(ok_resp, req_id))
@@ -804,6 +827,9 @@ def _handle_vision(
 
     image_str = image_input if isinstance(image_input, (str, bytes, bytearray)) and image_input else None
     path_str = file_path if isinstance(file_path, str) and file_path.strip() else None
+
+    if image_str and path_str:
+        return _error(start_response, "400 Bad Request", "Provide image_b64 or file_path, not both.", code="INVALID_REQUEST", req_id=req_id)
 
     if not image_str and not path_str:
         return _error(start_response, "400 Bad Request", "Missing image input: either 'image_b64'/'image' (base64 string buffer) or 'file_path' (server path) is required.", req_id=req_id)

@@ -595,7 +595,6 @@ def test_vision_timeout_reuses_same_process(tmp_path) -> None:
         nxt = again.execute({"delay": 0}, timeout_sec=2)
         assert nxt.get("status") == "ok"
         assert nxt.get("pid") == pid
-        assert again.did_respawn is False
         pool.release_worker(again)
     finally:
         pool.shutdown()
@@ -620,10 +619,21 @@ def test_vision_timeout_kills_when_late_frame_never_arrives(tmp_path) -> None:
         nxt = again.execute({"delay": 0}, timeout_sec=2)
         assert nxt.get("status") == "ok"
         assert nxt.get("pid") != pid
-        assert again.did_respawn is True
         pool.release_worker(again)
     finally:
         pool.shutdown()
+
+
+def test_vision_worker_rejects_both_sources() -> None:
+    """file_path and a non-empty image buffer together is a client error."""
+    from compute_service.vision_worker import _handle_request
+
+    both = _handle_request({"id": "both", "file_path": "/tmp/x.png", "image_bytes": b"png"})
+    assert both.get("code") == "INVALID_REQUEST"
+
+    # Empty bytes are not a second source, so the file path is still attempted.
+    file_only = _handle_request({"id": "file-only", "file_path": "/no/such", "image_bytes": b""})
+    assert file_only.get("code") != "INVALID_REQUEST"
 
 
 def test_vision_worker_empty_bytes_not_missing_source() -> None:
