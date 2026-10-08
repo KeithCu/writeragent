@@ -644,6 +644,24 @@ def _serialize_result_impl(obj: Any) -> Any:
         if isinstance(obj, np_mod.timedelta64):
             return _temporal_cell_to_stdlib(obj, pd_mod)
     if pd_mod is not None:
+        def _pack_coerced_grid(grid: Any) -> Any:
+            # What was wrong: a frame under BINARY_MIN_CELLS took the list
+            # path, and _cell_for_json only rewrites None. numpy.bool_,
+            # np.int64, Decimal, and Fraction then failed the host unpickler.
+            # At >= 100 cells split_grid flatten already converts them. The
+            # container arm below already coerces; this branch did not.
+            # Why this works: _coerce_host_pickle_tree unwraps np.generic
+            # via .item(), float()s Decimal/Fraction, and maps pd.NA in
+            # _temporal_cell_to_stdlib before .item().
+            # Considered doing this inside _cell_for_json so every small
+            # list is pickle-safe. Not yet: that helper is also host_pack_data
+            # for small grids; _numpy_scalar_item().item() on datetime64 /
+            # timedelta64 is a nanosecond or day int, not the ISO or
+            # fractional-day value this function emits; pd.NA and temporal
+            # policy live here, and moving them would import pandas into
+            # payload_codec.
+            return child_pack_result(_coerce_host_pickle_tree(grid, pd_mod))
+
         if isinstance(obj, pd_mod.DataFrame):
             df: Any = obj
             columns = [_column_label(c) for c in df.columns]
@@ -654,6 +672,7 @@ def _serialize_result_impl(obj: Any) -> Any:
             # list-of-lists for mixed so strings/None go through the split_grid strings map
             # instead of the old per-row to_dict("records") which defeated binary envelopes.
             # datetime64/timedelta64 skip the numeric path — astype(float64) is Unix epoch, not ISO.
+
             if len(df) == 0 or len(df.columns) == 0:
                 data_part: Any = []
             else:
@@ -664,10 +683,10 @@ def _serialize_result_impl(obj: Any) -> Any:
                         data_part = child_pack_result(arr)
                     else:
                         grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
-                        data_part = child_pack_result(grid)
+                        data_part = _pack_coerced_grid(grid)
                 except Exception:
                     grid = [[_dataframe_cell(cell) for cell in row] for row in df.itertuples(index=False, name=None)]
-                    data_part = child_pack_result(grid)
+                    data_part = _pack_coerced_grid(grid)
             return {
                 "__wa_payload__": PAYLOAD_DATAFRAME,
                 "columns": columns,
@@ -685,9 +704,10 @@ def _serialize_result_impl(obj: Any) -> Any:
                     if kind is not None and _is_numeric_wire_kind(kind):
                         packed = child_pack_result(arr)
                     else:
-                        packed = child_pack_result([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
+                        # Same coerce as _pack_coerced_grid. tolist() keeps np.int64.
+                        packed = _pack_coerced_grid([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
                 except Exception:
-                    packed = child_pack_result([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
+                    packed = _pack_coerced_grid([_temporal_cell_to_stdlib(v, pd_mod) for v in s.tolist()])
             if name is not None:
                 return {
                     "__wa_payload__": PAYLOAD_DATAFRAME,

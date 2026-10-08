@@ -124,6 +124,7 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - A dataframe whose `data` is an ndarray counts as `data.size` cells. The old arm treated every non-list as one cell, so `describe_wire_value` logged `cells~1`
 - `host_unpack_data` keeps unrecognized dataframe keys (shallow copy, then replaces `data`). Rebuilding only `__wa_payload__` / `columns` / `data` used to drop them
 - A numeric `split_grid` with mixed `column_kinds` (int next to float, or bool next to int, empty `strings`) stays float64 in the child. Per-column Python types are restored on the host. The child casts only when every column is the same kind
+- DataFrame and Series object/extension bodies under `BINARY_MIN_CELLS` go through `_coerce_host_pickle_tree` before `child_pack_result`, same as the container arm. `_cell_for_json` still only rewrites `None`
 - When `strings == {}`, child unpack returns ndarray (pytest); when strings present, returns list (`@deal.ensure` on `child_unpack_split_grid`)
 - Jagged 2D grids raise `ValueError` via `@deal.raises` on `_flatten_grid_to_components`
 - `host_pack_multi_data` produces a multi_data envelope with one item per input grid

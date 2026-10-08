@@ -263,7 +263,7 @@ The split-grid codec is the project's reference Tier-0 verification target: `dea
 | `bool` | `0.0` / `1.0` | — |
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index |
 
-Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank).
+Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `serialize_result` runs `_coerce_host_pickle_tree` on list/dict results and on DataFrame/Series object grids before that pack.
 
 #### Child materialization (ingress, before CalcRange wrap)
 

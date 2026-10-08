@@ -316,6 +316,38 @@ def test_serialize_result_small_numeric_dataframe_spills_body():
     assert named_grid[1] == [pytest.approx(0.0)]
 
 
+def test_serialize_result_small_object_dataframe_is_host_pickleable():
+    """Object/extension frames under BINARY_MIN_CELLS must not leak unpickleable cells.
+
+    What was wrong: the list path left numpy.bool_, np.int64, Decimal, and
+    Fraction in the nested list, and _reject_host_unpickleable raised. The
+    same frames at or above 100 cells already succeeded via split_grid flatten.
+    """
+    from decimal import Decimal
+    from fractions import Fraction
+
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    nullable = serialize_result(pd.DataFrame({"a": pd.array([True, None], dtype="boolean")}))
+    assert nullable["data"] == [[True], [None]]
+    assert type(nullable["data"][0][0]) is bool
+
+    ints = serialize_result(pd.DataFrame({"a": [np.int64(1), np.int64(2)]}))
+    assert ints["data"] == [[1], [2]]
+    assert type(ints["data"][0][0]) is int
+
+    exact = serialize_result(pd.DataFrame({"d": [Decimal("1.5")], "f": [Fraction(1, 4)]}))
+    assert exact["data"] == [[1.5, 0.25]]
+    assert type(exact["data"][0][0]) is float
+    assert type(exact["data"][0][1]) is float
+
+    series = serialize_result(pd.Series([np.int64(3), np.int64(4)]))
+    assert series == [3, 4]
+    assert type(series[0]) is int
+
+
 def test_serialize_result_empty_dataframe_and_series():
     """0-row DataFrame / named empty Series → header-only envelope. Not a codec gap."""
     pd = pytest.importorskip("pandas")

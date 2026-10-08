@@ -2254,7 +2254,14 @@ def child_pack_result(
     force: ForceBinary = "auto",
     _depth: int = 0,
 ) -> Any:
-    """JSON-safe worker result: scalar/list as-is, ndarray as list or split_grid."""
+    """Pack a worker result. Not pickle-safe for every small-list cell.
+
+    Top-level NumPy scalars become builtin int/float/bool. An ndarray becomes a
+    list or a split_grid envelope. Inside a small list, ``_cell_for_json`` only
+    rewrites ``None``; ``np.int64``, ``Decimal``, and ``Fraction`` pass through.
+    ``serialize_result`` must run ``_coerce_host_pickle_tree`` on those
+    containers first. ``float('nan')`` stays NaN.
+    """
     # crosshair: off
     # pre/post are intentionally ``lambda: True``. serialization-verification.md:
     # dispatch wrappers keep a minimal contract; branch guarantees live in pytest.
