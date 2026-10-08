@@ -133,13 +133,20 @@ class PoolSingleton(Generic[_PoolT]):
                 self._pool = None
 
 
-def set_pdeathsig(sig: int = signal.SIGKILL) -> bool:
+def set_pdeathsig(sig: int | None = None) -> bool:
     """Set parent death signal on Linux via prctl so child worker terminates on hard host exit.
 
     Guarded so non-Linux platforms (macOS/Windows) safely return False without error.
+    Default signal is SIGKILL, looked up only on Linux.
     """
     if sys.platform != "linux":
         return False
+    # What was wrong: the default was signal.SIGKILL. Defaults are evaluated at
+    # import on every platform, and Windows has no SIGKILL, so ty (and a real
+    # import) failed before this guard. Why this works: the lookup runs only
+    # after the Linux return, same as venv_worker process-group kill.
+    if sig is None:
+        sig = signal.SIGKILL
     try:
         import ctypes
 
@@ -154,7 +161,7 @@ def set_pdeathsig(sig: int = signal.SIGKILL) -> bool:
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
     # Ensure worker subprocess terminates immediately if master HTTP process dies abruptly
-    set_pdeathsig(signal.SIGKILL)
+    set_pdeathsig()
 
     stdin_bin = sys.stdin.buffer
 

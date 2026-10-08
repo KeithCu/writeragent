@@ -234,14 +234,17 @@ def test_execute_respawn_respects_request_deadline() -> None:
 
 
 def test_set_pdeathsig() -> None:
-    import signal
     import sys
     from compute_service.worker_base import set_pdeathsig
 
     if sys.platform != "linux":
-        assert set_pdeathsig(signal.SIGKILL) is False
+        # SIGKILL is Unix-only; reading it here raises AttributeError on Windows.
+        assert set_pdeathsig() is False
     else:
+        import signal
+
         assert set_pdeathsig(signal.SIGKILL) is True
+        assert set_pdeathsig() is True
 
 
 def test_run_worker_stdio_loop_oversized_result_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
