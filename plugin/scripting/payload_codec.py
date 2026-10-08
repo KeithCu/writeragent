@@ -46,7 +46,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
     DEAL_MAX_SOURCE,
-    UNDER_CROSSHAIR,
+    _profile,
     ascii_bounded,
     deal,
     inverse_ensure,
@@ -66,16 +66,6 @@ _MAX_IMAGE_DEPTH = 12
 # int column. venv_worker catches this same tuple so a bad envelope after
 # the script has run is WORKER_IPC_ERROR, not a replay.
 _HOST_UNPACK_ERRORS = (ValueError, OverflowError, TypeError, AttributeError, KeyError)
-
-
-def _profile(crosshair_fn: Any, pytest_fn: Any) -> Any:
-    """Pick the contract predicate once at import.
-
-    Do not branch on ``UNDER_CROSSHAIR`` inside ``@deal.pre``; CrossHair would
-    explore both arms.
-    """
-    # crosshair: off  # import-time selector; covering both arms is the bug this avoids.
-    return crosshair_fn if UNDER_CROSSHAIR else pytest_fn
 
 
 def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
@@ -908,19 +898,36 @@ def cell_count(shape: tuple[int, ...]) -> int:
     return n
 
 
-def _deal_force_min_cells_ok(min_cells: object, force: object) -> bool:
+def _deal_force_min_cells_domain(min_cells: object, force: object, *, max_cells: int) -> bool:
     """Shared ``force`` / ``min_cells`` domain for policy and pack contracts.
 
     ``should_use_binary_envelope``, ``binary_envelope_skip_reason``,
     ``host_pack_data``, and ``host_pack_multi_data`` used to repeat this
     check. Each ``@deal.pre`` stays a keyword-default lambda so CrossHair's
-    call shape still matches. Do not branch on ``UNDER_CROSSHAIR`` here.
+    call shape still matches. The cap is chosen once via ``_profile``:
+    CrossHair keeps ``DEAL_MAX_SHAPE_DIM`` so the search domain stays small.
+    Pytest allows a cell-count threshold up to one full Calc column
+    (``DEAL_MAX_ROW_INDEX + 1``). ``DEAL_MAX_SHAPE_DIM`` (256) is a side
+    length; it rejected ``scripts/bench_serialization.py --min-cells 1000``.
     """
     return (
         force in ("auto", "always", "never")
         and isinstance(min_cells, int)
-        and 0 <= min_cells <= DEAL_MAX_SHAPE_DIM
+        and 0 <= min_cells <= max_cells
     )
+
+
+def _deal_force_min_cells_ok_crosshair(min_cells: object, force: object) -> bool:
+    return _deal_force_min_cells_domain(min_cells, force, max_cells=DEAL_MAX_SHAPE_DIM)
+
+
+def _deal_force_min_cells_ok_pytest(min_cells: object, force: object) -> bool:
+    return _deal_force_min_cells_domain(min_cells, force, max_cells=DEAL_MAX_ROW_INDEX + 1)
+
+
+_deal_force_min_cells_ok = _profile(
+    _deal_force_min_cells_ok_crosshair, _deal_force_min_cells_ok_pytest
+)
 
 
 @deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
@@ -1007,11 +1014,14 @@ def _is_numeric_coercible_impl(value: Any) -> bool:
     or _deal_return(*a, result=result) is True
 )
 def is_numeric_coercible(value: Any) -> bool:
-    """True when a cell is numeric-only for ``is_numeric_grid`` / ``np.array(list)`` paths.
+    """True when a cell may enter the numeric-grid / ``np.array(list)`` gate.
 
-    Non-empty strings are never coercible here — even ``\"02138\"`` parses as a float — so
-    mixed grids stay lists after child split_grid unpack (zip codes and labels preserved).
-    Empty strings match Calc empty cells (``None``).
+    The name is that gate, not "``float()`` succeeds". Non-empty strings are
+    never coercible here — even ``\"02138\"`` parses as a float — so mixed
+    grids stay lists after child split_grid unpack (zip codes and labels
+    preserved). Empty and whitespace strings return True because they match
+    Calc blanks. ``np.array(..., dtype=float64)`` still raises ``ValueError``
+    on them, and ``_child_unpack_single_data`` keeps the list in that case.
     """
     # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _is_numeric_coercible_impl(value)
@@ -1103,7 +1113,15 @@ def _cell_for_json(value: Any) -> Any:
 
 
 def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> None:
-    """Upgrade per-column numeric kind after a successful float(val) on the fast path."""
+    """Upgrade per-column numeric kind after a successful float(val) on the fast path.
+
+    Column state, shared with Cython ``_update_column_state`` (do not merge
+    the loops; the fast/slow split is the perf design):
+    ``0`` empty, ``1`` bool, ``2`` int, ``3`` float.
+    bool then int promotes to int (``True`` and ``1`` are both ``1.0``).
+    Any float promotes to float and stays there. Object, Decimal, and any
+    other numeric that already survived ``float()`` become float.
+    """
     # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
     st = column_states[c]
     if st == 3:
@@ -1278,14 +1296,23 @@ def _split_grid_row_width(row: Any) -> int:
     return len(row)
 
 
-def _validate_rectangular_grid(grid_2d: list[list[Any]], ncols: int) -> None:
-    """Reject jagged 2D grids before the flatten hot loop (Calc ranges are rectangular)."""
+def _validate_rectangular_grid(grid_2d: list[list[Any]]) -> int:
+    """Column count of a rectangular 2D grid.
+
+    Shape used to take ``len`` of the first row, then a second walk compared
+    every row to that width. One walk rejects a non-row and a jagged width
+    and returns the width. A release build has no deal pre on this path.
+    """
     # crosshair: off  # unbounded 2D grid (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with _deal_grid_ok.
-    for row in grid_2d:
+    if not grid_2d:
+        return 0
+    ncols = _split_grid_row_width(grid_2d[0])
+    for row in grid_2d[1:]:
         if _split_grid_row_width(row) != ncols:
             row_lens = [_split_grid_row_width(r) for r in grid_2d]
             log.error("payload_codec: uneven row lengths in 2D grid: %s", row_lens)
             raise ValueError(f"Uneven row lengths in data grid: {row_lens}")
+    return ncols
 
 
 def _iter_split_grid_cells(
@@ -1330,7 +1357,9 @@ def _flatten_grid_to_components(
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         nrows = len(grid_2d)
-        ncols = len(grid_2d[0]) if nrows > 0 else 0
+        # One walk: width and the rectangular check. The accelerator below
+        # must not see a jagged grid.
+        ncols = _validate_rectangular_grid(grid_2d)
         shape = [nrows, ncols]
     else:
         nrows = 1
@@ -1425,12 +1454,11 @@ def _flatten_grid_to_components(
 
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
-        # Bugfix: the rectangular check ran only on the stdlib branch. A native
-        # accelerator that padded or truncated jagged rows would skip the
-        # documented ValueError. Validate first. A short or long accelerator
-        # buffer raises inside the try so the existing except falls back to
-        # stdlib (buf_append still targets the original buffer).
-        _validate_rectangular_grid(grid_2d, ncols)
+        # Rectangular check already ran in _validate_rectangular_grid, before this
+        # accelerator. It used to run only on the stdlib branch, so a native
+        # packer could pad a jagged grid and skip the ValueError. A short or
+        # long accelerator buffer still raises inside the try so the except
+        # falls back to stdlib (buf_append still targets the original buffer).
         use_stdlib = True
         if fast_flatten_grid_2d is not None:
             rows = [list(row) if type(row) is tuple else row for row in grid_2d]
@@ -1677,8 +1705,10 @@ def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> 
             raise ValueError(f"split_grid b64 is not valid base64: {exc}") from exc
     else:
         raise ValueError("Missing payload binary buffer or b64 representation")
-    # is_split_grid accepts buffer bytes or a str b64, and b64decode returns
-    # bytes. memoryview / bytearray never arrive through that detector.
+    # Pack writes bytes. b64decode returns bytes. is_split_grid's deal pre
+    # rejects a bytearray or memoryview, but a release OXT strips deal, so
+    # this check is the rejection on that build too. Do not coerce them:
+    # a direct legacy caller gets TypeError instead of a decoded grid.
     if not isinstance(raw, bytes):
         raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'")
     if len(raw) % _FLOAT64_BYTES != 0:
@@ -1714,6 +1744,23 @@ def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) 
         # np.str_ is a str subclass. Host pickle has no NumPy, so store a plain str.
         strings[ik] = v if type(v) is str else str(v)
     return strings
+
+
+def _restore_cell(val: float, kind: str) -> Any:
+    """One split_grid cell from its column kind.
+
+    NaN stays NaN. Bool matches the uniform path: only exact 1.0 is True
+    (a raw 2.0 used to stay a float on the mixed branch). ``int(inf)`` raises
+    OverflowError, same as the uniform int path.
+    """
+    # crosshair: off  # mixed-cell restore; host_unpack_split_grid is already off.
+    if math.isnan(val):
+        return val
+    if kind == "bool":
+        return val == 1.0
+    if kind == "int":
+        return int(val)
+    return val
 
 
 @deal.pre(lambda envelope, *_unused, **__: _is_split_grid_envelope(envelope))
@@ -1759,13 +1806,9 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
         # Index the kind in the cell loop. A col_kind list of length len(buf)
         # was one Python object per cell and then thrown away.
         flat_list = [
-            strings[i] if i in strings else
-            (val if math.isnan(val) else (
-                # Bool matches the uniform path: only 1.0 is True. A raw 2.0
-                # used to fall through and stay a float on this branch.
-                (val == 1.0) if (kind := column_kinds[0 if is_1d else i % ncols]) == "bool" else
-                int(val) if kind == "int" else val
-            ))
+            strings[i]
+            if i in strings
+            else _restore_cell(val, column_kinds[0 if is_1d else i % ncols])
             for i, val in enumerate(buf)
         ]
 

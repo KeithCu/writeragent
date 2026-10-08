@@ -18,7 +18,15 @@ import math
 import operator
 from typing import Any, Callable, ClassVar, Iterator, cast
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import (
+    DEAL_MAX_SHAPE_DIM,
+    DEAL_MAX_TOKEN,
+    UNDER_CROSSHAIR,
+    _profile,
+    ascii_bounded,
+    deal,
+    str_bounded,
+)
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
 
 # Cover: 1×1 grid, int 0, 1-char ascii. Dim 4 / ±8 still ~2.3h (33211730747).
@@ -26,11 +34,6 @@ _DEAL_GRID_DIM = 1 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
 _DEAL_CELL_INT_ABS = 0 if UNDER_CROSSHAIR else 8
 _DEAL_CELL_STR_LEN = 1 if UNDER_CROSSHAIR else 4
 _DEAL_COL_NAME_LEN = _DEAL_CELL_STR_LEN if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-
-
-def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:
-    """Select CrossHair vs pytest contract predicate."""
-    return crosshair_fn if UNDER_CROSSHAIR else pytest_fn
 
 
 def _cells_of_row(row: Any) -> list[Any]:
@@ -265,6 +268,12 @@ class CalcRange:
         if copy is not None:
             kwargs["copy"] = copy
 
+        if not self._values:
+            # np.array([]) is shape (0,), while .shape is (0, 0). A 0-row
+            # range has no row to carry a column count, so both are (0, 0).
+            dt = np.float64 if dtype is None else dtype
+            return np.array([], dtype=dt, **kwargs).reshape(0, 0)
+
         if dtype is not None:
             return np.array(grid, dtype=dtype, **kwargs)
 
@@ -488,10 +497,12 @@ def materialize_calc_range(wire: Any) -> CalcRange:
         inner = wire.get("data")
         address = wire.get("address")
         addr = address.strip() if isinstance(address, str) and address.strip() else None
-        return CalcRange(_materialize_inner_grid(inner), address=addr)
+        # __init__ calls _materialize_inner_grid. Unpacking here first built
+        # the rectangular list, then __init__ walked every cell again.
+        return CalcRange(inner, address=addr)
 
     # Legacy / test wires: bare split_grid or nested list (no calc_range wrapper).
-    return CalcRange(_materialize_inner_grid(wire))
+    return CalcRange(wire)
 
 
 _deal_inner_grid_cell_ok = _profile(

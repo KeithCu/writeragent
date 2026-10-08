@@ -22,6 +22,12 @@ cdef extern from "Python.h":
 
 
 cdef inline void _update_column_state(list column_states, int c, object val):
+    # Column state, shared with payload_codec._flatten_update_column_state.
+    # Do not merge the Python and Cython loops.
+    #   0 empty, 1 bool, 2 int, 3 float.
+    #   bool then int -> int (True and 1 are both 1.0 in the buffer).
+    #   any float -> float, and float stays float.
+    #   object / Decimal / other numeric that already became a C double -> float.
     cdef int st = <int>column_states[c]
     cdef object dtype
     cdef object kind

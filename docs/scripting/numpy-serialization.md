@@ -690,7 +690,7 @@ A secondary series of high-impact, zero-dependency stdlib and NumPy micro-optimi
   Validate once via `_validate_rectangular_grid` before the stdlib cell loop. The hot loop uses `_iter_split_grid_cells` with direct `enumerate(row)` — no per-row length checks during flattening.
 
   ```python
-  _validate_rectangular_grid(grid_2d, ncols)
+  ncols = _validate_rectangular_grid(grid_2d)
   _stdlib_flatten_pass(_iter_split_grid_cells(grid_2d, is_2d=True))
   ```
 

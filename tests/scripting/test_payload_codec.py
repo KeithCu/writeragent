@@ -216,6 +216,48 @@ def test_child_pack_bool_ndarray_sets_column_kinds():
     assert back == [[True, False], [False, True]]
 
 
+def test_split_grid_bool_beside_float_stays_float_in_child():
+    """A bool column next to floats stays float64 in the child.
+
+    Host unpack restores True. =PY() sees 1.0. == treats True == 1.0, so
+    this checks type identity.
+    """
+    np = pytest.importorskip("numpy")
+    grid = [[1.5, True], [2.5, False]]
+    wire = host_pack_data(grid, force="always")
+    assert wire["column_kinds"] == ["float", "bool"]
+    child = child_unpack_data(wire)
+    assert isinstance(child, np.ndarray)
+    assert child.dtype == np.float64
+    assert type(child[0, 1].item()) is float
+    assert child[0, 1].item() == 1.0
+    assert type(child[1, 1].item()) is float
+    assert child[1, 1].item() == 0.0
+    host = host_unpack_data(wire)
+    assert host[0][1] is True
+    assert host[1][1] is False
+    assert type(host[0][0]) is float
+
+
+def test_decode_split_grid_buffer_rejects_non_bytes() -> None:
+    """bytearray and memoryview are TypeError, including when deal is stripped.
+
+    Pack and b64decode hand this helper bytes. Do not coerce a legacy buffer.
+    """
+    payload = array.array("d", [1.0]).tobytes()
+    base = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": "float64",
+        "shape": [1],
+        "strings": {},
+    }
+    for raw in (bytearray(payload), memoryview(payload)):
+        envelope = {**base, "buffer": raw}
+        with pytest.raises(TypeError, match="bytes-like"):
+            payload_codec._decode_split_grid_buffer(envelope, 1)
+    assert payload_codec._decode_split_grid_buffer({**base, "buffer": payload}, 1) == payload
+
+
 def test_split_grid_mixed_bool_int_column_becomes_int():
     """One column cannot be both bool and int. split_grid promotes to int.
 
@@ -545,9 +587,9 @@ def test_non_sequence_row_raises_valueerror() -> None:
     with pytest.raises(ValueError, match="not a list or tuple"):
         payload_codec._split_grid_row_width(3)
     with pytest.raises(ValueError, match="not a list or tuple"):
-        payload_codec._validate_rectangular_grid([[1, 2], 3], 2)
+        payload_codec._validate_rectangular_grid([[1, 2], 3])
     with pytest.raises(ValueError, match="not a list or tuple"):
-        payload_codec._validate_rectangular_grid([[1, 2], "ab"], 2)
+        payload_codec._validate_rectangular_grid([[1, 2], "ab"])
     for grid in ([[1, 2], 3], [[1, 2], "ab"]):
         expect_pre_or_body(lambda grid=grid: host_pack_data(grid), body_exc=ValueError)
         expect_pre_or_body(
