@@ -1459,14 +1459,24 @@ class TestSessionResetHttp:
         assert status.startswith("503")
         assert body.get("code") == "WORKER_POOL_BUSY"
 
-    def test_execute_worker_death_is_503(self) -> None:
+    def test_execute_worker_death_is_500(self) -> None:
+        """A crash or empty frame may have run the cell, so it is not a retryable 503."""
         def dead(**_kwargs):
             return {"status": "error", "code": "WORKER_CRASHED", "error": "died"}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=dead)
         status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-dead", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
+        assert status.startswith("500")
         assert body.get("code") == "WORKER_CRASHED"
+
+    def test_execute_empty_response_is_500(self) -> None:
+        def empty(**_kwargs):
+            return {"status": "error", "code": "EMPTY_RESPONSE", "error": "no frame"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=empty)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("500")
+        assert body.get("code") == "EMPTY_RESPONSE"
 
     def test_execute_timeout_stays_200(self) -> None:
         def timed_out(**_kwargs):
@@ -1790,7 +1800,7 @@ class TestSessionResetHttp:
                 b'{"image_b64":"abcd","timeout_ms":1e9999}',
                 path="/v1/vision",
             )
-            assert status.startswith("200")
+            assert status.startswith("501")
             assert body.get("code") == "VISION_SERVICE_DISABLED"
         finally:
             shutdown_vision_pool()
@@ -2672,4 +2682,179 @@ def test_isolated_mode_with_session_id_rejected() -> None:
         )
         assert status == "400 Bad Request"
         assert "session_id URL query parameter is only permitted with mode='shared'" in parsed.get("error", "")
+
+
+def test_header_deadline_fires_inside_handle() -> None:
+    """A request line that arrives after the accept deadline must not block for the per-recv timeout."""
+    from compute_service.server import DeadlineRequestHandler
+
+    client, server_sock = socket.socketpair()
+    try:
+        server_sock.settimeout(30)
+        rfile = server_sock.makefile("rb")
+        wfile = server_sock.makefile("wb", buffering=0)
+        handler = DeadlineRequestHandler.__new__(DeadlineRequestHandler)
+        handler.connection = server_sock
+        handler.rfile = rfile
+        handler.wfile = wfile
+        handler.client_address = ("127.0.0.1", 0)
+        handler.close_connection = True
+        handler.server = type("Srv", (), {"_accept_times": {id(server_sock): time.monotonic() - 100.0}})()
+        started = time.monotonic()
+        with pytest.raises(socket.timeout):
+            handler.handle()
+        assert time.monotonic() - started < 2.0
+    finally:
+        client.close()
+        server_sock.close()
+
+
+def test_slow_body_drip_is_408() -> None:
+    """One socket timeout per large read used to let a drip outlive the body deadline."""
+    from compute_service.server import _REQUEST_READ_TIMEOUT_SEC, _read_request_body
+
+    class _Drip:
+        def read1(self, _n: int) -> bytes:
+            time.sleep(0.3)
+            return b"x"
+
+        def read(self, n: int) -> bytes:
+            time.sleep(5)
+            return b"x" * n
+
+    statuses: list[str] = []
+
+    def start_response(status: str, _headers: list, _exc_info: Any = None) -> None:
+        statuses.append(status)
+
+    environ = {
+        "CONTENT_LENGTH": "100000",
+        "wsgi.input": _Drip(),
+        "compute.accept_time": time.monotonic() - _REQUEST_READ_TIMEOUT_SEC + 0.15,
+        "compute.connection": None,
+    }
+    started = time.monotonic()
+    body, err = _read_request_body(environ, ComputeSettings(), start_response)
+    assert time.monotonic() - started < 2.0
+    assert body is None
+    assert err is not None
+    assert statuses[0].startswith("408")
+
+
+def test_drain_restores_socket_timeout() -> None:
+    from compute_service.server import _drain_body_before_error
+
+    class _Conn:
+        def __init__(self) -> None:
+            self.timeout = 30.0
+
+        def gettimeout(self) -> float:
+            return self.timeout
+
+        def settimeout(self, value: float) -> None:
+            self.timeout = value
+
+    class _Body:
+        def read(self, n: int) -> bytes:
+            return b"x" * n
+
+    conn = _Conn()
+    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": conn, "wsgi.input": _Body()})
+    assert conn.timeout == 30.0
+
+
+def test_gated_does_not_start_response_twice() -> None:
+    """A failure after headers are sent must not call start_response again."""
+    calls: list[str] = []
+
+    def start_response(status: str, _headers: list, _exc_info: Any = None) -> None:
+        if calls:
+            raise AssertionError("start_response called twice")
+        calls.append(status)
+
+    def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+        return {"status": "ok", "result_json": b'{"status":"ok"}'}
+
+    app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+
+    def boom(environ: dict, start: Any, settings: ComputeSettings, _run: Any) -> list[bytes]:
+        del environ, settings
+        start("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
+        raise RuntimeError("after headers")
+
+    with patch("compute_service.server._handle_execute", boom):
+        out = b"".join(
+            app(
+                {
+                    "PATH_INFO": "/v1/execute",
+                    "REQUEST_METHOD": "POST",
+                    "QUERY_STRING": "",
+                    "CONTENT_LENGTH": "2",
+                    "wsgi.input": io.BytesIO(b"{}"),
+                },
+                start_response,
+            )
+        )
+    assert calls == ["200 OK"]
+    assert out == b""
+
+
+def test_sticky_cap_leaves_isolated_execute_free() -> None:
+    """workers=4 and ocr off leaves one sticky listener slot. Isolated execute uses the other gate."""
+    settings = ComputeSettings(workers=4, ocr_workers=0)
+    hold = threading.Event()
+    entered = threading.Event()
+
+    def execute_fn(**kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("session_id"):
+            entered.set()
+            assert hold.wait(timeout=5)
+        return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+    app = create_wsgi_app(settings, execute_fn=execute_fn)
+    body = json.dumps({"code": "result = 1", "mode": "shared"}).encode("utf-8")
+    sticky: list[tuple[str, str | None]] = []
+
+    def post_sticky() -> None:
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-hold")
+        sticky.append((status, parsed.get("code") if isinstance(parsed, dict) else None))
+
+    thread = threading.Thread(target=post_sticky)
+    thread.start()
+    try:
+        assert entered.wait(timeout=5)
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-next")
+        assert status.startswith("503")
+        assert parsed.get("code") == "WORKER_POOL_BUSY"
+        isolated, _iheaders, ibody = _wsgi_post(
+            app,
+            json.dumps({"code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+        )
+        assert isolated.startswith("200")
+        assert ibody.get("code") != "WORKER_POOL_BUSY"
+    finally:
+        hold.set()
+        thread.join(timeout=5)
+    assert sticky and sticky[0][0].startswith("200")
+
+
+def test_invalid_base64_and_params_are_400() -> None:
+    fake_pool = MagicMock()
+    fake_pool.execute.return_value = {"id": "b64", "status": "error", "code": "INVALID_BASE64", "error": "bad"}
+    app = create_wsgi_app(ComputeSettings(ocr_workers=1))
+    payload = json.dumps({"id": "b64", "image_b64": "!!!!"}).encode("utf-8")
+    with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+    assert status.startswith("400")
+    assert body.get("code") == "INVALID_BASE64"
+
+    params_app = create_wsgi_app(ComputeSettings())
+    status, _headers, body = _wsgi_post(
+        params_app,
+        json.dumps({"image_b64": "YQ==", "params": ["nope"]}).encode("utf-8"),
+        path="/v1/vision",
+    )
+    assert status.startswith("400")
+    assert body.get("code") == "INVALID_REQUEST"
 

@@ -21,8 +21,8 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer
-from typing import Any, Callable
-from wsgiref.simple_server import WSGIRequestHandler, WSGIServer
+from typing import Any, Callable, cast
+from wsgiref.simple_server import ServerHandler, WSGIRequestHandler, WSGIServer
 
 # Ensure repo root is on sys.path to resolve plugin.* / compute_service imports
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -64,17 +64,56 @@ _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # VISION_POOL_BUSY is that miss on /v1/vision (lease wait expired, no
 # worker). The route's accept-deadline pre-check is already 503; this code
 # was not in the set, so the same miss came back HTTP 200.
+# WORKER_CRASHED and EMPTY_RESPONSE are not in this set: the cell may have
+# run (OOM, segfault, missing frame). 503 would invite a retry that kills
+# another worker. Those codes are HTTP 500.
 _POOL_UNAVAILABLE = frozenset({
     "WORKER_POOL_BUSY",
     "SERVICE_SHUTDOWN",
-    "WORKER_CRASHED",
     "WORKER_SPAWN_FAILED",
     "WORKER_PIPE_BROKEN",
-    "EMPTY_RESPONSE",
     "QUEUE_TIMEOUT",
     "VISION_POOL_BUSY",
     "VISION_UNAVAILABLE",
 })
+_POOL_FAILED = frozenset({
+    "WORKER_CRASHED",
+    "EMPTY_RESPONSE",
+})
+# Client input the vision pool rejects after the body is parsed.
+_CLIENT_REJECT = frozenset({
+    "INVALID_BASE64",
+    "INVALID_IMAGE",
+    "MISSING_IMAGE_SOURCE",
+})
+# OCR is configured off. Not a transient miss, so no Retry-After.
+_NOT_IMPLEMENTED = frozenset({
+    "VISION_SERVICE_DISABLED",
+})
+
+
+def listener_thread_count(max_threads: int | None) -> int:
+    """Listener threads for one ``WSGIDualStackServer``.
+
+    ``None`` is the class default of 16. A configured count keeps four spare
+    threads and never goes below 8. ``create_wsgi_app`` uses the same number
+    so the sticky cap cannot drift from the accept pool.
+    """
+    if max_threads is None:
+        return 16
+    return max(8, (max_threads or 2) + 4)
+
+
+def sticky_listener_slots(settings: ComputeSettings) -> int:
+    """How many sticky execute / session-reset requests may hold a listener.
+
+    Isolated execute holds at most ``settings.workers`` threads and vision
+    holds ``max(1, ocr_workers)`` (the vision semaphore exists even when OCR
+    is off). Two listeners stay free for ``GET /health``.
+    """
+    vision_permits = max(1, settings.ocr_workers)
+    spare = listener_thread_count(settings.threads) - 2 - settings.workers - vision_permits
+    return max(1, spare)
 
 ExecuteFn = Callable[..., dict[str, Any]]
 ResetFn = Callable[..., dict[str, Any]]
@@ -179,11 +218,22 @@ def _error(
 
 
 def _infrastructure_status(payload: dict[str, Any]) -> str | None:
-    """Map compute/worker infrastructure failure codes to 503 Service Unavailable."""
-    if payload.get("status") == "error":
-        code = payload.get("code")
-        if code in _POOL_UNAVAILABLE:
-            return "503 Service Unavailable"
+    """Map a worker payload to an HTTP status, or None to keep 200.
+
+    503 is only the miss-and-retry set. A crash or empty frame is 500.
+    Bad vision input is 400. OCR disabled is 501.
+    """
+    if payload.get("status") != "error":
+        return None
+    code = payload.get("code")
+    if code in _POOL_UNAVAILABLE:
+        return "503 Service Unavailable"
+    if code in _POOL_FAILED:
+        return "500 Internal Server Error"
+    if code in _CLIENT_REJECT:
+        return "400 Bad Request"
+    if code in _NOT_IMPLEMENTED:
+        return "501 Not Implemented"
     return None
 
 
@@ -231,11 +281,14 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
     except (TypeError, ValueError):
         return
     conn = environ.get("compute.connection")
+    previous_timeout: float | None = None
     if conn is not None:
         try:
+            raw_timeout = conn.gettimeout()
+            previous_timeout = float(raw_timeout) if isinstance(raw_timeout, (int, float)) else None
             conn.settimeout(1.0)
         except Exception:
-            pass
+            previous_timeout = None
     try:
         to_drain = min(content_length, max_bytes)
         wsgi_input = environ.get("wsgi.input")
@@ -243,6 +296,13 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
             wsgi_input.read(to_drain)
     except Exception:
         pass
+    finally:
+        # The 1s drain budget must not become the write timeout for the error response.
+        if conn is not None and previous_timeout is not None:
+            try:
+                conn.settimeout(previous_timeout)
+            except Exception:
+                pass
 
 
 def _set_write_deadline(environ: dict[str, Any]) -> None:
@@ -332,6 +392,9 @@ def _read_request_body(
     chunks: list[bytes] = []
     bytes_read = 0
     buf_size = 64 * 1024
+    # read() can loop many recv()s under one timeout, so a slow drip outlives
+    # the deadline. read1() is one raw read; the timeout is then the time left.
+    read1 = getattr(wsgi_input, "read1", None)
 
     try:
         while bytes_read < content_length:
@@ -347,9 +410,10 @@ def _read_request_body(
                     pass
 
             to_read = min(buf_size, content_length - bytes_read)
-            chunk = wsgi_input.read(to_read)
-            if not chunk:
+            raw_chunk: Any = read1(to_read) if callable(read1) else wsgi_input.read(to_read)
+            if not isinstance(raw_chunk, (bytes, bytearray)) or not raw_chunk:
                 break
+            chunk = bytes(raw_chunk)
             chunks.append(chunk)
             bytes_read += len(chunk)
     except (TimeoutError, socket.timeout):
@@ -515,17 +579,33 @@ def _gated(
     *,
     busy_code: str,
     busy_message: str,
-    route_fn: Callable[[], list[bytes]],
+    route_fn: Callable[[Any], list[bytes]],
 ) -> list[bytes]:
-    """Execute route_fn guarded by auth, optional concurrency permit, try/finally, and 500 fallback."""
-    auth_resp = _authenticate_or_401(environ, settings, start_response)
+    """Execute route_fn guarded by auth, optional concurrency permit, try/finally, and 500 fallback.
+
+    ``route_fn`` receives the tracking ``start_response``. A second call is
+    illegal in wsgiref, so a failure after headers are sent is logged and
+    returns an empty body instead of another status line.
+    """
+    started = False
+
+    def _start(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> Any:
+        nonlocal started
+        started = True
+        # Pass exc_info only when set. Test doubles and some WSGI callers
+        # take (status, headers) and reject a trailing None.
+        if exc_info is not None:
+            return start_response(status, headers, exc_info)
+        return start_response(status, headers)
+
+    auth_resp = _authenticate_or_401(environ, settings, _start)
     if auth_resp is not None:
         return auth_resp
 
     if semaphore is not None and not semaphore.acquire(blocking=False):
         _drain_body_before_error(environ)
         return _error(
-            start_response,
+            _start,
             "503 Service Unavailable",
             busy_message,
             code=busy_code,
@@ -534,11 +614,13 @@ def _gated(
 
     try:
         try:
-            return route_fn()
+            return route_fn(_start)
         except Exception as e:
             path = environ.get("PATH_INFO", "")
             log.exception("fail %s: %s", path, e)
-            return _error(start_response, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR")
+            if started:
+                return []
+            return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR")
     finally:
         if semaphore is not None:
             semaphore.release()
@@ -723,7 +805,13 @@ def _handle_vision(
     if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
         return _error(start_response, "400 Bad Request", "file_path is not under ocr.allow_paths (default deny).", code="FILE_PATH_DENIED", req_id=req_id)
 
-    params = req_data.get("params") or {}
+    raw_params = req_data.get("params")
+    if raw_params is None:
+        params: dict[str, Any] = {}
+    elif isinstance(raw_params, dict):
+        params = raw_params
+    else:
+        return _error(start_response, "400 Bad Request", "params must be an object.", code="INVALID_REQUEST", req_id=req_id)
     vision_budget = float(clamp_timeout_sec(req_data.get("timeout_ms"), is_ms=True, default_timeout_sec=settings.ocr_timeout_sec, max_timeout_sec=settings.max_timeout_sec))
     vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
 
@@ -736,7 +824,7 @@ def _handle_vision(
             helper=helper,
             image=image_str,
             file_path=path_str,
-            params=params if isinstance(params, dict) else {},
+            params=params,
             timeout_sec=int(vision_budget),
             req_id=req_id,
             allow_paths=settings.ocr_allow_paths,
@@ -771,9 +859,11 @@ def create_wsgi_app(
     ``/v1/session/reset`` so config/auth startup does not pull WriterAgent
     ``plugin.framework.config``.
 
-    ``/v1/execute`` and ``/v1/session/reset`` share a non-blocking permit
-    count sized to allow sticky session queues without starving idle workers,
-    while reserving at least 2 listener threads for immediate ``GET /health``.
+    Isolated ``/v1/execute`` takes a permit sized to ``settings.workers``.
+    ``/v1/vision`` takes one sized to the vision pool. Sticky execute
+    (``?session_id=``) and ``/v1/session/reset`` take a separate permit sized
+    by ``sticky_listener_slots`` so those waits cannot fill the accept pool.
+    At least two listener threads stay free for ``GET /health``.
     ``worker_semaphore`` and ``vision_semaphore`` override those gates in tests.
     """
     run_execute = execute_fn
@@ -782,6 +872,7 @@ def create_wsgi_app(
         worker_semaphore = threading.Semaphore(settings.workers)
     if vision_semaphore is None:
         vision_semaphore = threading.Semaphore(max(1, settings.ocr_workers))
+    sticky_semaphore = threading.Semaphore(sticky_listener_slots(settings))
 
     def _get_execute() -> ExecuteFn:
         nonlocal run_execute
@@ -813,7 +904,9 @@ def create_wsgi_app(
                 has_session = bool(_parse_session_id(environ))
             except ExecuteRequestError:
                 has_session = False
-            route_sem = None if has_session else worker_semaphore
+            # Sticky waits on one worker. Cap those waits separately so they
+            # cannot occupy every listener the way a shared isolated permit did.
+            route_sem = sticky_semaphore if has_session else worker_semaphore
             return _gated(
                 environ,
                 start_response,
@@ -821,19 +914,20 @@ def create_wsgi_app(
                 route_sem,
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
-                route_fn=lambda: _handle_execute(environ, start_response, settings, _get_execute()),
+                route_fn=lambda start: _handle_execute(environ, start, settings, _get_execute()),
             )
 
         if path == "/v1/session/reset" and method == "POST":
-            # Session resets are per-session; do not hold global isolated permit
+            # Resets wait on one session. Same listener cap as sticky execute,
+            # not the isolated-worker permit.
             return _gated(
                 environ,
                 start_response,
                 settings,
-                None,
+                sticky_semaphore,
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
-                route_fn=lambda: _handle_session_reset(environ, start_response, settings, _get_reset()),
+                route_fn=lambda start: _handle_session_reset(environ, start, settings, _get_reset()),
             )
 
         if path == "/v1/vision" and method == "POST":
@@ -844,7 +938,7 @@ def create_wsgi_app(
                 vision_semaphore,
                 busy_code="VISION_POOL_BUSY",
                 busy_message="All vision workers are currently busy.",
-                route_fn=lambda: _handle_vision(environ, start_response, settings),
+                route_fn=lambda start: _handle_vision(environ, start, settings),
             )
 
         start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
@@ -860,17 +954,18 @@ def create_wsgi_app(
 class DualStackThreadPoolHTTPServer(HTTPServer):
     """HTTPServer that listens on both IPv4 and IPv6 loopback (or a single host) using a ThreadPoolExecutor.
 
-    The thread pool capacity is sized larger than the worker count (at least ``max(8, W + 4)`` threads).
-    ``/v1/execute`` and ``/v1/session/reset`` share a non-blocking semaphore sized to the
-    formula pool; ``/v1/vision`` has its own sized to the vision pool. Both gates run
-    before the request body is read. A miss is 503 Service Unavailable, so a full pool
-    does not hold a listener thread and does not consume the other pool's permits.
-    At least two listener threads stay available for immediate ``GET /health``.
+    The thread pool capacity is ``listener_thread_count`` (at least 8, else W+4).
+    Isolated ``/v1/execute`` and ``/v1/vision`` each have a non-blocking semaphore.
+    Sticky execute and ``/v1/session/reset`` share a smaller one. All three gates
+    run before the request body is read. A miss is 503 Service Unavailable, so a
+    full pool does not hold a listener thread and does not consume the other
+    pool's permits. At least two listener threads stay available for ``GET /health``.
     """
 
     request_queue_size: int = 128
     _dual_is_shut_down: threading.Event
     _dual_shutdown_request: bool
+    _serving: bool
     executor: ThreadPoolExecutor
     address_family: int
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
@@ -885,6 +980,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self.sockets: list[socket.socket] = []
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
+        self._serving = False
         self._accept_times: dict[int, float] = {}
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
 
@@ -977,6 +1073,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         return self.socket.fileno()
 
     def serve_forever(self, poll_interval: float = 0.5) -> None:
+        self._serving = True
         self._dual_is_shut_down.clear()
         listen = set(self.sockets)
         try:
@@ -1006,24 +1103,35 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                             self.process_request(conn, client_address)
                     self.service_actions()
         finally:
+            self._serving = False
             self._dual_shutdown_request = False
             self._dual_is_shut_down.set()
 
     def shutdown(self) -> None:
-        """Stop ``serve_forever`` (must be called from another thread while it is running)."""
+        """Stop ``serve_forever`` when it is running.
+
+        Waiting with the flag clear blocks forever if ``serve_forever`` was
+        never started. The signal path only calls this while the accept loop
+        is in ``_serving``.
+        """
         self._dual_shutdown_request = True
-        self._dual_is_shut_down.wait()
+        if self._serving:
+            self._dual_is_shut_down.wait()
 
     def process_request(self, request: Any, client_address: Any) -> None:
-        """Submit incoming request to the thread pool executor."""
+        """Submit incoming request to the thread pool executor.
+
+        A failed submit used to re-raise out of ``serve_forever`` and leave
+        the accept-time entry in place. Close the socket here and keep accepting.
+        """
         try:
             self.executor.submit(self.process_request_thread, request, client_address)
         except Exception:
+            log.exception("Failed to submit accepted connection")
             try:
-                request.close()
+                self.shutdown_request(request)
             except Exception:
-                pass
-            raise
+                log.exception("Failed to close accepted connection")
 
     def shutdown_request(self, request: Any) -> None:
         self._accept_times.pop(id(request), None)
@@ -1042,6 +1150,13 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 class DeadlineRequestHandler(WSGIRequestHandler):
     """WSGI request handler with total header read deadline and compute context logging."""
 
+    raw_requestline: bytes = b""
+    requestline: str = ""
+    request_version: str = ""
+    command: str = ""
+    _header_rfile_raw: Any = None
+    _header_orig_readinto: Any = None
+
     def setup(self) -> None:
         super().setup()
         try:
@@ -1049,12 +1164,45 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         except Exception:
             pass
 
-    def handle_one_request(self) -> None:
-        """Handle request with a total header-read deadline."""
+    def handle(self) -> None:
+        """Read the request line and headers under one deadline, then run the app.
+
+        ``WSGIRequestHandler.handle`` never calls ``handle_one_request``, so a
+        deadline installed there did not run. The patch stays off during the
+        app: a long calculation must not inherit the header clock.
+        """
+        self._install_header_deadline()
+        try:
+            self.raw_requestline = self.rfile.readline(65537)
+            if len(self.raw_requestline) > 65536:
+                self.requestline = ""
+                self.request_version = ""
+                self.command = ""
+                self.send_error(414)
+                return
+            if not self.parse_request():
+                return
+        finally:
+            self._clear_header_deadline()
+        handler = ServerHandler(
+            self.rfile,
+            cast("Any", self.wfile),
+            self.get_stderr(),
+            self.get_environ(),
+            multithread=False,
+        )
+        # request_handler is assigned by wsgiref at runtime; the stub omits it.
+        # get_app lives on WSGIServer, which this handler is only mounted on.
+        cast("Any", handler).request_handler = self
+        handler.run(cast("Any", self.server).get_app())
+
+    def _install_header_deadline(self) -> None:
         accept_time = getattr(self.server, "_accept_times", {}).get(id(self.connection))
         header_deadline = (float(accept_time) if accept_time is not None else time.monotonic()) + _REQUEST_READ_TIMEOUT_SEC
         rfile_raw: Any = getattr(self.rfile, "raw", None)
         orig_readinto = getattr(rfile_raw, "readinto", None) if rfile_raw is not None else None
+        self._header_rfile_raw = rfile_raw
+        self._header_orig_readinto = orig_readinto
 
         def _deadline_readinto(b: Any) -> int:
             now = time.monotonic()
@@ -1070,15 +1218,16 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 
         if rfile_raw is not None and callable(orig_readinto):
             rfile_raw.readinto = _deadline_readinto
+
+    def _clear_header_deadline(self) -> None:
+        rfile_raw = getattr(self, "_header_rfile_raw", None)
+        orig_readinto = getattr(self, "_header_orig_readinto", None)
+        if rfile_raw is not None and orig_readinto is not None:
+            rfile_raw.readinto = orig_readinto
         try:
-            super().handle_one_request()
-        finally:
-            if rfile_raw is not None and orig_readinto is not None:
-                rfile_raw.readinto = orig_readinto
-            try:
-                self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
-            except Exception:
-                pass
+            self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
+        except Exception:
+            pass
 
     def address_string(self) -> str:
         return str(self.client_address[0])
@@ -1102,7 +1251,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
     srv: Any
 
     def __init__(self, host: str, port: int, max_threads: int | None = None) -> None:
-        effective_threads = max(8, (max_threads or 2) + 4) if max_threads is not None else 16
+        effective_threads = listener_thread_count(max_threads)
         DualStackThreadPoolHTTPServer.__init__(
             self,
             (host, port),

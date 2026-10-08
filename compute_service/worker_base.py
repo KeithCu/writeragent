@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import OrderedDict
 from typing import IO, TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 if TYPE_CHECKING:
@@ -184,6 +185,8 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     _shutdown_requested = False
 
     def _sig_shutdown(signum: int, _frame: Any) -> None:
+        # sys.exit raises SystemExit. The request handler catches BaseException,
+        # so the flag is what turns that into a clean loop break.
         nonlocal _shutdown_requested
         _shutdown_requested = True
         sys.exit(0)
@@ -594,7 +597,8 @@ class BaseProcessPool:
         self.workers: list[BaseProcessWorker] = []
         self._is_shutdown = False
         self._lock = threading.RLock()
-        self._idle: set[BaseProcessWorker] = set()
+        # Oldest idle worker is first. Release moves a worker to the end.
+        self._idle: OrderedDict[BaseProcessWorker, None] = OrderedDict()
         # Leased, cold-claimed, or mid-recycle. A dead pid nobody holds is
         # not idle; the next lease respawns it. Recycle stays in this set
         # until respawn finishes, or lease_any treats that dead pid as free.
@@ -618,7 +622,7 @@ class BaseProcessPool:
                 # Idle only after the ready handshake. A failed spawn stays
                 # out of the idle set; the next lease respawns that slot.
                 if w.is_alive():
-                    self._idle.add(w)
+                    self._idle[w] = None
                     # Stamp after spawn. A timestamp taken before this loop made a
                     # slow handshake look already idle, so a short idle TTL killed
                     # the child as soon as the reaper ran.
@@ -653,23 +657,21 @@ class BaseProcessPool:
         now = time.monotonic()
         stale: list[BaseProcessWorker] = []
         with self._cond:
+            # One pass: drop dead pids, collect workers past the idle TTL.
+            # Removal happens before kill so lease_any cannot pop them.
             for w in list(self._idle):
                 if not w.is_alive():
+                    # Already exited. poll() inside is_alive reaped it. It is
+                    # not idle: the next lease performs the handshake.
+                    self._idle.pop(w, None)
                     continue
                 if self._skip_idle_evict(w):
                     continue
                 last_active = self._worker_last_active.get(w, now)
                 if now - last_active >= self.idle_worker_ttl_sec:
                     stale.append(w)
-            # Remove from idle set while holding the lock so lease_any()
-            # cannot pop a worker we are about to kill.
-            for w in list(self._idle):
-                if not w.is_alive():
-                    # Already exited. poll() inside is_alive reaped it. It is
-                    # not idle: the next lease performs the handshake.
-                    self._idle.discard(w)
             for w in stale:
-                self._idle.discard(w)
+                self._idle.pop(w, None)
         for w in stale:
             w.kill()
         # Do not put the killed process back in idle. Idle is a successful
@@ -698,7 +700,7 @@ class BaseProcessPool:
         claims that slot as cold and respawns it (handshake, then leased).
         """
         while self._idle:
-            worker = self._idle.pop()
+            worker, _unused = self._idle.popitem(last=False)
             if worker.is_alive():
                 return worker
         return None
@@ -747,7 +749,7 @@ class BaseProcessPool:
                 if self._is_shutdown:
                     return None
                 if worker in self._idle:
-                    self._idle.discard(worker)
+                    self._idle.pop(worker, None)
                     self._leased.add(worker)
                     return worker
                 # Process exit: not idle, but the slot can be respawned by execute.
@@ -821,7 +823,8 @@ class BaseProcessPool:
                 self._leased.discard(worker)
                 if worker.is_alive():
                     # The response frame was consumed and worker is alive: return to idle.
-                    self._idle.add(worker)
+                    self._idle[worker] = None
+                    self._idle.move_to_end(worker)
                     self._worker_last_active[worker] = time.monotonic()
                 self._cond.notify_all()
 
@@ -855,7 +858,8 @@ class BaseProcessPool:
                 # then this discard clears the lease that pop just took.
                 self._leased.discard(worker)
                 if not self._is_shutdown and worker.is_alive():
-                    self._idle.add(worker)
+                    self._idle[worker] = None
+                    self._idle.move_to_end(worker)
                     self._worker_last_active[worker] = time.monotonic()
                 elif self._is_shutdown:
                     kill_worker = True

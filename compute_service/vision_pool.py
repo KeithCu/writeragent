@@ -23,6 +23,18 @@ from compute_service.worker_base import BaseProcessPool, PoolSingleton, remainin
 
 log = logging.getLogger("compute_service.vision")
 
+
+def _decode_image_b64(image_input: str) -> bytes:
+    """Decode a base64 image, including whitespace and a ``data:`` URL prefix.
+
+    ``validate=True`` rejects whitespace, so it is stripped after the prefix.
+    """
+    text = image_input.strip()
+    if text.lower().startswith("data:") and "," in text:
+        text = text.split(",", 1)[1]
+    text = "".join(text.split())
+    return base64.b64decode(text, validate=True)
+
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "vision_worker.py")
 
@@ -73,7 +85,7 @@ class VisionProcessPool(BaseProcessPool):
                 image_bytes = bytes(image_input)
             elif isinstance(image_input, str):
                 try:
-                    image_bytes = base64.b64decode(image_input, validate=True)
+                    image_bytes = _decode_image_b64(image_input)
                 except Exception as exc:
                     return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
             else:
@@ -88,15 +100,16 @@ class VisionProcessPool(BaseProcessPool):
         if deadline is None:
             deadline = time.monotonic() + eff_timeout
 
-        with self.leased(timeout_sec=remaining_sec(deadline)) as worker:
-            if worker is None:
+        # remaining_sec floors at 0.01, so a deadline that has already passed
+        # still leased a worker and started OCR. A zero budget does not.
+        lease_budget = deadline - time.monotonic()
+        with self.leased(timeout_sec=max(0.0, lease_budget)) as worker:
+            if worker is None or time.monotonic() >= deadline:
                 return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
 
-            # Bugfix: Give the late-drain step its own timeout budget (Bug 3).
-            # What was wrong: leftover request budget (e.g. 0.01s after queue wait) was passed
-            # to worker.execute, which drained for only 0.01s and SIGKILLed a healthy OCR worker.
-            # Why this change: give drain a full default_timeout_sec budget to save the worker.
-            drain_timeout = max(remaining_sec(deadline), float(self.default_timeout_sec))
+            # Late drain gets a full OCR timeout, not the leftover request budget.
+            # A 0.01s drain used to SIGKILL a worker that was about to answer.
+            drain_timeout = float(self.default_timeout_sec)
             res = worker.execute(payload, timeout_sec=remaining_sec(deadline), drain_timeout_sec=drain_timeout)
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id

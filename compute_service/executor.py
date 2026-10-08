@@ -7,14 +7,7 @@
 from __future__ import annotations
 
 import hashlib
-import os
-import sys
 from typing import Any
-
-# Ensure repo root is on sys.path to resolve plugin.* imports
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
 
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 

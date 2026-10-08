@@ -1040,7 +1040,7 @@ class TestFormulaPoolSupervisor:
             assert worker is not None
             worker.kill()
             with pool._cond:
-                pool._idle.add(worker)
+                pool._idle[worker] = None
                 pool._leased.discard(worker)
                 pool._worker_last_active[worker] = time.monotonic() - 100.0
             pool._evict_idle_workers()
@@ -1393,7 +1393,7 @@ class TestFormulaHttpEndpoint:
                 assert picked is not None
                 assert picked is not shared_worker
                 # Put it back
-                pool._idle.add(picked)
+                pool._idle[picked] = None
         finally:
             pool.shutdown()
 
@@ -1411,7 +1411,7 @@ class TestFormulaHttpEndpoint:
                 assert len(pool._idle) == 2
                 picked = pool._pick_idle_worker()
                 assert picked is not None
-                pool._idle.add(picked)
+                pool._idle[picked] = None
         finally:
             pool.shutdown()
 
@@ -1619,7 +1619,7 @@ class TestFormulaHttpEndpoint:
             pool.shutdown()
 
     def test_worker_session_index(self) -> None:
-        """_worker_sessions stays in sync with _sessions for O(1) worker session lookup."""
+        """Session counts are derived from _sessions."""
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
             w1 = pool.workers[0]
@@ -1641,9 +1641,8 @@ class TestFormulaHttpEndpoint:
             assert pool._worker_session_count(w2) == 1
             assert pool._worker_sessions_for(w2) == ["s3"]
 
-            # Dropping one session updates index
             with pool._cond:
-                pool._drop_one_unlocked("s1")
+                pool._sessions.pop("s1", None)
 
             assert pool._worker_session_count(w1) == 1
             assert pool._worker_sessions_for(w1) == ["s2"]
@@ -1691,6 +1690,59 @@ class TestFormulaHttpEndpoint:
             # Released upon exiting context
             assert worker not in pool._leased
             assert worker in pool._idle
+        finally:
+            pool.shutdown()
+
+    def test_reap_keeps_unbound_reservation(self) -> None:
+        """A new session with pid None is not lost while its worker is still dead."""
+        from compute_service.formula_pool import _Session
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=5)
+        try:
+            worker = pool.workers[0]
+            worker.kill()
+            with pool._cond:
+                pool._sessions["pending"] = _Session(worker=worker, pid=None, last_active=time.monotonic())
+                pool._sessions["dead"] = _Session(worker=worker, pid=999999, last_active=time.monotonic())
+                pool._reap_dead_sessions_unlocked()
+                assert "pending" in pool._sessions
+                assert "pending" not in pool._lost_sessions
+                assert "dead" not in pool._sessions
+                assert "dead" in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
+    def test_expired_lease_budget_does_not_execute(self) -> None:
+        """Selecting a worker must not start the cell once the deadline has passed."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            warm = pool.execute(code="result = 1")
+            assert warm.get("status") == "ok"
+            worker = pool.workers[0]
+            called: list[str] = []
+            real_execute = worker.execute
+
+            def spy(payload: dict[str, Any], timeout_sec: float, **kwargs: Any) -> dict[str, Any]:
+                called.append("exec")
+                return real_execute(payload, timeout_sec, **kwargs)
+
+            setattr(worker, "execute", spy)
+            orig = pool._select_shared_worker
+
+            def slow(sid: str) -> tuple[Any, bool, bool]:
+                time.sleep(0.2)
+                return orig(sid)
+
+            setattr(pool, "_select_shared_worker", slow)
+            res = pool.execute(
+                code="result = 2",
+                session_id="budget-sid",
+                mode="shared",
+                deadline=time.monotonic() + 0.05,
+            )
+            assert res.get("code") == "QUEUE_TIMEOUT"
+            assert called == []
+            assert pool.live_session_worker("budget-sid") is None
         finally:
             pool.shutdown()
 

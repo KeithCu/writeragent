@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections import OrderedDict
 from unittest.mock import patch
 
 import pytest
@@ -509,7 +510,7 @@ class TestVisionHttpEndpoint:
         assert "Missing image input" in body["error"]
 
     def test_vision_endpoint_disabled_when_zero_workers(self) -> None:
-        """When ocr_workers=0 (the default), /v1/vision returns VISION_SERVICE_DISABLED without error."""
+        """When ocr_workers=0 (the default), /v1/vision returns HTTP 501 VISION_SERVICE_DISABLED."""
         port = get_free_port()
         settings = ComputeSettings(
             host="127.0.0.1",
@@ -531,7 +532,7 @@ class TestVisionHttpEndpoint:
                 {"id": "test-zero-workers", "helper": "extract_text", "image_b64": _TINY_PNG_B64},
                 headers={"Authorization": "Bearer vision-secret"},
             )
-            assert status == 200
+            assert status == 501
             assert body.get("id") == "test-zero-workers"
             assert body.get("status") == "error"
             assert body.get("code") == "VISION_SERVICE_DISABLED"
@@ -651,7 +652,7 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
 
         mock_worker.execute.side_effect = fake_exec
         with pool._cond:
-            pool._idle = {mock_worker}
+            pool._idle = OrderedDict([(mock_worker, None)])
 
         data = bytearray(b"dummy image bytes")
         res = pool.execute(helper="test", image_b64=data, req_id="bytearray-test")
@@ -659,6 +660,32 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
         assert payload_received is not None
         assert payload_received["image_bytes"] == b"dummy image bytes"
         assert isinstance(payload_received["image_bytes"], bytes)
+    finally:
+        pool.shutdown()
+
+
+def test_decode_image_b64_strips_whitespace_and_data_url() -> None:
+    from compute_service.vision_pool import _decode_image_b64
+
+    raw = base64.b64encode(b"hi").decode("ascii")
+    wrapped = "data:image/png;base64," + raw[:4] + "\n" + raw[4:]
+    assert _decode_image_b64(wrapped) == b"hi"
+
+
+def test_vision_expired_deadline_does_not_execute() -> None:
+    from unittest.mock import MagicMock
+
+    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1))
+    try:
+        mock_worker = MagicMock()
+        mock_worker.defer_release.return_value = False
+        mock_worker.tasks_executed = 0
+        mock_worker.execute.return_value = {"status": "ok"}
+        with pool._cond:
+            pool._idle = OrderedDict([(mock_worker, None)])
+        res = pool.execute(helper="test", image_b64=_TINY_PNG_B64, deadline=time.monotonic() - 1)
+        assert res.get("code") == "VISION_POOL_BUSY"
+        mock_worker.execute.assert_not_called()
     finally:
         pool.shutdown()
 
@@ -681,7 +708,7 @@ def test_vision_pool_execute_passes_drain_timeout_budget() -> None:
 
         mock_worker.execute.side_effect = fake_exec
         with pool._cond:
-            pool._idle = {mock_worker}
+            pool._idle = OrderedDict([(mock_worker, None)])
 
         # Deadline almost expired (remaining 0.05s)
         near_deadline = time.monotonic() + 0.05
