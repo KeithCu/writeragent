@@ -203,3 +203,59 @@ def test_parse_run_import_call_accepts_long_script():
 
     code = "x = 1\n" * (DEAL_MAX_SOURCE // 4)
     assert parse_run_import_call_spec(code, run_name="run") is None
+
+
+def test_script_uses_run_import_in_comment_not_matched():
+    # What was wrong: Substring search for run_name matched comments like "# run_vision(doc)",
+    # wrongly treating custom Python scripts as helper-domain scripts.
+    # Why this change: AST parsing ensures run_name is an actual function call, not comment text.
+    code = "# run_vision(data)\nresult = 42\n"
+    assert script_uses_run_import(code, run_name="run_vision") is False
+
+
+def test_prepend_run_import_document_bindings_after_shebang_and_future():
+    # What was wrong: Injected bindings prepended at index 0 broke Python shebangs,
+    # encoding declarations, and __future__ imports (which must precede other code).
+    # Why this change: _find_binding_insertion_line inserts after shebang, encoding, and __future__.
+    code = (
+        "#!/usr/bin/env python3\n"
+        "# -*- coding: utf-8 -*-\n"
+        "from __future__ import annotations\n"
+        "result = 1\n"
+    )
+    res = prepend_run_import_document_bindings(code, bindings={"val": None, "active": True})
+    lines = res.splitlines()
+    assert lines[0] == "#!/usr/bin/env python3"
+    assert lines[1] == "# -*- coding: utf-8 -*-"
+    assert lines[2] == "from __future__ import annotations"
+    assert lines[3].startswith("# Document inputs injected below")
+    assert "val = None" in res
+    assert "active = True" in res
+
+
+def test_build_helper_script_template_bare_data_only_for_injected_data():
+    # What was wrong: val == "data" in template params caused literal "data" strings
+    # for non-data parameters (like column="data") to be unquoted as bare variable references.
+    # Why this change: Only unquote when the parameter key is a known data/value/quantity arg.
+    template = build_helper_script_template(
+        tag="analysis",
+        helper="describe_data",
+        params={"column": "data", "data": "data"},
+        description="Describe",
+        style="run_import",
+        import_module="writeragent.scripting.analysis",
+        run_name="run_analysis",
+        data_expr="data",
+    )
+    assert "column='data'" in template
+    assert "data=data" in template
+
+
+def test_format_elapsed_time_boundary_rounding():
+    # What was wrong: 59.999s formatted as 60.00s instead of 1m 0s, and sub-second
+    # times like 0.999s could round up to seconds prematurely.
+    # Why this change: Round to 2 decimal places before testing >= 60.0, and keep >= 1.0 for seconds.
+    assert format_elapsed_time(59.999) == "1m 0s"
+    assert format_elapsed_time(59.994) == "59.99s"
+    assert format_elapsed_time(0.999) == "999 ms"
+

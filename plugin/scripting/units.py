@@ -148,6 +148,18 @@ def split_helper_params(params: dict[str, Any] | None) -> tuple[dict[str, Any], 
     return clean, output_style
 
 
+def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
+    """Extract units insertion kwargs (e.g. output_style) from script code."""
+    from plugin.scripting.helper_domain import parse_run_import_call_params
+
+    body_params = parse_run_import_call_params(code, run_name="run_units")
+    if body_params is not None:
+        _unused, output_style = split_helper_params(body_params)
+        if output_style is not None:
+            return {"output_style": output_style}
+    return {}
+
+
 def is_units_result(value: Any) -> bool:
     """True when *value* matches the compact units helper result contract."""
     if not isinstance(value, dict):

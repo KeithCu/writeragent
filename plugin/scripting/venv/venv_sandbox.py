@@ -1061,11 +1061,22 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
     # Fix: keep ``result`` in the namespace; use it for egress only when this cell
     # rebound it (identity change). On failure, restore the pre-cell value.
     prior_result = executor.state.get("result", _RESULT_MISSING)
+    token = None
     try:
-        from plugin.scripting.named_scripts import bind_named_scripts_executor
+        from plugin.scripting.named_scripts import (
+            bind_named_scripts_executor,
+            reset_named_scripts_executor,
+        )
 
-        bind_named_scripts_executor(executor)
-        code_output = executor(code)
+        token = bind_named_scripts_executor(executor)
+        try:
+            code_output = executor(code)
+        finally:
+            # What was wrong: ContextVar set by bind_named_scripts_executor was never reset,
+            # leaking stale executor references.
+            # How it happened: bind_named_scripts_executor lacked reset cleanup.
+            # Why this change: Reset the ContextVar using the token returned by bind.
+            reset_named_scripts_executor(token)
         _sync_custom_tools(executor)
 
         current = executor.state.get("result", _RESULT_MISSING)

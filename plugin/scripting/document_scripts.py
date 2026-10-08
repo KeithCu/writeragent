@@ -342,6 +342,14 @@ def attach_document_script(
             _("Script name cannot be empty."),
             DocumentScriptErrorCode.EMPTY_NAME,
         )
+    from plugin.scripting.domain_registry import is_reserved_script_name
+
+    # Reject names that collide with display prefixes (e.g. "[Doc] ", "[Vision] ")
+    if is_reserved_script_name(name):
+        return DocumentScriptError(
+            _("'{0}' starts with a reserved prefix.").format(name),
+            DocumentScriptErrorCode.RESERVED_NAME,
+        )
     # INIT is the hidden workbook init script in this same property map.
     # Saving it overwrites that body, and the picker hides the row.
     if is_calc_init_script_name(name):
@@ -634,6 +642,14 @@ def get_user_scripts() -> dict[str, str]:
 
 
 def save_user_script(name: str, code: str) -> None:
+    from plugin.scripting.domain_registry import is_reserved_script_name
+
+    # What was wrong: save_user_script did not reject names starting with reserved prefixes
+    # like "[Doc] ", causing collisions and confusing display keys in the script picker.
+    # How it happened: No prefix validation was performed when storing user scripts.
+    # Why this change: Validate against RESERVED_SCRIPT_PREFIXES and raise ValueError.
+    if is_reserved_script_name(name):
+        raise ValueError(f"Script name {name!r} starts with a reserved prefix")
     scripts = get_user_scripts()
     scripts[name] = code
     config.set_config("saved_python_scripts", scripts)

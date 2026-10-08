@@ -586,3 +586,80 @@ def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
 
     assert result == {"body": "x"}
     mock_exchange.assert_called_once_with("get_named_python_script", {"name": "Hello"})
+
+
+def test_extract_library_source_rejects_decorator_calls():
+    # What was wrong: Decorator expressions like @wa.x() execute at module load time,
+    # bypassing extract_library_source top-level statement stripping.
+    # Why this change: Function/Class decorators are scanned and rejected if they contain Call nodes.
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("@wa.x()\ndef f():\n    pass\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("@dec()\nclass C:\n    pass\n")
+
+
+def test_extract_library_source_rejects_default_arg_calls():
+    # What was wrong: Default arguments and kw_defaults evaluate when the function is defined
+    # at module import time, executing side-effects during library load.
+    # Why this change: Check function args.defaults and args.kw_defaults for Call nodes.
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("def f(x=wa.writer.read()):\n    pass\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("async def f(*, x=wa.writer.read()):\n    pass\n")
+
+
+def test_extract_library_source_rejects_annotation_calls():
+    # What was wrong: Type annotations (e.g. `x: wa.read()`) evaluate at function/class definition time.
+    # Why this change: Check parameter annotations, return annotations, and class annotations for Call nodes.
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("def f(x: wa.read()) -> None:\n    pass\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("def f() -> wa.read():\n    pass\n")
+
+
+def test_extract_library_source_rejects_class_body_non_def_assign():
+    # What was wrong: Arbitrary statements in class bodies (like `for`, `try`, expressions) run at class creation.
+    # Why this change: Only def/async def, class, assignments, pass, or docstrings are permitted in class bodies.
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("class C:\n    print('side effect')\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("class C:\n    for x in range(3):\n        pass\n")
+
+
+def test_script_library_dir_and_contains():
+    from plugin.scripting.named_scripts import ScriptLibrary
+
+    def fake_rpc(tool: str, **kwargs):
+        if tool == LIST_NAMED_PYTHON_SCRIPTS:
+            return {"user": ["my_func", "other-script"], "document": []}
+        return {}
+
+    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+        lib = ScriptLibrary("user")
+        d = dir(lib)
+        assert "my_func" in d
+        assert "other_script" in d
+        assert "my_func" in lib
+        assert "other-script" in lib
+        assert "nonexistent" not in lib
+
+
+def test_bind_and_reset_named_scripts_executor():
+    # What was wrong: The ContextVar token from bind_named_scripts_executor was never reset in finally blocks,
+    # causing executors to leak across subsequent tasks.
+    # Why this change: bind_named_scripts_executor returns token, reset_named_scripts_executor resets it.
+    from plugin.scripting.named_scripts import (
+        _current_executor,
+        bind_named_scripts_executor,
+        reset_named_scripts_executor,
+    )
+
+    from types import SimpleNamespace
+
+    sentinel_executor = SimpleNamespace()
+    orig = _current_executor.get()
+    token = bind_named_scripts_executor(sentinel_executor)
+    assert _current_executor.get() is sentinel_executor
+    reset_named_scripts_executor(token)
+    assert _current_executor.get() is orig
+

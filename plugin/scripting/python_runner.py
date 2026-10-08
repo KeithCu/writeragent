@@ -263,10 +263,20 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
                 return _early({"ok": False, "message": err})
 
     exec_code = code
-    bindings: dict[str, Any] | None = None
-    from plugin.scripting.helper_domain import parse_run_import_call_spec, script_uses_run_import
+    from plugin.scripting.helper_domain import (
+        parse_run_import_call_spec,
+        script_imports_module,
+        script_uses_run_import,
+    )
 
-    if is_writer(doc) and (script_uses_run_import(code, run_name="run_text_analytics") or "writeragent.scripting.text_analytics" in code):
+    # What was wrong: Substring check "writeragent.scripting.text_analytics" in code
+    # matched comments and docstrings, improperly prepending document bindings.
+    # How it happened: Direct substring search on raw source string.
+    # Why this change: Check imports via AST using script_imports_module.
+    if is_writer(doc) and (
+        script_uses_run_import(code, run_name="run_text_analytics")
+        or script_imports_module(code, "writeragent.scripting.text_analytics")
+    ):
         from plugin.scripting.helper_domain import prepend_run_import_document_bindings
         from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
 
@@ -305,7 +315,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
             "image_name": image_name,
             "exec_code": code,
             "py_data": {},
-            "bindings": {},
             "session_id": "",
         }
 
@@ -336,7 +345,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         "t0": t0,
         "exec_code": exec_code,
         "py_data": py_data,
-        "bindings": bindings,
         "session_id": rps_sid,
         "script_session_id": pin_token,
     }
@@ -386,7 +394,7 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
         prepared["ctx"],
         prepared["exec_code"],
         data=prepared["py_data"],
-        bindings=prepared["bindings"],
+        bindings=None,
         session_id=prepared["session_id"],
         script_session_id=prepared.get("script_session_id"),
     )
@@ -443,7 +451,13 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
         stdout = response.get("stdout")
 
         if result_data is None and not stdout:
-            return {"ok": True, "status_ok_text": _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time), "stdout": stdout, "result": result_data}
+            return {
+                "ok": True,
+                "status_ok_text": _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time),
+                "stdout": stdout,
+                "result": result_data,
+                "no_output": True,
+            }
 
         if doc:
             try:

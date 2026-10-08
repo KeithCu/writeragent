@@ -177,7 +177,13 @@ def _writeragent_imported_names(tree: ast.AST) -> set[str]:
 
 
 def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]:
-    """Literal params from ``helper(...)`` (units positional style and kwargs)."""
+    """Literal params from ``helper(...)`` (units positional style and kwargs).
+
+    What was wrong: The positional argument mapping for units (value/from/to, quantity, etc.)
+    was applied to all helpers, turning describe_data(data) into {"quantity": "data"}.
+    How it happened: Positional argument mapping was not restricted to units helpers.
+    Why this change: Only apply units positional mapping when helper is a recognized units helper.
+    """
     params: dict[str, Any] = {}
     if node.keywords and any(kw.arg is None for kw in node.keywords):
         for kw in node.keywords:
@@ -188,14 +194,14 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     for kw in node.keywords:
         if kw.arg is not None:
             params[kw.arg] = _literal_value(kw.value)
-    if node.args:
-        if len(node.args) == 3:
+    if node.args and helper in ("convert_quantity", "parse_quantity", "format_quantity", "check_dimensionality"):
+        if len(node.args) == 3 and helper == "convert_quantity":
             params.setdefault("value", _literal_value(node.args[0]))
             params.setdefault("from", _literal_value(node.args[1]))
             params.setdefault("to", _literal_value(node.args[2]))
-        elif len(node.args) == 1:
+        elif len(node.args) == 1 and helper in ("parse_quantity", "format_quantity"):
             params.setdefault("quantity", _literal_value(node.args[0]))
-        elif len(node.args) == 2:
+        elif len(node.args) == 2 and helper == "check_dimensionality":
             params.setdefault("quantity_a", _literal_value(node.args[0]))
             params.setdefault("quantity_b", _literal_value(node.args[1]))
     return {"helper": helper, "params": params}
@@ -207,11 +213,9 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
     """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
     if not code:
         return None
-    import sys
 
-    # CrossHair timing/contract switch, not a test leak. Optional later:
-    # deal_shim.is_crosshair_running() if more sites grow this probe.
-    if "crosshair" in sys.modules:
+    # CrossHair timing/contract switch, not a test leak.
+    if UNDER_CROSSHAIR:
         return None
     try:
         tree = ast.parse(code)
@@ -245,47 +249,69 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
     return direct_spec
 
 
-def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any]) -> str:
-    """Prepend literal variable assignments for host-injected Writer document inputs."""
-    if not bindings:
-        return code
-    lines = ["# Document inputs injected below — edit the run_*() call only."]
-    for name, value in bindings.items():
-        lines.append(f"{name} = {json.dumps(value, ensure_ascii=False)}")
-    lines.append("")
-    return "\n".join(lines) + code
+def _find_binding_insertion_line(code: str) -> int:
+    """Line index (0-based) where injected bindings should be inserted.
 
+    What was wrong: Prepending bindings at line 0 broke 'from __future__ import',
+    shebang, and coding headers, and shifted line numbers of the entire script.
+    How it happened: String concatenation prepended bindings before the first character of code.
+    Why this change: Insert bindings after any shebang (#!), coding comment,
+    module docstring, and __future__ imports so future statements remain valid.
+    """
+    lines = code.splitlines(keepends=True)
+    if not lines:
+        return 0
 
-def _source_calls_name(code: str, name: str) -> bool:
+    last_future_line = 0
     try:
         tree = ast.parse(code)
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+                end_line = getattr(node, "end_lineno", node.lineno)
+                if end_line > last_future_line:
+                    last_future_line = end_line
+            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                continue
+            else:
+                break
     except (SyntaxError, TypeError, ValueError):
-        return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name:
-            return True
-    return False
+        pass
+
+    if last_future_line > 0:
+        return min(last_future_line, len(lines))
+
+    idx = 0
+    in_future = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if i == 0 and line.startswith("#!"):
+            idx = i + 1
+            continue
+        if i < 2 and re.match(r"^#.*coding[:=]", stripped):
+            idx = i + 1
+            continue
+        if stripped.startswith("from __future__ import"):
+            in_future = True
+            idx = i + 1
+            if ")" in stripped or not ("(" in stripped or stripped.endswith("\\")):
+                in_future = False
+            continue
+        if in_future:
+            idx = i + 1
+            if ")" in stripped:
+                in_future = False
+            continue
+        break
+    return idx
 
 
-def script_uses_run_import(code: str, *, run_name: str) -> bool:
-    """True when *code* contains a call to *run_name*.
+def _binding_literal(val: Any) -> str:
+    """Format an injected document binding as Python code.
 
-    Direct helper calls are not this. Using the spec parser here treated
-    ``print("hi")`` as ``run_text_analytics`` and prepended the Writer body.
-    The substring fallback covers a call the AST cannot parse.
+    What was wrong: json.dumps emitted null, true, false which are NameErrors in Python.
+    How it happened: json.dumps was used instead of Python literal serialization.
+    Why this change: Format strings as JSON (double-quoted), True/False/None as Python keywords.
     """
-    if not code or not run_name:
-        return False
-    return _source_calls_name(code, run_name) or f"{run_name}(" in code
-
-
-# --- Templates ---
-
-
-def _python_literal(val: Any) -> str:
-    """Python source for a template argument. The string ``data`` is the range name."""
-    if val == "data":
-        return "data"
     if val is None:
         return "None"
     if val is True:
@@ -293,15 +319,119 @@ def _python_literal(val: Any) -> str:
     if val is False:
         return "False"
     if isinstance(val, str):
-        return repr(val)
-    if isinstance(val, float):
-        return repr(val)
-    if isinstance(val, int) and not isinstance(val, bool):
+        return json.dumps(val)
+    if isinstance(val, (int, float)):
         return repr(val)
     if isinstance(val, (list, tuple)):
-        return "[" + ", ".join(_python_literal(item) for item in val) + "]"
+        items = ", ".join(_binding_literal(item) for item in val)
+        return f"[{items}]" if isinstance(val, list) else f"({items}{',' if len(val) == 1 else ''})"
     if isinstance(val, dict):
-        parts = [f"{_python_literal(key)}: {_python_literal(item)}" for key, item in val.items()]
+        parts = [f"{_binding_literal(k)}: {_binding_literal(v)}" for k, v in val.items()]
+        return "{" + ", ".join(parts) + "}"
+    return repr(val)
+
+
+def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any]) -> str:
+    """Prepend literal variable assignments for host-injected Writer document inputs."""
+    if not bindings:
+        return code
+    lines = ["# Document inputs injected below — edit the run_*() call only."]
+    for name, value in bindings.items():
+        # What was wrong: json.dumps emitted null, true, false which are NameErrors in Python.
+        # How it happened: json.dumps was used instead of Python literal serialization.
+        # Why this change: Use _binding_literal to emit valid Python literals (None, True, False, json.dumps strings).
+        lines.append(f"{name} = {_binding_literal(value)}")
+    lines.append("")
+    injection = "\n".join(lines) + "\n"
+
+    split_idx = _find_binding_insertion_line(code)
+    code_lines = code.splitlines(keepends=True)
+    if split_idx == 0:
+        return injection + code
+    prefix = "".join(code_lines[:split_idx])
+    suffix = "".join(code_lines[split_idx:])
+    if not prefix.endswith("\n"):
+        prefix += "\n"
+    return prefix + injection + suffix
+
+
+def script_uses_run_import(code: str, *, run_name: str) -> bool:
+    """True when *code* contains a call to *run_name*.
+
+    What was wrong: The substring check f"{run_name}(" in code was evaluated even when
+    AST parsed cleanly, so comments like '# run_vision(' matched and hijacked the script into that domain.
+    How it happened: Unconditional OR between AST check and substring check.
+    Why this change: Use the substring fallback only when ast.parse raises SyntaxError.
+    """
+    if not code or not run_name:
+        return False
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        return f"{run_name}(" in code
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == run_name:
+            return True
+    return False
+
+
+def script_imports_module(code: str, module_name: str) -> bool:
+    """True when *code* imports *module_name* (import or from-import).
+
+    What was wrong: Raw substring search "writeragent.scripting.text_analytics" in code
+    matched comments and docstrings.
+    How it happened: python_runner.py used a substring check instead of AST import check.
+    Why this change: Parse AST to check if the module is actually imported,
+    falling back to substring only on SyntaxError.
+    """
+    if not code or not module_name:
+        return False
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        return module_name in code
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == module_name or alias.name.startswith(module_name + "."):
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == module_name:
+                return True
+            if node.module and module_name.startswith(node.module + "."):
+                sub = module_name[len(node.module) + 1 :]
+                for alias in node.names:
+                    if alias.name == sub:
+                        return True
+    return False
+
+
+
+# --- Templates ---
+
+
+def _python_literal(val: Any) -> str:
+    """Python source for a template parameter literal (repr-based).
+
+    What was wrong: val == "data" returned bare "data" for all string occurrences,
+    including dict keys and parameters like column="data", corrupting templates.
+    How it happened: _python_literal conflated the injected data variable name with the string "data".
+    Why this change: Return repr(val) for strings; bare data identifier is injected
+    only specifically for the data argument in build_helper_script_template.
+    """
+    if val is None:
+        return "None"
+    if val is True:
+        return "True"
+    if val is False:
+        return "False"
+    if isinstance(val, (int, float, str)):
+        return repr(val)
+    if isinstance(val, (list, tuple)):
+        items = ", ".join(_python_literal(item) for item in val)
+        return f"[{items}]" if isinstance(val, list) else f"({items}{',' if len(val) == 1 else ''})"
+    if isinstance(val, dict):
+        parts = [f"{repr(k) if isinstance(k, str) else _python_literal(k)}: {_python_literal(v)}" for k, v in val.items()]
         return "{" + ", ".join(parts) + "}"
     return repr(val)
 
@@ -324,10 +454,8 @@ def build_helper_script_template(
     invoke: str = "direct",
 ) -> str:
     """Build a Run Python Script template body."""
-    import sys
-
     # Symbolic dict → json.dumps CrossHair crash; empty JSON keeps template shape coverable.
-    if "crosshair" in sys.modules:
+    if UNDER_CROSSHAIR:
         params_json = "{}"
     elif compact_json:
         params_json = json.dumps(params, separators=(",", ":"))
@@ -349,9 +477,11 @@ def build_helper_script_template(
         raise ValueError("import_module required for style='run_import'")
     default_extra = extra_comment_lines or ("# Edit the call below, then Run.",)
 
-    def _format_param_val(val: Any) -> str:
-        # ``"data"`` is the injected range name, not a JSON string. json.dumps
-        # used to emit ``null`` / ``false``, which are not Python.
+    def _format_param_val(key: str, val: Any) -> str:
+        # Bare data identifier only for the injected data argument (data, value, quantity).
+        # Real string values like column="data" or dict keys must remain quoted.
+        if (key in ("data", "value", "quantity") and data_expr != "None") and val == "data":
+            return data_expr
         return _python_literal(val)
 
     pos_keys = positional_args or ()
@@ -360,9 +490,9 @@ def build_helper_script_template(
         parts.append(data_expr)
     for key in pos_keys:
         if key in params:
-            parts.append(_format_param_val(params[key]))
+            parts.append(_format_param_val(key, params[key]))
     kw_parts = [
-        f"{key}={_format_param_val(val)}"
+        f"{key}={_format_param_val(key, val)}"
         for key, val in params.items()
         if key not in pos_keys
     ]
@@ -391,10 +521,17 @@ def build_helper_script_template(
 
 
 def format_elapsed_time(seconds: float) -> str:
-    """Human-readable duration for RPS status lines."""
-    if seconds >= 60.0:
-        minutes = int(seconds // 60)
-        secs = int(seconds % 60)
+    """Human-readable duration for RPS status lines.
+
+    What was wrong: format_elapsed_time(59.999) returned "60.00s" instead of "1m 0s".
+    How it happened: seconds >= 60.0 checked unrounded seconds, while seconds >= 1.0 formatted
+    with .2f which rounded 59.999 to 60.00.
+    Why this change: Round seconds to 2 decimal places before checking >= 60.0.
+    """
+    if round(seconds, 2) >= 60.0:
+        rounded = round(seconds, 2)
+        minutes = int(rounded // 60)
+        secs = int(rounded % 60)
         return f"{minutes}m {secs}s"
     if seconds >= 1.0:
         return f"{seconds:.2f}s"
@@ -412,15 +549,8 @@ def _append_took(message: str, elapsed: float) -> str:
 
 
 def _elapsed_since(t0: float) -> float:
-    """Seconds since *t0*, or 0 while CrossHair is loaded.
-
-    ``perf_counter`` is NotDeterministic for the SMT solver. Outcome helpers
-    all need the same guard; repeating ``"crosshair" in sys.modules`` at each
-    site was the same check copied six times.
-    """
-    import sys
-
-    if "crosshair" in sys.modules:
+    """Seconds since *t0*, or 0 while CrossHair is loaded."""
+    if UNDER_CROSSHAIR:
         return 0.0
     return time.perf_counter() - t0
 
@@ -492,6 +622,27 @@ def rps_ok_outcome(
     return out
 
 
+def preview_insert_ok_outcome(
+    *,
+    domain_label: str,
+    helper: str,
+    preview_text: str,
+    t0: float,
+    stdout: str | None,
+    result: Any,
+) -> dict[str, Any]:
+    elapsed = _elapsed_since(t0)
+    formatted_time = format_elapsed_time(elapsed)
+    preview = preview_text[:80] + ("…" if len(preview_text) > 80 else "")
+    status_ok = _("{domain} '{helper}' completed. Inserted: {preview} (took {time})").format(
+        domain=domain_label,
+        helper=helper,
+        preview=preview,
+        time=formatted_time,
+    )
+    return rps_ok_outcome(status_ok, result=result, stdout=stdout)
+
+
 def plot_insert_ok_outcome(
     *,
     helper: str,
@@ -502,12 +653,11 @@ def plot_insert_ok_outcome(
 ) -> dict[str, Any]:
     elapsed = _elapsed_since(t0)
     formatted_time = format_elapsed_time(elapsed)
-    status_ok = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
+    msg = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
     if helper:
-        status_ok = _("Viz '{helper}' completed. {msg}").format(
-            helper=helper,
-            msg=_("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time),
-        )
+        status_ok = _("Viz '{helper}' completed. {msg}").format(helper=helper, msg=msg)
+    else:
+        status_ok = msg
     return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
 
@@ -519,15 +669,14 @@ def symbolic_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    elapsed = _elapsed_since(t0)
-    formatted_time = format_elapsed_time(elapsed)
-    preview = latex[:80] + ("…" if len(latex) > 80 else "")
-    status_ok = _("Math '{helper}' completed. Inserted: {preview} (took {time})").format(
+    return preview_insert_ok_outcome(
+        domain_label="Math",
         helper=helper,
-        preview=preview,
-        time=formatted_time,
+        preview_text=latex,
+        t0=t0,
+        stdout=stdout,
+        result=result,
     )
-    return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
 
 def units_insert_ok_outcome(
@@ -538,15 +687,14 @@ def units_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    elapsed = _elapsed_since(t0)
-    formatted_time = format_elapsed_time(elapsed)
-    preview = formatted[:80] + ("…" if len(formatted) > 80 else "")
-    status_ok = _("Units '{helper}' completed. Inserted: {preview} (took {time})").format(
+    return preview_insert_ok_outcome(
+        domain_label="Units",
         helper=helper,
-        preview=preview,
-        time=formatted_time,
+        preview_text=formatted,
+        t0=t0,
+        stdout=stdout,
+        result=result,
     )
-    return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
 
 # --- Host Facade Factory ---
@@ -574,7 +722,7 @@ class DomainFacadeConfig:
     leading_data: bool = False
     invoke: str = "direct"
     require_prefix: bool = True
-    on_bad_json: Literal["empty", "none", "raise"] = "raise"
+    on_bad_json: Literal["empty", "none", "raise"] = "empty"
 
 
 def make_template_api(cfg: DomainFacadeConfig) -> Any:
@@ -609,11 +757,11 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
         }
 
     def parse_header(code: str) -> HelperScriptMeta | None:
-        # If we explicitly configure require_prefix=False or on_bad_json, pass them
+        # Decouple helper_names from require_prefix
         return parse_helper_script_header(
             code,
             tag=cfg.tag,
-            helper_names=cfg.helper_names if cfg.require_prefix else None,
+            helper_names=cfg.helper_names,
             require_prefix=cfg.require_prefix,
             on_bad_json=cfg.on_bad_json,
         )
@@ -684,8 +832,8 @@ def run_trusted_calc_data_helper(
         try:
             bridge = CalcBridge(doc)
             context["sheet_name"] = bridge.get_active_sheet().getName()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to resolve active sheet name: %s", e)
         if task_hint:
             context["task_hint"] = str(task_hint)
         if dr:
