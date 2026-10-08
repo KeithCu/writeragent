@@ -1679,3 +1679,86 @@ def test_child_pack_namedtuple_of_ndarrays_is_plain_tuple() -> None:
     unpacked = host_unpack_data(Point(1, 2))
     assert type(unpacked) is tuple
     assert unpacked == (1, 2)
+
+
+def test_host_unpack_depth_cap_raises_before_recursion_error() -> None:
+    """The cap stays under the default recursion limit, so a cycle is ValueError."""
+    from plugin.scripting.payload_codec import _MAX_UNPACK_DEPTH
+
+    nested: object = 0
+    for unused in range(_MAX_UNPACK_DEPTH):
+        nested = [nested]
+    out = host_unpack_data(nested)
+    for unused in range(_MAX_UNPACK_DEPTH):
+        assert isinstance(out, list) and len(out) == 1
+        out = out[0]
+    assert out == 0
+
+    one_past: object = 0
+    for unused in range(_MAX_UNPACK_DEPTH + 1):
+        one_past = [one_past]
+    with pytest.raises(ValueError, match="maximum recursion depth"):
+        host_unpack_data(one_past)
+
+    cyclic: list[object] = []
+    cyclic.append(cyclic)
+    with pytest.raises(ValueError, match="maximum recursion depth"):
+        host_unpack_data(cyclic)
+
+
+def test_find_image_payloads_shared_image_and_wrapper() -> None:
+    """A shared image dict counts twice. A shared wrapper is walked once."""
+    from plugin.scripting.payload_codec import PAYLOAD_IMAGE, find_image_payloads
+
+    img = {"__wa_payload__": PAYLOAD_IMAGE, "data": b"png", "format": "png"}
+    assert find_image_payloads({"a": img, "b": img}) == [img, img]
+    box = {"image": img}
+    assert find_image_payloads({"a": box, "b": box}) == [img]
+
+
+def test_write_image_payload_to_temp_unlinks_when_write_fails() -> None:
+    """delete=False used to leave the file when data was not bytes."""
+    import os
+    import tempfile
+
+    from plugin.scripting.payload_codec import write_image_payload_to_temp
+
+    created: list[str] = []
+    real = tempfile.NamedTemporaryFile
+
+    def _tracking(*args, **kwargs):
+        tmp = real(*args, **kwargs)
+        created.append(tmp.name)
+        return tmp
+
+    with patch("plugin.scripting.payload_codec.tempfile.NamedTemporaryFile", _tracking):
+        with pytest.raises(TypeError):
+            write_image_payload_to_temp({"data": object(), "format": "png"})
+    assert len(created) == 1
+    assert not os.path.exists(created[0])
+
+
+def test_mixed_int_float_child_stays_float64_host_emits_ints() -> None:
+    """Empty-strings mixed kinds: child is one float64 view; host ints the int column.
+
+    normalize_for_oracle turns integral floats into int, so the A/B suite
+    does not catch this. A homogeneous ndarray cannot store both dtypes.
+    """
+    np = pytest.importorskip("numpy")
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": "float64",
+        "shape": [1, 2],
+        "buffer": array.array("d", [2.0, 1.5]).tobytes(),
+        "strings": {},
+        "column_kinds": ["int", "float"],
+    }
+    child = child_unpack_split_grid(envelope)
+    assert isinstance(child, np.ndarray)
+    assert child.dtype == np.float64
+    assert child.flags.writeable is False
+    assert float(child[0, 0]) == 2.0
+    assert float(child[0, 1]) == 1.5
+    host = host_unpack_split_grid(envelope)
+    assert host == [[2, 1.5]]
+    assert type(host[0][0]) is int

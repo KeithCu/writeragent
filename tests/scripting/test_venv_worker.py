@@ -791,8 +791,13 @@ def test_build_request_sets_heartbeat_on_trusted_action():
     assert request["data"]["domain"] == "embeddings_index"
 
 
-def test_bad_result_after_tool_call_does_not_replay(monkeypatch):
-    """host_unpack ValueError after a finished tool call must not resend the script."""
+@pytest.mark.parametrize("exc_type", [ValueError, OverflowError, TypeError])
+def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
+    """Unpack failures after a finished tool call must not resend the script.
+
+    ValueError was already caught. OverflowError (int(inf) on an int column)
+    and TypeError are on the same host-unpack contract and used to escape.
+    """
     import plugin.scripting.venv_worker as venv_worker_module
 
     mgr = PythonWorkerManager(sys.executable, {})
@@ -824,7 +829,7 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch):
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
     def _normalize(response):
-        raise ValueError("inconsistent split_grid")
+        raise exc_type("inconsistent split_grid")
 
     mgr._normalize_response = _normalize  # type: ignore[method-assign]
 

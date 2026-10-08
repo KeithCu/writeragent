@@ -709,7 +709,7 @@ A secondary series of high-impact, zero-dependency stdlib and NumPy micro-optimi
 * **The Bottleneck**:
   In `_apply_column_kinds_to_ndarray`, if the deserialized array contained mixed column types, the code used to clone the entire array (`out = arr.copy()`) and cast columns one-by-one (`out[:, c] = out[:, c].astype(np.int64)`). Because the overall `dtype` of the multi-column array is a homogeneous `float64`, assigning integer views back to it silently coerces them **back to float64** on assignment! This heavy copy and loop was a complete no-op that yielded no final array change while wasting CPU cycles and allocating duplicate memory blocks.
 * **The Solution**:
-  Directly return `arr` for mixed-column arrays. A homogeneous float64 array represents integer values perfectly up to $2^{53}$, avoiding heavy memory re-allocations.
+  Directly return `arr` for mixed-column arrays. A homogeneous float64 array represents integer values perfectly up to $2^{53}$, avoiding heavy memory re-allocations. Host unpack of that same envelope still emits Python `int` on an `int` column; the A/B oracle maps integral floats to `int`, so it does not see this difference. Do not switch the child to an object array to match the host.
   
   ```python
   # If it's a mixed 2D ndarray, it must remain float64 to hold float columns.

@@ -22,8 +22,10 @@ docs/scripting/serialization-verification.md. Do not strip them, and do not
 split pack/unpack without serialization A/B tests
 (docs/scripting/numpy-serialization.md).
 
-Depth caps differ on purpose. ``_MAX_UNPACK_DEPTH`` (1000) bounds recursive
-unpack. ``find_image_payloads`` stops at 12 because image trees are shallow
+Depth caps differ on purpose. ``_MAX_UNPACK_DEPTH`` (128) bounds recursive
+unpack and pack. It stays well under CPython's default recursion limit
+(~1000) so a cycle raises ``ValueError`` here instead of ``RecursionError``.
+``find_image_payloads`` stops at 12 because image trees are shallow
 (past that it returns ``[]``). The venv ``_CUSTOM_SERIALIZE_MAX_DEPTH`` (8)
 bounds custom-type walks and then treats the value as a plain container.
 """
@@ -52,7 +54,14 @@ from plugin.framework.deal_shim import (
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
 # Naming a positional parameter ``result`` then raises TypeError (multiple values). Keep ``result`` keyword-only.
 _DEAL_RETURN = object()
-_MAX_UNPACK_DEPTH = 1000
+# Below the default recursion limit (~1000) so this ValueError is reached
+# before RecursionError. No identity set on pack/unpack: that would skip a
+# shared subtree (see find_image_payloads).
+_MAX_UNPACK_DEPTH = 128
+# host_unpack_data's contract, including OverflowError from int(inf) on an
+# int column. venv_worker catches this same tuple so a bad envelope after
+# the script has run is WORKER_IPC_ERROR, not a replay.
+_HOST_UNPACK_ERRORS = (ValueError, OverflowError, TypeError, AttributeError, KeyError)
 
 
 def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
@@ -549,6 +558,10 @@ def find_image_payloads(
     """Recursively find all image payloads in the object.
 
     Depth and an identity set stop a cyclic result from blowing the stack.
+    The set is checked on containers, after an image payload is returned, so
+    two keys pointing at the same image dict both count. A container already
+    visited (a shared wrapper, or a cycle) is skipped, so that wrapper's
+    images are reported once.
     """
     # crosshair: off  # recursive Any dict/list (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     # 12, not _MAX_UNPACK_DEPTH: image trees are shallow. Deeper returns []
@@ -586,12 +599,30 @@ def image_payload_suffix(payload: dict[str, Any]) -> str:
 
 
 def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
-    """Write image bytes from *payload* to a persistent temp file; return absolute path."""
+    """Write image bytes from *payload* to a persistent temp file; return absolute path.
+
+    The caller owns a successful path (Calc egress unlinks after GraphicURL
+    loads). A failed write removes the file this function created.
+    """
     # crosshair: off  # tempfile/filesystem (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a bytes/format domain.
     suffix = image_payload_suffix(payload)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(payload["data"])
-        return os.path.abspath(tmp.name)
+    path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            path = tmp.name
+            tmp.write(payload["data"])
+            return os.path.abspath(tmp.name)
+    except Exception:
+        # What was wrong: delete=False left the file when write raised
+        # (data was not bytes). How: the with-block closed it and the
+        # exception propagated. Why: this function created the file, so a
+        # failed write should not leak it. A successful path stays for the caller.
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        raise
 
 
 
@@ -1682,7 +1713,7 @@ _deal_host_unpack_wire_ok = (
 
 
 @deal.pre(lambda wire, *_unused, **__: _deal_host_unpack_wire_ok(wire))
-@deal.raises(ValueError, TypeError, AttributeError, KeyError)
+@deal.raises(*_HOST_UNPACK_ERRORS)
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, dataframe, calc_range)."""
     # crosshair: off
@@ -1796,6 +1827,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             log.debug("payload_codec child_unpack split_grid optimized -> ndarray shape=%s dtype=%s", arr.shape, arr.dtype)
             # Pure-numeric fast path: return ndarray directly (frombuffer + reshape + column casts).
             # This is the C-speed materialization contract for split_grid with no strings.
+            # Uniform float and mixed-kind columns return that frombuffer view, which is
+            # read-only. astype (int) and == (bool) already allocate a writable array.
+            # Do not .copy() here; CalcRange.to_numpy() is the writable copy for =PY().
             # Callers that need Python lists (e.g. host egress) do their own conversion.
             # Mixed grids (strings present) go through the tolist + _to_py path below.
             return arr

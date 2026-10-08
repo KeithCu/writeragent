@@ -42,7 +42,7 @@ from plugin.scripting.ipc import (
     read_frame_payload,
     unpack_pickle_frame,
 )
-from plugin.scripting.payload_codec import host_unpack_data
+from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
 from plugin.scripting.sandbox import (
     optimize_popen_pipes,
     resolve_libreoffice_python,
@@ -801,9 +801,13 @@ class PythonWorkerManager:
                     # host_unpack_data runs after the script has finished. A bad
                     # envelope used to hit the outer handler and replay the
                     # request, so a tool call that already mutated the document
-                    # ran twice.
+                    # ran twice. The catch is the unpack contract, not only
+                    # ValueError: int(inf) on an int column is OverflowError,
+                    # and a bad shape can be TypeError, AttributeError, or
+                    # KeyError. Those miss the outer replay tuple and used to
+                    # escape as an uncaught exception.
                     return self._normalize_response(response)
-                except ValueError as e:
+                except _HOST_UNPACK_ERRORS as e:
                     log.warning("Python worker result rejected (not replaying): %s", e)
                     return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}")
             except _StopRequested:
