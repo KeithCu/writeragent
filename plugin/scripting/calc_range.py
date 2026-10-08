@@ -545,7 +545,11 @@ _deal_materialize_inner_ok = _profile(_deal_materialize_inner_ok_crosshair)
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``."""
     # crosshair: off  # Any/numpy/split_grid combinatorics; tiny list domain later (cover-all 33258921875: 575k lines)
-    from plugin.scripting.payload_codec import child_unpack_data, is_split_grid
+    from plugin.scripting.payload_codec import (
+        _numpy_scalar_item,
+        child_unpack_data,
+        is_split_grid,
+    )
 
     if isinstance(inner, CalcRange):
         return [list(row) for row in inner.values]
@@ -567,30 +571,24 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
         if isinstance(unpacked, np.ndarray):
             if unpacked.ndim == 0:
                 val = unpacked.item()
-                return [[_scalar(val) if unpacked.dtype == object else val]]
-            # What was wrong: _scalar imported numpy on every cell even for non-object arrays.
-            # Why this change: tolist() already returns native Python values for non-object arrays.
+                return [[_numpy_scalar_item(val) if unpacked.dtype == object else val]]
+            # What was wrong: unwrapping imported numpy on every cell even for
+            # non-object arrays. Why this change: tolist() already returns
+            # native Python values for non-object arrays.
             if unpacked.dtype != object:
                 raw_list = unpacked.tolist()
                 if unpacked.ndim == 1:
                     return [raw_list]
                 return raw_list
             if unpacked.ndim == 1:
-                return [[_scalar(v) for v in unpacked.tolist()]]
-            return [[_scalar(c) for c in row] for row in unpacked.tolist()]
+                return [[_numpy_scalar_item(v) for v in unpacked.tolist()]]
+            return [[_numpy_scalar_item(c) for c in row] for row in unpacked.tolist()]
     except ImportError:
         pass
 
     if isinstance(unpacked, (list, tuple)):
         return ensure_rectangular_2d(unpacked)
     return ensure_rectangular_2d([[unpacked]])
-
-
-def _scalar(v: Any) -> Any:
-    """Unwrap one object-array cell. Same NumPy-scalar step as ``payload_codec._to_py``."""
-    from plugin.scripting.payload_codec import _numpy_scalar_item
-
-    return _numpy_scalar_item(v)
 
 
 def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:

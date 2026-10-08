@@ -483,6 +483,57 @@ def test_non_sequence_row_raises_valueerror() -> None:
         )
 
 
+def test_child_unpack_non_sequence_row_raises_valueerror() -> None:
+    """[[1, 2], 3] is ValueError, not TypeError from list(row) or len(row).
+
+    _child_unpack_single_data and wire_cell_count have no grid pre, so deal
+    did not hide the TypeError. is_numeric_grid's pre rejects the grid; the
+    stripped body must still raise ValueError.
+    """
+    from tests.harness.strip_bundle import expect_pre_or_body
+
+    for grid in ([[1, 2], 3], [[1, 2], "ab"]):
+        with pytest.raises(ValueError, match="not a list or tuple") as caught:
+            child_unpack_data(grid)
+        assert type(caught.value) is ValueError
+        with pytest.raises(ValueError, match="not a list or tuple") as counted:
+            wire_cell_count(grid)
+        assert type(counted.value) is ValueError
+        expect_pre_or_body(lambda grid=grid: is_numeric_grid(grid), body_exc=ValueError)
+
+
+def test_split_grid_bad_b64_raises_valueerror() -> None:
+    """A bad legacy b64 is ValueError, not binascii.Error or UnicodeEncodeError.
+
+    What was wrong: both subclass ValueError, and deal.raises matches exact
+    types, so the failure became RaisesContractError (AssertionError).
+    """
+    import base64
+
+    raw = array.array("d", [1.5]).tobytes()
+    good = base64.b64encode(raw).decode("ascii")
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [1],
+        "dtype": "float64",
+        "column_kinds": ["float"],
+        "strings": {},
+    }
+    good_env = {**envelope, "b64": good}
+    assert host_unpack_split_grid(good_env) == [1.5]
+    pytest.importorskip("numpy")
+    child = child_unpack_split_grid(good_env)
+    assert float(child[0]) == pytest.approx(1.5)
+
+    junk = good[:4] + "!" + good[4:]
+    for bad in ("!!!!", "abc", junk, "café"):
+        bad_env = {**envelope, "b64": bad}
+        for unpack in (host_unpack_split_grid, child_unpack_split_grid):
+            with pytest.raises(ValueError, match="not valid base64") as caught:
+                unpack(bad_env)
+            assert type(caught.value) is ValueError
+
+
 def test_column_kinds_for_grid_jagged_raises() -> None:
     """The kinds helper used to return [] and hide the flatten ValueError."""
     with pytest.raises(ValueError, match="Uneven row lengths"):

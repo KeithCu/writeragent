@@ -116,7 +116,8 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - `child_unpack_data` walks a plain dict so a nested envelope unpacks. List values inside that dict stay lists
 - `float()` `OverflowError` (a huge `Fraction`) is stored as text, matching Cython `_flatten_cell`
 - An unknown dtype kind that `float()` accepts (for example kind `"O"`) is a float column on the pure-Python and Cython packers. A text cell earlier in the row does not stringify it. Unicode (`np.str_`) stays text
-- A 2D row that is not a list or tuple raises `ValueError`. The release path used to raise `TypeError` from `len()`
+- A 2D row that is not a list or tuple raises `ValueError` on pack, child list materialization, `is_numeric_grid`, and `wire_cell_count`. The release path used to raise `TypeError` from `len()` or `list(row)`. Deal's pre hides that grid on `is_numeric_grid`; `_child_unpack_single_data` and `wire_cell_count` have no such pre
+- A legacy `b64` buffer that is non-alphabet, bad padding, or non-ASCII raises `ValueError` (`validate=True`). `binascii.Error` and `UnicodeEncodeError` used to escape `@deal.raises` as `RaisesContractError` because deal matches exact types. Production wire uses `buffer` bytes; `b64encode` output still decodes
 - The row-count split_grid shortcut in `host_pack_data` requires a non-empty first row. Zero-width rows use `cell_count`
 - `column_kinds` length matches column count
 - Buffer byte length is a multiple of 8 (float64 cells)

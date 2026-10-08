@@ -83,8 +83,9 @@ def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
 def _numpy_scalar_item(v: Any) -> Any:
     """Return ``v.item()`` for a NumPy scalar; otherwise ``v``.
 
-    Shared with ``calc_range._scalar``. The import stays local so the host
-    (LibreOffice Python, no NumPy) can import this module.
+    ``calc_range._materialize_inner_grid`` calls this for object-array cells.
+    The import stays local so the host (LibreOffice Python, no NumPy) can
+    import this module.
     """
     # crosshair: off  # numpy import sniff (same reason as _optional_numpy).
     try:
@@ -792,20 +793,16 @@ def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> str
     return _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
 
-def _apply_column_kinds_to_ndarray(
-    arr: Any,
-    column_kinds: list[str],
-    *,
-    ncols: int,
-    is_1d: bool,
-    uniform: str | None = None,
-) -> Any:
-    """Cast float64 ndarray columns to int64 where pack declared int (NumPy trusts column metadata)."""
+def _apply_column_kinds_to_ndarray(arr: Any, *, uniform: str | None) -> Any:
+    """Cast a uniform int or bool float64 ndarray. Mixed or float stays float64.
+
+    Callers pass ``uniform`` from ``_uniform_column_kind``. A 1-D grid has one
+    column, so that value is ``int``, ``bool``, or ``float``. The old
+    ``if is_1d`` arm re-read ``column_kinds[0]`` after that and never ran.
+    """
     # crosshair: off  # numpy astype on Any (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with an ndarray/kinds domain.
     import numpy as np
 
-    if uniform is None:
-        uniform = _uniform_column_kind(column_kinds)
     if uniform == "int":
         # Host unpack raises OverflowError on inf in an int column. astype(int64)
         # emits a garbage int and a RuntimeWarning. Pack never writes inf into
@@ -818,20 +815,8 @@ def _apply_column_kinds_to_ndarray(
         # keeps that NaN so a corrupt bool column still surfaces as a Calc error.
         # Do not np.where the NaN back in — that promotes a clean bool column to float64.
         return arr == 1.0
-    if uniform == "float":
-        return arr
-    if is_1d:
-        if column_kinds[0] == "int":
-            # Same corrupt-inf note as the uniform int path above.
-            return arr.astype(np.int64)
-        if column_kinds[0] == "bool":
-            # Same NaN rule as the uniform bool path above.
-            return arr == 1.0
-        return arr
-
-    # If it's a mixed 2D ndarray, it must remain float64 to hold float columns.
-    # Casting individual columns is a no-op (coerced back to float64 on assignment).
-    # We can just return the float64 array directly, saving a massive arr.copy() allocation!
+    # float, mixed, or empty kinds: stay float64. Casting mixed columns
+    # one-by-one is a no-op (assignment coerces them back to float64).
     return arr
 
 
@@ -1024,6 +1009,13 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     if len(grid) == 0:
         return True
     if type(grid[0]) in (list, tuple):
+        # What was wrong: ``for cell in row`` raised TypeError when a later
+        # row was an int. Deal's pre rejects that grid; a release build
+        # strips deal, so the body used to TypeError.
+        # Why this works: ``_split_grid_row_width`` raises ValueError unless
+        # the row is a list or tuple, same as host pack.
+        for row in grid:
+            _split_grid_row_width(row)
         return all(_is_numeric_coercible_impl(cell) for row in grid for cell in row)
     return all(_is_numeric_coercible_impl(cell) for cell in grid)
 
@@ -1054,7 +1046,9 @@ def wire_cell_count(data: Any) -> int:
         return 0
     first = data[0]
     if type(first) in (list, tuple):
-        return sum(len(row) for row in data)
+        # Same non-sequence row as is_numeric_grid: len() on a later int
+        # raised TypeError, and this function has no rectangular pre.
+        return sum(_split_grid_row_width(row) for row in data)
     return len(data)
 
 
@@ -1638,8 +1632,20 @@ def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> 
         raw = envelope["buffer"]
     elif "b64" in envelope:
         import base64
+        import binascii
 
-        raw = base64.b64decode(envelope["b64"].encode("ascii"))
+        # What was wrong: b64decode raises binascii.Error, and a non-ASCII
+        # string raises UnicodeEncodeError. Both subclass ValueError, but
+        # deal's @deal.raises matches exact types, so a bad legacy b64 became
+        # RaisesContractError (AssertionError), outside _HOST_UNPACK_ERRORS.
+        # Why this works: both unpack contracts declare ValueError.
+        # validate=True rejects non-alphabet characters instead of skipping
+        # them. Production wire uses buffer bytes; b64encode output still
+        # decodes. A non-str b64 still raises AttributeError from .encode.
+        try:
+            raw = base64.b64decode(envelope["b64"].encode("ascii"), validate=True)
+        except (binascii.Error, UnicodeEncodeError) as exc:
+            raise ValueError(f"split_grid b64 is not valid base64: {exc}") from exc
     else:
         raise ValueError("Missing payload binary buffer or b64 representation")
     if isinstance(raw, memoryview):
@@ -1861,9 +1867,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             # strings were present.
             arr = _apply_column_kinds_to_ndarray(
                 arr,
-                column_kinds,
-                ncols=ncols,
-                is_1d=is_1d,
                 uniform=_uniform_column_kind(column_kinds),
             )
             log.debug("payload_codec child_unpack split_grid optimized -> ndarray shape=%s dtype=%s", arr.shape, arr.dtype)
@@ -1963,7 +1966,15 @@ def _child_unpack_single_data(wire: Any) -> Any:
 
         grid: list[Any] | list[list[Any]]
         if unpacked and (type(unpacked[0]) in (list, tuple)):
-            grid = [list(row) for row in unpacked]
+            # What was wrong: list(row) on a later int raised TypeError.
+            # This function has no grid pre, so deal did not hide it.
+            # Host pack already raises ValueError via _split_grid_row_width.
+            # Why this works: a real row is a list or tuple. A str has a
+            # length but is not a row ("ab" must not become two cells).
+            grid = []
+            for row in unpacked:
+                _split_grid_row_width(row)
+                grid.append(list(row))
         else:
             grid = list(unpacked)
         if is_numeric_grid(grid):

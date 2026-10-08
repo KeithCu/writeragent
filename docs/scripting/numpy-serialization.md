@@ -245,7 +245,7 @@ This section keeps **codec / wire** invariants only.
 #### Supported input shape (wire)
 
 - **2D data must be rectangular:** every row has the same length. Calc `=PY(code; range)` passes UNO range blocks this way; empty cells are `None` in a full-width row, not missing list elements.
-- **Uneven row lengths** (jagged nested lists) are **unsupported**. [`_flatten_grid_to_components`](../../plugin/scripting/payload_codec.py) logs an error and raises `ValueError` if row lengths differ. We do not pad short rows.
+- **Uneven row lengths** (jagged nested lists) are **unsupported**. [`_flatten_grid_to_components`](../../plugin/scripting/payload_codec.py) logs an error and raises `ValueError` if row lengths differ. We do not pad short rows. A row that is not a list or tuple raises `ValueError` on pack and on child list materialization (`list(row)` used to raise `TypeError`).
 - User scripts materialize ranges as [`CalcRange`](../../plugin/scripting/calc_range.py) (always 2D). Host packing uses rectangular `list[list]` via `ensure_rectangular_2d` — **not** flat 1D lists for rows/columns.
 
 #### Formal verification
